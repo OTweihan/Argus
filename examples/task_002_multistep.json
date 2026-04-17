@@ -1,0 +1,6 @@
+{
+  "goal": "打开首页 -> 点击链接 -> 填写表单 -> 提交 -> 验证结果",
+  "url": "https://demo.playwright.dev/todomvc",
+  "max_steps": 10,
+  "timeout_s": 120
+}

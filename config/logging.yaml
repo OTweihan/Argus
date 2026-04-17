@@ -1,0 +1,35 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  standard:
+    format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  simple:
+    format: "[%(levelname)s] %(message)s"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: simple
+    stream: ext://sys.stdout
+  file:
+    class: logging.FileHandler
+    level: DEBUG
+    formatter: standard
+    filename: outputs/logs/argus.log
+    encoding: utf-8
+
+root:
+  level: DEBUG
+  handlers:
+    - console
+    - file
+
+loggers:
+  argus:
+    level: DEBUG
+    handlers:
+      - console
+      - file
+    propagate: false

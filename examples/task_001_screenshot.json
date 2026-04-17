@@ -1,0 +1,6 @@
+{
+  "goal": "打开页面并截图",
+  "url": "https://httpbin.org",
+  "max_steps": 3,
+  "timeout_s": 30
+}
