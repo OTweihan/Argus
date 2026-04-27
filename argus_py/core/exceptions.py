@@ -1,43 +1,33 @@
-"""Application exception hierarchy."""
+"""应用异常层级。"""
 
 
 class ArgusError(Exception):
-    """Base exception for Argus."""
-
-    pass
-
-
-class LLMError(ArgusError):
-    """LLM API call failure."""
-
-    pass
-
-
-class LLMRateLimitError(LLMError):
-    """Rate limited by LLM provider."""
-
-    pass
-
-
-class BrowserError(ArgusError):
-    """Browser operation failure."""
-
-    pass
-
-
-class ElementNotFoundError(BrowserError):
-    """Target element not found on page."""
-
-    pass
-
-
-class TaskError(ArgusError):
-    """Task execution failure."""
-
-    pass
+    """Argus 基础异常。"""
 
 
 class ConfigError(ArgusError):
-    """Missing or invalid configuration."""
+    """配置缺失或无效。"""
 
-    pass
+
+class LLMError(ArgusError):
+    """LLM 调用失败。"""
+
+
+class LLMRateLimitError(LLMError):
+    """LLM 供应商限流。"""
+
+
+class BrowserError(ArgusError):
+    """浏览器操作失败。"""
+
+
+class ElementNotFoundError(BrowserError):
+    """页面元素未找到。"""
+
+
+class TaskError(ArgusError):
+    """任务执行失败。"""
+
+
+class ReportError(ArgusError):
+    """报告生成失败。"""

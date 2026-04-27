@@ -39,3 +39,5 @@ outputs/temp/*
 # OS
 .DS_Store
 Thumbs.db
+config/llm.env
+config/llm.local.env

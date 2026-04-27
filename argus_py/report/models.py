@@ -1,33 +1,31 @@
-"""Report data models."""
+"""报告数据模型。"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
 
-from argus_py.core.enums import FindingSeverity, FindingType
+from argus_py.core.ids import generate_report_id
+from argus_py.task.models import Finding, Task, TaskLog
 
 
-@dataclass
-class Finding:
-    """A discovered issue or observation."""
-
-    title: str
-    description: str
-    severity: FindingSeverity
-    finding_type: FindingType
-    url: Optional[str] = None
-    screenshot_path: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass
-class StepLog:
-    """A single execution step record."""
+class Report:
+    """任务报告。"""
 
-    step_number: int
-    action: str
-    target: Optional[str] = None
-    result: str = ""
-    screenshot_path: Optional[str] = None
-    error: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    task: Task
+    report_id: str = field(default_factory=generate_report_id)
+    title: str = "Argus 黑盒测试报告"
+    summary: str = ""
+    steps: list[TaskLog] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    generated_at: datetime = field(default_factory=utc_now)
+
+    @classmethod
+    def from_task(cls, task: Task, summary: str = "") -> "Report":
+        """根据任务生成报告对象。"""
+        return cls(task=task, summary=summary or task.result_summary or "", steps=task.logs, findings=task.findings)

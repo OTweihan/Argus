@@ -1,6 +1,7 @@
 {
-  "goal": "打开页面并截图",
-  "url": "https://httpbin.org",
-  "max_steps": 3,
-  "timeout_s": 30
+  "goal": "打开 https://httpbin.org 并截图",
+  "startUrl": "https://httpbin.org",
+  "maxSteps": 5,
+  "timeoutSeconds": 120,
+  "captureScreenshots": true
 }

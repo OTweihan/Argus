@@ -1,35 +1,35 @@
-"""Logging setup."""
+"""日志初始化。"""
+
+from __future__ import annotations
 
 import logging
 import logging.config
 from pathlib import Path
 
+import yaml
+
+from argus_py.core.paths import LOGGING_CONFIG_FILE, resolve_project_path
+
 DEFAULT_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
-def setup_logger(name: str = "argus", log_file: str = "outputs/logs/argus.log") -> logging.Logger:
-    """Configure and return the application logger.
+def setup_logging(config_path: str | Path = LOGGING_CONFIG_FILE) -> None:
+    """从 YAML 初始化日志；配置不存在时使用基础配置。"""
+    path = resolve_project_path(config_path)
+    if not path.exists():
+        logging.basicConfig(level=logging.INFO, format=DEFAULT_LOG_FORMAT)
+        return
 
-    Args:
-        name: Logger name.
-        log_file: Path to log file.
-    """
-    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for handler in config.get("handlers", {}).values():
+        filename = handler.get("filename")
+        if filename:
+            log_path = resolve_project_path(filename)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            handler["filename"] = str(log_path)
+    logging.config.dictConfig(config)
 
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
 
-    # Console handler
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(logging.Formatter(DEFAULT_LOG_FORMAT))
-
-    # File handler
-    fh = logging.FileHandler(log_file, encoding="utf-8")
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter(DEFAULT_LOG_FORMAT))
-
-    logger.addHandler(ch)
-    logger.addHandler(fh)
-
-    return logger
+def get_logger(name: str = "argus") -> logging.Logger:
+    """获取 Logger。"""
+    return logging.getLogger(name)

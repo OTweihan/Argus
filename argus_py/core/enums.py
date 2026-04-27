@@ -1,17 +1,17 @@
-"""Application-wide enumerations."""
+"""应用级枚举。"""
 
 from enum import Enum
 
 
 class TaskType(str, Enum):
-    """Task execution types."""
+    """任务类型。"""
 
     BLACKBOX = "blackbox"
     WHITEBOX = "whitebox"
 
 
 class TaskStatus(str, Enum):
-    """Task lifecycle states."""
+    """任务生命周期状态。"""
 
     PENDING = "pending"
     RUNNING = "running"
@@ -22,7 +22,7 @@ class TaskStatus(str, Enum):
 
 
 class ActionType(str, Enum):
-    """Browser action types."""
+    """浏览器动作类型。"""
 
     GOTO = "goto"
     CLICK = "click"
@@ -35,8 +35,16 @@ class ActionType(str, Enum):
     ASSERT = "assert"
 
 
+class StepResult(str, Enum):
+    """步骤执行结果。"""
+
+    SUCCESS = "success"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class FindingSeverity(str, Enum):
-    """Finding severity levels."""
+    """问题严重级别。"""
 
     CRITICAL = "critical"
     HIGH = "high"
@@ -46,7 +54,7 @@ class FindingSeverity(str, Enum):
 
 
 class FindingType(str, Enum):
-    """Finding categorization."""
+    """问题分类。"""
 
     FUNCTIONAL = "functional"
     VISUAL = "visual"

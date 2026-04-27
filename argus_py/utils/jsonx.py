@@ -1,31 +1,43 @@
-"""File system utilities."""
+"""JSON 读写工具。"""
+
+from __future__ import annotations
 
 import json
+from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 
-def write_json(path: str, data: Any, indent: int = 2) -> None:
-    """Write data to a JSON file.
+def to_jsonable(value: Any) -> Any:
+    """将常见 Python 对象转换为可 JSON 序列化对象。"""
+    if is_dataclass(value):
+        return to_jsonable(asdict(value))
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [to_jsonable(item) for item in value]
+    return value
 
-    Args:
-        path: File path.
-        data: JSON-serializable data.
-        indent: JSON indentation.
-    """
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=indent, ensure_ascii=False)
+
+def write_json(path: str | Path, data: Any, indent: int = 2) -> Path:
+    """以 UTF-8 写入 JSON。"""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(to_jsonable(data), ensure_ascii=False, indent=indent),
+        encoding="utf-8",
+    )
+    return target
 
 
-def read_json(path: str) -> Any:
-    """Read data from a JSON file.
-
-    Args:
-        path: File path.
-
-    Returns:
-        Parsed JSON data.
-    """
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def read_json(path: str | Path) -> Any:
+    """读取 JSON。"""
+    return json.loads(Path(path).read_text(encoding="utf-8"))

@@ -1,0 +1,45 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<h1>{{ report.title }}</h1>
+<p>报告 ID：<code>{{ report.report_id }}</code></p>
+<p>生成时间：{{ report.generated_at }}</p>
+
+<h2>任务信息</h2>
+<table>
+  <tr><th>任务 ID</th><td>{{ report.task.task_id }}</td></tr>
+  <tr><th>目标</th><td>{{ report.task.goal }}</td></tr>
+  <tr><th>起始 URL</th><td>{{ report.task.start_url or "" }}</td></tr>
+  <tr><th>状态</th><td>{{ report.task.status }}</td></tr>
+</table>
+
+<h2>执行步骤</h2>
+<table>
+  <thead><tr><th>#</th><th>动作</th><th>结果</th><th>URL</th><th>错误</th></tr></thead>
+  <tbody>
+  {% for step in report.steps %}
+    <tr>
+      <td>{{ step.step_number }}</td>
+      <td>{{ step.action }}</td>
+      <td>{{ step.result }}</td>
+      <td>{{ step.url_after or step.url_before or "" }}</td>
+      <td>{{ step.error or "" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>问题清单</h2>
+<table>
+  <thead><tr><th>级别</th><th>类型</th><th>标题</th><th>描述</th></tr></thead>
+  <tbody>
+  {% for finding in report.findings %}
+    <tr>
+      <td>{{ finding.severity }}</td>
+      <td>{{ finding.finding_type }}</td>
+      <td>{{ finding.title }}</td>
+      <td>{{ finding.description }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

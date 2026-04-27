@@ -1,6 +1,7 @@
 {
-  "goal": "打开首页 -> 点击链接 -> 填写表单 -> 提交 -> 验证结果",
-  "url": "https://demo.playwright.dev/todomvc",
-  "max_steps": 10,
-  "timeout_s": 120
+  "goal": "打开 httpbin 首页，点击 HTML Forms 链接，记录跳转后的页面状态",
+  "startUrl": "https://httpbin.org",
+  "maxSteps": 10,
+  "timeoutSeconds": 300,
+  "captureScreenshots": true
 }
