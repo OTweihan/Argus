@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -15,12 +18,15 @@ def render_html_report(
     report: Report,
     template_dir: str | Path = REPORT_TEMPLATES_DIR,
     template_name: str = "blackbox_report.html.j2",
+    output_path: str | Path | None = None,
 ) -> str:
     """渲染 HTML 报告。"""
     env = Environment(
         loader=FileSystemLoader(str(template_dir)),
         autoescape=select_autoescape(["html", "xml"]),
     )
+    env.filters["screenshot_src"] = _screenshot_src_filter(output_path)
+    env.filters["pretty_json"] = _pretty_json
     template = env.get_template(template_name)
     return template.render(report=report_to_dict(report))
 
@@ -29,5 +35,25 @@ def write_html_report(report: Report, path: str | Path) -> Path:
     """写入 HTML 报告。"""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render_html_report(report), encoding="utf-8")
+    target.write_text(render_html_report(report, output_path=target), encoding="utf-8")
     return target
+
+
+def _screenshot_src_filter(output_path: str | Path | None):
+    """创建截图路径转换过滤器。"""
+
+    def convert(value: str | None) -> str:
+        if not value:
+            return ""
+        path = Path(value)
+        if not path.exists() or output_path is None:
+            return ""
+        relative = os.path.relpath(path, Path(output_path).parent)
+        return relative.replace("\\", "/")
+
+    return convert
+
+
+def _pretty_json(value: Any) -> str:
+    """格式化展示 JSON 数据。"""
+    return json.dumps(value, ensure_ascii=False, indent=2)

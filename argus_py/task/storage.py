@@ -1,4 +1,4 @@
-"""任务文件存储骨架。"""
+"""任务文件存储。"""
 
 from __future__ import annotations
 
@@ -20,6 +20,10 @@ class TaskFileStorage:
         """返回任务 JSON 路径。"""
         return self.base_dir / f"{task_id}.json"
 
+    def exists(self, task_id: str) -> bool:
+        """判断任务快照是否存在。"""
+        return self.task_path(task_id).exists()
+
     def save(self, task: Task) -> Path:
         """保存任务快照。"""
         return write_json(self.task_path(task.task_id), to_jsonable(task))
@@ -28,6 +32,15 @@ class TaskFileStorage:
         """读取任务原始 JSON 数据。"""
         return read_json(self.task_path(task_id))
 
+    def load(self, task_id: str) -> Task:
+        """读取并还原任务实体。"""
+        return Task.from_dict(self.load_raw(task_id))
+
     def list_ids(self) -> list[str]:
         """列出已保存任务 ID。"""
         return sorted(path.stem for path in self.base_dir.glob("*.json"))
+
+    def list_tasks(self) -> list[Task]:
+        """列出已保存任务。"""
+        tasks = [self.load(task_id) for task_id in self.list_ids()]
+        return sorted(tasks, key=lambda item: item.created_at, reverse=True)

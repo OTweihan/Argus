@@ -9,6 +9,7 @@ import msvcrt
 import sys
 from pathlib import Path
 
+from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession, PlaywrightClient
 from argus_py.cli.messages import llm_field_label, llm_message
 from argus_py.core.constants import (
@@ -21,15 +22,26 @@ from argus_py.core.constants import (
     PROJECT_NAME,
     PROJECT_VERSION,
 )
+from argus_py.core.enums import TaskType
+from argus_py.core.exceptions import TaskError
+from argus_py.core.paths import SCREENSHOTS_DIR, resolve_project_path
+from argus_py.config.llm_settings import DEFAULT_LLM_ENV_FILE, load_llm_settings
 from argus_py.llm import LLMClient
 from argus_py.llm.prompts import load_prompt
+from argus_py.task.models import Task
+from argus_py.task.runner import TaskRunner
 from argus_py.task.service import TaskService
-from argus_py.config.llm_settings import DEFAULT_LLM_ENV_FILE, load_llm_settings
-from argus_py.core.paths import SCREENSHOTS_DIR, resolve_project_path
 
 LLM_CONNECTION_CHECK_PROMPT = "llm_connection_check.md"
 LLM_CONNECTION_CHECK_MAX_TOKENS = 4
 LLM_CONNECTION_CHECK_TEMPERATURE = 0.0
+DEFAULT_SIMPLE_TASK_STEPS = 6
+DEFAULT_SIMPLE_TASK_TIMEOUT = 180
+DEFAULT_NORMAL_TASK_STEPS = 12
+DEFAULT_NORMAL_TASK_TIMEOUT = 300
+DEFAULT_COMPLEX_TASK_STEPS = 20
+DEFAULT_COMPLEX_TASK_TIMEOUT = 600
+SUPPORTED_BROWSERS = ("chromium", "firefox", "webkit")
 
 LLM_ENV_KEYS = [
     "LLM_API_KEY",
@@ -55,11 +67,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    run_parser = subparsers.add_parser("run", help="创建黑盒测试任务（执行闭环后续实现）")
+    run_parser = subparsers.add_parser("run", help="执行黑盒测试任务")
     run_parser.add_argument("--goal", required=True, help="自然语言测试目标")
     run_parser.add_argument("--url", required=True, help="起始 URL")
-    run_parser.add_argument("--max-steps", type=int, default=20, help="最大动作步数")
-    run_parser.add_argument("--timeout", type=int, default=300, help="任务超时时间，单位秒")
+    run_parser.add_argument("--max-steps", type=_positive_int, help="最大动作步数；不传时系统自动分配")
+    run_parser.add_argument("--timeout", type=_positive_int, help="任务超时时间，单位秒；不传时系统自动分配")
+    run_parser.add_argument(
+        "--browser",
+        choices=SUPPORTED_BROWSERS,
+        default=DEFAULT_BROWSER,
+        help="浏览器类型：chromium/firefox/webkit",
+    )
+    run_parser.add_argument("--headed", action="store_true", help="显示浏览器窗口，默认 headless")
+    run_parser.add_argument("--create-only", action="store_true", help="只创建任务，不执行黑盒闭环")
     run_parser.add_argument(
         "--no-screenshot",
         action="store_true",
@@ -71,7 +91,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_parser = browser_subparsers.add_parser("check", help="打开页面、执行可选动作并截图")
     check_parser.add_argument("--url", required=True, help="要打开的 URL")
-    check_parser.add_argument("--browser", default=DEFAULT_BROWSER, help="浏览器类型：chromium/firefox/webkit")
+    check_parser.add_argument(
+        "--browser",
+        choices=SUPPORTED_BROWSERS,
+        default=DEFAULT_BROWSER,
+        help="浏览器类型：chromium/firefox/webkit",
+    )
     check_parser.add_argument("--headed", action="store_true", help="显示浏览器窗口，默认 headless")
     check_parser.add_argument(
         "--screenshot",
@@ -97,6 +122,17 @@ def build_parser() -> argparse.ArgumentParser:
     llm_config_parser.add_argument("--env-file", default=str(DEFAULT_LLM_ENV_FILE), help="写入的大模型配置文件路径，默认 config/llm.env")
     llm_config_parser.add_argument("--advanced", action="store_true", help="显示最大输出 Token 数、温度、重试次数等高级配置")
     return parser
+
+
+def _positive_int(value: str) -> int:
+    """解析正整数命令行参数。"""
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("必须是正整数。") from exc
+    if number <= 0:
+        raise argparse.ArgumentTypeError("必须是正整数。")
+    return number
 
 
 def _read_env_values(path: Path) -> dict[str, str]:
@@ -323,23 +359,136 @@ async def _run_llm_check(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_task(args: argparse.Namespace) -> int:
+    """创建并执行黑盒任务。"""
+    service = TaskService()
+    max_steps, timeout_seconds = _resolve_run_limits(args.goal, args.url, args.max_steps, args.timeout)
+    task = service.create_task(
+        goal=args.goal,
+        start_url=args.url,
+        max_steps=max_steps,
+        timeout_seconds=timeout_seconds,
+        capture_screenshots=not args.no_screenshot,
+    )
+    print(f"已创建任务：{task.task_id}")
+    print(f"执行限制：最大 {max_steps} 步，超时 {timeout_seconds} 秒")
+
+    if args.create_only:
+        print("任务已保存，未执行。")
+        return 0
+
+    def browser_session_factory(current_task: Task) -> BrowserSession:
+        client = PlaywrightClient(headless=not args.headed, browser_type=args.browser)
+        return BrowserSession(
+            client=client,
+            screenshot_dir=SCREENSHOTS_DIR / current_task.task_id,
+        )
+
+    blackbox_runner = BlackboxRunner(
+        service=service,
+        browser_session_factory=browser_session_factory,
+    )
+    runner = TaskRunner(
+        service=service,
+        handlers={TaskType.BLACKBOX: blackbox_runner.run},
+    )
+
+    print("开始执行黑盒任务...")
+    try:
+        result = await runner.run(task)
+    except TaskError as exc:
+        latest = _load_latest_task(service, task)
+        _print_task_result(latest)
+        print(f"任务执行失败：{exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        latest = service.cancel_task(task.task_id)
+        _print_task_result(latest)
+        print("任务已取消。", file=sys.stderr)
+        return 130
+
+    _print_task_result(result)
+    return 0
+
+
+def _resolve_run_limits(
+    goal: str,
+    url: str,
+    max_steps: int | None,
+    timeout_seconds: int | None,
+) -> tuple[int, int]:
+    """解析或自动分配任务执行限制。"""
+    inferred_steps, inferred_timeout = _infer_run_limits(goal, url)
+    return (
+        max_steps if max_steps is not None else inferred_steps,
+        timeout_seconds if timeout_seconds is not None else inferred_timeout,
+    )
+
+
+def _infer_run_limits(goal: str, url: str) -> tuple[int, int]:
+    """根据任务描述保守推断步数和超时时间。"""
+    text = f"{goal} {url}".lower()
+    simple_keywords = ["打开", "访问", "截图", "确认页面", "检查页面", "可访问", "title"]
+    complex_keywords = [
+        "登录",
+        "注册",
+        "提交",
+        "表单",
+        "创建",
+        "新增",
+        "编辑",
+        "删除",
+        "订单",
+        "多步骤",
+        "流程",
+        "搜索",
+        "筛选",
+        "上传",
+    ]
+
+    if any(keyword in text for keyword in complex_keywords):
+        return DEFAULT_COMPLEX_TASK_STEPS, DEFAULT_COMPLEX_TASK_TIMEOUT
+    if any(keyword in text for keyword in simple_keywords):
+        return DEFAULT_SIMPLE_TASK_STEPS, DEFAULT_SIMPLE_TASK_TIMEOUT
+    return DEFAULT_NORMAL_TASK_STEPS, DEFAULT_NORMAL_TASK_TIMEOUT
+
+
+def _load_latest_task(service: TaskService, task: Task) -> Task:
+    """读取最新任务快照。"""
+    try:
+        return service.get_task(task.task_id)
+    except TaskError:
+        return task
+
+
+def _print_task_result(task: Task) -> None:
+    """输出任务执行结果。"""
+    print(f"任务 ID：{task.task_id}")
+    print(f"任务状态：{task.status.value}")
+    print(f"执行步骤：{task.current_step}")
+    print(f"问题数量：{len(task.findings)}")
+    if task.result_summary:
+        print(f"结果摘要：{task.result_summary}")
+    if task.report_path:
+        print(f"HTML 报告：{task.report_path}")
+    if task.error_message:
+        print(f"错误信息：{task.error_message}")
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主函数。"""
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        service = TaskService()
-        task = service.create_task(
-            goal=args.goal,
-            start_url=args.url,
-            max_steps=args.max_steps,
-            timeout_seconds=args.timeout,
-            capture_screenshots=not args.no_screenshot,
-        )
-        print(f"已创建任务：{task.task_id}")
-        print("完整浏览器执行闭环将在 T005/T007 实现。")
-        return 0
+        try:
+            return asyncio.run(_run_task(args))
+        except KeyboardInterrupt:
+            print("任务已取消。", file=sys.stderr)
+            return 130
+        except Exception as exc:
+            print(f"任务执行失败：{exc}", file=sys.stderr)
+            return 1
 
     if args.command == "browser":
         if args.browser_command == "check":

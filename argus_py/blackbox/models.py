@@ -21,6 +21,21 @@ class ActionStep:
     wait_ms: int | None = None
     params: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ActionStep":
+        """从 LLM JSON 对象还原浏览器动作。"""
+        raw_action = str(data["action"]).lower()
+        return cls(
+            action=ActionType(raw_action),
+            reason=str(data.get("reason") or ""),
+            selector=data.get("selector"),
+            url=data.get("url"),
+            text=data.get("text"),
+            key=data.get("key"),
+            wait_ms=data.get("wait_ms"),
+            params=dict(data.get("params") or {}),
+        )
+
 
 @dataclass
 class ActionSequence:
@@ -28,6 +43,14 @@ class ActionSequence:
 
     steps: list[ActionStep] = field(default_factory=list)
     summary: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ActionSequence":
+        """从 LLM JSON 对象还原动作序列。"""
+        return cls(
+            steps=[ActionStep.from_dict(item) for item in data.get("steps", [])],
+            summary=str(data.get("summary") or ""),
+        )
 
 
 @dataclass

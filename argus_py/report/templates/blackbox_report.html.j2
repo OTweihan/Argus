@@ -1,45 +1,113 @@
 {% extends "base.html.j2" %}
 {% block content %}
-<h1>{{ report.title }}</h1>
-<p>报告 ID：<code>{{ report.report_id }}</code></p>
-<p>生成时间：{{ report.generated_at }}</p>
+<header>
+  <h1>{{ report.title }}</h1>
+  <p class="muted">报告 ID：<code>{{ report.report_id }}</code></p>
+  <p class="muted">生成时间：{{ report.generated_at }}</p>
+</header>
+
+<section class="grid">
+  <div class="metric">
+    <span>任务状态</span>
+    <strong><span class="badge {{ report.task.status }}">{{ report.task.status }}</span></strong>
+  </div>
+  <div class="metric">
+    <span>执行步骤</span>
+    <strong>{{ report.steps | length }}</strong>
+  </div>
+  <div class="metric">
+    <span>问题数量</span>
+    <strong>{{ report.findings | length }}</strong>
+  </div>
+  <div class="metric">
+    <span>最大步数</span>
+    <strong>{{ report.task.max_steps }}</strong>
+  </div>
+</section>
 
 <h2>任务信息</h2>
 <table>
-  <tr><th>任务 ID</th><td>{{ report.task.task_id }}</td></tr>
+  <tr><th>任务 ID</th><td><code>{{ report.task.task_id }}</code></td></tr>
   <tr><th>目标</th><td>{{ report.task.goal }}</td></tr>
   <tr><th>起始 URL</th><td>{{ report.task.start_url or "" }}</td></tr>
-  <tr><th>状态</th><td>{{ report.task.status }}</td></tr>
+  <tr><th>结果摘要</th><td>{{ report.summary or report.task.result_summary or "" }}</td></tr>
+  <tr><th>报告路径</th><td>{{ report.task.report_path or "" }}</td></tr>
+  <tr><th>错误信息</th><td>{{ report.task.error_message or "" }}</td></tr>
+  <tr><th>创建时间</th><td>{{ report.task.created_at }}</td></tr>
+  <tr><th>开始时间</th><td>{{ report.task.started_at or "" }}</td></tr>
+  <tr><th>完成时间</th><td>{{ report.task.completed_at or "" }}</td></tr>
 </table>
 
 <h2>执行步骤</h2>
-<table>
-  <thead><tr><th>#</th><th>动作</th><th>结果</th><th>URL</th><th>错误</th></tr></thead>
-  <tbody>
+{% if report.steps %}
+  <div class="timeline">
   {% for step in report.steps %}
-    <tr>
-      <td>{{ step.step_number }}</td>
-      <td>{{ step.action }}</td>
-      <td>{{ step.result }}</td>
-      <td>{{ step.url_after or step.url_before or "" }}</td>
-      <td>{{ step.error or "" }}</td>
-    </tr>
+    <article class="step">
+      <div class="step-head">
+        <div>
+          <h3>#{{ step.step_number }} {{ step.action }}</h3>
+          <p class="muted">{{ step.message or "" }}</p>
+        </div>
+        <span class="badge {{ step.result }}">{{ step.result }}</span>
+      </div>
+      <table>
+        <tr><th>步骤 ID</th><td><code>{{ step.task_log_id }}</code></td></tr>
+        <tr><th>URL Before</th><td>{{ step.url_before or "" }}</td></tr>
+        <tr><th>URL After</th><td>{{ step.url_after or "" }}</td></tr>
+        <tr><th>错误</th><td>{{ step.error or "" }}</td></tr>
+        <tr><th>时间</th><td>{{ step.created_at }}</td></tr>
+      </table>
+      {% if step.params %}
+        <pre class="params">{{ step.params | pretty_json }}</pre>
+      {% endif %}
+      {% if step.screenshot_path %}
+        <p class="muted">截图：<code>{{ step.screenshot_path }}</code></p>
+        {% set screenshot_src = step.screenshot_path | screenshot_src %}
+        {% if screenshot_src %}
+          <img class="screenshot" src="{{ screenshot_src }}" alt="步骤 {{ step.step_number }} 截图">
+        {% else %}
+          <p class="muted">截图文件不存在或无法访问。</p>
+        {% endif %}
+      {% endif %}
+    </article>
   {% endfor %}
-  </tbody>
-</table>
+  </div>
+{% else %}
+  <p class="muted">暂无执行步骤。</p>
+{% endif %}
 
 <h2>问题清单</h2>
-<table>
-  <thead><tr><th>级别</th><th>类型</th><th>标题</th><th>描述</th></tr></thead>
-  <tbody>
+{% if report.findings %}
+  <div class="timeline">
   {% for finding in report.findings %}
-    <tr>
-      <td>{{ finding.severity }}</td>
-      <td>{{ finding.finding_type }}</td>
-      <td>{{ finding.title }}</td>
-      <td>{{ finding.description }}</td>
-    </tr>
+    <article class="finding">
+      <div class="finding-head">
+        <div>
+          <h3>{{ finding.title }}</h3>
+          <p class="muted">{{ finding.description }}</p>
+        </div>
+        <span class="badge {{ finding.severity }}">{{ finding.severity }}</span>
+      </div>
+      <table>
+        <tr><th>问题 ID</th><td><code>{{ finding.finding_id }}</code></td></tr>
+        <tr><th>类型</th><td>{{ finding.finding_type }}</td></tr>
+        <tr><th>URL</th><td>{{ finding.url or "" }}</td></tr>
+        <tr><th>位置</th><td>{{ finding.location or "" }}</td></tr>
+        <tr><th>时间</th><td>{{ finding.created_at }}</td></tr>
+      </table>
+      {% if finding.screenshot_path %}
+        <p class="muted">截图：<code>{{ finding.screenshot_path }}</code></p>
+        {% set finding_screenshot_src = finding.screenshot_path | screenshot_src %}
+        {% if finding_screenshot_src %}
+          <img class="screenshot" src="{{ finding_screenshot_src }}" alt="{{ finding.title }} 截图">
+        {% else %}
+          <p class="muted">截图文件不存在或无法访问。</p>
+        {% endif %}
+      {% endif %}
+    </article>
   {% endfor %}
-  </tbody>
-</table>
+  </div>
+{% else %}
+  <p class="muted">未记录问题。</p>
+{% endif %}
 {% endblock %}

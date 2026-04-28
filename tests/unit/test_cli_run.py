@@ -1,0 +1,194 @@
+import argparse
+
+import pytest
+
+from argus_py.cli import main as cli_main
+from argus_py.core.enums import TaskStatus
+from argus_py.task.models import Task
+
+
+class FakeTaskService:
+    last_instance = None
+
+    def __init__(self) -> None:
+        self.task: Task | None = None
+        FakeTaskService.last_instance = self
+
+    def create_task(self, **kwargs) -> Task:
+        task = Task(
+            goal=kwargs["goal"],
+            start_url=kwargs["start_url"],
+            max_steps=kwargs["max_steps"],
+            timeout_seconds=kwargs["timeout_seconds"],
+            capture_screenshots=kwargs["capture_screenshots"],
+        )
+        self.task = task
+        return task
+
+    def get_task(self, task_id: str) -> Task:
+        assert self.task is not None
+        return self.task
+
+    def cancel_task(self, task_id: str) -> Task:
+        assert self.task is not None
+        self.task.status = TaskStatus.CANCELLED
+        return self.task
+
+
+class FakeTaskRunner:
+    def __init__(self, service, handlers) -> None:
+        self.service = service
+        self.handlers = handlers
+
+    async def run(self, task: Task) -> Task:
+        task.status = TaskStatus.COMPLETED
+        task.result_summary = "执行完成"
+        task.report_path = "outputs/reports/fake/index.html"
+        return task
+
+
+class FakeBlackboxRunner:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+    async def run(self, task: Task) -> Task:
+        return task
+
+
+def test_run_parser_rejects_non_positive_limits():
+    parser = cli_main.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "run",
+                "--goal",
+                "打开页面",
+                "--url",
+                "https://example.com",
+                "--max-steps",
+                "0",
+            ]
+        )
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "run",
+                "--goal",
+                "打开页面",
+                "--url",
+                "https://example.com",
+                "--timeout",
+                "-1",
+            ]
+        )
+
+
+def test_run_parser_rejects_unknown_browser():
+    parser = cli_main.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "run",
+                "--goal",
+                "打开页面",
+                "--url",
+                "https://example.com",
+                "--browser",
+                "unknown",
+            ]
+        )
+
+
+def test_browser_parser_rejects_unknown_browser():
+    parser = cli_main.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "browser",
+                "check",
+                "--url",
+                "https://example.com",
+                "--browser",
+                "unknown",
+            ]
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_task_create_only(monkeypatch, capsys):
+    monkeypatch.setattr(cli_main, "TaskService", FakeTaskService)
+    args = argparse.Namespace(
+        goal="打开页面",
+        url="https://example.com",
+        max_steps=None,
+        timeout=None,
+        no_screenshot=False,
+        create_only=True,
+        headed=False,
+        browser="chromium",
+    )
+
+    exit_code = await cli_main._run_task(args)
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "已创建任务" in output
+    assert "最大 6 步" in output
+    assert "未执行" in output
+
+
+@pytest.mark.asyncio
+async def test_run_task_executes_runner(monkeypatch, capsys):
+    monkeypatch.setattr(cli_main, "TaskService", FakeTaskService)
+    monkeypatch.setattr(cli_main, "TaskRunner", FakeTaskRunner)
+    monkeypatch.setattr(cli_main, "BlackboxRunner", FakeBlackboxRunner)
+    args = argparse.Namespace(
+        goal="打开页面",
+        url="https://example.com",
+        max_steps=None,
+        timeout=None,
+        no_screenshot=False,
+        create_only=False,
+        headed=False,
+        browser="chromium",
+    )
+
+    exit_code = await cli_main._run_task(args)
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "开始执行黑盒任务" in output
+    assert "任务状态：completed" in output
+    assert "HTML 报告：outputs/reports/fake/index.html" in output
+
+
+def test_resolve_run_limits_uses_user_values():
+    assert cli_main._resolve_run_limits("打开页面", "https://example.com", 9, 120) == (9, 120)
+
+
+def test_resolve_run_limits_allows_partial_user_values():
+    assert cli_main._resolve_run_limits("打开页面", "https://example.com", 9, None) == (9, 180)
+
+
+def test_resolve_run_limits_infers_complex_task():
+    assert cli_main._resolve_run_limits("登录后提交订单表单", "https://example.com", None, None) == (
+        20,
+        600,
+    )
+
+
+def test_main_run_handles_keyboard_interrupt(monkeypatch, capsys):
+    async def fake_run_task(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_main, "_run_task", fake_run_task)
+
+    exit_code = cli_main.main(["run", "--goal", "打开页面", "--url", "https://example.com"])
+
+    error_output = capsys.readouterr().err
+    assert exit_code == 130
+    assert "任务已取消" in error_output
