@@ -34,6 +34,8 @@ def test_blackbox_prompts_require_login_interaction_coverage():
     assert "不能只因为页面元素存在就判定完成" in evaluator_prompt
     assert "history 中看到实际交互证据" in evaluator_prompt
     assert "已覆盖的测试场景" in evaluator_prompt
+    assert "不要只做必填校验就结束" in planner_prompt
+    assert "不能只因为已打开新增表单或只验证了必填项就判定完成" in evaluator_prompt
 
 
 class FakeLLMClient:
@@ -137,9 +139,11 @@ class FakeBrowserSession:
 class CountingEvaluator:
     def __init__(self) -> None:
         self.count = 0
+        self.last_history = []
 
     async def evaluate(self, goal: str, observation: str, history=None) -> EvaluationResult:
         self.count += 1
+        self.last_history = history or []
         return EvaluationResult(
             completed=self.count >= 1,
             success=True,
@@ -165,6 +169,7 @@ async def test_blackbox_runner_executes_initial_browser_loop(tmp_path):
     assert completed.current_step == 1
     assert completed.logs[0].action == "goto"
     assert completed.logs[0].screenshot_path is not None
+    assert runner.evaluator.last_history[0]["screenshot_path"] == completed.logs[0].screenshot_path
     assert completed.result_summary == "初始页面已记录"
     assert completed.report_path is not None
 

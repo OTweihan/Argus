@@ -43,6 +43,25 @@ argus --version
 playwright install chromium
 ```
 
+## CLI 常用命令
+
+| 场景 | 命令 |
+|------|------|
+| 查看版本 | `argus --version` |
+| 配置大模型 | `argus config llm` |
+| 配置高级大模型参数 | `argus config llm --advanced` |
+| 检查大模型连接 | `argus llm check` |
+| 调大 LLM 检查等待时间 | `argus llm check --timeout 90` |
+| 检查浏览器打开和截图 | `argus browser check --url "https://httpbin.org"` |
+| 显示浏览器窗口调试 | `argus browser check --url "https://httpbin.org" --headed` |
+| 保存浏览器登录态 | `argus auth save --url "https://example.com/login"` |
+| 查看已保存登录态 | `argus auth list` |
+| 执行黑盒任务 | `argus run --goal "打开页面并截图" --url "https://httpbin.org"` |
+| 复用登录态执行任务 | `argus run --auth-state example.com --goal "检查个人中心" --url "https://example.com/profile"` |
+| 显示浏览器窗口执行任务 | `argus run --goal "打开页面并截图" --url "https://httpbin.org" --headed` |
+| 只创建任务快照 | `argus run --goal "打开页面并截图" --url "https://httpbin.org" --create-only` |
+| 关闭步骤截图 | `argus run --goal "打开页面并检查标题" --url "https://httpbin.org" --no-screenshot` |
+
 ## 配置大模型
 
 使用交互式命令配置：
@@ -119,6 +138,42 @@ argus browser check --url "https://httpbin.org/forms/post" --fill-selector "inpu
 
 浏览器封装会在系统层面等待页面稳定，常规情况下不需要手动增加等待。`--wait-ms` 仅作为额外调试参数。
 
+## 保存和复用登录态
+
+需要测试登录后的页面时，可以先用可视化浏览器完成一次登录，并保存 Playwright `storage_state`：
+
+```powershell
+argus auth save --url "https://example.com/login"
+```
+
+该命令默认显示浏览器窗口。完成登录后回到终端按 Enter，登录态会保存到：
+
+```text
+config/browser-states/example.com.json
+```
+
+如果需要自定义名称，也可以显式传入：
+
+```powershell
+argus auth save --name example-admin --url "https://example.com/login"
+```
+
+查看已保存登录态：
+
+```powershell
+argus auth list
+```
+
+后续执行黑盒任务时复用登录态：
+
+```powershell
+argus run --auth-state example.com --goal "检查个人中心页面是否正常展示" --url "https://example.com/profile"
+```
+
+`argus auth list` 会显示登录态名称、关联站点、修改时间、复用命令和文件路径。`--auth-state` 既可以传登录态名称，也可以传 JSON 文件路径。登录态文件包含 Cookie、LocalStorage 等会话信息，已通过 `.gitignore` 排除，仍应按敏感文件处理，不要提交或外发。
+
+对于带端口的地址，Windows 文件名不支持冒号，登录态名称会把端口分隔符转换为 `-`，例如 `http://10.18.90.80:8580/system/user` 默认保存为 `config/browser-states/10.18.90.80-8580.json`。
+
 ## 执行黑盒任务
 
 ```powershell
@@ -184,6 +239,37 @@ argus run --goal "打开页面并截图" --url "https://httpbin.org" --max-steps
 | 普通黑盒任务 | 12 | 300 秒 |
 | 登录 / 表单 / 提交 / 流程类任务 | 20 | 600 秒 |
 
+## 示例任务
+
+`examples/` 目录保存当前任务模型的 JSON 示例，字段名与 `argus_py.task.models.Task` 保持一致：
+
+```text
+examples/task_001_screenshot.json
+examples/task_002_multistep.json
+```
+
+这些文件用于说明任务数据结构，不是当前 CLI 的直接输入文件。当前执行任务请使用 `argus run --goal ... --url ...`，只需要保存任务快照时使用 `--create-only`。
+
+## 报告说明
+
+T007 阶段会在任务完成、失败或异常恢复后尽力生成报告，并把 HTML 报告路径回写到任务 JSON 的 `report_path` 字段。
+
+报告产物默认位于：
+
+```text
+outputs/reports/<task_id>/index.html
+outputs/reports/<task_id>/report.json
+```
+
+其中：
+
+- `index.html` 是面向人工阅读的黑盒测试报告，包含任务信息、执行步骤、步骤参数、截图、问题清单和错误信息。
+- `report.json` 是结构化报告，包含同一份任务、步骤和问题数据，便于后续 Web API 或前端读取。
+- HTML 报告会聚合失败步骤，步骤参数和截图默认折叠，截图可点击放大预览。
+- 步骤截图默认位于 `outputs/screenshots/<task_id>/`，报告会尽量使用相对路径展示图片。
+- 如果执行时传入 `--no-screenshot`，报告仍会生成，但步骤里不会包含新保存的截图文件。
+- 如果报告生成失败，系统不会覆盖原始任务结果，会把报告生成错误追加到任务错误信息中。
+
 ### 黑盒执行策略
 
 - 初始动作由系统确定性打开起始 URL，后续动作由 LLM 基于页面快照和历史步骤规划。
@@ -202,7 +288,7 @@ argus/
 │   ├── api/           # 第二阶段 FastAPI 占位
 │   ├── core/          # 常量、路径、枚举、异常、ID
 │   ├── config/        # Python 配置加载模块
-│   ├── llm/           # LLM 调用、Prompt、解析、重试
+│   ├── llm/           # LLM 调用、内置 Prompt、解析、重试
 │   ├── task/          # 任务模型、状态、服务、文件存储边界
 │   ├── blackbox/      # 黑盒 Agent 规划、评估、执行边界
 │   ├── browser/       # Playwright 生命周期、动作、选择器、快照
@@ -212,7 +298,7 @@ argus/
 │   ├── whitebox/      # 第三阶段 Java 白盒分析客户端占位
 │   └── utils/         # 通用工具
 ├── config/
-│   ├── prompts/       # Prompt 模板
+│   ├── prompts/       # 用户 Prompt 覆盖模板
 │   ├── llm.env        # 本地大模型配置，不提交
 │   ├── llm.env.example
 │   └── logging.yaml
@@ -220,16 +306,32 @@ argus/
 │   └── project-info/  # 项目上下文、变更、问题、待办
 ├── outputs/           # 运行产物，内容不纳入版本控制
 ├── tests/             # 单元测试骨架
-├── examples/          # 示例任务 JSON
+├── examples/          # 示例任务 JSON 与说明
 ├── scripts/           # 开发脚本占位
 └── java_analyzer/     # 第三阶段 Java 白盒分析子模块占位
+```
+
+## Prompt 模板
+
+Prompt 模板分为内置模板和用户覆盖模板：
+
+- 内置模板位于 `argus_py/llm/prompts/`，随 Python 包一起发布，保证安装包运行时不依赖源码根目录下的 `config/prompts`。
+- 用户覆盖模板位于 `config/prompts/`，文件名与内置模板一致时优先使用用户模板。
+- 显式传入的 Prompt 文件路径优先级最高，其次是用户覆盖模板，最后才是包内内置模板。
+
+当前内置模板包括：
+
+```text
+llm_connection_check.md
+blackbox_planner.md
+blackbox_evaluator.md
 ```
 
 ## 路径策略
 
 项目通过 `argus_py/core/paths.py` 统一解析路径：
 
-- 默认从项目根目录读取 `config/llm.env`、`config/prompts`、报告模板和 `outputs`。
+- 默认从项目根目录读取 `config/llm.env`、用户 Prompt 覆盖模板和 `outputs`；内置 Prompt 和报告模板从包内读取。
 - 从其他目录执行 `argus` 时，不会因为当前工作目录变化导致配置或模板找不到。
 - 可通过环境变量 `ARGUS_PROJECT_ROOT` 覆盖项目根目录。
 
