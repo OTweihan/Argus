@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ def render_html_report(
     )
     env.filters["screenshot_src"] = _screenshot_src_filter(output_path)
     env.filters["pretty_json"] = _pretty_json
+    env.filters["datetime_short"] = _datetime_short
     template = env.get_template(template_name)
     return template.render(report=report_to_dict(report))
 
@@ -57,3 +59,21 @@ def _screenshot_src_filter(output_path: str | Path | None):
 def _pretty_json(value: Any) -> str:
     """格式化展示 JSON 数据。"""
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def _datetime_short(value: Any) -> str:
+    """将报告时间转换为本地时区，并格式化为 YYYY-MM-DDTHH:MM:SS。"""
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        resolved = value
+    else:
+        text = str(value)
+        try:
+            resolved = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return text[:19] if len(text) >= 19 else text
+
+    if resolved.tzinfo is not None:
+        resolved = resolved.astimezone()
+    return resolved.strftime("%Y-%m-%dT%H:%M:%S")

@@ -1,113 +1,347 @@
 {% extends "base.html.j2" %}
 {% block content %}
-<header>
-  <h1>{{ report.title }}</h1>
-  <p class="muted">报告 ID：<code>{{ report.report_id }}</code></p>
-  <p class="muted">生成时间：{{ report.generated_at }}</p>
+{% set status = report.task.status %}
+{% set summary = report.summary or report.task.result_summary or "未记录结果摘要。" %}
+{% set display_steps = report.display_steps %}
+{% set failed_steps = display_steps | selectattr("result", "equalto", "failed") | list %}
+{% set failed_count = failed_steps | length %}
+{% set finding_count = report.findings | length %}
+{% set step_count = display_steps | length %}
+{% set total_steps_count = report.total_steps_count %}
+{% set hidden_steps_count = report.hidden_steps_count %}
+
+<header class="report-hero" id="top">
+  <div class="hero-inner">
+    <div>
+      <div class="eyebrow">Argus Blackbox Testing</div>
+      <h1>{{ report.title }}</h1>
+      <p class="hero-desc">{{ summary }}</p>
+      <div class="hero-status">
+        <span class="badge {{ status }}">{{ status }}</span>
+        <span class="badge {{ 'success' if finding_count == 0 else 'failed' }}">问题 {{ finding_count }}</span>
+        <span class="badge info">步骤 {{ step_count }} / {{ report.task.max_steps }}</span>
+      </div>
+    </div>
+
+    <aside class="hero-meta" aria-label="报告元信息">
+      <div class="meta-row">
+        <span class="meta-label">报告 ID</span>
+        <span class="meta-value">{{ report.report_id }}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">任务 ID</span>
+        <span class="meta-value">{{ report.task.task_id }}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">生成时间</span>
+        <span class="meta-value">{{ report.generated_at | datetime_short }}</span>
+      </div>
+    </aside>
+  </div>
 </header>
 
-<section class="grid">
-  <div class="metric">
-    <span>任务状态</span>
-    <strong><span class="badge {{ report.task.status }}">{{ report.task.status }}</span></strong>
-  </div>
-  <div class="metric">
-    <span>执行步骤</span>
-    <strong>{{ report.steps | length }}</strong>
-  </div>
-  <div class="metric">
-    <span>问题数量</span>
-    <strong>{{ report.findings | length }}</strong>
-  </div>
-  <div class="metric">
-    <span>最大步数</span>
-    <strong>{{ report.task.max_steps }}</strong>
-  </div>
-</section>
+<div class="layout">
+  <aside class="sidebar">
+    <nav class="nav-card" aria-label="报告导航">
+      <p class="nav-title">Report Sections</p>
+      <a class="nav-link" href="#overview"><span>概览</span><span>01</span></a>
+      <a class="nav-link" href="#task"><span>任务信息</span><span>02</span></a>
+      <a class="nav-link" href="#steps"><span>执行步骤</span><span>03</span></a>
+      <a class="nav-link" href="#findings"><span>问题清单</span><span>04</span></a>
+    </nav>
+  </aside>
 
-<h2>任务信息</h2>
-<table>
-  <tr><th>任务 ID</th><td><code>{{ report.task.task_id }}</code></td></tr>
-  <tr><th>目标</th><td>{{ report.task.goal }}</td></tr>
-  <tr><th>起始 URL</th><td>{{ report.task.start_url or "" }}</td></tr>
-  <tr><th>结果摘要</th><td>{{ report.summary or report.task.result_summary or "" }}</td></tr>
-  <tr><th>报告路径</th><td>{{ report.task.report_path or "" }}</td></tr>
-  <tr><th>错误信息</th><td>{{ report.task.error_message or "" }}</td></tr>
-  <tr><th>创建时间</th><td>{{ report.task.created_at }}</td></tr>
-  <tr><th>开始时间</th><td>{{ report.task.started_at or "" }}</td></tr>
-  <tr><th>完成时间</th><td>{{ report.task.completed_at or "" }}</td></tr>
-</table>
-
-<h2>执行步骤</h2>
-{% if report.steps %}
-  <div class="timeline">
-  {% for step in report.steps %}
-    <article class="step">
-      <div class="step-head">
-        <div>
-          <h3>#{{ step.step_number }} {{ step.action }}</h3>
-          <p class="muted">{{ step.message or "" }}</p>
+  <main class="content">
+    <section class="section" id="overview">
+      <div class="metrics">
+        <div class="metric">
+          <span>任务状态</span>
+          <strong><span class="badge {{ status }}">{{ status }}</span></strong>
         </div>
-        <span class="badge {{ step.result }}">{{ step.result }}</span>
-      </div>
-      <table>
-        <tr><th>步骤 ID</th><td><code>{{ step.task_log_id }}</code></td></tr>
-        <tr><th>URL Before</th><td>{{ step.url_before or "" }}</td></tr>
-        <tr><th>URL After</th><td>{{ step.url_after or "" }}</td></tr>
-        <tr><th>错误</th><td>{{ step.error or "" }}</td></tr>
-        <tr><th>时间</th><td>{{ step.created_at }}</td></tr>
-      </table>
-      {% if step.params %}
-        <pre class="params">{{ step.params | pretty_json }}</pre>
-      {% endif %}
-      {% if step.screenshot_path %}
-        <p class="muted">截图：<code>{{ step.screenshot_path }}</code></p>
-        {% set screenshot_src = step.screenshot_path | screenshot_src %}
-        {% if screenshot_src %}
-          <img class="screenshot" src="{{ screenshot_src }}" alt="步骤 {{ step.step_number }} 截图">
-        {% else %}
-          <p class="muted">截图文件不存在或无法访问。</p>
-        {% endif %}
-      {% endif %}
-    </article>
-  {% endfor %}
-  </div>
-{% else %}
-  <p class="muted">暂无执行步骤。</p>
-{% endif %}
-
-<h2>问题清单</h2>
-{% if report.findings %}
-  <div class="timeline">
-  {% for finding in report.findings %}
-    <article class="finding">
-      <div class="finding-head">
-        <div>
-          <h3>{{ finding.title }}</h3>
-          <p class="muted">{{ finding.description }}</p>
+        <div class="metric">
+          <span>展示步骤</span>
+          <strong>{{ step_count }}</strong>
         </div>
-        <span class="badge {{ finding.severity }}">{{ finding.severity }}</span>
+        <div class="metric">
+          <span>问题数量</span>
+          <strong>{{ finding_count }}</strong>
+        </div>
+        <div class="metric">
+          <span>失败步骤</span>
+          <strong>{{ failed_count }}</strong>
+        </div>
+        <div class="metric">
+          <span>最大步数</span>
+          <strong>{{ report.task.max_steps }}</strong>
+        </div>
       </div>
-      <table>
-        <tr><th>问题 ID</th><td><code>{{ finding.finding_id }}</code></td></tr>
-        <tr><th>类型</th><td>{{ finding.finding_type }}</td></tr>
-        <tr><th>URL</th><td>{{ finding.url or "" }}</td></tr>
-        <tr><th>位置</th><td>{{ finding.location or "" }}</td></tr>
-        <tr><th>时间</th><td>{{ finding.created_at }}</td></tr>
+    </section>
+
+    <section class="section card" id="task">
+      <div class="section-head">
+        <div>
+          <h2>任务信息</h2>
+          <p class="section-subtitle">记录测试目标、入口地址、执行结果与时间线。</p>
+        </div>
+        <span class="badge {{ status }}">{{ status }}</span>
+      </div>
+
+      <table class="info-table">
+        <tr>
+          <th>任务 ID</th>
+          <td><code>{{ report.task.task_id }}</code></td>
+        </tr>
+        <tr>
+          <th>目标</th>
+          <td>{{ report.task.goal }}</td>
+        </tr>
+        <tr>
+          <th>起始 URL</th>
+          <td>{{ report.task.start_url or "" }}</td>
+        </tr>
+        <tr>
+          <th>结果摘要</th>
+          <td>{{ summary }}</td>
+        </tr>
+        <tr>
+          <th>报告路径</th>
+          <td>{{ report.task.report_path or "" }}</td>
+        </tr>
+        <tr>
+          <th>错误信息</th>
+          <td>
+            {% if report.task.error_message %}
+              {{ report.task.error_message }}
+            {% else %}
+              <span class="muted">无</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th>创建时间</th>
+          <td>{{ report.task.created_at | datetime_short }}</td>
+        </tr>
+        <tr>
+          <th>开始时间</th>
+          <td>{{ report.task.started_at | datetime_short }}</td>
+        </tr>
+        <tr>
+          <th>完成时间</th>
+          <td>{{ report.task.completed_at | datetime_short }}</td>
+        </tr>
       </table>
-      {% if finding.screenshot_path %}
-        <p class="muted">截图：<code>{{ finding.screenshot_path }}</code></p>
-        {% set finding_screenshot_src = finding.screenshot_path | screenshot_src %}
-        {% if finding_screenshot_src %}
-          <img class="screenshot" src="{{ finding_screenshot_src }}" alt="{{ finding.title }} 截图">
-        {% else %}
-          <p class="muted">截图文件不存在或无法访问。</p>
-        {% endif %}
+    </section>
+
+    <section class="section" id="steps">
+      <div class="section-head">
+        <div>
+          <h2>执行步骤</h2>
+          <p class="section-subtitle">
+            按照 Agent 实际操作顺序展示关键动作，每一步保留参数、URL、错误和截图证据。
+            {% if hidden_steps_count > 0 %}
+              已隐藏 {{ hidden_steps_count }} 个内部等待或纯截图步骤。
+            {% endif %}
+          </p>
+        </div>
+        <span class="badge {{ 'success' if failed_count == 0 else 'failed' }}">失败 {{ failed_count }}</span>
+      </div>
+
+      {% if failed_steps %}
+        <div class="card failure-summary">
+          <h3>失败步骤聚合</h3>
+          <p class="section-subtitle">以下步骤执行失败，可直接跳转到对应步骤查看参数、URL 和截图证据。</p>
+          <table class="info-table">
+            {% for step in failed_steps %}
+              <tr>
+                <th>#{{ step.step_number }} {{ step.action }}</th>
+                <td>
+                  <a href="#step-{{ step.step_number }}">{{ step.error or step.message or "未记录错误详情" }}</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </table>
+        </div>
       {% endif %}
-    </article>
-  {% endfor %}
-  </div>
-{% else %}
-  <p class="muted">未记录问题。</p>
-{% endif %}
+
+      {% if display_steps %}
+        <div class="timeline">
+          {% for step in display_steps %}
+            <article class="step result-{{ step.result }}" id="step-{{ step.step_number }}" data-step="{{ step.step_number }}">
+              <div class="step-head">
+                <div>
+                  <div class="step-title">
+                    <h3>{{ step.message or step.action }}</h3>
+                    <span class="action-pill">{{ step.action }}</span>
+                  </div>
+                  <p class="muted">{{ step.message or "未记录步骤说明。" }}</p>
+                </div>
+                <span class="badge {{ step.result }}">{{ step.result }}</span>
+              </div>
+
+              <div class="step-body">
+                <table class="info-table">
+                  <tr>
+                    <th>步骤 ID</th>
+                    <td><code>{{ step.task_log_id }}</code></td>
+                  </tr>
+                  <tr>
+                    <th>URL Before</th>
+                    <td>
+                      {% if step.url_before %}
+                        {{ step.url_before }}
+                      {% else %}
+                        <span class="muted">未记录</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>URL After</th>
+                    <td>
+                      {% if step.url_after %}
+                        {{ step.url_after }}
+                      {% else %}
+                        <span class="muted">未记录</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>错误</th>
+                    <td>
+                      {% if step.error %}
+                        {{ step.error }}
+                      {% else %}
+                        <span class="muted">无</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>时间</th>
+                    <td>{{ step.created_at | datetime_short }}</td>
+                  </tr>
+                </table>
+
+                {% if step.params %}
+                  <details>
+                    <summary>步骤参数</summary>
+                    <pre class="params">{{ step.params | pretty_json }}</pre>
+                  </details>
+                {% endif %}
+
+                {% if step.screenshot_path %}
+                  {% set screenshot_src = step.screenshot_path | screenshot_src %}
+                  <details>
+                    <summary>步骤截图</summary>
+                    <div class="screenshot-wrap">
+                      <p class="screenshot-path">截图：<code>{{ step.screenshot_path }}</code></p>
+                      {% if screenshot_src %}
+                        <a class="screenshot-link" href="#step-shot-{{ step.step_number }}" title="点击放大截图">
+                          <img class="screenshot" src="{{ screenshot_src }}" alt="步骤 {{ step.step_number }} 截图">
+                        </a>
+                        <div class="lightbox" id="step-shot-{{ step.step_number }}">
+                          <a class="lightbox-close" href="#step-{{ step.step_number }}">关闭预览</a>
+                          <img src="{{ screenshot_src }}" alt="步骤 {{ step.step_number }} 截图放大预览">
+                        </div>
+                      {% else %}
+                        <p class="muted">截图文件不存在或无法访问。</p>
+                      {% endif %}
+                    </div>
+                  </details>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>暂无执行步骤</strong>
+            <span>当前任务还没有记录浏览器动作。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="section card" id="findings">
+      <div class="section-head">
+        <div>
+          <h2>问题清单</h2>
+          <p class="section-subtitle">展示测试过程中识别到的缺陷、异常、风险或未完成目标。</p>
+        </div>
+        <span class="badge {{ 'success' if finding_count == 0 else 'failed' }}">{{ finding_count }} findings</span>
+      </div>
+
+      {% if report.findings %}
+        <div class="timeline">
+          {% for finding in report.findings %}
+            <article class="step result-{{ finding.severity }}" id="finding-{{ loop.index }}" data-step="{{ loop.index }}">
+              <div class="finding-head">
+                <div>
+                  <div class="step-title">
+                    <h3>{{ finding.title }}</h3>
+                    <span class="action-pill">{{ finding.finding_type }}</span>
+                  </div>
+                  <p class="muted">{{ finding.description }}</p>
+                </div>
+                <span class="badge {{ finding.severity }}">{{ finding.severity }}</span>
+              </div>
+
+              <div class="step-body">
+                <table class="info-table">
+                  <tr>
+                    <th>问题 ID</th>
+                    <td><code>{{ finding.finding_id }}</code></td>
+                  </tr>
+                  <tr>
+                    <th>类型</th>
+                    <td>{{ finding.finding_type }}</td>
+                  </tr>
+                  <tr>
+                    <th>URL</th>
+                    <td>{{ finding.url or "" }}</td>
+                  </tr>
+                  <tr>
+                    <th>位置</th>
+                    <td>{{ finding.location or "" }}</td>
+                  </tr>
+                  <tr>
+                    <th>时间</th>
+                    <td>{{ finding.created_at | datetime_short }}</td>
+                  </tr>
+                </table>
+
+                {% if finding.screenshot_path %}
+                  {% set finding_screenshot_src = finding.screenshot_path | screenshot_src %}
+                  <details>
+                    <summary>问题截图</summary>
+                    <div class="screenshot-wrap">
+                      <p class="screenshot-path">截图：<code>{{ finding.screenshot_path }}</code></p>
+                      {% if finding_screenshot_src %}
+                        <a class="screenshot-link" href="#finding-shot-{{ loop.index }}" title="点击放大截图">
+                          <img class="screenshot" src="{{ finding_screenshot_src }}" alt="{{ finding.title }} 截图">
+                        </a>
+                        <div class="lightbox" id="finding-shot-{{ loop.index }}">
+                          <a class="lightbox-close" href="#finding-{{ loop.index }}">关闭预览</a>
+                          <img src="{{ finding_screenshot_src }}" alt="{{ finding.title }} 截图放大预览">
+                        </div>
+                      {% else %}
+                        <p class="muted">截图文件不存在或无法访问。</p>
+                      {% endif %}
+                    </div>
+                  </details>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>未记录问题</strong>
+            <span>本次黑盒测试未发现明确问题或异常。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+  </main>
+</div>
 {% endblock %}
