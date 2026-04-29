@@ -5,6 +5,7 @@ import pytest
 from argus_py.cli import main as cli_main
 from argus_py.core.enums import TaskStatus
 from argus_py.task.models import Task
+from argus_py.task.strategy import TaskExecutionLimits, resolve_execution_limits
 
 
 class FakeTaskService:
@@ -102,6 +103,59 @@ def test_run_parser_rejects_unknown_browser():
         )
 
 
+def test_run_parser_accepts_auth_state():
+    parser = cli_main.build_parser()
+
+    args = parser.parse_args(
+        [
+            "run",
+            "--goal",
+            "检查个人中心",
+            "--url",
+            "https://example.com/profile",
+            "--auth-state",
+            "default",
+        ]
+    )
+
+    assert args.auth_state == "default"
+
+
+def test_resolve_auth_state_path_uses_named_state(monkeypatch, tmp_path):
+    browser_states_dir = tmp_path / "browser-states"
+    monkeypatch.setattr(cli_main, "BROWSER_STATES_DIR", browser_states_dir)
+
+    assert cli_main._resolve_auth_state_path("default") == browser_states_dir / "default.json"
+    assert cli_main._resolve_auth_state_path("example.com") == browser_states_dir / "example.com.json"
+    assert cli_main._resolve_auth_state_path("10.18.90.80-8580") == browser_states_dir / "10.18.90.80-8580.json"
+    assert cli_main._resolve_auth_state_path("default.json") == browser_states_dir / "default.json"
+
+
+def test_auth_save_parser_allows_domain_name_default():
+    parser = cli_main.build_parser()
+
+    args = parser.parse_args(["auth", "save", "--url", "https://example.com/login"])
+
+    assert args.name is None
+    assert cli_main._auth_state_name_from_url(args.url) == "example.com"
+    assert cli_main._auth_state_name_from_url("http://localhost:8080/login") == "localhost-8080"
+
+
+def test_read_auth_state_sites(tmp_path):
+    state_file = tmp_path / "example.com.json"
+    state_file.write_text(
+        """
+{
+  "cookies": [{"domain": ".example.com"}],
+  "origins": [{"origin": "https://app.example.com"}]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert cli_main._read_auth_state_sites(state_file) == "app.example.com、example.com"
+
+
 def test_browser_parser_rejects_unknown_browser():
     parser = cli_main.build_parser()
 
@@ -167,17 +221,28 @@ async def test_run_task_executes_runner(monkeypatch, capsys):
 
 
 def test_resolve_run_limits_uses_user_values():
-    assert cli_main._resolve_run_limits("打开页面", "https://example.com", 9, 120) == (9, 120)
+    assert resolve_execution_limits("打开页面", "https://example.com", 9, 120) == TaskExecutionLimits(
+        max_steps=9,
+        timeout_seconds=120,
+    )
 
 
 def test_resolve_run_limits_allows_partial_user_values():
-    assert cli_main._resolve_run_limits("打开页面", "https://example.com", 9, None) == (9, 180)
+    assert resolve_execution_limits("打开页面", "https://example.com", 9, None) == TaskExecutionLimits(
+        max_steps=9,
+        timeout_seconds=180,
+    )
 
 
 def test_resolve_run_limits_infers_complex_task():
-    assert cli_main._resolve_run_limits("登录后提交订单表单", "https://example.com", None, None) == (
-        20,
-        600,
+    assert resolve_execution_limits(
+        "登录后提交订单表单",
+        "https://example.com",
+        None,
+        None,
+    ) == TaskExecutionLimits(
+        max_steps=20,
+        timeout_seconds=600,
     )
 
 
@@ -191,4 +256,18 @@ def test_main_run_handles_keyboard_interrupt(monkeypatch, capsys):
 
     error_output = capsys.readouterr().err
     assert exit_code == 130
-    assert "任务已取消" in error_output
+    assert "已取消：任务执行" in error_output
+
+
+def test_main_run_handles_generic_error_with_unified_format(monkeypatch, capsys):
+    async def fake_run_task(args):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli_main, "_run_task", fake_run_task)
+
+    exit_code = cli_main.main(["run", "--goal", "打开页面", "--url", "https://example.com"])
+
+    error_output = capsys.readouterr().err
+    assert exit_code == 1
+    assert "错误：任务执行失败" in error_output
+    assert "详情：boom" in error_output

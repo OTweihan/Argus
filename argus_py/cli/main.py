@@ -5,9 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
+import json
 import msvcrt
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession, PlaywrightClient
@@ -24,23 +28,18 @@ from argus_py.core.constants import (
 )
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
-from argus_py.core.paths import SCREENSHOTS_DIR, resolve_project_path
+from argus_py.core.paths import BROWSER_STATES_DIR, SCREENSHOTS_DIR, resolve_project_path
 from argus_py.config.llm_settings import DEFAULT_LLM_ENV_FILE, load_llm_settings
 from argus_py.llm import LLMClient
 from argus_py.llm.prompts import load_prompt
 from argus_py.task.models import Task
 from argus_py.task.runner import TaskRunner
 from argus_py.task.service import TaskService
+from argus_py.task.strategy import resolve_execution_limits
 
 LLM_CONNECTION_CHECK_PROMPT = "llm_connection_check.md"
 LLM_CONNECTION_CHECK_MAX_TOKENS = 4
 LLM_CONNECTION_CHECK_TEMPERATURE = 0.0
-DEFAULT_SIMPLE_TASK_STEPS = 6
-DEFAULT_SIMPLE_TASK_TIMEOUT = 180
-DEFAULT_NORMAL_TASK_STEPS = 12
-DEFAULT_NORMAL_TASK_TIMEOUT = 300
-DEFAULT_COMPLEX_TASK_STEPS = 20
-DEFAULT_COMPLEX_TASK_TIMEOUT = 600
 SUPPORTED_BROWSERS = ("chromium", "firefox", "webkit")
 
 LLM_ENV_KEYS = [
@@ -79,6 +78,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="浏览器类型：chromium/firefox/webkit",
     )
     run_parser.add_argument("--headed", action="store_true", help="显示浏览器窗口，默认 headless")
+    run_parser.add_argument(
+        "--auth-state",
+        help="复用已保存登录态；可传名称，例如 example.com，也可传 storage_state JSON 路径",
+    )
     run_parser.add_argument("--create-only", action="store_true", help="只创建任务，不执行黑盒闭环")
     run_parser.add_argument(
         "--no-screenshot",
@@ -107,6 +110,23 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--fill-selector", help="可选：要输入文本的选择器")
     check_parser.add_argument("--fill-text", default="", help="可选：输入文本")
     check_parser.add_argument("--wait-ms", type=int, default=0, help="动作后额外等待毫秒数")
+
+    auth_parser = subparsers.add_parser("auth", help="浏览器登录态管理命令")
+    auth_subparsers = auth_parser.add_subparsers(dest="auth_command")
+
+    auth_save_parser = auth_subparsers.add_parser("save", help="打开登录页并保存浏览器登录态")
+    auth_save_parser.add_argument("--name", help="登录态名称；不传时默认使用 URL 域名")
+    auth_save_parser.add_argument("--url", required=True, help="需要手动登录的页面 URL")
+    auth_save_parser.add_argument(
+        "--browser",
+        choices=SUPPORTED_BROWSERS,
+        default=DEFAULT_BROWSER,
+        help="浏览器类型：chromium/firefox/webkit",
+    )
+    auth_save_parser.add_argument("--headed", action="store_true", help="显示浏览器窗口；auth save 默认显示")
+    auth_save_parser.add_argument("--headless", action="store_true", help="不显示浏览器窗口，通常不建议用于手动登录")
+
+    auth_subparsers.add_parser("list", help="列出已保存的浏览器登录态")
 
     llm_parser = subparsers.add_parser("llm", help="大模型调用调试命令")
     llm_subparsers = llm_parser.add_subparsers(dest="llm_command")
@@ -230,6 +250,68 @@ def _prompt_secret(label: str, has_existing: bool) -> str | None:
     return value
 
 
+def _print_cli_error(context: str, detail: object | None = None, hint: str | None = None) -> None:
+    """统一输出 CLI 错误信息。"""
+    print(f"错误：{context}", file=sys.stderr)
+    if detail:
+        print(f"详情：{detail}", file=sys.stderr)
+    if hint:
+        print(f"提示：{hint}", file=sys.stderr)
+
+
+def _print_cli_cancelled(context: str) -> None:
+    """统一输出 CLI 取消信息。"""
+    print(f"已取消：{context}", file=sys.stderr)
+
+
+def _is_explicit_path(value: str) -> bool:
+    """判断登录态参数是否是显式文件路径。"""
+    raw = Path(value)
+    return raw.is_absolute() or "/" in value or "\\" in value
+
+
+def _resolve_auth_state_path(value: str) -> Path:
+    """解析登录态名称或 storage_state 文件路径。"""
+    if _is_explicit_path(value):
+        return resolve_project_path(value)
+    filename = value if value.lower().endswith(".json") else f"{value}.json"
+    return BROWSER_STATES_DIR / filename
+
+
+def _auth_state_name_from_url(url: str) -> str:
+    """从登录 URL 生成易读且可作为文件名的登录态名称。"""
+    parsed = urlparse(url)
+    site = (parsed.netloc or parsed.hostname or "default").rsplit("@", 1)[-1]
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", site).strip(".-_") or "default"
+
+
+def _format_local_timestamp(timestamp: float) -> str:
+    """格式化本地时间，精确到秒。"""
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _read_auth_state_sites(path: Path) -> str:
+    """从 Playwright storage_state 中提取可读站点信息。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "无法读取"
+
+    sites: set[str] = set()
+    for cookie in data.get("cookies", []):
+        domain = str(cookie.get("domain", "")).lstrip(".")
+        if domain:
+            sites.add(domain)
+    for origin in data.get("origins", []):
+        parsed = urlparse(str(origin.get("origin", "")))
+        if parsed.netloc:
+            sites.add(parsed.netloc)
+
+    if not sites:
+        return "未记录站点"
+    return "、".join(sorted(sites))
+
+
 def _run_config_llm(args: argparse.Namespace) -> int:
     """交互式配置 LLM API。"""
     env_path = resolve_project_path(args.env_file)
@@ -242,7 +324,11 @@ def _run_config_llm(args: argparse.Namespace) -> int:
     api_key = _prompt_secret(llm_field_label("LLM_API_KEY"), bool(current.get("LLM_API_KEY")))
     if api_key is not None:
         if not api_key:
-            print(llm_message("api_key_required"), file=sys.stderr)
+            _print_cli_error(
+                "大模型配置失败",
+                llm_message("api_key_required"),
+                "请重新执行 argus config llm 并输入 API Key。",
+            )
             return 1
         updates["LLM_API_KEY"] = api_key
 
@@ -278,7 +364,11 @@ def _run_config_llm(args: argparse.Namespace) -> int:
         float(updates["LLM_TEMPERATURE"])
         int(updates["LLM_MAX_RETRIES"])
     except ValueError as exc:
-        print(f"数值配置格式错误：{exc}", file=sys.stderr)
+        _print_cli_error(
+            "大模型配置失败",
+            f"数值配置格式错误：{exc}",
+            "请检查最大输出 Token 数、温度和最大重试次数。",
+        )
         return 1
 
     _write_env_values(env_path, updates)
@@ -344,10 +434,10 @@ async def _run_llm_check(args: argparse.Namespace) -> int:
             timeout=args.timeout,
         )
     except TimeoutError:
-        print(
-            f"LLM 检查超时：超过 {args.timeout:g} 秒未完成。请检查接口地址、代理或网络连接；"
-            "也可以用 --timeout 临时调大等待时间。",
-            file=sys.stderr,
+        _print_cli_error(
+            "LLM 检查超时",
+            f"超过 {args.timeout:g} 秒未完成。",
+            "请检查接口地址、代理或网络连接；也可以用 --timeout 临时调大等待时间。",
         )
         return 1
 
@@ -359,26 +449,96 @@ async def _run_llm_check(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_auth_save(args: argparse.Namespace) -> int:
+    """打开登录页面，等待用户登录后保存 storage_state。"""
+    if args.headed and args.headless:
+        _print_cli_error("登录态保存失败", "--headed 和 --headless 不能同时使用。")
+        return 1
+
+    auth_state_name = args.name or _auth_state_name_from_url(args.url)
+    auth_state_path = _resolve_auth_state_path(auth_state_name)
+    auth_state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if auth_state_path.exists():
+        print(f"将覆盖已有登录态：{auth_state_path}")
+
+    client = PlaywrightClient(headless=args.headless, browser_type=args.browser)
+    async with BrowserSession(client=client) as session:
+        print(f"打开登录页面：{args.url}")
+        await session.goto(args.url)
+        print("请在浏览器中完成登录。")
+        try:
+            await asyncio.to_thread(input, "登录完成后回到终端，按 Enter 保存登录态：")
+        except EOFError:
+            _print_cli_error("登录态保存失败", "当前终端无法读取确认输入。")
+            return 1
+        if session.context is None:
+            _print_cli_error("登录态保存失败", "浏览器上下文未创建。")
+            return 1
+        await session.context.storage_state(path=str(auth_state_path))
+
+    print(f"登录态已保存：{auth_state_path}")
+    print(f"登录态名称：{auth_state_name}")
+    print(f"运行任务时可使用：argus run --auth-state {auth_state_name} --goal \"...\" --url \"...\"")
+    return 0
+
+
+def _run_auth_list() -> int:
+    """列出已保存的浏览器登录态文件。"""
+    if not BROWSER_STATES_DIR.exists():
+        print("暂无已保存登录态。")
+        return 0
+
+    state_files = sorted(BROWSER_STATES_DIR.glob("*.json"))
+    if not state_files:
+        print("暂无已保存登录态。")
+        return 0
+
+    print("已保存登录态：")
+    for state_file in state_files:
+        print(f"- 名称：{state_file.stem}")
+        print(f"  关联站点：{_read_auth_state_sites(state_file)}")
+        print(f"  修改时间：{_format_local_timestamp(state_file.stat().st_mtime)}")
+        print(f"  复用命令：argus run --auth-state {state_file.stem} --goal \"...\" --url \"...\"")
+        print(f"  文件路径：{state_file}")
+    return 0
+
+
 async def _run_task(args: argparse.Namespace) -> int:
     """创建并执行黑盒任务。"""
     service = TaskService()
-    max_steps, timeout_seconds = _resolve_run_limits(args.goal, args.url, args.max_steps, args.timeout)
+    limits = resolve_execution_limits(args.goal, args.url, args.max_steps, args.timeout)
+    auth_state_arg = getattr(args, "auth_state", None)
+    auth_state_path = _resolve_auth_state_path(auth_state_arg) if auth_state_arg else None
+    if auth_state_path is not None and not auth_state_path.exists():
+        _print_cli_error(
+            "任务执行失败",
+            f"登录态文件不存在：{auth_state_path}",
+            "请先执行 argus auth save --name <名称> --url <登录页>，或检查 --auth-state 路径。",
+        )
+        return 1
+
     task = service.create_task(
         goal=args.goal,
         start_url=args.url,
-        max_steps=max_steps,
-        timeout_seconds=timeout_seconds,
+        max_steps=limits.max_steps,
+        timeout_seconds=limits.timeout_seconds,
         capture_screenshots=not args.no_screenshot,
     )
     print(f"已创建任务：{task.task_id}")
-    print(f"执行限制：最大 {max_steps} 步，超时 {timeout_seconds} 秒")
+    print(f"执行限制：最大 {limits.max_steps} 步，超时 {limits.timeout_seconds} 秒")
 
     if args.create_only:
         print("任务已保存，未执行。")
         return 0
 
     def browser_session_factory(current_task: Task) -> BrowserSession:
-        client = PlaywrightClient(headless=not args.headed, browser_type=args.browser)
+        context_options = {"storage_state": str(auth_state_path)} if auth_state_path else None
+        client = PlaywrightClient(
+            headless=not args.headed,
+            browser_type=args.browser,
+            context_options=context_options,
+        )
         return BrowserSession(
             client=client,
             screenshot_dir=SCREENSHOTS_DIR / current_task.task_id,
@@ -399,58 +559,16 @@ async def _run_task(args: argparse.Namespace) -> int:
     except TaskError as exc:
         latest = _load_latest_task(service, task)
         _print_task_result(latest)
-        print(f"任务执行失败：{exc}", file=sys.stderr)
+        _print_cli_error("任务执行失败", exc)
         return 1
     except KeyboardInterrupt:
         latest = service.cancel_task(task.task_id)
         _print_task_result(latest)
-        print("任务已取消。", file=sys.stderr)
+        _print_cli_cancelled("任务执行")
         return 130
 
     _print_task_result(result)
     return 0
-
-
-def _resolve_run_limits(
-    goal: str,
-    url: str,
-    max_steps: int | None,
-    timeout_seconds: int | None,
-) -> tuple[int, int]:
-    """解析或自动分配任务执行限制。"""
-    inferred_steps, inferred_timeout = _infer_run_limits(goal, url)
-    return (
-        max_steps if max_steps is not None else inferred_steps,
-        timeout_seconds if timeout_seconds is not None else inferred_timeout,
-    )
-
-
-def _infer_run_limits(goal: str, url: str) -> tuple[int, int]:
-    """根据任务描述保守推断步数和超时时间。"""
-    text = f"{goal} {url}".lower()
-    simple_keywords = ["打开", "访问", "截图", "确认页面", "检查页面", "可访问", "title"]
-    complex_keywords = [
-        "登录",
-        "注册",
-        "提交",
-        "表单",
-        "创建",
-        "新增",
-        "编辑",
-        "删除",
-        "订单",
-        "多步骤",
-        "流程",
-        "搜索",
-        "筛选",
-        "上传",
-    ]
-
-    if any(keyword in text for keyword in complex_keywords):
-        return DEFAULT_COMPLEX_TASK_STEPS, DEFAULT_COMPLEX_TASK_TIMEOUT
-    if any(keyword in text for keyword in simple_keywords):
-        return DEFAULT_SIMPLE_TASK_STEPS, DEFAULT_SIMPLE_TASK_TIMEOUT
-    return DEFAULT_NORMAL_TASK_STEPS, DEFAULT_NORMAL_TASK_TIMEOUT
 
 
 def _load_latest_task(service: TaskService, task: Task) -> Task:
@@ -484,10 +602,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return asyncio.run(_run_task(args))
         except KeyboardInterrupt:
-            print("任务已取消。", file=sys.stderr)
+            _print_cli_cancelled("任务执行")
             return 130
         except Exception as exc:
-            print(f"任务执行失败：{exc}", file=sys.stderr)
+            _print_cli_error("任务执行失败", exc)
             return 1
 
     if args.command == "browser":
@@ -495,8 +613,23 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 return asyncio.run(_run_browser_check(args))
             except Exception as exc:
-                print(f"浏览器检查失败：{exc}", file=sys.stderr)
+                _print_cli_error("浏览器检查失败", exc)
                 return 1
+        parser.print_help()
+        return 0
+
+    if args.command == "auth":
+        if args.auth_command == "save":
+            try:
+                return asyncio.run(_run_auth_save(args))
+            except KeyboardInterrupt:
+                _print_cli_cancelled("登录态保存")
+                return 130
+            except Exception as exc:
+                _print_cli_error("登录态保存失败", exc)
+                return 1
+        if args.auth_command == "list":
+            return _run_auth_list()
         parser.print_help()
         return 0
 
@@ -505,10 +638,10 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 return asyncio.run(_run_llm_check(args))
             except KeyboardInterrupt:
-                print("LLM 检查已取消。", file=sys.stderr)
+                _print_cli_cancelled("LLM 检查")
                 return 130
             except Exception as exc:
-                print(f"LLM 检查失败：{exc}", file=sys.stderr)
+                _print_cli_error("LLM 检查失败", exc)
                 return 1
         parser.print_help()
         return 0
