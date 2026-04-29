@@ -1,6 +1,6 @@
 # Argus 项目信息上下文
 
-更新时间：2026-04-28
+更新时间：2026-04-29
 
 本文件用于后续接手 Argus 项目时快速恢复上下文。下次修改本项目之前，先阅读本文件，再阅读 `README.md` 和相关源码。
 
@@ -68,6 +68,49 @@ argus browser check --url "https://httpbin.org"
 argus browser check --url "https://httpbin.org" --headed
 ```
 
+保存浏览器登录态：
+
+```powershell
+argus auth save --url "https://example.com/login"
+```
+
+复用登录态执行任务：
+
+```powershell
+argus run --auth-state example.com --goal "检查个人中心页面是否正常展示" --url "https://example.com/profile"
+```
+
+执行黑盒任务：
+
+```powershell
+argus run --goal "打开页面并截图" --url "https://httpbin.org"
+```
+
+只创建任务快照：
+
+```powershell
+argus run --goal "打开页面并截图" --url "https://httpbin.org" --create-only
+```
+
+关闭步骤截图：
+
+```powershell
+argus run --goal "打开页面并检查标题" --url "https://httpbin.org" --no-screenshot
+```
+
+T007 报告默认输出到：
+
+```text
+outputs/reports/<task_id>/index.html
+outputs/reports/<task_id>/report.json
+```
+
+步骤截图默认输出到：
+
+```text
+outputs/screenshots/<task_id>/
+```
+
 ## 近期重要变更
 
 ### CLI
@@ -80,14 +123,31 @@ argus browser check --url "https://httpbin.org" --headed
 - 首次配置只提示 API Key、接口地址、模型名称；高级参数通过 `--advanced` 调整。
 - 交互提示文案抽到 `argus_py/cli/messages.py`。
 - `argus llm check` 改成固定低消耗连接检查，不再允许用户自由输入 Prompt。
-- `argus llm check` 内部固定使用 `config/prompts/llm_connection_check.md`，最大输出 Token 数为 4，温度为 0。
+- `argus llm check` 内部固定使用 `llm_connection_check.md` 模板，最大输出 Token 数为 4，温度为 0。
 - `argus llm check` 连接检查不走配置里的重试次数，当前为零重试，避免失败时长时间等待和重复消耗。
 - `argus run` 已接入 `TaskRunner` 和 `BlackboxRunner`，默认 headless 执行；可用 `--headed` 显示浏览器窗口。
 - `argus run --create-only` 保留只创建任务快照的旧行为。
-- `argus run` 的 `--max-steps` 和 `--timeout` 为可选参数，用户不传时系统会按任务描述自动分配。
+- `argus auth save --url <登录页>` 会打开可视化浏览器，等待用户完成登录后把 Playwright `storage_state` 保存到 `config/browser-states/<域名>.json`；也可以用 `--name <名称>` 自定义名称。
+- 带端口的登录 URL 会把端口冒号转换为文件名安全的 `-`，例如 `10.18.90.80:8580` 保存为 `config/browser-states/10.18.90.80-8580.json`。
+- `argus auth list` 会列出已保存登录态，显示名称、关联站点、修改时间、复用命令和路径；不会打印 Cookie 内容。
+- `argus run --auth-state <名称或路径>` 会在新浏览器上下文中加载已保存登录态，减少重复登录。
+- `argus run` 的 `--max-steps` 和 `--timeout` 为可选参数，用户不传时系统会通过任务策略模块按任务描述自动分配。
 - `argus run` 的 `--max-steps` 和 `--timeout` 接受正整数；非法值会在参数解析阶段拦截。
 - `argus run --browser` 和 `argus browser check --browser` 限制为 `chromium`、`firefox`、`webkit`。
 - `argus run --no-screenshot` 会关闭执行步骤截图；即使 LLM 输出 `screenshot` 动作，也只记录跳过，不落图。
+- CLI 运行期错误统一输出为 `错误：...`、`详情：...`、`提示：...` 格式；取消类输出统一为 `已取消：...`。
+
+### 任务执行策略
+
+主要文件：
+
+- `argus_py/task/strategy.py`
+
+当前行为：
+
+- `resolve_execution_limits()` 统一合并用户显式传入的最大步数 / 超时时间和系统推断值。
+- `infer_execution_limits()` 根据任务目标和 URL 推断简单、普通、复杂任务的默认限制。
+- 该模块不依赖 CLI，可供后续 Web API 或任务服务复用。
 
 ### 黑盒 Agent
 
@@ -96,16 +156,20 @@ argus browser check --url "https://httpbin.org" --headed
 - `argus_py/blackbox/planner.py`
 - `argus_py/blackbox/evaluator.py`
 - `argus_py/blackbox/runner.py`
-- `config/prompts/blackbox_planner.md`
-- `config/prompts/blackbox_evaluator.md`
+- `argus_py/llm/prompts/blackbox_planner.md`
+- `argus_py/llm/prompts/blackbox_evaluator.md`
+- `config/prompts/blackbox_planner.md`（用户覆盖模板）
+- `config/prompts/blackbox_evaluator.md`（用户覆盖模板）
 
 当前行为：
 
 - 初始规划只确定性执行 `goto` 起始 URL；初始截图由 `goto` 步骤的自动证据采集负责，不再额外插入独立 `screenshot` 步骤。
 - 后续规划由 LLM 根据用户目标、当前 URL、页面快照和历史步骤生成。
 - 每个动作执行后统一采集步骤证据：截图路径和页面快照；截图失败或快照失败不会直接覆盖动作结果。
+- 传给 LLM 的 history 会包含 `screenshot_path`，让评估器和规划器知道自动截图证据已采集，避免“打开页面并截图”这类目标在 `goto` 后再重复规划独立 `screenshot` 步骤。
 - 动作失败会记录失败步骤，并尽量截图；随后重新观察页面，让规划器基于失败历史重新规划，默认最多恢复 2 次。
 - 评估器根据目标、历史和最新观察判断是否完成。对登录页、表单页、流程类任务，不允许只因元素存在就判定完成，必须看到实际交互证据。
+- 对新增、创建、添加、录入类任务，不能只因打开表单或观察到必填校验就判定完成；需要尽量覆盖新增入口、关键字段、必填校验、无效格式或边界数据、取消/关闭等低风险场景，且避免创建真实业务数据。
 - 完成时 `reason` 应说明已覆盖的测试场景，例如页面打开、空表单提交、无效账号提交、错误提示或状态变化。
 
 ### 选择器与页面快照
@@ -138,6 +202,7 @@ argus browser check --url "https://httpbin.org" --headed
 注意：
 
 - `config/llm.env` 包含敏感信息，已加入 `.gitignore`，不要提交、输出或复制其中内容。
+- `config/browser-states/*.json` 包含 Cookie、LocalStorage 等会话信息，已加入 `.gitignore`，不要提交、输出或复制其中内容。
 - 顶层 `config` 目录只作为数据配置目录使用，不再放 Python 模块。
 - 之前存在过 `config/settings.py`、`config/llm_settings.py`，容易和 `argus_py.config` 混淆，已删除。
 
@@ -150,6 +215,7 @@ argus browser check --url "https://httpbin.org" --headed
 - 项目根目录
 - `config` 目录
 - Prompt 目录
+- 浏览器登录态目录
 - LLM env 文件
 - `outputs` 目录
 - 报告模板目录
@@ -186,6 +252,9 @@ argus browser check --url "https://httpbin.org" --headed
 - `argus_py/llm/client.py`
 - `argus_py/llm/models.py`
 - `argus_py/llm/prompts.py`
+- `argus_py/llm/prompts/llm_connection_check.md`
+- `argus_py/llm/prompts/blackbox_planner.md`
+- `argus_py/llm/prompts/blackbox_evaluator.md`
 - `argus_py/llm/parser.py`
 - `argus_py/llm/retry.py`
 
@@ -197,60 +266,69 @@ argus browser check --url "https://httpbin.org" --headed
 - Prompt 模板加载。
 - 异步重试逻辑。
 - API Key 缺失提示已改为面向用户：提示执行 `argus config llm`。
+- Prompt 模板已区分内置模板和用户覆盖模板：显式路径 > `config/prompts` 用户模板 > `argus_py/llm/prompts` 内置模板。
+- 内置 Prompt 已加入包数据，后续安装包运行时不依赖源码目录下的 `config/prompts`。
+
+### T007 文档与示例
+
+主要文件：
+
+- `README.md`
+- `examples/README.md`
+- `examples/task_001_screenshot.json`
+- `examples/task_002_multistep.json`
+
+已完成：
+
+- README 已补齐 CLI 常用命令速查、示例任务说明和 T007 报告产物说明。
+- 示例任务 JSON 已同步为当前 `Task` 模型字段：`start_url`、`max_steps`、`timeout_seconds`、`capture_screenshots`。
+- `examples/README.md` 已说明示例 JSON 与 `argus run` CLI 参数的关系。
+- 当前 CLI 不直接读取示例 JSON；示例文件用于说明任务模型结构。
+
+### 报告阅读体验
+
+主要文件：
+
+- `argus_py/report/templates/base.html.j2`
+- `argus_py/report/templates/blackbox_report.html.j2`
+
+已完成：
+
+- 报告顶部增加失败步骤数量，执行步骤区增加失败步骤聚合摘要。
+- 步骤参数改为默认折叠，减少长 JSON 参数占用页面空间。
+- 步骤截图和问题截图改为默认折叠，复杂任务报告更容易快速扫读。
+- 截图支持点击放大预览，使用纯 HTML/CSS 锚点实现，不引入前端依赖。
+- HTML 报告主时间线会隐藏成功的内部 `wait` 步骤和纯 `screenshot` 步骤；完整审计日志仍保留在 `report.json` 和任务 JSON 中。
 
 ## 已知问题
 
-1. T003 验收里的 JSON 解析能力已有代码，但 CLI 连接检查不再暴露自由 Prompt。
-   后续可以新增固定 Prompt 的 `argus llm json-check`，既验证 JSON 解析，又避免用户自由输入导致 token 消耗不可控。
+当前暂无明确阻塞 T007 CLI 黑盒 MVP 的已知问题。历史记录中的 LLM 检查、浏览器等待、截图采集、报告生成、失败恢复、选择器推荐和路径解析问题已在当前阶段处理。
 
-2. Prompt 模板当前放在 `config/prompts`。
-   这适合源码项目本地运行；如果未来打包成 wheel 并在任意目录安装，需要考虑把内置 Prompt 放入包内资源，再允许外部配置覆盖。
+仍需注意：
 
-3. 当前存在大量未提交变更。
-   修改前应先用 `git status --short` 看清楚工作区状态，不要回退用户已有改动。
-
-4. `config` 目录下可能还残留 `__pycache__`。
-   这不是源码问题，后续可在用户确认后清理；不要擅自删除。
-
-5. 浏览器 CLI 仍是轻量调试入口，不是完整测试执行器。
-   它适合验证打开页面、截图、输入、点击是否可用。
-
-6. LLM 网络问题需要区分代码问题和代理 / TLS / 服务问题。
-   之前出现过请求卡在 TLS/代理握手阶段，已给 `argus llm check` 加超时和 Ctrl+C 友好处理。
-
-7. 每步截图后报告会变长。
-   当前报告会按步骤直接展示截图；复杂任务截图较多时可读性一般，后续可增加截图画廊、失败步骤优先展示、参数折叠和点击放大。
-
-8. 每个动作后会采集截图和快照，执行耗时会增加。
-   这是为了报告证据完整性；后续可以增加截图策略，例如只在关键步骤、失败步骤或最终步骤截图。
-
-9. 选择器兼容仍是有限兜底。
-   当前兼容 `:contains()` 等常见误写，但不应无限兼容模型随意生成的伪代码；更可靠的方向是继续增强页面快照和失败后重规划。
+- `config/llm.env` 包含敏感信息，排查问题时不要输出或复制其中内容。
+- `config/browser-states/*.json` 包含登录会话信息，排查问题时不要输出或复制其中内容。
+- `argus browser check` 是浏览器能力调试入口；完整黑盒测试仍以 `argus run` 为准。
+- LLM 调用失败时仍需区分代码问题、接口配置问题、代理 / TLS / 网络问题和模型服务问题。
+- `config/prompts` 只作为用户覆盖目录；修改用户模板前注意和包内内置模板的差异。
+- 修改前仍应先查看工作区状态，避免覆盖用户未提交改动。
 
 ## 待办清单
 
 ### 高优先级
 
-- 增加固定低消耗 JSON 检查命令，例如 `argus llm json-check`。
-- 给 `argus browser check` 增加更友好的元素定位说明或自动列出候选交互元素。
-- 优化报告展示：截图画廊、失败步骤快速定位、参数折叠、截图点击放大。
+- 为黑盒端到端闭环补充更多轻量单元测试，重点覆盖失败恢复、截图开关、报告路径回写和选择器解析。
+- 梳理 T008 / 下一阶段范围，明确是否进入 Web API、任务列表页或更完整的项目管理能力。
 
 ### 中优先级
 
 - 任务存储从临时 JSON 文件逐步演进到 SQLite + 文件系统。
-- 给浏览器动作错误增加更多上下文，比如当前 URL、页面标题、候选元素数量。
-- 为 CLI 错误输出统一格式。
-- 将路径、配置、LLM、浏览器封装补充单元测试。
-- 增加截图策略配置，例如每步截图、仅失败截图、仅关键节点截图。
-- 将 `argus run` 的执行限制推断从 CLI 抽到任务策略模块，供后续 Web API 复用。
-- 继续增强选择器兼容，例如 `button:has-text("登录")`、常见 Playwright 伪代码输出。
 
 ### 低优先级
 
-- 清理历史 `__pycache__`、临时文件和过时占位内容。
-- 完善 README 的阶段说明和开发命令。
-- 考虑将 Prompt 模板区分为内置模板和用户模板。
-- 后续如果进入 Web API 阶段，再补 FastAPI 项目结构和接口约定。
+- 清理历史 `__pycache__`、临时文件和过时占位内容；清理前先确认不会影响用户本地运行产物。
+- 后续如果进入 Web API 阶段，再补 FastAPI 项目结构、接口约定和数据模型边界。
+- 后续如果进入 Java 白盒分析阶段，再补 `java_analyzer` 的 Maven 工程结构和 Python 调用边界。
 
 ## 下次接手建议流程
 
@@ -270,6 +348,9 @@ git -C "D:\PythonProjects\Argus" status --short
 
 ```text
 README.md
+examples/README.md
+examples/task_001_screenshot.json
+examples/task_002_multistep.json
 argus_py/cli/main.py
 argus_py/cli/messages.py
 argus_py/core/paths.py
@@ -279,6 +360,9 @@ argus_py/config/llm_settings.py
 argus_py/llm/client.py
 argus_py/llm/models.py
 argus_py/llm/prompts.py
+argus_py/llm/prompts/llm_connection_check.md
+argus_py/llm/prompts/blackbox_planner.md
+argus_py/llm/prompts/blackbox_evaluator.md
 argus_py/llm/parser.py
 argus_py/llm/retry.py
 argus_py/browser/playwright_client.py
@@ -291,7 +375,10 @@ argus_py/blackbox/evaluator.py
 argus_py/blackbox/runner.py
 argus_py/task/service.py
 argus_py/task/storage.py
+argus_py/task/strategy.py
 argus_py/report/html_report.py
+argus_py/report/templates/base.html.j2
+argus_py/report/templates/blackbox_report.html.j2
 config/prompts/llm_connection_check.md
 config/llm.env.example
 ```

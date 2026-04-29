@@ -1,7 +1,10 @@
 {
   "goal": "打开 https://httpbin.org 并截图",
-  "startUrl": "https://httpbin.org",
-  "maxSteps": 5,
-  "timeoutSeconds": 120,
-  "captureScreenshots": true
+  "start_url": "https://httpbin.org",
+  "task_type": "blackbox",
+  "status": "pending",
+  "max_steps": 6,
+  "timeout_seconds": 180,
+  "capture_screenshots": true,
+  "parameters": {}
 }

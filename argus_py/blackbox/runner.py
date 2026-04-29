@@ -329,6 +329,7 @@ class BlackboxRunner:
                 "params": log.params,
                 "url_before": log.url_before,
                 "url_after": log.url_after,
+                "screenshot_path": log.screenshot_path,
                 "message": log.message,
                 "error": log.error,
             }
