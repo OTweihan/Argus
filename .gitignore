@@ -41,3 +41,4 @@ outputs/temp/*
 Thumbs.db
 config/llm.env
 config/llm.local.env
+config/browser-states/*.json

@@ -45,6 +45,7 @@ include = ["argus_py*"]
 
 [tool.setuptools.package-data]
 "argus_py.report" = ["templates/*.j2"]
+"argus_py.llm" = ["prompts/*.md"]
 
 [tool.black]
 line-length = 100
