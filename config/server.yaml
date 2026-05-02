@@ -1,0 +1,24 @@
+# Argus Web 服务配置
+server:
+  host: 127.0.0.1
+  port: 8000
+  reload: false
+
+cors:
+  allow_origins:
+    - http://localhost:8000
+    - http://127.0.0.1:8000
+  allow_credentials: true
+  allow_methods:
+    - "*"
+  allow_headers:
+    - "*"
+
+scheduler:
+  concurrency: 1
+  queue_max_size: 0
+  shutdown_timeout_seconds: 5
+
+events:
+  history_limit: 200
+  subscriber_queue_size: 100

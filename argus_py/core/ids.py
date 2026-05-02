@@ -18,6 +18,16 @@ def generate_task_id() -> str:
     return generate_id("task")
 
 
+def generate_project_id() -> str:
+    """生成项目 ID。"""
+    return generate_id("proj")
+
+
+def generate_model_config_id() -> str:
+    """生成模型配置 ID。"""
+    return generate_id("model")
+
+
 def generate_step_id() -> str:
     """生成步骤 ID。"""
     return generate_id("step")

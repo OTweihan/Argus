@@ -58,9 +58,19 @@ class Settings:
     def temp_dir(self) -> Path:
         return self.output_dir / "temp"
 
+    @property
+    def data_dir(self) -> Path:
+        return self.output_dir / "data"
+
     def ensure_output_dirs(self) -> None:
         """确保运行产物目录存在。"""
-        for path in (self.logs_dir, self.screenshots_dir, self.reports_dir, self.temp_dir):
+        for path in (
+            self.logs_dir,
+            self.screenshots_dir,
+            self.reports_dir,
+            self.temp_dir,
+            self.data_dir,
+        ):
             path.mkdir(parents=True, exist_ok=True)
 
 

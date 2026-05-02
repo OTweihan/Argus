@@ -7,6 +7,7 @@ import asyncio
 import getpass
 import json
 import msvcrt
+import os
 import re
 import sys
 from datetime import datetime
@@ -65,6 +66,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    serve_parser = subparsers.add_parser("serve", help="启动 FastAPI Web 服务")
+    serve_parser.add_argument("--host", help="监听地址；不传时读取 config/server.yaml")
+    serve_parser.add_argument("--port", type=_positive_int, help="监听端口；不传时读取 config/server.yaml")
+    serve_parser.add_argument("--reload", action="store_true", default=None, help="启用开发热重载")
+    serve_parser.add_argument(
+        "--config",
+        default="config/server.yaml",
+        help="服务配置文件路径",
+    )
 
     run_parser = subparsers.add_parser("run", help="执行黑盒测试任务")
     run_parser.add_argument("--goal", required=True, help="自然语言测试目标")
@@ -378,6 +389,37 @@ def _run_config_llm(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve(args: argparse.Namespace) -> int:
+    """启动 FastAPI Web 服务。"""
+    try:
+        import uvicorn
+    except ImportError:
+        _print_cli_error(
+            "Web 服务启动失败",
+            "缺少 uvicorn 依赖。",
+            '请先安装项目依赖，例如：pip install -e ".[dev]"',
+        )
+        return 1
+
+    from argus_py.api.dependencies import SERVER_CONFIG_ENV, load_server_settings
+
+    os.environ[SERVER_CONFIG_ENV] = str(resolve_project_path(args.config))
+    settings = load_server_settings(args.config)
+    host = args.host or settings.host
+    port = args.port or settings.port
+    reload_enabled = args.reload if args.reload is not None else settings.reload
+
+    print(f"启动 Web 服务：http://{host}:{port}")
+    print("OpenAPI 文档：/docs")
+    uvicorn.run(
+        "argus_py.api.app:app",
+        host=host,
+        port=port,
+        reload=reload_enabled,
+    )
+    return 0
+
+
 async def _run_browser_check(args: argparse.Namespace) -> int:
     """运行 T002 浏览器封装调试命令。"""
     screenshot_path = resolve_project_path(args.screenshot)
@@ -597,6 +639,16 @@ def main(argv: list[str] | None = None) -> int:
     """CLI 主函数。"""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "serve":
+        try:
+            return _run_serve(args)
+        except KeyboardInterrupt:
+            _print_cli_cancelled("Web 服务")
+            return 130
+        except Exception as exc:
+            _print_cli_error("Web 服务启动失败", exc)
+            return 1
 
     if args.command == "run":
         try:

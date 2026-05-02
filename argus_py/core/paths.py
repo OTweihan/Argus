@@ -34,8 +34,10 @@ LOGS_DIR = OUTPUT_DIR / "logs"
 SCREENSHOTS_DIR = OUTPUT_DIR / "screenshots"
 REPORTS_DIR = OUTPUT_DIR / "reports"
 TEMP_DIR = OUTPUT_DIR / "temp"
+DATA_DIR = OUTPUT_DIR / "data"
 
 REPORT_TEMPLATES_DIR = PACKAGE_ROOT / "report" / "templates"
+API_STATIC_DIR = PACKAGE_ROOT / "api" / "static"
 
 
 def resolve_project_path(path: str | Path) -> Path:

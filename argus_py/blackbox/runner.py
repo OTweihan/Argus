@@ -10,6 +10,7 @@ from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
 from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.browser import BrowserSession, PageSnapshot
+from argus_py.config.service import resolve_llm_client_for_task
 from argus_py.core.enums import ActionType, FindingSeverity, FindingType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
@@ -37,6 +38,8 @@ class BlackboxRunner:
         self.service = service or TaskService()
         self.planner = planner or BlackboxPlanner()
         self.evaluator = evaluator or BlackboxEvaluator()
+        self._uses_default_planner = planner is None
+        self._uses_default_evaluator = evaluator is None
         self.browser_session_factory = browser_session_factory or self._default_browser_session
         self.report_generator = report_generator or ReportGenerator()
         self.max_plan_steps = max_plan_steps
@@ -51,8 +54,9 @@ class BlackboxRunner:
         if owns_status:
             resolved = self.service.start_task(resolved)
 
+        planner, evaluator = self._resolve_llm_boundaries(resolved)
         task_input = self._to_task_input(resolved)
-        sequence = await self.planner.plan_initial(task_input)
+        sequence = await planner.plan_initial(task_input)
 
         try:
             async with self.browser_session_factory(resolved) as session:
@@ -62,7 +66,7 @@ class BlackboxRunner:
 
                 while executed_steps < task_input.max_steps:
                     if not sequence.steps:
-                        sequence = await self._plan_next(resolved, latest_observation)
+                        sequence = await self._plan_next(resolved, latest_observation, planner)
                         if not sequence.steps:
                             raise TaskError("规划器未返回可执行动作。")
 
@@ -88,7 +92,7 @@ class BlackboxRunner:
                     if not sequence.steps:
                         continue
 
-                    evaluation = await self.evaluator.evaluate(
+                    evaluation = await evaluator.evaluate(
                         resolved.goal,
                         latest_observation,
                         history=self._history(resolved),
@@ -102,7 +106,7 @@ class BlackboxRunner:
 
                     if executed_steps >= task_input.max_steps:
                         break
-                    sequence = await self._plan_next(resolved, latest_observation)
+                    sequence = await self._plan_next(resolved, latest_observation, planner)
         except Exception as exc:
             if owns_status and resolved.status is TaskStatus.RUNNING:
                 failed = self.service.fail_task(self._latest_task(resolved), str(exc))
@@ -139,19 +143,37 @@ class BlackboxRunner:
             capture_screenshots=task.capture_screenshots,
         )
 
-    async def _plan_next(self, task: Task, latest_observation: str) -> ActionSequence:
+    async def _plan_next(
+        self,
+        task: Task,
+        latest_observation: str,
+        planner: BlackboxPlanner,
+    ) -> ActionSequence:
         """请求规划器生成下一批动作。"""
         if task.logs and task.logs[-1].url_after:
             current_url = task.logs[-1].url_after
         else:
             current_url = task.start_url or ""
-        return await self.planner.plan_next(
+        return await planner.plan_next(
             goal=task.goal,
             current_url=current_url,
             page_snapshot=latest_observation,
             history=self._history(task),
             max_steps=self.max_plan_steps,
         )
+
+    def _resolve_llm_boundaries(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:
+        """为当前任务解析 LLM 边界，默认实现按模型配置创建独立客户端。"""
+        if not self._uses_default_planner and not self._uses_default_evaluator:
+            return self.planner, self.evaluator
+        llm_client = resolve_llm_client_for_task(task)
+        planner = self.planner if not self._uses_default_planner else BlackboxPlanner(llm_client=llm_client)
+        evaluator = (
+            self.evaluator
+            if not self._uses_default_evaluator
+            else BlackboxEvaluator(llm_client=llm_client)
+        )
+        return planner, evaluator
 
     async def _execute_action(
         self,

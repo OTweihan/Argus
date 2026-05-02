@@ -3,20 +3,28 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.status import assert_transition
 from argus_py.task.storage import TaskFileStorage
+from argus_py.utils.jsonx import to_jsonable
+
+TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
 
 
 class TaskService:
     """任务创建和状态更新服务。"""
 
-    def __init__(self, storage: TaskFileStorage | None = None) -> None:
+    def __init__(
+        self,
+        storage: TaskFileStorage | None = None,
+        event_publisher: TaskEventPublisher | None = None,
+    ) -> None:
         self.storage = storage or TaskFileStorage()
+        self.event_publisher = event_publisher
 
     def create_task(
         self,
@@ -41,6 +49,7 @@ class TaskService:
             parameters=parameters or {},
         )
         self.storage.save(task)
+        self._publish("task.created", task, {"task": _task_summary(task)})
         return task
 
     def get_task(self, task_id: str) -> Task:
@@ -76,6 +85,7 @@ class TaskService:
     def update_status(self, task: Task, target: TaskStatus, error_message: str | None = None) -> Task:
         """更新任务状态。"""
         assert_transition(task.status, target)
+        previous_status = task.status
         now = datetime.now(timezone.utc)
         if target is TaskStatus.RUNNING:
             task.started_at = now
@@ -84,6 +94,33 @@ class TaskService:
         task.status = target
         task.error_message = error_message
         self.storage.save(task)
+        self._publish(
+            "task.status",
+            task,
+            {
+                "previousStatus": previous_status.value,
+                "status": target.value,
+                "errorMessage": error_message,
+                "task": _task_summary(task),
+            },
+        )
+        if target in {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.TIMEOUT,
+            TaskStatus.CANCELLED,
+        }:
+            self._publish(
+                "task.complete",
+                task,
+                {
+                    "status": target.value,
+                    "resultSummary": task.result_summary,
+                    "errorMessage": task.error_message,
+                    "reportPath": task.report_path,
+                    "task": _task_summary(task),
+                },
+            )
         return task
 
     def start_task(self, task: Task | str) -> Task:
@@ -143,7 +180,16 @@ class TaskService:
             error=error,
         )
         resolved.logs.append(log)
-        return self.save_task(resolved)
+        saved = self.save_task(resolved)
+        self._publish(
+            "task.log",
+            saved,
+            {
+                "log": to_jsonable(log),
+                "currentStep": saved.current_step,
+            },
+        )
+        return saved
 
     def append_finding(
         self,
@@ -168,4 +214,36 @@ class TaskService:
             screenshot_path=screenshot_path,
         )
         resolved.findings.append(finding)
-        return self.save_task(resolved)
+        saved = self.save_task(resolved)
+        self._publish(
+            "task.finding",
+            saved,
+            {
+                "finding": to_jsonable(finding),
+                "findingCount": len(saved.findings),
+            },
+        )
+        return saved
+
+    def _publish(self, event_type: str, task: Task, data: dict[str, Any]) -> None:
+        """发布任务事件。"""
+        if self.event_publisher is None:
+            return
+        self.event_publisher(event_type, task.task_id, to_jsonable(data))
+
+
+def _task_summary(task: Task) -> dict[str, Any]:
+    """生成轻量任务摘要，避免每个事件重复携带完整日志。"""
+    return {
+        "taskId": task.task_id,
+        "projectId": task.project_id,
+        "goal": task.goal,
+        "startUrl": task.start_url,
+        "taskType": task.task_type.value,
+        "status": task.status.value,
+        "currentStep": task.current_step,
+        "findingCount": len(task.findings),
+        "reportPath": task.report_path,
+        "resultSummary": task.result_summary,
+        "errorMessage": task.error_message,
+    }

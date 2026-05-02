@@ -1,6 +1,6 @@
 # Argus 项目信息上下文
 
-更新时间：2026-04-29
+更新时间：2026-05-02
 
 本文件用于后续接手 Argus 项目时快速恢复上下文。下次修改本项目之前，先阅读本文件，再阅读 `README.md` 和相关源码。
 
@@ -20,11 +20,12 @@ D:\PythonProjects\Argus
 - Playwright Python
 - OpenAI Chat Completions 兼容大模型接口
 - Jinja2 HTML 报告
-- JSON / 文件系统作为 MVP 阶段存储边界
+- FastAPI Web API 骨架
+- Project 使用 SQLite 存储；Task 仍使用 JSON / 文件系统作为 MVP 阶段存储边界
 
 ## 当前阶段
 
-当前已推进到 T007：
+当前已推进到 T016：
 
 - T001 项目骨架：已完成基础目录、模型、CLI、配置、报告、占位模块。
 - T002 浏览器封装：已完成 Playwright 生命周期、浏览器动作、页面快照、CLI 调试入口。
@@ -33,8 +34,17 @@ D:\PythonProjects\Argus
 - T005 黑盒 Agent 主逻辑：已完成 LLM 动作规划、浏览器动作执行、页面快照观察、LLM 结果评估、步骤日志和问题记录闭环。
 - T006 报告生成：已完成 HTML/JSON 报告生成、截图相对路径展示、任务完成/失败后报告路径回写。
 - T007 CLI 端到端联调：已完成 `argus run` 接入任务创建、黑盒执行、失败恢复、每步截图、报告输出和失败状态回写。
+- T009 FastAPI 骨架：已完成应用实例、路由注册、中间件、请求/响应模型、服务配置和 `argus serve`。
+- T010 项目管理模块：已完成 Project 模型、SQLite 存储、CRUD 服务、项目 REST API 和任务创建 projectId 校验。
+- T011 任务 REST API 完整化：已完成任务控制语义端点、报告路由拆分、HTML/JSON 报告读取和统一 HTTP 错误响应。
+- T012 异步任务调度：已完成进程内 `asyncio.Queue`、后台 Worker、FastAPI 生命周期接入和 `/tasks/{task_id}/start` 入队执行。
+- T013 WebSocket 实时日志：已完成进程内事件总线、任务事件发布和 WebSocket 事件订阅。
+- T014 模型配置管理：已完成模型配置 SQLite 存储、REST API、连接检查和任务 `modelConfigId` 解析。
+- T015 Web 控制台：已完成 TypeScript + Vite + 原生 DOM 控制台、FastAPI 静态托管接入、项目/任务/模型/仪表盘基础视图。
+- T016 平台契约测试：已完成 T009-T016 平台主链路自动化契约测试和手工验收用例文档。
 
 `argus run` 当前会真实执行黑盒闭环。需要只创建任务时使用 `--create-only`。
+`argus serve` 当前提供 Web API 骨架、项目管理、任务 REST 能力、进程内后台调度、WebSocket 实时事件、模型配置管理和静态 Web 控制台托管；T015 Web 控制台采用 TypeScript + Vite + 原生 DOM，构建产物输出到 `argus_py/api/static` 后由 FastAPI 挂载；T016 已补齐自动化契约测试和手工验收用例；运行中任务可靠中断和服务重启队列恢复留到后续任务。
 
 ## 关键命令
 
@@ -98,6 +108,18 @@ argus run --goal "打开页面并截图" --url "https://httpbin.org" --create-on
 argus run --goal "打开页面并检查标题" --url "https://httpbin.org" --no-screenshot
 ```
 
+启动 Web API：
+
+```powershell
+argus serve
+```
+
+指定 Web API 地址：
+
+```powershell
+argus serve --host 127.0.0.1 --port 8000
+```
+
 T007 报告默认输出到：
 
 ```text
@@ -135,7 +157,136 @@ outputs/screenshots/<task_id>/
 - `argus run` 的 `--max-steps` 和 `--timeout` 接受正整数；非法值会在参数解析阶段拦截。
 - `argus run --browser` 和 `argus browser check --browser` 限制为 `chromium`、`firefox`、`webkit`。
 - `argus run --no-screenshot` 会关闭执行步骤截图；即使 LLM 输出 `screenshot` 动作，也只记录跳过，不落图。
+- `argus serve` 会读取 `config/server.yaml` 启动 FastAPI，支持 `--host`、`--port`、`--reload` 和 `--config` 覆盖。
 - CLI 运行期错误统一输出为 `错误：...`、`详情：...`、`提示：...` 格式；取消类输出统一为 `已取消：...`。
+
+### Web API
+
+主要文件：
+
+- `argus_py/api/app.py`
+- `argus_py/api/dependencies.py`
+- `argus_py/api/middleware.py`
+- `argus_py/api/schemas.py`
+- `argus_py/api/routes/health.py`
+- `argus_py/api/routes/tasks.py`
+- `argus_py/api/routes/reports.py`
+- `argus_py/api/routes/projects.py`
+- `argus_py/api/routes/config.py`
+- `argus_py/api/routes/ws.py`
+- `argus_py/infra/events.py`
+- `argus_py/infra/queue.py`
+- `argus_py/infra/worker.py`
+- `config/server.yaml`
+
+当前行为：
+
+- `argus_py.api.app:app` 提供 FastAPI 应用实例，默认 OpenAPI 文档位于 `/docs`。
+- `/health` 返回服务健康状态。
+- `/api/v1/tasks` 支持创建任务快照、列表、详情、取消和 HTML 报告文件读取；创建任务不会立即执行黑盒闭环。
+- `/api/v1/tasks/{task_id}/start` 会把 pending 任务加入进程内队列并立即返回，后台 Worker 异步执行任务。
+- `/api/v1/tasks/{task_id}/pause` 当前返回未实现，暂停语义需要后续执行中断点和事件总线。
+- `/api/v1/tasks/{task_id}/stop` 对 pending/queued 任务执行取消；running 任务可靠中断留到后续实现。
+- `/api/v1/tasks/{task_id}/report` 支持 HTML 报告；可用 `format=json` 或 `/report.json` 读取结构化报告。
+- `/api/v1/projects` 已支持 SQLite 项目 CRUD；`/api/v1/config/summary` 返回非敏感服务、调度和事件配置摘要。
+- `/api/v1/config/models` 已支持模型配置 CRUD；`/api/v1/config/models/test` 可测试已保存或临时模型配置。
+- `/api/v1/ws/tasks/{task_id}` 支持订阅单个任务事件，`/api/v1/ws/tasks` 支持订阅全局任务事件。
+- API 请求/响应模型支持 camelCase 别名，同时内部仍复用现有 snake_case 任务模型。
+- Web API 创建任务必须传 `projectId`；任务未显式传 `startUrl`、`maxSteps`、`timeoutSeconds`、`captureScreenshots` 时会继承项目默认配置；可通过 `modelConfigId` 指定模型配置。
+
+### 项目管理
+
+主要文件：
+
+- `argus_py/project/models.py`
+- `argus_py/project/storage.py`
+- `argus_py/project/service.py`
+- `argus_py/infra/db.py`
+
+当前行为：
+
+- Project 存储使用 SQLite，默认数据库路径为 `outputs/data/argus.db`。
+- 当前只保存登录态引用 `auth_state_name`，不保存账号、密码、Cookie 或 token 内容。
+- 删除项目时会检查是否存在关联任务；有关联任务时拒绝删除，避免任务出现悬空项目引用。
+- SQLite 初始化由 `ProjectSQLiteStorage` 自动触发，包含 `projects` 表和基础索引。
+
+### 异步任务调度
+
+主要文件：
+
+- `argus_py/infra/queue.py`
+- `argus_py/infra/worker.py`
+- `argus_py/api/routes/tasks.py`
+- `argus_py/api/app.py`
+- `config/server.yaml`
+
+当前行为：
+
+- 使用进程内 `asyncio.Queue`，不依赖 Redis、RabbitMQ、Celery 等中间件。
+- FastAPI startup 时启动后台 Worker，shutdown 时尽量停止 Worker。
+- 队列只保存任务 ID；任务详情、状态、日志和报告仍由现有 Task JSON 和文件系统保存。
+- 重复启动同一任务会返回 409，避免重复入队或重复执行。
+- 服务重启后内存队列不会恢复；如果进程异常退出，running 任务可能停留在 running，需要后续恢复策略处理。
+- `config/server.yaml` 的 `scheduler.concurrency`、`queue_max_size`、`shutdown_timeout_seconds` 控制本地调度参数。
+
+### WebSocket 实时事件
+
+主要文件：
+
+- `argus_py/infra/events.py`
+- `argus_py/api/routes/ws.py`
+- `argus_py/task/service.py`
+- `config/server.yaml`
+
+当前行为：
+
+- 使用进程内事件总线，不依赖外部消息中间件。
+- `TaskService` 在任务创建、状态变化、步骤日志追加、问题追加和任务终态时发布事件。
+- 事件类型包括 `task.created`、`task.status`、`task.log`、`task.finding`、`task.complete`。
+- WebSocket 支持最近事件回放，回放数量由 `events.history_limit` 控制。
+- WebSocket 空闲时会发送 `system.keepalive` 保活事件。
+- 服务重启后历史事件缓存会丢失；持久化事件流留到后续扩展。
+
+### Web 控制台
+
+主要文件：
+
+- `frontend/package.json`
+- `frontend/tsconfig.json`
+- `frontend/vite.config.ts`
+- `frontend/src/api.ts`
+- `frontend/src/main.ts`
+- `frontend/src/state.ts`
+- `frontend/src/views.ts`
+- `frontend/src/ui.ts`
+- `frontend/src/ws.ts`
+- `frontend/src/styles.css`
+- `argus_py/api/app.py`
+
+当前行为：
+
+- 前端采用 TypeScript + Vite + 原生 DOM，不引入 React/Vue/Svelte 等框架；当前定位是后续可扩展的控制台，不是一次性临时页面。
+- Vite 构建输出目录为 `argus_py/api/static`；只有该目录存在 `index.html` 时，FastAPI 才会把 `/` 挂载为控制台静态站点。
+- 控制台包含仪表盘、项目、任务、模型四个视图。
+- `main.ts` 负责事件绑定、接口调用、状态更新和表单读写；页面 HTML 渲染已拆到 `views.ts`，通用 UI 工具和弹窗已拆到 `ui.ts`。
+- 任务状态拆为 `allTasks` 和 `visibleTasks`：仪表盘统计使用完整任务集合，任务页筛选只影响可见任务列表，避免筛选条件污染全局统计。
+- 任务页通过 WebSocket 订阅任务事件，收到任务事件后触发运行态数据刷新。
+- 模型配置页的“测试”按钮会弹窗展示检查中、成功或失败结果；测试临时表单配置时不会清空当前表单。
+- 弹窗的关闭按钮、确定按钮和背景点击都应能关闭弹窗；后续如继续改弹窗，需要注意它挂载在 `document.body`，不是 `#app` 内部。
+
+### 平台测试与验收
+
+主要文件：
+
+- `tests/e2e/test_platform_contract.py`
+- `docs/phase2-e2e-test-cases.md`
+
+当前行为：
+
+- `tests/e2e/test_platform_contract.py` 覆盖平台核心链路、持久化契约和 CLI/Web 命令并存。
+- `docs/phase2-e2e-test-cases.md` 记录 T009-T016 的自动化契约测试、手工验收用例和验证记录。
+- 2026-05-02 用户执行 `pytest tests/e2e/test_platform_contract.py`，结果为 `3 passed`。
+- 首次执行契约测试时出现 FastAPI `on_event` deprecation warning，已将应用生命周期改为 `lifespan` 写法；该 warning 修复尚未由用户再次复测。
 
 ### 任务执行策略
 
@@ -192,10 +343,12 @@ outputs/screenshots/<task_id>/
 
 ### 配置
 
-系统配置与大模型配置已拆分：
+系统配置、旧大模型 env 配置与平台模型配置已拆分：
 
 - 系统配置模块：`argus_py/config/settings.py`
-- 大模型配置模块：`argus_py/config/llm_settings.py`
+- 旧大模型 env 配置模块：`argus_py/config/llm_settings.py`
+- 平台模型配置模块：`argus_py/config/models.py`、`argus_py/config/model_storage.py`、`argus_py/config/service.py`
+- 模型供应商适配：`argus_py/llm/providers.py`
 - 大模型真实配置文件：`config/llm.env`
 - 大模型配置模板：`config/llm.env.example`
 
@@ -302,32 +455,49 @@ outputs/screenshots/<task_id>/
 
 ## 已知问题
 
-当前暂无明确阻塞 T007 CLI 黑盒 MVP 的已知问题。历史记录中的 LLM 检查、浏览器等待、截图采集、报告生成、失败恢复、选择器推荐和路径解析问题已在当前阶段处理。
+当前暂无明确阻塞 T007 CLI 黑盒 MVP、T009-T016 平台化主链路的已知问题。历史记录中的 LLM 检查、浏览器等待、截图采集、报告生成、失败恢复、选择器推荐、路径解析、FastAPI `on_event` warning、模型测试清空表单和弹窗确定按钮无响应问题已在当前阶段处理。
 
 仍需注意：
 
 - `config/llm.env` 包含敏感信息，排查问题时不要输出或复制其中内容。
 - `config/browser-states/*.json` 包含登录会话信息，排查问题时不要输出或复制其中内容。
+- `outputs/data/argus.db` 是本地 SQLite 数据库，不纳入版本控制；删除后项目数据会丢失。
+- Project 和模型配置已进入 SQLite；Task 仍使用 JSON / 文件系统存储，跨数据源一致性、查询能力和迁移策略还没有完整收口。
+- Web 控制台依赖前端构建产物；如果没有执行 `npm run build` 生成 `argus_py/api/static/index.html`，`argus serve` 只提供 API，不会挂载控制台首页。
+- 2026-05-02 最新一次前端模块拆分和任务筛选状态拆分后，尚未执行 `npm run lint`、`npm run build` 或浏览器手工回归；需要用户后续验证。
+- 模型配置“测试”会真实调用对应模型服务；排查时注意网络、代理、TLS、额度和 token 消耗。
+- T012 使用进程内队列，不具备服务重启恢复能力；不要用多个 uvicorn worker 进程共享同一个内存队列。
+- T013 使用进程内事件总线，不具备服务重启历史事件恢复能力。
+- `/api/v1/tasks/{task_id}/pause` 当前仍是未实现语义；`stop` 对 running 任务还不能可靠中断底层浏览器执行。
 - `argus browser check` 是浏览器能力调试入口；完整黑盒测试仍以 `argus run` 为准。
 - LLM 调用失败时仍需区分代码问题、接口配置问题、代理 / TLS / 网络问题和模型服务问题。
 - `config/prompts` 只作为用户覆盖目录；修改用户模板前注意和包内内置模板的差异。
+- `uv.lock` 尚未因 FastAPI / uvicorn 依赖变更重新锁定；后续如使用 uv 安装依赖，需要按项目流程更新锁文件。
 - 修改前仍应先查看工作区状态，避免覆盖用户未提交改动。
 
 ## 待办清单
 
 ### 高优先级
 
+- 执行前端静态检查和构建验证：`cd D:\PythonProjects\Argus\frontend` 后运行 `npm run lint`，确认通过后再运行 `npm run build`。
+- 手工回归 Web 控制台模型配置页：测试按钮不清空表单、检查结果弹窗足够明显、确定按钮/关闭按钮/背景点击均可关闭。
+- 按 `docs/phase2-e2e-test-cases.md` 完整执行 T016 手工验收，重点覆盖控制台首页、项目创建、模型配置、任务创建/启动、实时日志和报告链接。
+- 重新执行 `pytest tests/e2e/test_platform_contract.py`，确认 FastAPI `lifespan` 改造后不再出现 `on_event` deprecation warning。
 - 为黑盒端到端闭环补充更多轻量单元测试，重点覆盖失败恢复、截图开关、报告路径回写和选择器解析。
-- 梳理 T008 / 下一阶段范围，明确是否进入 Web API、任务列表页或更完整的项目管理能力。
 
 ### 中优先级
 
 - 任务存储从临时 JSON 文件逐步演进到 SQLite + 文件系统。
+- 设计 running 任务可靠停止 / 暂停机制，明确浏览器执行、Worker、任务状态和事件发布之间的取消边界。
+- 设计服务重启恢复策略：包括 queued/running 任务恢复、内存队列重建和异常退出后的状态修正。
+- 梳理 SQLite 后续扩展方案：表迁移、索引、备份、数据版本和 Task 存储迁移路径。
+- 继续拆分 Web 控制台前端模块，后续优先按领域拆出 `projects`、`tasks`、`models` 的控制器或 store，避免 `main.ts` 再次膨胀。
+- 为 Web 控制台补充前端测试或轻量交互回归脚本，覆盖表单提交、筛选、弹窗和 WebSocket 刷新。
 
 ### 低优先级
 
+- 清理或确认 `argus_py/api/static` 构建产物的版本控制策略；不要手工修改构建产物作为源码。
 - 清理历史 `__pycache__`、临时文件和过时占位内容；清理前先确认不会影响用户本地运行产物。
-- 后续如果进入 Web API 阶段，再补 FastAPI 项目结构、接口约定和数据模型边界。
 - 后续如果进入 Java 白盒分析阶段，再补 `java_analyzer` 的 Maven 工程结构和 Python 调用边界。
 
 ## 下次接手建议流程
@@ -353,6 +523,24 @@ examples/task_001_screenshot.json
 examples/task_002_multistep.json
 argus_py/cli/main.py
 argus_py/cli/messages.py
+argus_py/api/app.py
+argus_py/api/dependencies.py
+argus_py/api/middleware.py
+argus_py/api/schemas.py
+argus_py/api/routes/health.py
+argus_py/api/routes/tasks.py
+argus_py/api/routes/reports.py
+argus_py/api/routes/projects.py
+argus_py/api/routes/config.py
+argus_py/api/routes/ws.py
+argus_py/api/static/
+argus_py/infra/events.py
+argus_py/infra/queue.py
+argus_py/infra/worker.py
+argus_py/project/models.py
+argus_py/project/storage.py
+argus_py/project/service.py
+argus_py/infra/db.py
 argus_py/core/paths.py
 argus_py/core/constants.py
 argus_py/config/settings.py
@@ -379,6 +567,19 @@ argus_py/task/strategy.py
 argus_py/report/html_report.py
 argus_py/report/templates/base.html.j2
 argus_py/report/templates/blackbox_report.html.j2
+frontend/package.json
+frontend/tsconfig.json
+frontend/vite.config.ts
+frontend/src/api.ts
+frontend/src/main.ts
+frontend/src/state.ts
+frontend/src/views.ts
+frontend/src/ui.ts
+frontend/src/ws.ts
+frontend/src/styles.css
+tests/e2e/test_platform_contract.py
+docs/phase2-e2e-test-cases.md
 config/prompts/llm_connection_check.md
+config/server.yaml
 config/llm.env.example
 ```
