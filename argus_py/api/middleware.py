@@ -10,6 +10,9 @@ from fastapi.responses import JSONResponse
 
 from argus_py.api.dependencies import ServerSettings
 from argus_py.core.exceptions import ArgusError, ModelConfigError, ProjectError, TaskError
+from argus_py.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
@@ -74,6 +77,20 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
             message = str(detail)
             details = {}
         return _error_response(code, message, exc.status_code, details)
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        logger.error(
+            "未捕获的 API 异常：%s %s",
+            request.method,
+            request.url.path,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        return _error_response(
+            "INTERNAL_SERVER_ERROR",
+            "服务内部错误。",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 def _error_response(

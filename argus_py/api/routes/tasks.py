@@ -72,29 +72,49 @@ async def list_tasks(
     project_id: str | None = Query(default=None, alias="projectId"),
     limit: int = Query(default=50, gt=0, le=200),
     service: TaskService = Depends(get_task_service),
+    queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskListResponse:
     """列出任务，支持按状态和项目过滤。"""
     all_tasks = service.list_tasks(status=status, project_id=project_id)
     tasks = all_tasks[:limit]
-    return TaskListResponse(total=len(all_tasks), tasks=[TaskResponse.from_task(task) for task in tasks])
+    responses = []
+    for task in tasks:
+        responses.append(
+            TaskResponse.from_task(
+                task,
+                scheduler_status=await queue.scheduler_status(task.task_id),
+            )
+        )
+    return TaskListResponse(total=len(all_tasks), tasks=responses)
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(
     task_id: str,
     service: TaskService = Depends(get_task_service),
+    queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskResponse:
     """查询任务详情。"""
-    return TaskResponse.from_task(service.get_task(task_id))
+    task = service.get_task(task_id)
+    return TaskResponse.from_task(
+        task,
+        scheduler_status=await queue.scheduler_status(task.task_id),
+    )
 
 
 @router.post("/{task_id}/cancel", response_model=TaskResponse)
 async def cancel_task(
     task_id: str,
     service: TaskService = Depends(get_task_service),
+    queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskResponse:
     """取消尚未完成的任务。"""
-    return TaskResponse.from_task(service.cancel_task(task_id))
+    await queue.cancel(task_id)
+    task = service.cancel_task(task_id)
+    return TaskResponse.from_task(
+        task,
+        scheduler_status=await queue.scheduler_status(task.task_id),
+    )
 
 
 @router.post("/{task_id}/start", response_model=TaskStartResponse)
@@ -126,7 +146,7 @@ async def start_task(
         )
     return TaskStartResponse(
         scheduler_status=result.scheduler_status,
-        task=TaskResponse.from_task(task),
+        task=TaskResponse.from_task(task, scheduler_status=result.scheduler_status),
     )
 
 
@@ -157,7 +177,12 @@ async def stop_task(
     task = service.get_task(task_id)
     scheduler_status = await queue.scheduler_status(task.task_id)
     if scheduler_status == "queued":
-        return TaskResponse.from_task(service.cancel_task(task))
+        await queue.cancel(task.task_id)
+        cancelled = service.cancel_task(task)
+        return TaskResponse.from_task(
+            cancelled,
+            scheduler_status=await queue.scheduler_status(cancelled.task_id),
+        )
     if task.status is TaskStatus.PENDING:
         return TaskResponse.from_task(service.cancel_task(task))
     if task.status is TaskStatus.RUNNING or scheduler_status == "running":

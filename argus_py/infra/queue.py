@@ -22,6 +22,7 @@ class TaskQueue:
         self._queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=max_size)
         self._queued_ids: set[str] = set()
         self._active_ids: set[str] = set()
+        self._cancelled_ids: set[str] = set()
         self._lock = asyncio.Lock()
 
     async def enqueue(self, task_id: str) -> EnqueueResult:
@@ -45,13 +46,19 @@ class TaskQueue:
 
     async def get(self) -> str | None:
         """获取下一个任务 ID，None 表示停止信号。"""
-        task_id = await self._queue.get()
-        if task_id is None:
-            return None
-        async with self._lock:
-            self._queued_ids.discard(task_id)
-            self._active_ids.add(task_id)
-        return task_id
+        while True:
+            task_id = await self._queue.get()
+            if task_id is None:
+                return None
+            async with self._lock:
+                if task_id in self._cancelled_ids:
+                    self._cancelled_ids.discard(task_id)
+                    self._queued_ids.discard(task_id)
+                    self._queue.task_done()
+                    continue
+                self._queued_ids.discard(task_id)
+                self._active_ids.add(task_id)
+            return task_id
 
     async def complete(self, task_id: str | None) -> None:
         """标记队列项处理完成。"""
@@ -64,6 +71,15 @@ class TaskQueue:
         """向队列投递 Worker 停止信号。"""
         for _ in range(worker_count):
             await self._queue.put(None)
+
+    async def cancel(self, task_id: str) -> bool:
+        """取消尚未被 Worker 取走的队列任务。"""
+        async with self._lock:
+            if task_id not in self._queued_ids:
+                return False
+            self._queued_ids.discard(task_id)
+            self._cancelled_ids.add(task_id)
+            return True
 
     async def scheduler_status(self, task_id: str) -> str | None:
         """查询调度状态。"""

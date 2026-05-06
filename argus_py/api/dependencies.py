@@ -60,18 +60,67 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
     events = data.get("events") or {}
     return ServerSettings(
         host=str(server.get("host", "127.0.0.1")),
-        port=int(server.get("port", 8000)),
-        reload=bool(server.get("reload", False)),
-        cors_allow_origins=list(cors.get("allow_origins", ["http://localhost:8000"])),
-        cors_allow_credentials=bool(cors.get("allow_credentials", True)),
-        cors_allow_methods=list(cors.get("allow_methods", ["*"])),
-        cors_allow_headers=list(cors.get("allow_headers", ["*"])),
-        scheduler_concurrency=max(1, int(scheduler.get("concurrency", 1))),
-        scheduler_queue_max_size=max(0, int(scheduler.get("queue_max_size", 0))),
-        scheduler_shutdown_timeout_seconds=float(scheduler.get("shutdown_timeout_seconds", 5.0)),
-        events_history_limit=max(0, int(events.get("history_limit", 200))),
-        events_subscriber_queue_size=max(1, int(events.get("subscriber_queue_size", 100))),
+        port=_as_int(server.get("port"), 8000, minimum=1),
+        reload=_as_bool(server.get("reload"), False),
+        cors_allow_origins=_as_str_list(cors.get("allow_origins"), ["http://localhost:8000"]),
+        cors_allow_credentials=_as_bool(cors.get("allow_credentials"), True),
+        cors_allow_methods=_as_str_list(cors.get("allow_methods"), ["*"]),
+        cors_allow_headers=_as_str_list(cors.get("allow_headers"), ["*"]),
+        scheduler_concurrency=_as_int(scheduler.get("concurrency"), 1, minimum=1),
+        scheduler_queue_max_size=_as_int(scheduler.get("queue_max_size"), 0, minimum=0),
+        scheduler_shutdown_timeout_seconds=_as_float(
+            scheduler.get("shutdown_timeout_seconds"),
+            5.0,
+            minimum=0,
+        ),
+        events_history_limit=_as_int(events.get("history_limit"), 200, minimum=0),
+        events_subscriber_queue_size=_as_int(events.get("subscriber_queue_size"), 100, minimum=1),
     )
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    """把 YAML 中常见布尔写法统一转换为 bool。"""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+    return bool(value)
+
+
+def _as_int(value: Any, default: int, minimum: int | None = None) -> int:
+    """把配置值转换为 int，非法值回退默认值。"""
+    try:
+        resolved = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        resolved = default
+    return max(minimum, resolved) if minimum is not None else resolved
+
+
+def _as_float(value: Any, default: float, minimum: float | None = None) -> float:
+    """把配置值转换为 float，非法值回退默认值。"""
+    try:
+        resolved = float(value if value is not None else default)
+    except (TypeError, ValueError):
+        resolved = default
+    return max(minimum, resolved) if minimum is not None else resolved
+
+
+def _as_str_list(value: Any, default: list[str]) -> list[str]:
+    """把配置中的字符串或列表统一转换为字符串列表。"""
+    if value is None:
+        return list(default)
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()] or list(default)
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return list(default)
 
 
 @lru_cache

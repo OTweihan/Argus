@@ -13,6 +13,9 @@ function wsBaseUrl(): string {
 export class TaskEventStream {
   private socket: WebSocket | null = null;
   private endpoint = "";
+  private reconnectTimer: number | null = null;
+  private reconnectAttempt = 0;
+  private manuallyClosed = false;
   private readonly handlers = new Set<EventHandler>();
   private readonly statusHandlers = new Set<StatusHandler>();
 
@@ -36,14 +39,45 @@ export class TaskEventStream {
     ) {
       return;
     }
-    this.close();
+    this.clearReconnectTimer();
+    this.manuallyClosed = false;
+    this.closeSocket();
     this.endpoint = endpoint;
-    this.socket = new WebSocket(endpoint);
+    this.openSocket(endpoint);
+  }
 
-    this.socket.addEventListener("open", () => this.emitStatus("connected"));
-    this.socket.addEventListener("close", () => this.emitStatus("disconnected"));
-    this.socket.addEventListener("error", () => this.emitStatus("error"));
-    this.socket.addEventListener("message", (message) => {
+  close(): void {
+    this.manuallyClosed = true;
+    this.clearReconnectTimer();
+    this.endpoint = "";
+    this.closeSocket();
+  }
+
+  private openSocket(endpoint: string): void {
+    const socket = new WebSocket(endpoint);
+    this.socket = socket;
+
+    socket.addEventListener("open", () => {
+      if (this.socket !== socket || this.endpoint !== endpoint) return;
+      this.reconnectAttempt = 0;
+      this.emitStatus("connected");
+    });
+    socket.addEventListener("close", () => {
+      if (this.socket === socket) {
+        this.socket = null;
+      }
+      if (this.endpoint !== endpoint) return;
+      this.emitStatus("disconnected");
+      if (!this.manuallyClosed) {
+        this.scheduleReconnect(endpoint);
+      }
+    });
+    socket.addEventListener("error", () => {
+      if (this.socket !== socket || this.endpoint !== endpoint) return;
+      this.emitStatus("error");
+    });
+    socket.addEventListener("message", (message) => {
+      if (this.socket !== socket || this.endpoint !== endpoint) return;
       try {
         const event = JSON.parse(String(message.data)) as TaskEvent;
         this.handlers.forEach((handler) => handler(event));
@@ -55,15 +89,32 @@ export class TaskEventStream {
     });
   }
 
-  close(): void {
+  private closeSocket(): void {
     if (this.socket && this.socket.readyState < WebSocket.CLOSING) {
       this.socket.close();
     }
     this.socket = null;
-    this.endpoint = "";
   }
 
   private emitStatus(status: "connected" | "disconnected" | "error"): void {
     this.statusHandlers.forEach((handler) => handler(status));
+  }
+
+  private scheduleReconnect(endpoint: string): void {
+    this.clearReconnectTimer();
+    const delayMs = Math.min(1000 * 2 ** this.reconnectAttempt, 15000);
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.manuallyClosed || this.endpoint !== endpoint) return;
+      this.openSocket(endpoint);
+    }, delayMs);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 }

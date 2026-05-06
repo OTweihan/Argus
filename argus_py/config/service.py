@@ -80,6 +80,10 @@ class ModelConfigService:
     def update_model_config(self, model_config_id: str, updates: dict[str, Any]) -> ModelConfig:
         """局部更新模型配置。"""
         config = self.get_model_config(model_config_id)
+        previous_provider = config.provider
+        provider_changed = "provider" in updates
+        base_url_overridden = "base_url" in updates
+        completions_path_overridden = "completions_path" in updates
         for field_name, value in updates.items():
             if field_name == "name":
                 value = str(value).strip()
@@ -107,6 +111,16 @@ class ModelConfigService:
 
         if not config.base_url:
             config.base_url = default_base_url(config.provider)
+        if provider_changed:
+            spec = get_provider_spec(config.provider)
+            previous_spec = get_provider_spec(previous_provider)
+            if not base_url_overridden or config.base_url == previous_spec.default_base_url:
+                config.base_url = spec.default_base_url
+            if (
+                not completions_path_overridden
+                or config.completions_path == previous_spec.completions_path
+            ):
+                config.completions_path = spec.completions_path
         config.updated_at = datetime.now(timezone.utc)
         return self.storage.save(config)
 

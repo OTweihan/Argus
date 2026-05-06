@@ -8,9 +8,9 @@ import type {
   Project,
   ProjectListResponse,
   Task,
+  TaskDisplayStatus,
   TaskListResponse,
   TaskStartResponse,
-  TaskStatus,
   TaskType,
 } from "./types";
 
@@ -28,22 +28,29 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    throw new ApiError(
+      error instanceof Error ? `无法连接 Argus API：${error.message}` : "无法连接 Argus API。",
+      0,
+      "NETWORK_ERROR",
+    );
+  }
 
   if (response.status === 204) {
     return undefined as T;
   }
 
   const contentType = response.headers.get("content-type") ?? "";
-  const body = contentType.includes("application/json")
-    ? ((await response.json()) as T | ApiErrorBody)
-    : ((await response.text()) as T);
+  const body = await parseResponseBody<T>(response, contentType);
 
   if (!response.ok) {
     const error = typeof body === "object" && body !== null ? (body as ApiErrorBody).error : undefined;
@@ -56,6 +63,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return body as T;
+}
+
+async function parseResponseBody<T>(response: Response, contentType: string): Promise<T | ApiErrorBody | string> {
+  if (!contentType.includes("application/json")) {
+    return response.text();
+  }
+  try {
+    return (await response.json()) as T | ApiErrorBody;
+  } catch {
+    throw new ApiError(
+      `服务返回了无效 JSON：HTTP ${response.status}`,
+      response.status,
+      "INVALID_JSON_RESPONSE",
+    );
+  }
 }
 
 export interface ProjectPayload {
@@ -116,9 +138,9 @@ export const api = {
   deleteProject: (projectId: string) =>
     request<void>(`/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
 
-  listTasks: (filters: { status?: TaskStatus | ""; projectId?: string; limit?: number } = {}) => {
+  listTasks: (filters: { status?: TaskDisplayStatus | ""; projectId?: string; limit?: number } = {}) => {
     const params = new URLSearchParams();
-    if (filters.status) params.set("status", filters.status);
+    if (filters.status && filters.status !== "queued") params.set("status", filters.status);
     if (filters.projectId) params.set("projectId", filters.projectId);
     if (filters.limit) params.set("limit", String(filters.limit));
     const query = params.toString();

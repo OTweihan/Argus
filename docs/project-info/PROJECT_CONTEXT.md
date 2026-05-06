@@ -40,11 +40,14 @@ D:\PythonProjects\Argus
 - T012 异步任务调度：已完成进程内 `asyncio.Queue`、后台 Worker、FastAPI 生命周期接入和 `/tasks/{task_id}/start` 入队执行。
 - T013 WebSocket 实时日志：已完成进程内事件总线、任务事件发布和 WebSocket 事件订阅。
 - T014 模型配置管理：已完成模型配置 SQLite 存储、REST API、连接检查和任务 `modelConfigId` 解析。
-- T015 Web 控制台：已完成 TypeScript + Vite + 原生 DOM 控制台、FastAPI 静态托管接入、项目/任务/模型/仪表盘基础视图。
+- T015 Web 控制台：已迁移为 Vue 3 + TypeScript + Vite 控制台，FastAPI 静态托管接入、项目/任务/模型/仪表盘基础视图已完成。
 - T016 平台契约测试：已完成 T009-T016 平台主链路自动化契约测试和手工验收用例文档。
 
 `argus run` 当前会真实执行黑盒闭环。需要只创建任务时使用 `--create-only`。
-`argus serve` 当前提供 Web API 骨架、项目管理、任务 REST 能力、进程内后台调度、WebSocket 实时事件、模型配置管理和静态 Web 控制台托管；T015 Web 控制台采用 TypeScript + Vite + 原生 DOM，构建产物输出到 `argus_py/api/static` 后由 FastAPI 挂载；T016 已补齐自动化契约测试和手工验收用例；运行中任务可靠中断和服务重启队列恢复留到后续任务。
+`argus serve` 当前提供 Web API 骨架、项目管理、任务 REST 能力、进程内后台调度、WebSocket 实时事件、
+模型配置管理和静态 Web 控制台托管；T015 Web 控制台采用 Vue 3 + TypeScript + Vite，
+构建产物输出到 `argus_py/api/static` 后由 FastAPI 挂载；T016 已补齐自动化契约测试和手工验收用例；
+运行中任务可靠中断和服务重启队列恢复留到后续任务。
 
 ## 关键命令
 
@@ -167,7 +170,7 @@ outputs/screenshots/<task_id>/
 - `argus_py/api/app.py`
 - `argus_py/api/dependencies.py`
 - `argus_py/api/middleware.py`
-- `argus_py/api/schemas.py`
+- `argus_py/api/schemas/`
 - `argus_py/api/routes/health.py`
 - `argus_py/api/routes/tasks.py`
 - `argus_py/api/routes/reports.py`
@@ -254,21 +257,25 @@ outputs/screenshots/<task_id>/
 - `frontend/package.json`
 - `frontend/tsconfig.json`
 - `frontend/vite.config.ts`
+- `frontend/src/App.vue`
 - `frontend/src/api.ts`
+- `frontend/src/composables/`
+- `frontend/src/components/`
 - `frontend/src/main.ts`
-- `frontend/src/state.ts`
-- `frontend/src/views.ts`
-- `frontend/src/ui.ts`
+- `frontend/src/utils.ts`
 - `frontend/src/ws.ts`
 - `frontend/src/styles.css`
 - `argus_py/api/app.py`
 
 当前行为：
 
-- 前端采用 TypeScript + Vite + 原生 DOM，不引入 React/Vue/Svelte 等框架；当前定位是后续可扩展的控制台，不是一次性临时页面。
+- 前端采用 Vue 3 + TypeScript + Vite；当前定位是后续可扩展的控制台，不是一次性临时页面。
 - Vite 构建输出目录为 `argus_py/api/static`；只有该目录存在 `index.html` 时，FastAPI 才会把 `/` 挂载为控制台静态站点。
 - 控制台包含仪表盘、项目、任务、模型四个视图。
-- `main.ts` 负责事件绑定、接口调用、状态更新和表单读写；页面 HTML 渲染已拆到 `views.ts`，通用 UI 工具和弹窗已拆到 `ui.ts`。
+- `main.ts` 只负责 Vue 应用挂载；`App.vue` 负责布局和组合视图；
+  `composables/useConsoleApp.ts` 负责页面状态、接口调用和 WebSocket 事件流；
+  `components/` 放项目、任务、模型表格和任务详情组件；
+  `utils.ts` 放日期、状态、表单值归一化和错误信息工具。
 - 任务状态拆为 `allTasks` 和 `visibleTasks`：仪表盘统计使用完整任务集合，任务页筛选只影响可见任务列表，避免筛选条件污染全局统计。
 - 任务页通过 WebSocket 订阅任务事件，收到任务事件后触发运行态数据刷新。
 - 模型配置页的“测试”按钮会弹窗展示检查中、成功或失败结果；测试临时表单配置时不会清空当前表单。
@@ -491,7 +498,7 @@ outputs/screenshots/<task_id>/
 - 设计 running 任务可靠停止 / 暂停机制，明确浏览器执行、Worker、任务状态和事件发布之间的取消边界。
 - 设计服务重启恢复策略：包括 queued/running 任务恢复、内存队列重建和异常退出后的状态修正。
 - 梳理 SQLite 后续扩展方案：表迁移、索引、备份、数据版本和 Task 存储迁移路径。
-- 继续拆分 Web 控制台前端模块，后续优先按领域拆出 `projects`、`tasks`、`models` 的控制器或 store，避免 `main.ts` 再次膨胀。
+- 继续拆分 Web 控制台前端模块，后续优先按领域拆出 `projects`、`tasks`、`models` 的 controller 或 store，避免 `main.ts` 再次膨胀。
 - 为 Web 控制台补充前端测试或轻量交互回归脚本，覆盖表单提交、筛选、弹窗和 WebSocket 刷新。
 
 ### 低优先级
@@ -526,7 +533,12 @@ argus_py/cli/messages.py
 argus_py/api/app.py
 argus_py/api/dependencies.py
 argus_py/api/middleware.py
-argus_py/api/schemas.py
+argus_py/api/schemas/
+argus_py/api/schemas/base.py
+argus_py/api/schemas/health.py
+argus_py/api/schemas/projects.py
+argus_py/api/schemas/tasks.py
+argus_py/api/schemas/config.py
 argus_py/api/routes/health.py
 argus_py/api/routes/tasks.py
 argus_py/api/routes/reports.py
@@ -570,11 +582,17 @@ argus_py/report/templates/blackbox_report.html.j2
 frontend/package.json
 frontend/tsconfig.json
 frontend/vite.config.ts
+frontend/src/App.vue
 frontend/src/api.ts
+frontend/src/composables/
+frontend/src/composables/useConsoleApp.ts
+frontend/src/components/
+frontend/src/components/ModelTable.vue
+frontend/src/components/ProjectTable.vue
+frontend/src/components/TaskDetail.vue
+frontend/src/components/TaskTable.vue
 frontend/src/main.ts
-frontend/src/state.ts
-frontend/src/views.ts
-frontend/src/ui.ts
+frontend/src/utils.ts
 frontend/src/ws.ts
 frontend/src/styles.css
 tests/e2e/test_platform_contract.py

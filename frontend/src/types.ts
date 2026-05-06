@@ -6,6 +6,10 @@ export type TaskStatus =
   | "cancelled"
   | "timeout";
 
+export type SchedulerStatus = "queued" | "running";
+
+export type TaskDisplayStatus = TaskStatus | SchedulerStatus;
+
 export type TaskType = "blackbox" | "whitebox";
 
 export type StepResult = "success" | "failed" | "skipped";
@@ -88,6 +92,7 @@ export interface Task {
   startUrl: string | null;
   taskType: TaskType;
   status: TaskStatus;
+  schedulerStatus: SchedulerStatus | null;
   maxSteps: number;
   timeoutSeconds: number;
   captureScreenshots: boolean;
@@ -109,7 +114,7 @@ export interface TaskListResponse {
 }
 
 export interface TaskStartResponse {
-  schedulerStatus: string;
+  schedulerStatus: SchedulerStatus;
   task: Task;
 }
 

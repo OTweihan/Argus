@@ -14,12 +14,14 @@ from argus_py.api.routes import config, health, projects, reports, tasks, ws
 from argus_py.config.settings import load_settings
 from argus_py.core.constants import PROJECT_NAME, PROJECT_TAGLINE, PROJECT_VERSION
 from argus_py.core.paths import API_STATIC_DIR
+from argus_py.utils.logger import setup_logging
 
 API_PREFIX = "/api/v1"
 
 
 def create_app() -> FastAPI:
     """创建 FastAPI 应用并注册路由。"""
+    setup_logging()
     settings = load_server_settings()
     load_settings().ensure_output_dirs()
 

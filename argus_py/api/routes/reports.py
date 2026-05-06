@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from argus_py.api.dependencies import get_task_service
+from argus_py.core.paths import REPORTS_DIR
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 
@@ -55,7 +56,10 @@ def _resolve_html_report_path(task: Task) -> Path:
     """解析并校验 HTML 报告路径。"""
     if not task.report_path:
         raise _report_not_found(task.task_id, "任务尚未生成报告。")
-    report_path = Path(task.report_path)
+    report_path = Path(task.report_path).expanduser().resolve()
+    reports_dir = REPORTS_DIR.resolve()
+    if not report_path.is_relative_to(reports_dir):
+        raise _report_not_found(task.task_id, "报告路径不在允许的报告目录下。")
     if not report_path.exists():
         raise _report_not_found(task.task_id, "HTML 报告文件不存在。")
     return report_path

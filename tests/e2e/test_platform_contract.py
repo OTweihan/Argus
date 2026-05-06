@@ -7,6 +7,8 @@ from argus_py.api.routes import projects as project_routes
 from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
 from argus_py.cli import main as cli_main
+from argus_py.config.model_storage import ModelConfigSQLiteStorage
+from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus
 from argus_py.infra.events import EventBus
 from argus_py.infra.queue import TaskQueue
@@ -76,7 +78,9 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
             ),
             service=task_service,
             project_service=project_service,
-            model_config_service=None,
+            model_config_service=ModelConfigService(
+                ModelConfigSQLiteStorage(tmp_path / "models.db")
+            ),
         )
 
         start_result = await task_routes.start_task(task.task_id, service=task_service, queue=queue)
