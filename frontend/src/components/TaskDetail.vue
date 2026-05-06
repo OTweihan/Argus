@@ -27,7 +27,7 @@
             <div class="mono muted">{{ log.urlAfter ?? log.urlBefore ?? "" }}</div>
           </div>
         </div>
-        <div v-else class="empty">暂无日志。</div>
+        <div v-else class="empty">暂无日志</div>
       </div>
       <div>
         <h2>问题</h2>
@@ -41,16 +41,16 @@
             <div class="mono muted">{{ finding.url ?? "" }}</div>
           </div>
         </div>
-        <div v-else class="empty">暂无问题。</div>
+        <div v-else class="empty">暂无问题</div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reportUrl } from "../api";
-import type { Task } from "../types";
-import { taskDisplayStatus } from "../utils";
+import {reportUrl} from "../api";
+import type {Task} from "../types";
+import {taskDisplayStatus} from "../utils";
 
 defineProps<{
   task: Task;

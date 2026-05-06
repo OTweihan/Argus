@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 from argus_py.utils.jsonx import to_jsonable
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -23,15 +26,13 @@ class TaskEvent:
 
     def to_dict(self) -> dict[str, Any]:
         """转换为 WebSocket 可发送的字典。"""
-        return to_jsonable(
-            {
-                "sequence": self.sequence,
-                "type": self.event_type,
-                "taskId": self.task_id,
-                "data": self.data,
-                "createdAt": self.created_at,
-            }
-        )
+        return {
+            "sequence": self.sequence,
+            "type": self.event_type,
+            "taskId": self.task_id,
+            "data": self.data,
+            "createdAt": self.created_at,
+        }
 
 
 class EventSubscription:
@@ -65,7 +66,8 @@ class EventBus:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        loop.create_task(self.publish_async(event_type, task_id, data or {}))
+        task = loop.create_task(self.publish_async(event_type, task_id, data or {}))
+        task.add_done_callback(_log_publish_error)
 
     async def publish_async(
         self,
@@ -126,3 +128,10 @@ class EventBus:
             except asyncio.QueueEmpty:
                 pass
         queue.put_nowait(event)
+
+
+def _log_publish_error(task: asyncio.Task[object]) -> None:
+    """记录事件发布异步任务中的未处理异常。"""
+    exc = task.exception()
+    if exc:
+        logger.error("事件发布失败: %s", exc)

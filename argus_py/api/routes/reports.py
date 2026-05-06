@@ -40,7 +40,7 @@ async def get_task_report_json(
 def _html_report_response(task: Task) -> FileResponse:
     """返回 HTML 报告。"""
     html_path = _resolve_html_report_path(task)
-    return FileResponse(html_path, media_type="text/html", filename="index.html")
+    return FileResponse(html_path, media_type="text/html")
 
 
 def _json_report_response(task: Task) -> FileResponse:

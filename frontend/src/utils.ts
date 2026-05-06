@@ -25,12 +25,12 @@ export function canStartTask(task: Task): boolean {
 }
 
 export function nullableText(value: string): string | null {
-  const trimmed = value.trim();
+  const trimmed = String(value ?? "").trim();
   return trimmed || null;
 }
 
 export function nullableNumber(value: string, label: string): number | null {
-  const trimmed = value.trim();
+  const trimmed = String(value ?? "").trim();
   if (!trimmed) return null;
   const number = Number(trimmed);
   if (!Number.isFinite(number)) {
@@ -40,7 +40,7 @@ export function nullableNumber(value: string, label: string): number | null {
 }
 
 export function parseJsonObject(value: string, label: string): Record<string, unknown> {
-  const trimmed = value.trim();
+  const trimmed = String(value ?? "").trim();
   if (!trimmed) return {};
   let parsed: unknown;
   try {
@@ -58,4 +58,27 @@ export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return `${error.code}: ${error.message}`;
   if (error instanceof Error) return error.message;
   return "未知错误。";
+}
+
+export function nullableBoolean(value: "" | "true" | "false"): boolean | null {
+  if (!value) return null;
+  return value === "true";
+}
+
+export function upsertById<T extends Record<K, string>, K extends keyof T>(
+  items: T[],
+  item: T,
+  key: K,
+): T[] {
+  const index = items.findIndex((current) => current[key] === item[key]);
+  if (index < 0) return [item, ...items];
+  return items.map((current, currentIndex) => (currentIndex === index ? item : current));
+}
+
+/** Injects a click handler into report HTML so anchor (#) links scroll inside the iframe
+ *  while all other links open in a new tab instead of navigating the iframe. */
+export function injectReportLinkHandler(html: string): string {
+  const script =
+    '<script>document.addEventListener("click",function(e){var a=e.target.closest("a");if(!a||!a.href)return;var h=a.getAttribute("href");if(h&&h[0]==="#")return;e.preventDefault();window.open(a.href,"_blank")})</script>';
+  return html.replace("</head>", script + "</head>");
 }

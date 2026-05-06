@@ -148,8 +148,8 @@ async def require_visible(
     timeout_ms: int = 10000,
 ) -> Locator:
     """定位并等待元素可见。"""
-    locator = resolve_locator(page, query)
     parsed = SelectorQuery.parse(query) if isinstance(query, str) else query
+    locator = resolve_locator(page, parsed)
     try:
         await expect(locator).to_be_visible(timeout=timeout_ms)
     except Exception as exc:

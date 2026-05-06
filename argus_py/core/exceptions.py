@@ -21,10 +21,6 @@ class BrowserError(ArgusError):
     """浏览器操作失败。"""
 
 
-class ElementNotFoundError(BrowserError):
-    """页面元素未找到。"""
-
-
 class TaskError(ArgusError):
     """任务执行失败。"""
 

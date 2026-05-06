@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -107,6 +109,8 @@ class BlackboxRunner:
                     if executed_steps >= task_input.max_steps:
                         break
                     sequence = await self._plan_next(resolved, latest_observation, planner)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
         except Exception as exc:
             if owns_status and resolved.status is TaskStatus.RUNNING:
                 failed = self.service.fail_task(self._latest_task(resolved), str(exc))

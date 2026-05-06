@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vue-tsc *)",
+      "Bash(npx vite *)",
+      "Bash(pip install *)",
+      "Bash(python -m pip install -e .)",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/ -x -q)"
+    ]
+  }
+}

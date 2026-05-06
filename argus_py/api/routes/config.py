@@ -89,7 +89,10 @@ async def test_model_config(
 ) -> ModelConnectionTestResponse:
     """测试已保存或临时模型配置。"""
     config = _resolve_test_config(request, service)
-    result = await service.test_model_config(config)
+    try:
+        result = await service.test_model_config(config)
+    except Exception as exc:
+        raise ModelConfigError(f"模型连接测试失败：{exc}") from exc
     return ModelConnectionTestResponse(**result)
 
 
