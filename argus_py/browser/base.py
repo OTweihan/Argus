@@ -99,12 +99,15 @@ class BrowserSession:
         return await self.require_actions().screenshot(name, full_page=full_page)
 
     async def snapshot(self) -> PageSnapshot:
-        """获取页面快照，包含已收集的控制台消息。"""
+        """获取页面快照，包含已收集的控制台消息，采集后清空消息避免跨步骤污染。"""
         await self.require_actions().wait_for_page_ready(require_load=False)
-        return await capture_snapshot(self.require_page(), console_messages=list(self.console_messages))
+        messages = list(self.console_messages)
+        self.console_messages.clear()
+        return await capture_snapshot(self.require_page(), console_messages=messages)
 
     def _on_console(self, message: PwConsoleMessage) -> None:
-        self.console_messages.append(ConsoleMessage(level=message.type, text=message.text))
+        page_url = self.page.url if self.page else ""
+        self.console_messages.append(ConsoleMessage(level=message.type, text=message.text, page_url=page_url))
 
     async def __aenter__(self) -> "BrowserSession":
         return await self.start()

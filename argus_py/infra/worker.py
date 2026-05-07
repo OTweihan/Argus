@@ -83,13 +83,6 @@ class TaskWorker:
         except TaskError:
             return
         except Exception as exc:
-            latest = self._latest_task(task)
+            latest = self.service.get_latest_task(task)
             if latest.status in {TaskStatus.PENDING, TaskStatus.RUNNING}:
                 self.service.fail_task(latest, str(exc))
-
-    def _latest_task(self, task: Task) -> Task:
-        """读取最新任务快照，失败时返回原对象。"""
-        try:
-            return self.service.get_task(task.task_id)
-        except Exception:
-            return task

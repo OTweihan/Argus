@@ -8,7 +8,7 @@ export default defineConfig({
   build: {
     outDir: "../argus_py/api/static",
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: false,
   },
   server: {
     host: "127.0.0.1",

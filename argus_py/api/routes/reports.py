@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from argus_py.api.dependencies import get_task_service
-from argus_py.core.paths import REPORTS_DIR
+from argus_py.core.paths import REPORTS_DIR, SCREENSHOTS_DIR
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 
@@ -75,3 +75,20 @@ def _report_not_found(task_id: str, message: str) -> HTTPException:
             "details": {"taskId": task_id},
         },
     )
+
+
+@router.get("/{task_id}/screenshots/{filename:path}")
+async def get_task_screenshot(
+    task_id: str,
+    filename: str,
+    service: TaskService = Depends(get_task_service),
+) -> FileResponse:
+    """返回任务截图文件。"""
+    service.get_task(task_id)
+    screenshot_dir = (SCREENSHOTS_DIR / task_id).resolve()
+    screenshot_path = (screenshot_dir / filename).resolve()
+    if not screenshot_path.is_relative_to(screenshot_dir):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="截图路径不合法。")
+    if not screenshot_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="截图文件不存在。")
+    return FileResponse(screenshot_path)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from argus_py.core.crypto import decrypt_api_key
 from argus_py.core.paths import LLM_ENV_FILE
 from argus_py.core.constants import (
     DEFAULT_LLM_BASE_URL,
@@ -53,7 +54,7 @@ def load_llm_settings(env_file: str | Path = DEFAULT_LLM_ENV_FILE) -> LLMSetting
         load_dotenv(env_path, override=False)
 
     return LLMSettings(
-        api_key=os.getenv("LLM_API_KEY", ""),
+        api_key=decrypt_api_key(os.getenv("LLM_API_KEY", "")),
         base_url=os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL),
         model=os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL),
         max_tokens=_env_int("LLM_MAX_TOKENS", DEFAULT_LLM_MAX_TOKENS),

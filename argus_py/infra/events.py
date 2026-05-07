@@ -31,7 +31,7 @@ class TaskEvent:
             "type": self.event_type,
             "taskId": self.task_id,
             "data": self.data,
-            "createdAt": self.created_at,
+            "createdAt": self.created_at.isoformat(),
         }
 
 

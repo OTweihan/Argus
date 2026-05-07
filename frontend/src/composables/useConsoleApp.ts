@@ -41,7 +41,7 @@ export function useConsoleApp() {
 
   const {
     taskForm, showTaskDialog, taskStatusFilter, taskProjectFilter,
-    selectedTaskId, reportHtml, reportLoading,
+    selectedTaskId, reportData, reportLoading,
     selectedTask, visibleTasks, taskStatuses,
     loadTasks, selectTask, goBackToTasks, startTask, saveTask, openNewTaskDialog, resetTaskForm,
   } = useTasks({allTasks, projects, models, error, message, formErrors, view, connectEventStream});
@@ -216,7 +216,7 @@ export function useConsoleApp() {
     projects,
     providers,
     recentTasks,
-    reportHtml,
+    reportData,
     reportLoading,
     resetModelForm,
     resetProjectForm,

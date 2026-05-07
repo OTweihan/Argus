@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
+from argus_py.browser.snapshot import redact_href, redact_sensitive_text, redact_step_params
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.task.models import Finding, Task, TaskLog
@@ -58,18 +60,44 @@ class TaskService:
             raise TaskError(f"Task not found: {task_id}")
         return self.storage.load(task_id)
 
+    def get_latest_task(self, task: Task) -> Task:
+        """从存储中读取最新任务快照，失败时返回原对象。"""
+        try:
+            return self.get_task(task.task_id)
+        except Exception:
+            return task
+
     def list_tasks(
         self,
         status: TaskStatus | None = None,
         project_id: str | None = None,
+        offset: int = 0,
+        limit: int | None = None,
     ) -> list[Task]:
-        """列出任务，可按状态和项目过滤。"""
-        tasks = self.storage.list_tasks()
-        if status is not None:
-            tasks = [task for task in tasks if task.status is status]
-        if project_id is not None:
-            tasks = [task for task in tasks if task.project_id == project_id]
-        return tasks
+        """列出任务，可按状态和项目过滤，支持分页。"""
+        has_filter = status is not None or project_id is not None
+        if has_filter:
+            tasks = self.storage.list_tasks()
+            if status is not None:
+                tasks = [task for task in tasks if task.status is status]
+            if project_id is not None:
+                tasks = [task for task in tasks if task.project_id == project_id]
+            if offset:
+                tasks = tasks[offset:]
+            if limit is not None:
+                tasks = tasks[:limit]
+            return tasks
+        return self.storage.list_tasks(offset=offset, limit=limit)
+
+    def count_tasks(
+        self,
+        status: TaskStatus | None = None,
+        project_id: str | None = None,
+    ) -> int:
+        """返回任务总数。无过滤条件时只列文件名避免全量反序列化。"""
+        if status is None and project_id is None:
+            return self.storage.count_tasks()
+        return len(self.list_tasks(status=status, project_id=project_id))
 
     def save_task(self, task: Task) -> Task:
         """保存任务当前快照。"""
@@ -115,9 +143,9 @@ class TaskService:
                 task,
                 {
                     "status": target.value,
-                    "resultSummary": task.result_summary,
-                    "errorMessage": task.error_message,
-                    "reportPath": task.report_path,
+                    "resultSummary": _redact_optional_text(task.result_summary),
+                    "errorMessage": _redact_optional_text(task.error_message),
+                    "reportPath": _path_name(task.report_path),
                     "task": _task_summary(task),
                 },
             )
@@ -185,7 +213,7 @@ class TaskService:
             "task.log",
             saved,
             {
-                "log": to_jsonable(log),
+                "log": _redact_log_payload(log),
                 "currentStep": saved.current_step,
             },
         )
@@ -219,7 +247,7 @@ class TaskService:
             "task.finding",
             saved,
             {
-                "finding": to_jsonable(finding),
+                "finding": _redact_finding_payload(finding),
                 "findingCount": len(saved.findings),
             },
         )
@@ -237,13 +265,55 @@ def _task_summary(task: Task) -> dict[str, Any]:
     return {
         "taskId": task.task_id,
         "projectId": task.project_id,
-        "goal": task.goal,
-        "startUrl": task.start_url,
+        "goal": redact_sensitive_text(task.goal),
+        "startUrl": redact_href(task.start_url) if task.start_url else None,
         "taskType": task.task_type.value,
         "status": task.status.value,
         "currentStep": task.current_step,
         "findingCount": len(task.findings),
-        "reportPath": task.report_path,
-        "resultSummary": task.result_summary,
-        "errorMessage": task.error_message,
+        "reportPath": _path_name(task.report_path),
+        "resultSummary": _redact_optional_text(task.result_summary),
+        "errorMessage": _redact_optional_text(task.error_message),
     }
+
+
+def _path_name(path: str | None) -> str | None:
+    """对外事件只暴露文件名，不暴露本机路径。"""
+    return Path(path).name if path else None
+
+
+def _redact_optional_text(text: str | None) -> str | None:
+    """脱敏可选文本。"""
+    return redact_sensitive_text(text) if text else None
+
+
+def _redact_log_payload(log: TaskLog) -> dict[str, Any]:
+    """生成用于事件推送的脱敏日志。"""
+    data = to_jsonable(log)
+    params = data.get("params")
+    if isinstance(params, dict):
+        data["params"] = redact_step_params(params)
+    for url_key in ("url_before", "url_after"):
+        value = data.get(url_key)
+        if isinstance(value, str):
+            data[url_key] = redact_href(value)
+    data["screenshot_path"] = _path_name(data.get("screenshot_path"))
+    for text_key in ("message", "error"):
+        value = data.get(text_key)
+        if isinstance(value, str):
+            data[text_key] = redact_sensitive_text(value)
+    return data
+
+
+def _redact_finding_payload(finding: Finding) -> dict[str, Any]:
+    """生成用于事件推送的脱敏问题记录。"""
+    data = to_jsonable(finding)
+    url = data.get("url")
+    if isinstance(url, str):
+        data["url"] = redact_href(url)
+    data["screenshot_path"] = _path_name(data.get("screenshot_path"))
+    for text_key in ("title", "description", "location"):
+        value = data.get(text_key)
+        if isinstance(value, str):
+            data[text_key] = redact_sensitive_text(value)
+    return data

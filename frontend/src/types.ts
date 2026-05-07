@@ -164,3 +164,64 @@ export interface DashboardStats {
   running: number;
   findings: number;
 }
+
+export interface ReportFinding {
+  finding_id: string;
+  title: string;
+  description: string;
+  severity: FindingSeverity;
+  finding_type: string;
+  url: string | null;
+  location: string | null;
+  screenshot_path: string | null;
+  created_at: string;
+}
+
+export interface ReportTaskLog {
+  step_number: number;
+  action: string;
+  result: StepResult;
+  task_log_id: string;
+  params: Record<string, unknown>;
+  url_before: string | null;
+  url_after: string | null;
+  screenshot_path: string | null;
+  message: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ReportTask {
+  task_id: string;
+  project_id: string | null;
+  goal: string;
+  start_url: string | null;
+  task_type: TaskType;
+  status: TaskStatus;
+  max_steps: number;
+  timeout_seconds: number;
+  capture_screenshots: boolean;
+  current_step: number;
+  parameters: Record<string, unknown>;
+  logs: ReportTaskLog[];
+  findings: ReportFinding[];
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  report_path: string | null;
+  result_summary: string | null;
+  error_message: string | null;
+}
+
+export interface ReportData {
+  task: ReportTask;
+  report_id: string;
+  title: string;
+  summary: string;
+  generated_at: string;
+  steps: ReportTaskLog[];
+  findings: ReportFinding[];
+  display_steps: ReportTaskLog[];
+  total_steps_count: number;
+  hidden_steps_count: number;
+}

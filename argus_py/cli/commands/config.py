@@ -11,6 +11,7 @@ from pathlib import Path
 from argus_py.cli.messages import llm_field_label, llm_message
 from argus_py.cli.utils import print_cli_error
 from argus_py.core.constants import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MAX_RETRIES, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_MODEL, DEFAULT_LLM_TEMPERATURE
+from argus_py.core.crypto import encrypt_api_key
 from argus_py.core.paths import resolve_project_path
 
 LLM_ENV_KEYS = [
@@ -52,7 +53,7 @@ def run_llm(args: argparse.Namespace) -> int:
                 "请重新执行 argus config llm 并输入 API Key。",
             )
             return 1
-        updates["LLM_API_KEY"] = api_key
+        updates["LLM_API_KEY"] = encrypt_api_key(api_key)
 
     updates["LLM_BASE_URL"] = _prompt_text(llm_field_label("LLM_BASE_URL"), current.get("LLM_BASE_URL", DEFAULT_LLM_BASE_URL))
     updates["LLM_MODEL"] = _prompt_text(llm_field_label("LLM_MODEL"), current.get("LLM_MODEL", DEFAULT_LLM_MODEL))

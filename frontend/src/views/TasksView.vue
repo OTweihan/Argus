@@ -12,15 +12,12 @@
       </a>
     </div>
     <div v-if="!selectedTask" class="empty">未选择任务</div>
-    <div v-else-if="!selectedTask.reportPath" class="empty">该任务尚未生成报告，请先执行任务。</div>
-    <div v-else-if="reportLoading" class="empty">正在加载报告...</div>
-    <div v-else-if="!reportHtml" class="empty">无法加载报告内容</div>
-    <iframe
+    <ReportView
         v-else
-        class="report-frame"
-        :srcdoc="reportHtml"
-        title="任务报告"
-    ></iframe>
+        :report="reportData"
+        :loading="reportLoading"
+        :task-id="selectedTask.taskId"
+    />
   </template>
   <template v-else>
     <section class="panel">
@@ -135,6 +132,7 @@
 
 <script setup lang="ts">
 import TaskTable from "../components/TaskTable.vue";
+import ReportView from "./ReportView.vue";
 import { reportUrl } from "../api";
 import { useConsoleApp } from "../composables/useConsoleApp";
 
@@ -143,7 +141,7 @@ type AppContext = ReturnType<typeof useConsoleApp>;
 const props = defineProps<{ app: AppContext }>();
 const {
   view, projects, visibleTasks, taskStatusFilter, taskProjectFilter,
-  taskStatuses, selectedTask, reportHtml, reportLoading, taskForm,
+  taskStatuses, selectedTask, reportData, reportLoading, taskForm,
   showTaskDialog, formErrors, error, enabledModels,
   selectTask, startTask, goBackToTasks, saveTask, openNewTaskDialog,
 } = props.app;

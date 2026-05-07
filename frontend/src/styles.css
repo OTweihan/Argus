@@ -869,7 +869,7 @@ tbody tr:hover td.actions button {
   margin-bottom: 12px;
 }
 
-/* When task-detail view is active, prevent outer scroll, let iframe scroll */
+/* When task-detail view is active, fill the viewport and let report scroll */
 .main:has(.report-bar) {
   height: 100vh;
   overflow: hidden;
@@ -877,11 +877,9 @@ tbody tr:hover td.actions button {
   flex-direction: column;
 }
 
-.main:has(.report-bar) .report-frame {
+.main:has(.report-bar) .report-container {
   flex: 1;
   min-height: 0;
-  height: auto;
-  width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #ffffff;

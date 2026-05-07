@@ -10,7 +10,7 @@ from argus_py.browser.errors import (
 )
 from argus_py.browser.playwright_client import PlaywrightClient
 from argus_py.browser.selectors import SelectorQuery, css, label, placeholder, role, test_id, text, xpath
-from argus_py.browser.snapshot import ConsoleMessage, InteractiveElement, PageSnapshot, capture_snapshot
+from argus_py.browser.snapshot import ConsoleMessage, InteractiveElement, PageSnapshot, capture_snapshot, redact_href, redact_sensitive_text, redact_step_params
 
 __all__ = [
     "BrowserActions",
@@ -28,6 +28,9 @@ __all__ = [
     "InteractiveElement",
     "ConsoleMessage",
     "capture_snapshot",
+    "redact_href",
+    "redact_sensitive_text",
+    "redact_step_params",
     "BrowserActionError",
     "BrowserNotStartedError",
     "BrowserTimeoutError",

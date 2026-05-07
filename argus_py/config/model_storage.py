@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from argus_py.config.models import ModelConfig
+from argus_py.core.crypto import decrypt_api_key, encrypt_api_key
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.infra.db import DEFAULT_DB_PATH, connect, init_database
@@ -156,7 +157,7 @@ class ModelConfigSQLiteStorage:
             config.name,
             config.provider.value,
             config.model,
-            config.api_key,
+            encrypt_api_key(config.api_key),
             config.base_url,
             config.completions_path,
             config.max_tokens,
@@ -178,7 +179,7 @@ class ModelConfigSQLiteStorage:
                 "name": row["name"],
                 "provider": row["provider"],
                 "model": row["model"],
-                "api_key": row["api_key"],
+                "api_key": decrypt_api_key(row["api_key"]),
                 "base_url": row["base_url"],
                 "completions_path": row["completions_path"],
                 "max_tokens": row["max_tokens"],

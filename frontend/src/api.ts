@@ -7,6 +7,7 @@ import type {
     ModelProvider,
     Project,
     ProjectListResponse,
+    ReportData,
     Task,
     TaskDisplayStatus,
     TaskListResponse,
@@ -156,6 +157,8 @@ export const api = {
         if (!response.ok) throw new ApiError(`获取报告失败：HTTP ${response.status}`, response.status);
         return response.text();
     },
+    getTaskReportJson: (taskId: string) =>
+        request<ReportData>(`/tasks/${encodeURIComponent(taskId)}/report.json`),
 
     listModels: (includeDisabled = true) =>
         request<ModelConfigListResponse>(`/config/models?includeDisabled=${includeDisabled}`),
@@ -177,4 +180,9 @@ export const api = {
 
 export function reportUrl(taskId: string, json = false): string {
     return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/${json ? "report.json" : "report"}`;
+}
+
+export function screenshotUrl(taskId: string, screenshotPath: string): string {
+    const filename = screenshotPath.replace(/\\/g, "/").split("/").pop() ?? "";
+    return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/screenshots/${encodeURIComponent(filename)}`;
 }

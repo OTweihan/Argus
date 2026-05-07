@@ -37,10 +37,20 @@ class TaskFileStorage:
         return Task.from_dict(self.load_raw(task_id))
 
     def list_ids(self) -> list[str]:
-        """列出已保存任务 ID。"""
+        """列出已保存任务 ID（按文件名字母序，即大致按创建时间排序）。"""
         return sorted(path.stem for path in self.base_dir.glob("*.json"))
 
-    def list_tasks(self) -> list[Task]:
-        """列出已保存任务。"""
-        tasks = [self.load(task_id) for task_id in self.list_ids()]
+    def list_tasks(self, offset: int = 0, limit: int | None = None) -> list[Task]:
+        """列出已保存任务，支持分页以减轻磁盘 I/O。"""
+        ids = self.list_ids()
+        ids.reverse()
+        if offset:
+            ids = ids[offset:]
+        if limit is not None:
+            ids = ids[:limit]
+        tasks = [self.load(task_id) for task_id in ids]
         return sorted(tasks, key=lambda item: item.created_at, reverse=True)
+
+    def count_tasks(self) -> int:
+        """快速返回任务总数（仅列文件名，不反序列化）。"""
+        return len(self.list_ids())

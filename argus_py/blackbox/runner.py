@@ -12,6 +12,7 @@ from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
 from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.browser import BrowserSession, PageSnapshot
+from argus_py.browser.snapshot import redact_href, redact_step_params
 from argus_py.config.service import resolve_llm_client_for_task
 from argus_py.core.enums import ActionType, FindingSeverity, FindingType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
@@ -113,7 +114,7 @@ class BlackboxRunner:
             raise
         except Exception as exc:
             if owns_status and resolved.status is TaskStatus.RUNNING:
-                failed = self.service.fail_task(self._latest_task(resolved), str(exc))
+                failed = self.service.fail_task(self.service.get_latest_task(resolved), str(exc))
                 self._generate_report(failed)
             raise
 
@@ -155,9 +156,9 @@ class BlackboxRunner:
     ) -> ActionSequence:
         """请求规划器生成下一批动作。"""
         if task.logs and task.logs[-1].url_after:
-            current_url = task.logs[-1].url_after
+            current_url = redact_href(task.logs[-1].url_after)
         else:
-            current_url = task.start_url or ""
+            current_url = redact_href(task.start_url or "")
         return await planner.plan_next(
             goal=task.goal,
             current_url=current_url,
@@ -338,29 +339,26 @@ class BlackboxRunner:
         """生成任务报告并回写 HTML 报告路径。"""
         return generate_report_safely(task, self.report_generator, self.service.save_task)
 
-    def _latest_task(self, task: Task) -> Task:
-        """从存储中读取最新任务快照。"""
-        try:
-            return self.service.get_task(task.task_id)
-        except TaskError:
-            return task
-
     def _history(self, task: Task) -> list[dict[str, Any]]:
-        """生成给 LLM 使用的紧凑历史。"""
+        """生成给 LLM 使用的紧凑历史，对 URL 和文本参数进行脱敏。"""
         return [
             {
                 "step_number": log.step_number,
                 "action": log.action,
                 "result": log.result.value,
-                "params": log.params,
-                "url_before": log.url_before,
-                "url_after": log.url_after,
-                "screenshot_path": log.screenshot_path,
+                "params": self._redact_params(log.params),
+                "url_before": redact_href(log.url_before) if log.url_before else None,
+                "url_after": redact_href(log.url_after) if log.url_after else None,
+                "screenshot_path": Path(log.screenshot_path).name if log.screenshot_path else None,
                 "message": log.message,
                 "error": log.error,
             }
             for log in task.logs
         ]
+
+    def _redact_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """对动作参数中的 URL 和文本进行脱敏，委托给公开工具函数。"""
+        return redact_step_params(params)
 
     def _step_params(self, step: ActionStep) -> dict[str, Any]:
         """提取动作参数用于日志。"""

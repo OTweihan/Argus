@@ -28,6 +28,7 @@ BROWSER_STATES_DIR = CONFIG_DIR / "browser-states"
 BUILTIN_PROMPTS_DIR = PACKAGE_ROOT / "llm" / "prompts"
 LOGGING_CONFIG_FILE = CONFIG_DIR / "logging.yaml"
 LLM_ENV_FILE = CONFIG_DIR / "llm.env"
+FERNET_KEY_FILE = CONFIG_DIR / ".fernet_key"
 
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
 LOGS_DIR = OUTPUT_DIR / "logs"

@@ -70,13 +70,14 @@ async def create_task(
 async def list_tasks(
     status: TaskStatus | None = None,
     project_id: str | None = Query(default=None, alias="projectId"),
+    offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, gt=0, le=200),
     service: TaskService = Depends(get_task_service),
     queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskListResponse:
-    """列出任务，支持按状态和项目过滤。"""
-    all_tasks = service.list_tasks(status=status, project_id=project_id)
-    tasks = all_tasks[:limit]
+    """列出任务，支持按状态和项目过滤及分页。"""
+    tasks = service.list_tasks(status=status, project_id=project_id, offset=offset, limit=limit)
+    total = service.count_tasks(status=status, project_id=project_id)
     responses = []
     for task in tasks:
         responses.append(
@@ -85,7 +86,7 @@ async def list_tasks(
                 scheduler_status=await queue.scheduler_status(task.task_id),
             )
         )
-    return TaskListResponse(total=len(all_tasks), tasks=responses)
+    return TaskListResponse(total=total, tasks=responses)
 
 
 @router.get("/{task_id}", response_model=TaskResponse)

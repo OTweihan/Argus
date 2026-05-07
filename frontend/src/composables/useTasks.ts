@@ -1,7 +1,7 @@
 import { computed, reactive, ref, type Ref } from "vue";
 import { api } from "../api";
-import type { ModelConfig, Project, Task, TaskDisplayStatus, TaskType } from "../types";
-import { errorMessage, injectReportLinkHandler, nullableBoolean, nullableNumber, nullableText, parseJsonObject, taskDisplayStatus, upsertById } from "../utils";
+import type { ModelConfig, Project, ReportData, Task, TaskDisplayStatus, TaskType } from "../types";
+import { errorMessage, nullableBoolean, nullableNumber, nullableText, parseJsonObject, taskDisplayStatus, upsertById } from "../utils";
 
 interface TaskForm {
   goal: string;
@@ -30,7 +30,7 @@ export function useTasks(opts: {
   const taskStatusFilter = ref<TaskDisplayStatus | "">("");
   const taskProjectFilter = ref("");
   const selectedTaskId = ref<string | null>(null);
-  const reportHtml = ref<string | null>(null);
+  const reportData = ref<ReportData | null>(null);
   const reportLoading = ref(false);
 
   const selectedTask = computed(() => {
@@ -61,13 +61,13 @@ export function useTasks(opts: {
     try {
       selectedTaskId.value = taskId;
       view.value = "task-detail";
-      reportHtml.value = null;
+      reportData.value = null;
       reportLoading.value = true;
       const task = await api.getTask(taskId);
       allTasks.value = upsertById(allTasks.value, task, "taskId");
       if (task.reportPath) {
-        const html = await api.getTaskReportHtml(taskId);
-        reportHtml.value = injectReportLinkHandler(html);
+        const data = await api.getTaskReportJson(taskId);
+        reportData.value = data;
       }
       connectEventStream();
     } catch (caught) {
@@ -156,7 +156,7 @@ export function useTasks(opts: {
     taskStatusFilter,
     taskProjectFilter,
     selectedTaskId,
-    reportHtml,
+    reportData,
     reportLoading,
     selectedTask,
     visibleTasks,
