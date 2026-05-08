@@ -10,7 +10,13 @@ from argus_py.api.dependencies import (
     get_task_queue,
     get_task_service,
 )
-from argus_py.api.schemas import TaskCreateRequest, TaskListResponse, TaskResponse, TaskStartResponse
+from argus_py.api.schemas import (
+    TaskCreateRequest,
+    TaskResponse,
+    TaskStartResponse,
+    TaskSummaryListResponse,
+    TaskSummaryResponse,
+)
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
@@ -66,7 +72,7 @@ async def create_task(
     return TaskResponse.from_task(task)
 
 
-@router.get("", response_model=TaskListResponse)
+@router.get("", response_model=TaskSummaryListResponse)
 async def list_tasks(
     status: TaskStatus | None = None,
     project_id: str | None = Query(default=None, alias="projectId"),
@@ -74,19 +80,19 @@ async def list_tasks(
     limit: int = Query(default=50, gt=0, le=200),
     service: TaskService = Depends(get_task_service),
     queue: TaskQueue = Depends(get_task_queue),
-) -> TaskListResponse:
-    """列出任务，支持按状态和项目过滤及分页。"""
-    tasks = service.list_tasks(status=status, project_id=project_id, offset=offset, limit=limit)
+) -> TaskSummaryListResponse:
+    """列出任务（轻量，不含日志和发现项），支持按状态和项目过滤及分页。"""
+    tasks = service.list_task_summaries(status=status, project_id=project_id, offset=offset, limit=limit)
     total = service.count_tasks(status=status, project_id=project_id)
     responses = []
     for task in tasks:
         responses.append(
-            TaskResponse.from_task(
+            TaskSummaryResponse.from_task(
                 task,
                 scheduler_status=await queue.scheduler_status(task.task_id),
             )
         )
-    return TaskListResponse(total=total, tasks=responses)
+    return TaskSummaryListResponse(total=total, tasks=responses)
 
 
 @router.get("/{task_id}", response_model=TaskResponse)

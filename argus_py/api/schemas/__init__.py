@@ -24,6 +24,8 @@ from argus_py.api.schemas.tasks import (
     TaskLogResponse,
     TaskResponse,
     TaskStartResponse,
+    TaskSummaryListResponse,
+    TaskSummaryResponse,
 )
 
 __all__ = [
@@ -46,4 +48,6 @@ __all__ = [
     "TaskLogResponse",
     "TaskResponse",
     "TaskStartResponse",
+    "TaskSummaryListResponse",
+    "TaskSummaryResponse",
 ]

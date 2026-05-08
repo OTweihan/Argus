@@ -3,7 +3,7 @@ import {computed, nextTick, onMounted, onUnmounted, reactive, ref, watch} from "
 import {ElMessage} from "element-plus";
 import {api} from "../api";
 import type {ConfigSummary, ModelConfig, Project, Task,} from "../types";
-import {compact, errorMessage} from "../utils";
+import {compact, errorMessage, upsertById} from "../utils";
 import {TaskEventStream} from "../ws";
 import {useProjects} from "./useProjects";
 import {useTasks} from "./useTasks";
@@ -42,7 +42,7 @@ export function useConsoleApp() {
 
     const {
         taskForm, showTaskDialog, taskStatusFilter, taskProjectFilter,
-        selectedTaskId, reportData, reportLoading,
+        taskSearchQuery, selectedTaskId, reportData, reportLoading,
         selectedTask, visibleTasks, taskStatuses,
         loadTasks, selectTask, goBackToTasks, startTask, saveTask, openNewTaskDialog, resetTaskForm,
     } = useTasks({allTasks, projects, models, error, message, formErrors, view, connectEventStream});
@@ -74,7 +74,7 @@ export function useConsoleApp() {
         return allTasks.value.filter((task) => task.status === "running").length;
     });
     const findingCount = computed(() => {
-        return allTasks.value.reduce((total, task) => total + task.findings.length, 0);
+        return allTasks.value.reduce((total, task) => total + (task.findingCount ?? task.findings?.length ?? 0), 0);
     });
     const recentTasks = computed(() => {
         return [...allTasks.value]
@@ -106,13 +106,13 @@ export function useConsoleApp() {
 
     watch(error, (val) => {
         if (val) {
-            ElMessage({message: val});
+            ElMessage({message: val, type: "error", duration: 5000});
         }
     });
 
     watch(message, (val) => {
         if (val) {
-            ElMessage({message: val});
+            ElMessage({message: val, type: "success", duration: 3000});
         }
     });
 
@@ -168,7 +168,7 @@ export function useConsoleApp() {
     }
 
     function connectEventStream(): void {
-        if (view.value === "tasks" && selectedTaskId.value) {
+        if (view.value === "task-detail" && selectedTaskId.value) {
             eventStream.connect(selectedTaskId.value);
             return;
         }
@@ -194,9 +194,7 @@ export function useConsoleApp() {
                 selectedTaskSnapshot = await api.getTask(selectedTaskId.value);
             }
             allTasks.value = selectedTaskSnapshot
-                ? tasks.tasks.map((task) =>
-                    task.taskId === selectedTaskSnapshot?.taskId ? selectedTaskSnapshot : task,
-                )
+                ? upsertById(tasks.tasks, selectedTaskSnapshot, "taskId")
                 : tasks.tasks;
             summary.value = summaryResponse;
             error.value = "";
@@ -268,6 +266,7 @@ export function useConsoleApp() {
         startTask,
         taskForm,
         taskProjectFilter,
+        taskSearchQuery,
         taskStatuses,
         taskStatusFilter,
         testModel,

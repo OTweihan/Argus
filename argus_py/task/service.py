@@ -11,7 +11,7 @@ from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskSt
 from argus_py.core.exceptions import TaskError
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.status import assert_transition
-from argus_py.task.storage import TaskFileStorage
+from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
 
 TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
@@ -22,10 +22,10 @@ class TaskService:
 
     def __init__(
         self,
-        storage: TaskFileStorage | None = None,
+        storage: TaskFileStorage | TaskSQLiteStorage | None = None,
         event_publisher: TaskEventPublisher | None = None,
     ) -> None:
-        self.storage = storage or TaskFileStorage()
+        self.storage = storage or TaskSQLiteStorage()
         self.event_publisher = event_publisher
 
     def create_task(
@@ -75,6 +75,13 @@ class TaskService:
         limit: int | None = None,
     ) -> list[Task]:
         """列出任务，可按状态和项目过滤，支持分页。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            return self.storage.list_tasks(
+                offset=offset,
+                limit=limit,
+                status=status.value if status else None,
+                project_id=project_id,
+            )
         has_filter = status is not None or project_id is not None
         if has_filter:
             tasks = self.storage.list_tasks()
@@ -94,10 +101,32 @@ class TaskService:
         status: TaskStatus | None = None,
         project_id: str | None = None,
     ) -> int:
-        """返回任务总数。无过滤条件时只列文件名避免全量反序列化。"""
+        """返回任务总数，支持按状态和项目过滤。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            return self.storage.count_tasks(
+                status=status.value if status else None,
+                project_id=project_id,
+            )
         if status is None and project_id is None:
             return self.storage.count_tasks()
         return len(self.list_tasks(status=status, project_id=project_id))
+
+    def list_task_summaries(
+        self,
+        status: TaskStatus | None = None,
+        project_id: str | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> list[Task]:
+        """轻量列表查询（不含日志和发现项），供列表页使用。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            return self.storage.list_task_summaries(
+                offset=offset,
+                limit=limit,
+                status=status.value if status else None,
+                project_id=project_id,
+            )
+        return self.list_tasks(status=status, project_id=project_id, offset=offset, limit=limit)
 
     def save_task(self, task: Task) -> Task:
         """保存任务当前快照。"""
@@ -197,8 +226,9 @@ class TaskService:
     ) -> Task:
         """追加任务步骤日志并保存。"""
         resolved = self._resolve_task(task)
+        next_step = step_number or resolved.current_step + 1
         log = TaskLog(
-            step_number=step_number or resolved.current_step + 1,
+            step_number=next_step,
             action=action,
             result=result,
             params=params or {},
@@ -210,16 +240,20 @@ class TaskService:
             error_code=error_code,
         )
         resolved.logs.append(log)
-        saved = self.save_task(resolved)
+        resolved.current_step = max(resolved.current_step, next_step)
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.append_log(resolved.task_id, log)
+        else:
+            self.storage.save(resolved)
         self._publish(
             "task.log",
-            saved,
+            resolved,
             {
                 "log": _redact_log_payload(log),
-                "currentStep": saved.current_step,
+                "currentStep": resolved.current_step,
             },
         )
-        return saved
+        return resolved
 
     def append_finding(
         self,
@@ -234,6 +268,7 @@ class TaskService:
     ) -> Task:
         """追加问题记录并保存。"""
         resolved = self._resolve_task(task)
+        previous_count = resolved.finding_count
         finding = Finding(
             title=title,
             description=description,
@@ -244,16 +279,20 @@ class TaskService:
             screenshot_path=screenshot_path,
         )
         resolved.findings.append(finding)
-        saved = self.save_task(resolved)
+        resolved.finding_count = previous_count + 1
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.append_finding(resolved.task_id, finding)
+        else:
+            self.storage.save(resolved)
         self._publish(
             "task.finding",
-            saved,
+            resolved,
             {
                 "finding": _redact_finding_payload(finding),
-                "findingCount": len(saved.findings),
+                "findingCount": resolved.finding_count,
             },
         )
-        return saved
+        return resolved
 
     def _publish(self, event_type: str, task: Task, data: dict[str, Any]) -> None:
         """发布任务事件。"""
@@ -272,7 +311,7 @@ def _task_summary(task: Task) -> dict[str, Any]:
         "taskType": task.task_type.value,
         "status": task.status.value,
         "currentStep": task.current_step,
-        "findingCount": len(task.findings),
+        "findingCount": task.finding_count,
         "reportPath": _path_name(task.report_path),
         "resultSummary": _redact_optional_text(task.result_summary),
         "errorMessage": _redact_optional_text(task.error_message),

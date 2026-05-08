@@ -92,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import TaskTable from "../components/TaskTable.vue";
+import TaskTable from "../components/task/TaskTable.vue";
 import { useConsoleApp } from "../composables/useConsoleApp";
 
 type AppContext = ReturnType<typeof useConsoleApp>;
@@ -105,9 +105,14 @@ const { projects, allTasks, recentTasks, runningCount, findingCount, selectTask,
 /* 容器及基础间距 */
 .dashboard-container {
   padding: 8px 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .mb-4 {
   margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 /* 顶部数据卡片通用样式 */
@@ -203,6 +208,17 @@ const { projects, allTasks, recentTasks, runningCount, findingCount, selectTask,
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.recent-card .el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 20px;
 }
 
 /* 重塑卡片头部 */

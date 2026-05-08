@@ -1,5 +1,5 @@
 <template>
-  <el-table v-if="tasks.length" :data="tasks" stripe style="width:100%">
+  <el-table v-if="tasks.length" :data="tasks" stripe style="width:100%" :height="height">
     <el-table-column label="目标" min-width="200">
       <template #default="{ row }">
         <strong>{{ compact(row.goal, 52) }}</strong>
@@ -31,10 +31,10 @@
 </template>
 
 <script setup lang="ts">
-import type {Project, Task, TaskDisplayStatus} from "../types";
-import {canStartTask, compact, formatDate, taskDisplayStatus} from "../utils";
+import type {Project, Task, TaskDisplayStatus} from "../../types";
+import {canStartTask, compact, formatDate, taskDisplayStatus} from "../../utils";
 
-const props = defineProps<{ tasks: Task[]; projects: Project[] }>();
+const props = defineProps<{ tasks: Task[]; projects: Project[]; height?: string | number }>();
 defineEmits<{ select: [taskId: string]; start: [taskId: string] }>();
 
 function projectName(projectId: string | null): string {

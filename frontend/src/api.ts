@@ -139,10 +139,11 @@ export const api = {
     deleteProject: (projectId: string) =>
         request<void>(`/projects/${encodeURIComponent(projectId)}`, {method: "DELETE"}),
 
-    listTasks: (filters: { status?: TaskDisplayStatus | ""; projectId?: string; limit?: number } = {}) => {
+    listTasks: (filters: { status?: TaskDisplayStatus | ""; projectId?: string; offset?: number; limit?: number } = {}) => {
         const params = new URLSearchParams();
         if (filters.status && filters.status !== "queued") params.set("status", filters.status);
         if (filters.projectId) params.set("projectId", filters.projectId);
+        if (filters.offset) params.set("offset", String(filters.offset));
         if (filters.limit) params.set("limit", String(filters.limit));
         const query = params.toString();
         return request<TaskListResponse>(`/tasks${query ? `?${query}` : ""}`);

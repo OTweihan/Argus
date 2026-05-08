@@ -38,6 +38,8 @@ class ProjectService:
         resolved_name = name.strip()
         if not resolved_name:
             raise ProjectError("项目名称不能为空。")
+        if self.storage.find_by_name(resolved_name):
+            raise ProjectError(f"项目名称已存在：{resolved_name}")
 
         project = Project(
             name=resolved_name,
@@ -72,6 +74,9 @@ class ProjectService:
                 value = str(value).strip()
                 if not value:
                     raise ProjectError("项目名称不能为空。")
+                existing = self.storage.find_by_name(value)
+                if existing and existing.project_id != project_id:
+                    raise ProjectError(f"项目名称已存在：{value}")
             if field_name in {
                 "description",
                 "base_url",

@@ -126,10 +126,34 @@ class Task:
     result_summary: str | None = None
     error_message: str | None = None
 
+    def __post_init__(self) -> None:
+        """初始化内部缓存字段。"""
+        object.__setattr__(self, "_step_cache", None)
+        object.__setattr__(self, "_finding_cache", None)
+
     @property
     def current_step(self) -> int:
-        """当前已记录步骤数。"""
+        """当前已记录步骤数（有缓存时优先返回缓存值）。"""
+        cache = self._step_cache  # type: ignore[attr-defined]
+        if cache is not None:
+            return cache
         return len(self.logs)
+
+    @current_step.setter
+    def current_step(self, value: int) -> None:
+        self._step_cache = value
+
+    @property
+    def finding_count(self) -> int:
+        """问题数量（有缓存时优先返回缓存值）。"""
+        cache = self._finding_cache  # type: ignore[attr-defined]
+        if cache is not None:
+            return cache
+        return len(self.findings)
+
+    @finding_count.setter
+    def finding_count(self, value: int) -> None:
+        self._finding_cache = value
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Task":

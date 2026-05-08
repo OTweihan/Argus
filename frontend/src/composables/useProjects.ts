@@ -2,9 +2,14 @@ import {reactive, ref, type Ref} from "vue";
 import {ElMessageBox} from "element-plus";
 import {api, type ProjectPayload} from "../api";
 import type {Project} from "../types";
-import {errorMessage, nullableText, parseJsonObject, upsertById} from "../utils";
+import {errorMessage, nullableText, upsertById} from "../utils";
 
-interface ProjectForm {
+export interface ParamEntry {
+    key: string;
+    value: string;
+}
+
+export interface ProjectForm {
     editingId: string | null;
     name: string;
     description: string;
@@ -14,7 +19,7 @@ interface ProjectForm {
     defaultMaxSteps: number | null;
     defaultTimeoutSeconds: number | null;
     defaultCaptureScreenshots: boolean;
-    parameters: string;
+    parameters: ParamEntry[];
 }
 
 export function useProjects(opts: {
@@ -43,11 +48,16 @@ export function useProjects(opts: {
             formErrors.baseUrl = "请输入合法的 http/https URL";
             return;
         }
+        const gitUrl = nullableText(projectForm.gitUrl);
+        if (gitUrl && !/^https?:\/\/.+/.test(gitUrl)) {
+            formErrors.gitUrl = "请输入合法的 http/https URL";
+            return;
+        }
         let parameters: Record<string, unknown>;
         try {
-            parameters = parseJsonObject(projectForm.parameters, "参数 JSON");
-        } catch {
-            formErrors.projectParameters = "必须为合法 JSON";
+            parameters = parseParamEntries(projectForm.parameters);
+        } catch (caught) {
+            formErrors.projectParameters = caught instanceof Error ? caught.message : "参数格式错误";
             return;
         }
         try {
@@ -85,10 +95,10 @@ export function useProjects(opts: {
             baseUrl: project.baseUrl ?? "",
             gitUrl: project.gitUrl ?? "",
             authStateName: project.authStateName ?? "",
-            defaultMaxSteps: project.defaultMaxSteps ?? null,
-            defaultTimeoutSeconds: project.defaultTimeoutSeconds ?? null,
+            defaultMaxSteps: project.defaultMaxSteps ?? DEFAULT_MAX_STEPS,
+            defaultTimeoutSeconds: project.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_S,
             defaultCaptureScreenshots: project.defaultCaptureScreenshots,
-            parameters: JSON.stringify(project.parameters, null, 2),
+            parameters: dictToParamEntries(project.parameters),
         });
         error.value = "";
         clearFormErrors();
@@ -139,6 +149,9 @@ export function useProjects(opts: {
     };
 }
 
+const DEFAULT_MAX_STEPS = 20;
+const DEFAULT_TIMEOUT_S = 300;
+
 function defaultProjectForm(): ProjectForm {
     return {
         editingId: null,
@@ -147,9 +160,29 @@ function defaultProjectForm(): ProjectForm {
         baseUrl: "",
         gitUrl: "",
         authStateName: "",
-        defaultMaxSteps: null,
-        defaultTimeoutSeconds: null,
+        defaultMaxSteps: DEFAULT_MAX_STEPS,
+        defaultTimeoutSeconds: DEFAULT_TIMEOUT_S,
         defaultCaptureScreenshots: true,
-        parameters: "{}",
+        parameters: [],
     };
+}
+
+function parseParamEntries(entries: ParamEntry[]): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    for (const entry of entries) {
+        const key = entry.key.trim();
+        if (!key) continue;
+        if (key in result) {
+            throw new Error(`参数键重复：${key}`);
+        }
+        result[key] = entry.value;
+    }
+    return result;
+}
+
+function dictToParamEntries(dict: Record<string, unknown>): ParamEntry[] {
+    return Object.entries(dict).map(([key, value]) => ({
+        key,
+        value: typeof value === "string" ? value : JSON.stringify(value),
+    }));
 }

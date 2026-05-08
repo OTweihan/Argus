@@ -7,7 +7,9 @@
       "Bash(python -m pip install -e .)",
       "Bash(python -c ' *)",
       "Bash(python -m pytest tests/ -x -q)",
-      "Bash(uv run *)"
+      "Bash(uv run *)",
+      "Bash(cat node_modules/element-plus/theme-chalk/el-main.css)",
+      "Bash(cat node_modules/element-plus/es/components/container/style/css.mjs)"
     ]
   }
 }

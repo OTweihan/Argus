@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import SidebarMenu from "./components/SidebarMenu.vue";
+import SidebarMenu from "./components/layout/SidebarMenu.vue";
 import DashboardView from "./views/DashboardView.vue";
 import ProjectsView from "./views/ProjectsView.vue";
 import TasksView from "./views/TasksView.vue";

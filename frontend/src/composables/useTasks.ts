@@ -29,22 +29,31 @@ export function useTasks(opts: {
     const showTaskDialog = ref(false);
     const taskStatusFilter = ref<TaskDisplayStatus | "">("");
     const taskProjectFilter = ref("");
+    const taskSearchQuery = ref("");
     const selectedTaskId = ref<string | null>(null);
     const reportData = ref<ReportData | null>(null);
     const reportLoading = ref(false);
 
     const selectedTask = computed(() => {
-        return (
-            allTasks.value.find((task) => task.taskId === selectedTaskId.value) ??
-            visibleTasks.value[0] ??
-            null
-        );
+        if (!selectedTaskId.value) return null;
+        return allTasks.value.find((task) => task.taskId === selectedTaskId.value) ?? null;
     });
 
     const visibleTasks = computed(() => {
+        const keyword = taskSearchQuery.value.trim().toLowerCase();
         return allTasks.value.filter((task) => {
             if (taskStatusFilter.value && taskDisplayStatus(task) !== taskStatusFilter.value) return false;
-            return !(taskProjectFilter.value && task.projectId !== taskProjectFilter.value);
+            if (taskProjectFilter.value && task.projectId !== taskProjectFilter.value) return false;
+            if (!keyword) return true;
+            const projectName = projects.value.find((project) => project.projectId === task.projectId)?.name ?? "";
+            return [
+                task.goal,
+                task.taskId,
+                task.startUrl ?? "",
+                task.resultSummary ?? "",
+                task.errorMessage ?? "",
+                projectName,
+            ].some((value) => value.toLowerCase().includes(keyword));
         });
     });
 
@@ -155,6 +164,7 @@ export function useTasks(opts: {
         showTaskDialog,
         taskStatusFilter,
         taskProjectFilter,
+        taskSearchQuery,
         selectedTaskId,
         reportData,
         reportLoading,

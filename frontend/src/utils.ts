@@ -3,12 +3,9 @@ import type { Task, TaskDisplayStatus } from "./types";
 
 export function formatDate(value: string | null): string {
   if (!value) return "-";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+  const d = new Date(value);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 export function compact(value: string, length: number): string {
@@ -55,9 +52,14 @@ export function parseJsonObject(value: string, label: string): Record<string, un
 }
 
 export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return `${error.code}: ${error.message}`;
+  if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
   return "未知错误。";
+}
+
+export function errorCode(error: unknown): string | undefined {
+  if (error instanceof ApiError) return error.code;
+  return undefined;
 }
 
 export function nullableBoolean(value: "" | "true" | "false"): boolean | null {

@@ -1,41 +1,55 @@
 <template>
-  <template v-if="view === 'task-detail'">
-    <div class="report-bar">
-      <el-button @click="goBackToTasks">← 返回任务列表</el-button>
-      <el-button v-if="selectedTask" @click="openReport">在新标签页打开</el-button>
-    </div>
-    <div v-if="!selectedTask" class="empty">未选择任务</div>
-    <ReportView
-      v-else
-      :report="reportData"
-      :loading="reportLoading"
-      :task-id="selectedTask.taskId"
-    />
-  </template>
-  <template v-else>
-    <el-card>
-      <template #header>
-        <div class="card-header">
-          <span>任务列表</span>
-          <el-button type="primary" @click="openNewTaskDialog">新增任务</el-button>
-        </div>
-      </template>
-      <div class="filter-bar">
-        <el-select v-model="taskStatusFilter" placeholder="全部状态" clearable style="width:140px">
-          <el-option v-for="status in taskStatuses" :key="status" :label="status" :value="status" />
-        </el-select>
-        <el-select v-model="taskProjectFilter" placeholder="全部项目" clearable style="width:160px">
-          <el-option v-for="project in projects" :key="project.projectId" :label="project.name" :value="project.projectId" />
-        </el-select>
+  <div class="tasks-wrapper">
+    <template v-if="view === 'task-detail'">
+      <div class="report-bar">
+        <el-button @click="goBackToTasks">返回任务列表</el-button>
+        <el-button v-if="selectedTask" @click="openReport">在新标签页打开</el-button>
       </div>
-      <TaskTable
-        :tasks="visibleTasks"
-        :projects="projects"
-        @select="selectTask"
-        @start="startTask"
+      <div v-if="!selectedTask" class="empty">未选择任务</div>
+      <ReportView
+        v-else
+        :report="reportData"
+        :loading="reportLoading"
+        :task-id="selectedTask.taskId"
       />
-    </el-card>
-  </template>
+    </template>
+    <template v-else>
+      <el-card class="tasks-card">
+        <template #header>
+          <div class="card-header">
+            <span>任务列表</span>
+            <el-button type="primary" @click="openNewTaskDialog">新增任务</el-button>
+          </div>
+        </template>
+        <div class="filter-bar">
+          <el-input v-model="taskSearchQuery" placeholder="搜索目标、任务 ID、URL" clearable class="search-input">
+            <template #prefix>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                   stroke-linejoin="round" class="search-icon">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+            </template>
+          </el-input>
+          <el-select v-model="taskStatusFilter" placeholder="全部状态" clearable style="width:140px">
+            <el-option v-for="status in taskStatuses" :key="status" :label="status" :value="status" />
+          </el-select>
+          <el-select v-model="taskProjectFilter" placeholder="全部项目" clearable style="width:160px">
+            <el-option v-for="project in projects" :key="project.projectId" :label="project.name" :value="project.projectId" />
+          </el-select>
+        </div>
+        <div class="table-wrap">
+          <TaskTable
+            :tasks="visibleTasks"
+            :projects="projects"
+            height="100%"
+            @select="selectTask"
+            @start="startTask"
+          />
+        </div>
+      </el-card>
+    </template>
+  </div>
 
   <el-dialog v-model="showTaskDialog" title="创建任务" width="580px" append-to-body>
     <el-form :model="taskForm" label-position="top" @submit.prevent="saveTask">
@@ -87,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import TaskTable from "../components/TaskTable.vue";
+import TaskTable from "../components/task/TaskTable.vue";
 import ReportView from "./ReportView.vue";
 import { reportUrl } from "../api";
 import { useConsoleApp } from "../composables/useConsoleApp";
@@ -97,7 +111,7 @@ type AppContext = ReturnType<typeof useConsoleApp>;
 const props = defineProps<{ app: AppContext }>();
 const {
   view, projects, visibleTasks, taskStatusFilter, taskProjectFilter,
-  taskStatuses, selectedTask, reportData, reportLoading, taskForm,
+  taskSearchQuery, taskStatuses, selectedTask, reportData, reportLoading, taskForm,
   showTaskDialog, formErrors, error, enabledModels,
   selectTask, startTask, goBackToTasks, saveTask, openNewTaskDialog,
 } = props.app;
@@ -110,8 +124,37 @@ function openReport(): void {
 </script>
 
 <style scoped>
+.tasks-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tasks-card {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.tasks-card .el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 20px;
+}
+
+.table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 .card-header { display: flex; align-items: center; justify-content: space-between; }
-.filter-bar { display: flex; gap: 12px; margin-bottom: 16px; }
-.report-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+.filter-bar { display: flex; gap: 12px; padding: 16px 0; flex-shrink: 0; }
+.search-input { max-width: 320px; }
+.search-icon { width: 16px; height: 16px; color: #909399; }
+.report-bar { display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
 .empty { padding: 40px; text-align: center; color: #909399; }
 </style>

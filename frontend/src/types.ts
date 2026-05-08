@@ -98,9 +98,10 @@ export interface Task {
   timeoutSeconds: number;
   captureScreenshots: boolean;
   currentStep: number;
+  findingCount?: number;
   parameters: Record<string, unknown>;
-  logs: TaskLog[];
-  findings: Finding[];
+  logs?: TaskLog[];
+  findings?: Finding[];
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;

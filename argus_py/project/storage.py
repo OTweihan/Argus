@@ -94,6 +94,15 @@ class ProjectSQLiteStorage:
         if cursor.rowcount == 0:
             raise ProjectError(f"Project not found: {project_id}")
 
+    def find_by_name(self, name: str) -> Project | None:
+        """按名称查找项目（精确匹配，区分大小写由 SQLite 排序规则决定）。"""
+        with closing(connect(self.db_path)) as connection:
+            row = connection.execute(
+                "SELECT * FROM projects WHERE name = ?",
+                (name,),
+            ).fetchone()
+        return self._from_row(row) if row is not None else None
+
     def _to_row(self, project: Project) -> tuple[Any, ...]:
         """将项目实体转换为 SQLite 参数。"""
         return (

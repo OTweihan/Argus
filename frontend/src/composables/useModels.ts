@@ -2,7 +2,7 @@ import {reactive, ref, type Ref} from "vue";
 import {ElMessageBox} from "element-plus";
 import {api, type ModelConfigPayload, type ModelConnectionPayload} from "../api";
 import type {ModelConfig, ModelProvider, TaskType} from "../types";
-import {errorMessage, nullableText} from "../utils";
+import {errorMessage, nullableText, upsertById} from "../utils";
 
 interface ModelForm {
     editingId: string | null;
@@ -203,14 +203,4 @@ function defaultModelForm(): ModelForm {
         isDefault: false,
         enabled: true,
     };
-}
-
-function upsertById<T extends Record<string, any>>(list: T[], item: T, idKey: string): T[] {
-    const index = list.findIndex((existing) => existing[idKey] === item[idKey]);
-    if (index >= 0) {
-        const copy = [...list];
-        copy[index] = item;
-        return copy;
-    }
-    return [...list, item];
 }

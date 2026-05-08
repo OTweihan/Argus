@@ -1,5 +1,5 @@
 <template>
-  <el-table v-if="models.length" :data="models" stripe style="width:100%">
+  <el-table v-if="models.length" :data="models" stripe style="width:100%" :height="height">
     <el-table-column label="名称" min-width="160">
       <template #default="{ row }">
         <strong>{{ row.name }}</strong>
@@ -26,8 +26,8 @@
 </template>
 
 <script setup lang="ts">
-import type {ModelConfig} from "../types";
+import type {ModelConfig} from "../../types";
 
-defineProps<{ models: ModelConfig[] }>();
+defineProps<{ models: ModelConfig[]; height?: string | number }>();
 defineEmits<{ edit: [model: ModelConfig]; test: [modelConfigId: string]; delete: [modelConfigId: string] }>();
 </script>

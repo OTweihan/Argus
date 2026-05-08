@@ -13,8 +13,8 @@
     <el-row :gutter="16">
       <el-col :span="12">
         <h3>步骤日志</h3>
-        <div v-if="task.logs.length" class="log-list">
-          <el-card v-for="log in task.logs" :key="log.taskLogId" shadow="hover" class="log-card">
+        <div v-if="task.logs?.length" class="log-list">
+          <el-card v-for="log in task.logs ?? []" :key="log.taskLogId" shadow="hover" class="log-card">
             <div class="log-title">
               <strong>#{{ log.stepNumber }} {{ log.action }}</strong>
               <el-tag :type="log.result === 'success' ? 'success' : 'danger'" size="small">{{ log.result }}</el-tag>
@@ -27,8 +27,8 @@
       </el-col>
       <el-col :span="12">
         <h3>问题</h3>
-        <div v-if="task.findings.length" class="finding-list">
-          <el-card v-for="finding in task.findings" :key="finding.findingId" shadow="hover" class="log-card">
+        <div v-if="task.findings?.length" class="finding-list">
+          <el-card v-for="finding in task.findings ?? []" :key="finding.findingId" shadow="hover" class="log-card">
             <div class="log-title">
               <strong>{{ finding.title }}</strong>
               <el-tag :type="findingTagType(finding.severity)" size="small">{{ finding.severity }}</el-tag>
@@ -45,9 +45,9 @@
 
 <script setup lang="ts">
 import {computed} from "vue";
-import {reportUrl} from "../api";
-import type {Task, FindingSeverity} from "../types";
-import {taskDisplayStatus} from "../utils";
+import {reportUrl} from "../../api";
+import type {Task, FindingSeverity} from "../../types";
+import {taskDisplayStatus} from "../../utils";
 
 const props = defineProps<{ task: Task }>();
 

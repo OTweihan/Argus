@@ -189,6 +189,66 @@ class TaskListResponse(ApiModel):
     tasks: list[TaskResponse]
 
 
+class TaskSummaryResponse(ApiModel):
+    """轻量任务响应（不含日志和发现项），供列表页使用。"""
+
+    task_id: str = Field(alias="taskId")
+    project_id: str | None = Field(default=None, alias="projectId")
+    goal: str
+    start_url: str | None = Field(default=None, alias="startUrl")
+    task_type: TaskType = Field(alias="taskType")
+    status: TaskStatus
+    scheduler_status: str | None = Field(default=None, alias="schedulerStatus")
+    max_steps: int = Field(alias="maxSteps")
+    timeout_seconds: int = Field(alias="timeoutSeconds")
+    capture_screenshots: bool = Field(alias="captureScreenshots")
+    current_step: int = Field(alias="currentStep")
+    finding_count: int = Field(alias="findingCount")
+    parameters: dict[str, Any]
+    created_at: datetime = Field(alias="createdAt")
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    report_path: str | None = Field(default=None, alias="reportPath")
+    result_summary: str | None = Field(default=None, alias="resultSummary")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+
+    @classmethod
+    def from_task(cls, task: Task, scheduler_status: str | None = None) -> "TaskSummaryResponse":
+        """从任务实体转换摘要响应。"""
+        return cls(
+            task_id=task.task_id,
+            project_id=task.project_id,
+            goal=redact_sensitive_text(task.goal),
+            start_url=redact_href(task.start_url) if task.start_url else None,
+            task_type=task.task_type,
+            status=task.status,
+            scheduler_status=scheduler_status,
+            max_steps=task.max_steps,
+            timeout_seconds=task.timeout_seconds,
+            capture_screenshots=task.capture_screenshots,
+            current_step=task.current_step,
+            finding_count=task.finding_count,
+            parameters=redact_step_params(task.parameters),
+            created_at=task.created_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at,
+            report_path=Path(task.report_path).name if task.report_path else None,
+            result_summary=(
+                redact_sensitive_text(task.result_summary) if task.result_summary else None
+            ),
+            error_message=(
+                redact_sensitive_text(task.error_message) if task.error_message else None
+            ),
+        )
+
+
+class TaskSummaryListResponse(ApiModel):
+    """轻量任务列表响应。"""
+
+    total: int
+    tasks: list[TaskSummaryResponse]
+
+
 class TaskStartResponse(ApiModel):
     """任务启动响应。"""
 

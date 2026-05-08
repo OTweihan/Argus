@@ -1,72 +1,135 @@
 <template>
-  <el-card>
-    <template #header>
-      <div class="card-header">
-        <span>项目列表</span>
-        <el-button type="primary" @click="openNewProjectDialog">新增项目</el-button>
+  <div class="projects-wrapper">
+    <el-card class="projects-card">
+      <template #header>
+        <div class="card-header">
+          <span>项目列表</span>
+          <el-button type="primary" @click="openNewProjectDialog">新增项目</el-button>
+        </div>
+      </template>
+      <div class="filter-bar">
+        <el-input v-model="searchQuery" placeholder="搜索名称、基础 URL" clearable class="search-input">
+          <template #prefix>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round" class="search-icon">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+          </template>
+        </el-input>
       </div>
-    </template>
-    <ProjectTable :projects="projects" @edit="editProject" @delete="deleteProject"/>
-  </el-card>
+      <div class="table-wrap">
+        <ProjectTable :projects="filteredProjects" height="100%" @detail="showDetail" @edit="editProject"
+                      @delete="deleteProject"/>
+      </div>
+    </el-card>
 
-  <el-dialog v-model="showProjectDialog" :title="projectForm.editingId ? '编辑项目' : '新增项目'" width="580px"
-             append-to-body>
-    <el-form :model="projectForm" label-position="top" @submit.prevent="saveProject">
-      <el-form-item label="名称" :error="formErrors.name" required>
-        <el-input v-model="projectForm.name" maxlength="50" @input="delete formErrors.name" show-word-limit/>
-      </el-form-item>
-      <el-form-item label="描述">
-        <el-input v-model="projectForm.description" type="textarea" :rows="4" maxlength="200" show-word-limit/>
-      </el-form-item>
-      <el-form-item label="基础 URL" :error="formErrors.baseUrl">
-        <el-input v-model="projectForm.baseUrl" placeholder="https://example.com" @input="delete formErrors.baseUrl"/>
-      </el-form-item>
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="默认最大步骤">
-            <el-input-number v-model="projectForm.defaultMaxSteps" :min="1" :max="1000" :step="1" :precision="0"
-                             style="width:100%"/>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="默认超时秒数">
-            <el-input-number v-model="projectForm.defaultTimeoutSeconds" :min="1" :max="3600" :step="1" :precision="0"
-                             style="width:100%"/>
-          </el-form-item>
-        </el-col>
-      </el-row>
-      <el-form-item label="截图">
-        <el-checkbox v-model="projectForm.defaultCaptureScreenshots">默认开启截图</el-checkbox>
-      </el-form-item>
-      <el-form-item label="参数 JSON" :error="formErrors.projectParameters">
-        <el-input v-model="projectForm.parameters" type="textarea" :rows="3"
-                  @input="delete formErrors.projectParameters"/>
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="showProjectDialog = false">取消</el-button>
-      <el-button type="primary" @click="saveProject">{{ projectForm.editingId ? '保存' : '创建' }}</el-button>
-    </template>
-  </el-dialog>
+    <ProjectFormDialog
+        :visible="showProjectDialog"
+        :form="projectForm"
+        :editing="Boolean(projectForm.editingId)"
+        :form-errors="formErrors"
+        @save="saveProject"
+        @close="showProjectDialog = false"
+        @add-param="projectForm.parameters.push({key:'', value:''})"
+        @remove-param="projectForm.parameters.splice($event, 1)"
+    />
+
+    <ProjectDetailDialog
+        :visible="detailVisible"
+        :project="detailProject"
+        @close="detailVisible = false"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">
-import ProjectTable from "../components/ProjectTable.vue";
+import {computed, ref} from "vue";
+import type {Project} from "../types";
+import ProjectTable from "../components/project/ProjectTable.vue";
+import ProjectFormDialog from "../components/project/ProjectFormDialog.vue";
+import ProjectDetailDialog from "../components/project/ProjectDetailDialog.vue";
 import {useConsoleApp} from "../composables/useConsoleApp";
 
 type AppContext = ReturnType<typeof useConsoleApp>;
 
 const props = defineProps<{ app: AppContext }>();
 const {
-  projects, projectForm, showProjectDialog, formErrors, error,
+  projects, projectForm, showProjectDialog, formErrors,
   editProject, deleteProject, saveProject, openNewProjectDialog,
 } = props.app;
+
+const searchQuery = ref("");
+const detailVisible = ref(false);
+const detailProject = ref<Project | null>(null);
+
+function showDetail(project: Project): void {
+  detailProject.value = project;
+  detailVisible.value = true;
+}
+
+const filteredProjects = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  const list = projects.value;
+  if (!q) return list;
+  return list.filter(
+      (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.projectId.toLowerCase().includes(q) ||
+          (p.description ?? "").toLowerCase().includes(q) ||
+          (p.baseUrl ?? "").toLowerCase().includes(q) ||
+          (p.gitUrl ?? "").toLowerCase().includes(q) ||
+          (p.authStateName ?? "").toLowerCase().includes(q),
+  );
+});
 </script>
 
 <style scoped>
+.projects-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.projects-card {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.projects-card .el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 20px;
+}
+
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.filter-bar {
+  flex-shrink: 0;
+  padding: 16px 0;
+}
+
+.search-input {
+  max-width: 360px;
+}
+
+.search-icon {
+  width: 16px;
+  height: 16px;
+  color: #909399;
+}
+
+.table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 </style>

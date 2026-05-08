@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import type {ViewKey} from "../composables/useConsoleApp";
+import type {ViewKey} from "../../composables/useConsoleApp";
 
 defineProps<{ view: ViewKey }>();
 defineEmits<{ changeView: [index: ViewKey] }>();
@@ -59,24 +59,16 @@ defineEmits<{ changeView: [index: ViewKey] }>();
 
 .brand {
   margin: 0;
-  padding: 22px 20px 18px;
-  font-size: 22px;
+  padding: 22px 18px;
+  font-size: 30px;
   font-weight: 760;
   letter-spacing: -0.3px;
   color: #11181c;
   border-bottom: 1px solid #ebeef5;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-}
-
-.brand::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
-  background: linear-gradient(135deg, var(--brand-accent), #818cf8);
 }
 
 .nav-menu {
