@@ -1,6 +1,6 @@
 <template>
   <el-dialog :model-value="visible" @update:model-value="$emit('close')"
-             :title="editing ? '编辑项目' : '新增项目'" width="580px" append-to-body>
+             :title="editing ? '编辑项目' : '新增项目'" width="580px" align-center append-to-body>
     <el-form label-position="top" @submit.prevent="$emit('save')">
       <el-form-item label="名称" :error="formErrors.name" required>
         <el-input v-model="form.name" maxlength="50" @input="clearError('name')" show-word-limit/>
@@ -75,10 +75,28 @@ function clearError(key: string): void {
   delete (props.formErrors as Record<string, string | undefined>)[key];
 }
 </script>
+
 <style scoped>
-.param-list { width: 100%; }
-.param-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.param-key { flex: 2; }
-.param-value { flex: 3; }
-.param-add-btn { margin-top: 4px; }
+.param-list {
+  width: 100%;
+}
+
+.param-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.param-key {
+  flex: 2;
+}
+
+.param-value {
+  flex: 3;
+}
+
+.param-add-btn {
+  margin-top: 4px;
+}
 </style>

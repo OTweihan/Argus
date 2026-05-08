@@ -1,5 +1,6 @@
 <template>
-  <el-dialog :model-value="visible" @update:model-value="$emit('close')" title="项目详情" width="620px" append-to-body>
+  <el-dialog :model-value="visible" @update:model-value="$emit('close')" title="项目详情" width="620px" align-center
+             append-to-body>
     <div v-if="project" class="detail-grid">
       <div class="detail-row">
         <span class="detail-label">名称</span>

@@ -17,9 +17,9 @@
     </el-table-column>
     <el-table-column label="操作" width="260" fixed="right">
       <template #default="{ row }">
-        <el-button size="small" @click="$emit('detail', row)">详细</el-button>
-        <el-button size="small" @click="$emit('edit', row)">编辑</el-button>
-        <el-button size="small" type="danger" @click="$emit('delete', row.projectId)">删除</el-button>
+        <el-button @click="$emit('detail', row)">详细</el-button>
+        <el-button @click="$emit('edit', row)">编辑</el-button>
+        <el-button type="danger" @click="$emit('delete', row.projectId)">删除</el-button>
       </template>
     </el-table-column>
   </el-table>
