@@ -1,6 +1,13 @@
 import {reactive, ref, type Ref} from "vue";
 import {ElMessageBox} from "element-plus";
-import {api, type ModelConfigPayload, type ModelConnectionPayload} from "../api";
+import {
+    listModels as apiListModels,
+    createModel as apiCreateModel,
+    updateModel as apiUpdateModel,
+    deleteModel as apiDeleteModel,
+    testModel as apiTestModel,
+} from "../api";
+import type {ModelConfigPayload, ModelConnectionPayload} from "../api";
 import type {ModelConfig, ModelProvider, TaskType} from "../types";
 import {errorMessage, nullableText, upsertById} from "../utils";
 
@@ -41,7 +48,7 @@ export function useModels(opts: {
     const providers: ModelProvider[] = ["dashscope", "openai", "ollama", "custom"];
 
     async function loadModels(): Promise<void> {
-        const res = await api.listModels(true);
+        const res = await apiListModels(true);
         models.value = res.models;
     }
 
@@ -58,8 +65,8 @@ export function useModels(opts: {
         try {
             const payload = readModelPayload();
             const model = modelForm.editingId
-                ? await api.updateModel(modelForm.editingId, payload)
-                : await api.createModel(payload);
+                ? await apiUpdateModel(modelForm.editingId, payload)
+                : await apiCreateModel(payload);
             models.value = upsertById(models.value, model, "modelConfigId");
             const wasEditing = Boolean(modelForm.editingId);
             showModelDialog.value = false;
@@ -101,7 +108,7 @@ export function useModels(opts: {
                 cancelButtonText: "取消",
                 type: "warning",
             });
-            await api.deleteModel(modelConfigId);
+            await apiDeleteModel(modelConfigId);
             await loadModels();
         } catch (caught) {
             if (caught === "cancel") return;
@@ -117,7 +124,7 @@ export function useModels(opts: {
             }
             const payload: ModelConnectionPayload = modelConfigId ? {modelConfigId} : readModelPayload();
             showDialog("模型连接检查", "正在测试模型连接...", "info");
-            const result = await api.testModel(payload);
+            const result = await apiTestModel(payload);
             const detail = [
                 result.message,
                 result.model ? `模型：${result.model}` : "",

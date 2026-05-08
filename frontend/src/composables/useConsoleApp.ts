@@ -1,7 +1,7 @@
 import {computed, nextTick, onMounted, onUnmounted, reactive, ref, watch} from "vue";
 
 import {ElMessage} from "element-plus";
-import {api} from "../api";
+import {summary as apiSummary, listTasks as apiListTasks, getTask as apiGetTask} from "../api";
 import type {ConfigSummary, ModelConfig, Project, Task,} from "../types";
 import {compact, errorMessage, upsertById} from "../utils";
 import {TaskEventStream} from "../ws";
@@ -138,7 +138,7 @@ export function useConsoleApp() {
         message.value = "";
         try {
             const [summaryResponse] = await Promise.all([
-                api.summary(),
+                apiSummary(),
                 loadProjects(),
                 loadTasks(),
                 loadModels(),
@@ -186,12 +186,12 @@ export function useConsoleApp() {
     async function refreshRuntimeData(): Promise<void> {
         try {
             const [tasks, summaryResponse] = await Promise.all([
-                api.listTasks({limit: 100}),
-                api.summary(),
+                apiListTasks({limit: 100}),
+                apiSummary(),
             ]);
             let selectedTaskSnapshot: Task | null = null;
             if (selectedTaskId.value) {
-                selectedTaskSnapshot = await api.getTask(selectedTaskId.value);
+                selectedTaskSnapshot = await apiGetTask(selectedTaskId.value);
             }
             allTasks.value = selectedTaskSnapshot
                 ? upsertById(tasks.tasks, selectedTaskSnapshot, "taskId")

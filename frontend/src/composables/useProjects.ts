@@ -1,6 +1,12 @@
 import {reactive, ref, type Ref} from "vue";
 import {ElMessageBox} from "element-plus";
-import {api, type ProjectPayload} from "../api";
+import {
+    listProjects as apiListProjects,
+    createProject as apiCreateProject,
+    updateProject as apiUpdateProject,
+    deleteProject as apiDeleteProject,
+} from "../api";
+import type {ProjectPayload} from "../api";
 import type {Project} from "../types";
 import {errorMessage, nullableText, upsertById} from "../utils";
 
@@ -33,7 +39,7 @@ export function useProjects(opts: {
     const showProjectDialog = ref(false);
 
     async function loadProjects(): Promise<void> {
-        const res = await api.listProjects();
+        const res = await apiListProjects();
         projects.value = res.projects;
     }
 
@@ -73,8 +79,8 @@ export function useProjects(opts: {
                 parameters,
             };
             const project = projectForm.editingId
-                ? await api.updateProject(projectForm.editingId, payload)
-                : await api.createProject(payload);
+                ? await apiUpdateProject(projectForm.editingId, payload)
+                : await apiCreateProject(payload);
             const wasEditing = Boolean(projectForm.editingId);
             projects.value = upsertById(projects.value, project, "projectId");
             showProjectDialog.value = false;
@@ -112,7 +118,7 @@ export function useProjects(opts: {
                 cancelButtonText: "取消",
                 type: "warning",
             });
-            await api.deleteProject(projectId);
+            await apiDeleteProject(projectId);
             await loadProjects();
         } catch (caught) {
             if (caught === "cancel") return;

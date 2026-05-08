@@ -1,5 +1,11 @@
 import {computed, reactive, ref, type Ref} from "vue";
-import {api} from "../api";
+import {
+    listTasks as apiListTasks,
+    getTask as apiGetTask,
+    createTask as apiCreateTask,
+    startTask as apiStartTask,
+    getTaskReportJson as apiGetTaskReportJson,
+} from "../api";
 import type {ModelConfig, Project, ReportData, Task, TaskDisplayStatus} from "../types";
 import {errorMessage, nullableBoolean, nullableText, parseJsonObject, taskDisplayStatus, upsertById} from "../utils";
 
@@ -62,7 +68,7 @@ export function useTasks(opts: {
     ];
 
     async function loadTasks(): Promise<void> {
-        const res = await api.listTasks({limit: 100});
+        const res = await apiListTasks({limit: 100});
         allTasks.value = res.tasks;
     }
 
@@ -72,10 +78,10 @@ export function useTasks(opts: {
             view.value = "task-detail";
             reportData.value = null;
             reportLoading.value = true;
-            const task = await api.getTask(taskId);
+            const task = await apiGetTask(taskId);
             allTasks.value = upsertById(allTasks.value, task, "taskId");
             if (task.reportPath) {
-                const data = await api.getTaskReportJson(taskId);
+                const data = await apiGetTaskReportJson(taskId);
                 reportData.value = data;
             }
             connectEventStream();
@@ -94,7 +100,7 @@ export function useTasks(opts: {
 
     async function startTask(taskId: string): Promise<void> {
         try {
-            const result = await api.startTask(taskId);
+            const result = await apiStartTask(taskId);
             allTasks.value = upsertById(allTasks.value, result.task, "taskId");
             message.value = `任务已入队：${result.schedulerStatus}`;
             error.value = "";
@@ -118,7 +124,7 @@ export function useTasks(opts: {
             return;
         }
         try {
-            const task = await api.createTask({
+            const task = await apiCreateTask({
                 goal: String(taskForm.goal).trim(),
                 projectId: taskForm.projectId,
                 startUrl: nullableText(taskForm.startUrl),
