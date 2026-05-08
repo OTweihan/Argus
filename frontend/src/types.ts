@@ -70,6 +70,7 @@ export interface TaskLog {
   screenshotPath: string | null;
   message: string | null;
   error: string | null;
+  errorCode: string | null;
   createdAt: string;
 }
 
@@ -188,6 +189,7 @@ export interface ReportTaskLog {
   screenshot_path: string | null;
   message: string | null;
   error: string | null;
+  error_code: string | null;
   created_at: string;
 }
 

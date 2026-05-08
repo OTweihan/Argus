@@ -156,6 +156,9 @@
                 <th>#{{ step.step_number }} {{ step.action }}</th>
                 <td>
                   <a href="#step-{{ step.step_number }}">{{ step.error or step.message or "未记录错误详情" }}</a>
+                  {% if step.error_code %}
+                  <span class="err-code">{{ step.error_code }}</span>
+                  {% endif %}
                 </td>
               </tr>
             {% endfor %}
@@ -214,6 +217,12 @@
                       {% endif %}
                     </td>
                   </tr>
+                  {% if step.error_code %}
+                  <tr>
+                    <th>错误码</th>
+                    <td><code>{{ step.error_code }}</code></td>
+                  </tr>
+                  {% endif %}
                   <tr>
                     <th>时间</th>
                     <td>{{ step.created_at | datetime_short }}</td>

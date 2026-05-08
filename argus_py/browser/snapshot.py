@@ -80,6 +80,7 @@ class InteractiveElement:
     placeholder: str | None = None
     aria_label: str | None = None
     href: str | None = None
+    resolved_url: str | None = None
     visible: bool = True
     disabled: bool = False
     checked: bool | None = None
@@ -173,6 +174,10 @@ class PageSnapshot:
                     details.append(f"type={item.element_type}")
                 if item.name:
                     details.append(f"name={item.name}")
+                if item.href:
+                    details.append(f'href={redact_href(item.href)}')
+                if item.resolved_url and item.resolved_url != item.href:
+                    details.append(f'resolved_url={redact_href(item.resolved_url)}')
                 flags = []
                 if item.disabled:
                     flags.append("disabled")
@@ -269,6 +274,11 @@ async def capture_snapshot(
               placeholder: el.getAttribute('placeholder'),
               aria_label: el.getAttribute('aria-label'),
               href: el.getAttribute('href'),
+              resolved_url: (() => {
+                const h = el.getAttribute('href');
+                if (!h) return null;
+                try { return new URL(h, window.location.href).href; } catch(e) { return null; }
+              })(),
               visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none',
               disabled: el.disabled || false,
               checked: (el.tagName === 'INPUT' && el.type === 'checkbox') ? el.checked : null,

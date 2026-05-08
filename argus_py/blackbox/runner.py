@@ -13,6 +13,8 @@ from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInp
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.browser import BrowserSession, PageSnapshot
 from argus_py.browser.snapshot import redact_href, redact_step_params
+from argus_py.browser.errors import BrowserTimeoutError, ElementNotFoundError
+from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import resolve_llm_client_for_task
 from argus_py.core.enums import ActionType, FindingSeverity, FindingType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
@@ -47,6 +49,7 @@ class BlackboxRunner:
         self.report_generator = report_generator or ReportGenerator()
         self.max_plan_steps = max_plan_steps
         self.max_recovery_attempts = max_recovery_attempts
+        self._last_error: dict[str, Any] | None = None
 
     async def run(self, task: Task | BlackboxTaskInput) -> Task:
         """执行黑盒任务闭环。"""
@@ -81,7 +84,24 @@ class BlackboxRunner:
                         try:
                             resolved, latest_observation = await self._execute_action(resolved, session, action_step)
                             recovery_attempts = 0
-                        except TaskError:
+                            self._last_error = None
+                        except TaskError as exc:
+                            resolved = self.service.get_latest_task(resolved)
+                            self._last_error = {
+                                "action": action_step.action.value,
+                                "error_code": exc.error_code,
+                                "error_message": str(exc),
+                                "step_number": executed_steps,
+                            }
+                            # URL/参数格式错误 → 不计恢复次数，直接重规划
+                            if exc.error_code in (
+                                "empty_url", "invalid_scheme", "malformed_url",
+                                "markdown_link_text", "plain_text", "param_invalid",
+                            ):
+                                latest_observation = await self._safe_observation(session)
+                                sequence = ActionSequence(steps=[], summary=f"参数校验失败：{exc}，重新规划。")
+                                break
+                            # 其他错误（element_not_found、timeout、未知）→ 计入恢复次数
                             if recovery_attempts >= self.max_recovery_attempts:
                                 raise
                             recovery_attempts += 1
@@ -154,17 +174,20 @@ class BlackboxRunner:
         latest_observation: str,
         planner: BlackboxPlanner,
     ) -> ActionSequence:
-        """请求规划器生成下一批动作。"""
+        """请求规划器生成下一批动作，携带上一轮失败信息。"""
         if task.logs and task.logs[-1].url_after:
             current_url = redact_href(task.logs[-1].url_after)
         else:
             current_url = redact_href(task.start_url or "")
+        last_error = self._last_error
+        self._last_error = None
         return await planner.plan_next(
             goal=task.goal,
             current_url=current_url,
             page_snapshot=latest_observation,
             history=self._history(task),
             max_steps=self.max_plan_steps,
+            last_error=last_error,
         )
 
     def _resolve_llm_boundaries(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:
@@ -191,6 +214,7 @@ class BlackboxRunner:
             result = await self._dispatch_action(task, session, step)
         except Exception as exc:
             screenshot_path, _ = await self._capture_step_evidence(task, session)
+            error_code = _resolve_error_code(exc)
             self.service.append_log(
                 task,
                 action=step.action.value,
@@ -199,8 +223,9 @@ class BlackboxRunner:
                 screenshot_path=screenshot_path,
                 message=step.reason,
                 error=str(exc),
+                error_code=error_code,
             )
-            raise TaskError(f"黑盒动作执行失败：{step.action.value}，原因：{exc}") from exc
+            raise TaskError(f"黑盒动作执行失败：{step.action.value}，原因：{exc}", error_code=error_code) from exc
 
         screenshot_path = result.get("screenshot_path")
         screenshot_path, snapshot = await self._capture_step_evidence(task, session, screenshot_path=screenshot_path)
@@ -229,30 +254,36 @@ class BlackboxRunner:
         """分发浏览器动作。"""
         if step.action is ActionType.GOTO:
             if not step.url:
-                raise TaskError("goto 动作缺少 url。")
+                raise TaskError("goto 动作缺少 url。", error_code="empty_url")
+            validation = validate_url(step.url)
+            if not validation.is_ok():
+                raise TaskError(
+                    f"URL 校验失败：{validation.error_message}",
+                    error_code=validation.code,
+                )
             return await session.goto(step.url)
 
         if step.action is ActionType.CLICK:
             if not step.selector:
-                raise TaskError("click 动作缺少 selector。")
+                raise TaskError("click 动作缺少 selector。", error_code="param_invalid")
             return await session.click(step.selector)
 
         if step.action is ActionType.FILL:
             if not step.selector:
-                raise TaskError("fill 动作缺少 selector。")
+                raise TaskError("fill 动作缺少 selector。", error_code="param_invalid")
             return await session.fill(step.selector, step.text or "")
 
         if step.action is ActionType.PRESS:
             if not step.selector or not step.key:
-                raise TaskError("press 动作缺少 selector 或 key。")
+                raise TaskError("press 动作缺少 selector 或 key。", error_code="param_invalid")
             return await session.require_actions().press(step.selector, step.key)
 
         if step.action is ActionType.SELECT:
             if not step.selector:
-                raise TaskError("select 动作缺少 selector。")
+                raise TaskError("select 动作缺少 selector。", error_code="param_invalid")
             value = step.text or str(step.params.get("value") or "")
             if not value:
-                raise TaskError("select 动作缺少选项值。")
+                raise TaskError("select 动作缺少选项值。", error_code="param_invalid")
             return await session.require_actions().select_option(step.selector, value)
 
         if step.action is ActionType.WAIT:
@@ -352,6 +383,7 @@ class BlackboxRunner:
                 "screenshot_path": Path(log.screenshot_path).name if log.screenshot_path else None,
                 "message": log.message,
                 "error": log.error,
+                "error_code": log.error_code,
             }
             for log in task.logs
         ]
@@ -387,3 +419,14 @@ class BlackboxRunner:
         """创建默认浏览器会话。"""
         screenshot_dir: Path = SCREENSHOTS_DIR / task.task_id
         return BrowserSession(screenshot_dir=screenshot_dir)
+
+
+def _resolve_error_code(exc: Exception) -> str | None:
+    """根据异常类型推断错误码。"""
+    if isinstance(exc, TaskError):
+        return exc.error_code
+    if isinstance(exc, BrowserTimeoutError):
+        return "timeout"
+    if isinstance(exc, ElementNotFoundError):
+        return "element_not_found"
+    return None

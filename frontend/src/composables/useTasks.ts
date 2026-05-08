@@ -1,14 +1,14 @@
 import { computed, reactive, ref, type Ref } from "vue";
 import { api } from "../api";
 import type { ModelConfig, Project, ReportData, Task, TaskDisplayStatus, TaskType } from "../types";
-import { errorMessage, nullableBoolean, nullableNumber, nullableText, parseJsonObject, taskDisplayStatus, upsertById } from "../utils";
+import { errorMessage, nullableBoolean, nullableText, parseJsonObject, taskDisplayStatus, upsertById } from "../utils";
 
 interface TaskForm {
   goal: string;
   projectId: string;
   startUrl: string;
-  maxSteps: string;
-  timeoutSeconds: string;
+  maxSteps: number | null;
+  timeoutSeconds: number | null;
   captureScreenshots: "" | "true" | "false";
   modelConfigId: string;
   parameters: string;
@@ -114,8 +114,8 @@ export function useTasks(opts: {
         projectId: taskForm.projectId,
         startUrl: nullableText(taskForm.startUrl),
         taskType: "blackbox",
-        maxSteps: nullableNumber(taskForm.maxSteps, "最大步骤"),
-        timeoutSeconds: nullableNumber(taskForm.timeoutSeconds, "超时秒数"),
+        maxSteps: taskForm.maxSteps,
+        timeoutSeconds: taskForm.timeoutSeconds,
         captureScreenshots: nullableBoolean(taskForm.captureScreenshots),
         modelConfigId: nullableText(taskForm.modelConfigId),
         parameters,
@@ -176,8 +176,8 @@ function defaultTaskForm(projectId = ""): TaskForm {
     goal: "",
     projectId,
     startUrl: "",
-    maxSteps: "",
-    timeoutSeconds: "",
+    maxSteps: null,
+    timeoutSeconds: null,
     captureScreenshots: "",
     modelConfigId: "",
     parameters: "{}",

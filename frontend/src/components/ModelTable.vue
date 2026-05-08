@@ -1,50 +1,33 @@
 <template>
-  <div v-if="!models.length" class="empty">暂无模型配置。</div>
-  <div v-else class="table-wrap">
-    <table>
-      <thead>
-      <tr>
-        <th>名称</th>
-        <th>供应商</th>
-        <th>模型</th>
-        <th>作用域</th>
-        <th>状态</th>
-        <th>操作</th>
-      </tr>
-      </thead>
-      <tbody>
-      <tr v-for="model in models" :key="model.modelConfigId">
-        <td>
-          <strong>{{ model.name }}</strong>
-          <div class="muted mono">{{ model.modelConfigId }}</div>
-        </td>
-        <td>{{ model.provider }}</td>
-        <td>{{ model.model }}</td>
-        <td>{{ model.taskType ?? "全局" }}{{ model.isDefault ? " / 默认" : "" }}</td>
-        <td>{{ model.enabled ? "启用" : "停用" }} / Key {{ model.apiKeySet ? "已配置" : "未配置" }}</td>
-        <td class="actions">
-          <button type="button" @click="$emit('edit', model)">编辑</button>
-          <button type="button" @click="$emit('test', model.modelConfigId)">测试</button>
-          <button class="danger" type="button" @click="$emit('delete', model.modelConfigId)">
-            删除
-          </button>
-        </td>
-      </tr>
-      </tbody>
-    </table>
-  </div>
+  <el-table v-if="models.length" :data="models" stripe style="width:100%">
+    <el-table-column label="名称" min-width="160">
+      <template #default="{ row }">
+        <strong>{{ row.name }}</strong>
+        <div style="color:#909399;font-size:12px">{{ row.modelConfigId }}</div>
+      </template>
+    </el-table-column>
+    <el-table-column prop="provider" label="供应商" width="110" />
+    <el-table-column prop="model" label="模型" width="180" />
+    <el-table-column label="作用域" width="120">
+      <template #default="{ row }">{{ row.taskType ?? "全局" }}{{ row.isDefault ? " / 默认" : "" }}</template>
+    </el-table-column>
+    <el-table-column label="状态" width="140">
+      <template #default="{ row }">{{ row.enabled ? "启用" : "停用" }} / Key {{ row.apiKeySet ? "已配置" : "未配置" }}</template>
+    </el-table-column>
+    <el-table-column label="操作" width="200" fixed="right">
+      <template #default="{ row }">
+        <el-button size="small" @click="$emit('edit', row)">编辑</el-button>
+        <el-button size="small" @click="$emit('test', row.modelConfigId)">测试</el-button>
+        <el-button size="small" type="danger" @click="$emit('delete', row.modelConfigId)">删除</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+  <el-empty v-else description="暂无模型配置。" />
 </template>
 
 <script setup lang="ts">
 import type {ModelConfig} from "../types";
 
-defineProps<{
-  models: ModelConfig[];
-}>();
-
-defineEmits<{
-  edit: [model: ModelConfig];
-  test: [modelConfigId: string];
-  delete: [modelConfigId: string];
-}>();
+defineProps<{ models: ModelConfig[] }>();
+defineEmits<{ edit: [model: ModelConfig]; test: [modelConfigId: string]; delete: [modelConfigId: string] }>();
 </script>

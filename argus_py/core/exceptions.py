@@ -22,7 +22,11 @@ class BrowserError(ArgusError):
 
 
 class TaskError(ArgusError):
-    """任务执行失败。"""
+    """任务执行失败，支持结构化错误码。"""
+
+    def __init__(self, message: str, error_code: str | None = None) -> None:
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class ProjectError(ArgusError):

@@ -88,6 +88,7 @@ def report_to_dict(report: Report) -> dict[str, Any]:
 
     display_steps = [step for step in steps if _should_display_step(step)]
     data["display_steps"] = display_steps
+    data["hidden_system_steps"] = [step for step in steps if not _should_display_step(step)]
     data["total_steps_count"] = len(steps)
     data["hidden_steps_count"] = len(steps) - len(display_steps)
     return data

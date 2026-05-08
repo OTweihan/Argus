@@ -1,7 +1,8 @@
 import { reactive, ref, type Ref } from "vue";
+import { ElMessageBox } from "element-plus";
 import { api, type ProjectPayload } from "../api";
 import type { Project } from "../types";
-import { errorMessage, nullableNumber, nullableText, parseJsonObject, upsertById } from "../utils";
+import { errorMessage, nullableText, parseJsonObject, upsertById } from "../utils";
 
 interface ProjectForm {
   editingId: string | null;
@@ -10,8 +11,8 @@ interface ProjectForm {
   baseUrl: string;
   gitUrl: string;
   authStateName: string;
-  defaultMaxSteps: string;
-  defaultTimeoutSeconds: string;
+  defaultMaxSteps: number | null;
+  defaultTimeoutSeconds: number | null;
   defaultCaptureScreenshots: boolean;
   parameters: string;
 }
@@ -37,6 +38,11 @@ export function useProjects(opts: {
       formErrors.name = "名称不能为空";
       return;
     }
+    const baseUrl = nullableText(projectForm.baseUrl);
+    if (baseUrl && !/^https?:\/\/.+/.test(baseUrl)) {
+      formErrors.baseUrl = "请输入合法的 http/https URL";
+      return;
+    }
     let parameters: Record<string, unknown>;
     try {
       parameters = parseJsonObject(projectForm.parameters, "参数 JSON");
@@ -48,11 +54,11 @@ export function useProjects(opts: {
       const payload: ProjectPayload = {
         name: String(projectForm.name).trim(),
         description: nullableText(projectForm.description),
-        baseUrl: nullableText(projectForm.baseUrl),
+        baseUrl,
         gitUrl: nullableText(projectForm.gitUrl),
         authStateName: nullableText(projectForm.authStateName),
-        defaultMaxSteps: nullableNumber(projectForm.defaultMaxSteps, "默认最大步骤"),
-        defaultTimeoutSeconds: nullableNumber(projectForm.defaultTimeoutSeconds, "默认超时秒数"),
+        defaultMaxSteps: projectForm.defaultMaxSteps,
+        defaultTimeoutSeconds: projectForm.defaultTimeoutSeconds,
         defaultCaptureScreenshots: projectForm.defaultCaptureScreenshots,
         parameters,
       };
@@ -79,8 +85,8 @@ export function useProjects(opts: {
       baseUrl: project.baseUrl ?? "",
       gitUrl: project.gitUrl ?? "",
       authStateName: project.authStateName ?? "",
-      defaultMaxSteps: project.defaultMaxSteps?.toString() ?? "",
-      defaultTimeoutSeconds: project.defaultTimeoutSeconds?.toString() ?? "",
+      defaultMaxSteps: project.defaultMaxSteps ?? null,
+      defaultTimeoutSeconds: project.defaultTimeoutSeconds ?? null,
       defaultCaptureScreenshots: project.defaultCaptureScreenshots,
       parameters: JSON.stringify(project.parameters, null, 2),
     });
@@ -90,11 +96,16 @@ export function useProjects(opts: {
   }
 
   async function deleteProject(projectId: string): Promise<void> {
-    if (!window.confirm("确认删除这个项目？")) return;
     try {
+      await ElMessageBox.confirm("确认删除这个项目？", "警告", {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
       await api.deleteProject(projectId);
       await loadProjects();
     } catch (caught) {
+      if (caught === "cancel") return;
       error.value = errorMessage(caught);
     }
   }
@@ -136,8 +147,8 @@ function defaultProjectForm(): ProjectForm {
     baseUrl: "",
     gitUrl: "",
     authStateName: "",
-    defaultMaxSteps: "",
-    defaultTimeoutSeconds: "",
+    defaultMaxSteps: null,
+    defaultTimeoutSeconds: null,
     defaultCaptureScreenshots: true,
     parameters: "{}",
   };

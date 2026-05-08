@@ -1,7 +1,8 @@
 import { reactive, ref, type Ref } from "vue";
+import { ElMessageBox } from "element-plus";
 import { api, type ModelConfigPayload, type ModelConnectionPayload } from "../api";
 import type { ModelConfig, ModelProvider, TaskType } from "../types";
-import { errorMessage, nullableNumber, nullableText } from "../utils";
+import { errorMessage, nullableText } from "../utils";
 
 interface ModelForm {
   editingId: string | null;
@@ -11,10 +12,10 @@ interface ModelForm {
   apiKey: string;
   baseUrl: string;
   completionsPath: string;
-  maxTokens: string;
-  temperature: string;
-  maxRetries: string;
-  timeoutSeconds: string;
+  maxTokens: number | null;
+  temperature: number | null;
+  maxRetries: number | null;
+  timeoutSeconds: number | null;
   taskType: "" | TaskType;
   isDefault: boolean;
   enabled: boolean;
@@ -80,10 +81,10 @@ export function useModels(opts: {
       apiKey: "",
       baseUrl: model.baseUrl,
       completionsPath: model.completionsPath,
-      maxTokens: String(model.maxTokens),
-      temperature: String(model.temperature),
-      maxRetries: String(model.maxRetries),
-      timeoutSeconds: String(model.timeoutSeconds),
+      maxTokens: model.maxTokens,
+      temperature: model.temperature,
+      maxRetries: model.maxRetries,
+      timeoutSeconds: model.timeoutSeconds,
       taskType: model.taskType ?? "",
       isDefault: model.isDefault,
       enabled: model.enabled,
@@ -94,11 +95,16 @@ export function useModels(opts: {
   }
 
   async function deleteModel(modelConfigId: string): Promise<void> {
-    if (!window.confirm("确认删除这个模型配置？")) return;
     try {
+      await ElMessageBox.confirm("确认删除这个模型配置？", "警告", {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
       await api.deleteModel(modelConfigId);
       await loadModels();
     } catch (caught) {
+      if (caught === "cancel") return;
       error.value = errorMessage(caught);
     }
   }
@@ -143,10 +149,10 @@ export function useModels(opts: {
       model: String(modelForm.model).trim(),
       baseUrl: nullableText(modelForm.baseUrl),
       completionsPath: nullableText(modelForm.completionsPath),
-      maxTokens: nullableNumber(modelForm.maxTokens, "最大 Token"),
-      temperature: nullableNumber(modelForm.temperature, "温度"),
-      maxRetries: nullableNumber(modelForm.maxRetries, "重试次数"),
-      timeoutSeconds: nullableNumber(modelForm.timeoutSeconds, "超时秒数"),
+      maxTokens: modelForm.maxTokens,
+      temperature: modelForm.temperature,
+      maxRetries: modelForm.maxRetries,
+      timeoutSeconds: modelForm.timeoutSeconds,
       taskType: modelForm.taskType || null,
       isDefault: modelForm.isDefault,
       enabled: modelForm.enabled,
@@ -189,10 +195,10 @@ function defaultModelForm(): ModelForm {
     apiKey: "",
     baseUrl: "",
     completionsPath: "/chat/completions",
-    maxTokens: "4096",
-    temperature: "0.1",
-    maxRetries: "3",
-    timeoutSeconds: "60",
+    maxTokens: 4096,
+    temperature: 0.1,
+    maxRetries: 3,
+    timeoutSeconds: 60,
     taskType: "",
     isDefault: false,
     enabled: true,

@@ -1,5 +1,6 @@
 import {computed, nextTick, onMounted, onUnmounted, reactive, ref, watch} from "vue";
 
+import {ElMessage} from "element-plus";
 import {api} from "../api";
 import type {ConfigSummary, ModelConfig, Project, Task,} from "../types";
 import {compact, errorMessage} from "../utils";
@@ -103,13 +104,31 @@ export function useConsoleApp() {
     },
   );
 
+  watch(error, (val) => {
+    if (val) {
+      ElMessage({message: val});
+    }
+  });
+
+  watch(message, (val) => {
+    if (val) {
+      ElMessage({message: val});
+    }
+  });
+
   onMounted(async () => {
+    const hash = window.location.hash.replace(/^#/, "");
+    if ((["dashboard", "projects", "tasks", "models", "task-detail"] as ViewKey[]).includes(hash as ViewKey)) {
+      view.value = hash as ViewKey;
+    }
+    window.addEventListener("hashchange", onHashChange);
     await loadAll();
     connectEventStream();
   });
 
   onUnmounted(() => {
     if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    window.removeEventListener("hashchange", onHashChange);
     eventStream.close();
   });
 
@@ -134,9 +153,18 @@ export function useConsoleApp() {
 
   function changeView(nextView: ViewKey): void {
     view.value = nextView;
+    window.location.hash = nextView;
     error.value = "";
     message.value = "";
     connectEventStream();
+  }
+
+  function onHashChange(): void {
+    const hash = window.location.hash.replace(/^#/, "");
+    if ((["dashboard", "projects", "tasks", "models", "task-detail"] as ViewKey[]).includes(hash as ViewKey)) {
+      view.value = hash as ViewKey;
+      connectEventStream();
+    }
   }
 
   function connectEventStream(): void {
@@ -188,6 +216,11 @@ export function useConsoleApp() {
     dialog.value = null;
   }
 
+  const dialogVisible = computed({
+    get: () => dialog.value !== null,
+    set: (val: boolean) => { if (!val) dialog.value = null; },
+  });
+
   return {
     allTasks,
     changeView,
@@ -195,6 +228,7 @@ export function useConsoleApp() {
     deleteModel,
     deleteProject,
     dialog,
+    dialogVisible,
     editModel,
     editProject,
     enabledModels,

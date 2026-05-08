@@ -1,101 +1,89 @@
 <template>
-  <section class="panel">
-    <h2 class="panel-header">
-      <span>模型列表</span>
-      <button class="primary" type="button" @click="openNewModelDialog">新增模型</button>
-    </h2>
-    <ModelTable
-        :models="models"
-        @edit="editModel"
-        @test="testModel"
-        @delete="deleteModel"
-    />
-  </section>
-
-  <div v-if="showModelDialog" class="dialog-backdrop">
-    <div class="dialog wide" role="dialog" aria-modal="true">
-      <div class="dialog-header">
-        <h2>{{ modelForm.editingId ? '编辑模型' : '新增模型' }}</h2>
-        <button type="button" aria-label="关闭" @click="closeModelDialog">×</button>
+  <el-card>
+    <template #header>
+      <div class="card-header">
+        <span>模型列表</span>
+        <el-button type="primary" @click="openNewModelDialog">新增模型</el-button>
       </div>
-      <form @submit.prevent="saveModel">
-        <div class="dialog-body">
-          <div v-if="error" class="banner error dialog-error">{{ error }}</div>
-          <div class="form-grid">
-            <div class="field" :class="{'has-error': formErrors.modelName}">
-              <label>名称</label>
-              <input v-model="modelForm.name" @input="delete formErrors.modelName"/>
-              <div v-if="formErrors.modelName" class="field-error">{{ formErrors.modelName }}</div>
-            </div>
-            <div class="form-grid two">
-              <div class="field">
-                <label>供应商</label>
-                <select v-model="modelForm.provider">
-                  <option v-for="provider in providers" :key="provider" :value="provider">
-                    {{ provider }}
-                  </option>
-                </select>
-              </div>
-              <div class="field" :class="{'has-error': formErrors.modelModel}">
-                <label>模型</label>
-                <input v-model="modelForm.model" required @input="delete formErrors.modelModel"/>
-                <div v-if="formErrors.modelModel" class="field-error">{{ formErrors.modelModel }}</div>
-              </div>
-            </div>
-            <div class="field">
-              <label>API Key</label>
-              <input v-model="modelForm.apiKey" type="password" autocomplete="new-password"/>
-            </div>
-            <div class="field">
-              <label>Base URL</label>
-              <input v-model="modelForm.baseUrl"/>
-            </div>
-            <div class="field">
-              <label>Completions Path</label>
-              <input v-model="modelForm.completionsPath"/>
-            </div>
-            <div class="form-grid two">
-              <div class="field">
-                <label>最大 Token</label>
-                <input v-model="modelForm.maxTokens" type="number" min="1"/>
-              </div>
-              <div class="field">
-                <label>温度</label>
-                <input v-model="modelForm.temperature" type="number" min="0" step="0.01"/>
-              </div>
-            </div>
-            <div class="form-grid two">
-              <div class="field">
-                <label>重试次数</label>
-                <input v-model="modelForm.maxRetries" type="number" min="0"/>
-              </div>
-              <div class="field">
-                <label>超时秒数</label>
-                <input v-model="modelForm.timeoutSeconds" type="number" min="1"/>
-              </div>
-            </div>
-            <div class="field">
-              <label>任务类型默认</label>
-              <select v-model="modelForm.taskType">
-                <option value="">全局默认</option>
-                <option value="blackbox">blackbox</option>
-                <option value="whitebox">whitebox</option>
-              </select>
-            </div>
-            <div class="checks">
-              <label><input v-model="modelForm.isDefault" type="checkbox"/> 默认</label>
-              <label><input v-model="modelForm.enabled" type="checkbox"/> 启用</label>
-            </div>
-          </div>
-        </div>
-        <div class="dialog-actions">
-          <button class="primary" type="submit">{{ modelForm.editingId ? '保存' : '创建' }}</button>
-          <button type="button" @click="testModel(modelForm.editingId ?? '')">测试</button>
-          <button type="button" @click="closeModelDialog">取消</button>
-        </div>
-      </form>
-    </div>
-  </div>
+    </template>
+    <ModelTable
+      :models="models"
+      @edit="editModel"
+      @test="testModel"
+      @delete="deleteModel"
+    />
+  </el-card>
+
+  <el-dialog v-model="showModelDialog" :title="modelForm.editingId ? '编辑模型' : '新增模型'" width="580px" append-to-body>
+    <el-form :model="modelForm" label-position="top" @submit.prevent="saveModel">
+      <el-form-item label="名称" :error="formErrors.modelName" required>
+        <el-input v-model="modelForm.name" @input="delete formErrors.modelName" />
+      </el-form-item>
+      <el-row :gutter="12">
+        <el-col :span="12">
+          <el-form-item label="供应商" required>
+            <el-select v-model="modelForm.provider" style="width:100%">
+              <el-option v-for="provider in providers" :key="provider" :label="provider" :value="provider" />
+            </el-select>
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="模型" :error="formErrors.modelModel" required>
+            <el-input v-model="modelForm.model" @input="delete formErrors.modelModel" />
+          </el-form-item>
+        </el-col>
+      </el-row>
+      <el-form-item label="API Key">
+        <el-input v-model="modelForm.apiKey" type="password" show-password autocomplete="new-password" />
+      </el-form-item>
+      <el-form-item label="Base URL">
+        <el-input v-model="modelForm.baseUrl" />
+      </el-form-item>
+      <el-form-item label="Completions Path">
+        <el-input v-model="modelForm.completionsPath" />
+      </el-form-item>
+      <el-row :gutter="12">
+        <el-col :span="12">
+          <el-form-item label="最大 Token">
+            <el-input-number v-model="modelForm.maxTokens" :min="1" :step="1" :precision="0" style="width:100%" />
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="温度">
+            <el-input-number v-model="modelForm.temperature" :min="0" :step="0.01" :precision="2" style="width:100%" />
+          </el-form-item>
+        </el-col>
+      </el-row>
+      <el-row :gutter="12">
+        <el-col :span="12">
+          <el-form-item label="重试次数">
+            <el-input-number v-model="modelForm.maxRetries" :min="0" :step="1" :precision="0" style="width:100%" />
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="超时秒数">
+            <el-input-number v-model="modelForm.timeoutSeconds" :min="1" :step="1" :precision="0" style="width:100%" />
+          </el-form-item>
+        </el-col>
+      </el-row>
+      <el-form-item label="任务类型默认">
+        <el-select v-model="modelForm.taskType" clearable style="width:100%">
+          <el-option label="全局默认" value="" />
+          <el-option label="blackbox" value="blackbox" />
+          <el-option label="whitebox" value="whitebox" />
+        </el-select>
+      </el-form-item>
+      <el-form-item>
+        <el-checkbox v-model="modelForm.isDefault">默认</el-checkbox>
+        <el-checkbox v-model="modelForm.enabled" style="margin-left: 16px">启用</el-checkbox>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="testModel(modelForm.editingId ?? '')">测试</el-button>
+      <el-button @click="showModelDialog = false">取消</el-button>
+      <el-button type="primary" @click="saveModel">{{ modelForm.editingId ? '保存' : '创建' }}</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -110,7 +98,8 @@ const {
   editModel, testModel, deleteModel, saveModel, openNewModelDialog,
 } = props.app;
 
-function closeModelDialog(): void {
-  showModelDialog.value = false;
-}
 </script>
+
+<style scoped>
+.card-header { display: flex; align-items: center; justify-content: space-between; }
+</style>

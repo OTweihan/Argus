@@ -48,6 +48,7 @@ class TaskLog:
     screenshot_path: str | None = None
     message: str | None = None
     error: str | None = None
+    error_code: str | None = None
     created_at: datetime = field(default_factory=utc_now)
 
     @classmethod
@@ -64,6 +65,7 @@ class TaskLog:
             screenshot_path=data.get("screenshot_path"),
             message=data.get("message"),
             error=data.get("error"),
+            error_code=data.get("error_code"),
             created_at=_parse_datetime(data.get("created_at")) or utc_now(),
         )
 

@@ -32,8 +32,9 @@ class BlackboxPlanner:
         page_snapshot: str,
         history: list[dict[str, Any]],
         max_steps: int = 3,
+        last_error: dict[str, Any] | None = None,
     ) -> ActionSequence:
-        """基于最新页面观察生成下一批动作。"""
+        """基于最新页面观察和上一轮失败信息生成下一批动作。"""
         payload = {
             "goal": goal,
             "current_url": current_url,
@@ -41,6 +42,8 @@ class BlackboxPlanner:
             "history": history,
             "max_steps": max_steps,
         }
+        if last_error:
+            payload["last_error"] = last_error
         prompt = "\n\n输入：\n" + json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2)
         response = await self._client().complete(
             prompt=prompt,

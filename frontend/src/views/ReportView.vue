@@ -1,6 +1,6 @@
 <template>
-  <div v-if="loading" class="empty">正在加载报告...</div>
-  <div v-else-if="!report" class="empty">该任务尚未生成报告，请先执行任务。</div>
+  <div v-if="loading" class="empty-state"><el-empty description="正在加载报告..." /></div>
+  <div v-else-if="!report" class="empty-state"><el-empty description="该任务尚未生成报告，请先执行任务。" /></div>
   <div v-else class="report-container">
     <header class="report-hero">
       <div class="hero-inner">
@@ -9,11 +9,9 @@
           <h1>{{ report.title }}</h1>
           <p class="hero-desc">{{ summary }}</p>
           <div class="hero-status">
-            <span :class="['badge', statusClass]">{{ status }}</span>
-            <span :class="['badge', findingCount === 0 ? 'success' : 'failed']">
-              问题 {{ findingCount }}
-            </span>
-            <span class="badge info">步骤 {{ stepCount }} / {{ report.task.max_steps }}</span>
+            <el-tag :type="statusTagType" size="small">{{ status }}</el-tag>
+            <el-tag :type="findingCount === 0 ? 'success' : 'danger'" size="small">问题 {{ findingCount }}</el-tag>
+            <el-tag type="info" size="small">步骤 {{ stepCount }} / {{ report.task.max_steps }}</el-tag>
           </div>
         </div>
         <aside class="hero-meta" aria-label="报告元信息">
@@ -49,24 +47,12 @@
           <div class="metrics">
             <div class="r-metric">
               <span>任务状态</span>
-              <strong><span :class="['badge', statusClass]">{{ status }}</span></strong>
+              <strong><el-tag :type="statusTagType" size="small">{{ status }}</el-tag></strong>
             </div>
-            <div class="r-metric">
-              <span>展示步骤</span>
-              <strong>{{ stepCount }}</strong>
-            </div>
-            <div class="r-metric">
-              <span>问题数量</span>
-              <strong>{{ findingCount }}</strong>
-            </div>
-            <div class="r-metric">
-              <span>失败步骤</span>
-              <strong>{{ failedCount }}</strong>
-            </div>
-            <div class="r-metric">
-              <span>最大步数</span>
-              <strong>{{ report.task.max_steps }}</strong>
-            </div>
+            <div class="r-metric"><span>展示步骤</span><strong>{{ stepCount }}</strong></div>
+            <div class="r-metric"><span>问题数量</span><strong>{{ findingCount }}</strong></div>
+            <div class="r-metric"><span>失败步骤</span><strong>{{ failedCount }}</strong></div>
+            <div class="r-metric"><span>最大步数</span><strong>{{ report.task.max_steps }}</strong></div>
           </div>
         </section>
 
@@ -76,7 +62,7 @@
               <h2>任务信息</h2>
               <p class="section-subtitle">记录测试目标、入口地址、执行结果与时间线。</p>
             </div>
-            <span :class="['badge', statusClass]">{{ status }}</span>
+            <el-tag :type="statusTagType" size="small">{{ status }}</el-tag>
           </div>
           <table class="info-table">
             <tbody>
@@ -110,9 +96,9 @@
                 </template>
               </p>
             </div>
-            <span :class="['badge', failedCount === 0 ? 'success' : 'failed']">
+            <el-tag :type="failedCount === 0 ? 'success' : 'danger'" size="small">
               失败 {{ failedCount }}
-            </span>
+            </el-tag>
           </div>
 
           <div v-if="failedSteps.length" class="r-card failure-summary">
@@ -147,15 +133,12 @@
                   </div>
                   <p class="muted">{{ step.message || '未记录步骤说明。' }}</p>
                 </div>
-                <span :class="['badge', step.result]">{{ step.result }}</span>
+                <el-tag :type="step.result === 'success' ? 'success' : 'danger'" size="small">{{ step.result }}</el-tag>
               </div>
               <div class="step-body">
                 <table class="info-table">
                   <tbody>
-                    <tr>
-                      <th>步骤 ID</th>
-                      <td><code>{{ step.task_log_id }}</code></td>
-                    </tr>
+                    <tr><th>步骤 ID</th><td><code>{{ step.task_log_id }}</code></td></tr>
                     <tr>
                       <th>URL Before</th>
                       <td>
@@ -177,10 +160,11 @@
                         <span v-else class="muted">无</span>
                       </td>
                     </tr>
-                    <tr>
-                      <th>时间</th>
-                      <td>{{ formatDate(step.created_at) }}</td>
+                    <tr v-if="step.error_code">
+                      <th>错误码</th>
+                      <td><code>{{ step.error_code }}</code></td>
                     </tr>
+                    <tr><th>时间</th><td>{{ formatDate(step.created_at) }}</td></tr>
                   </tbody>
                 </table>
 
@@ -192,24 +176,14 @@
                 <details v-if="step.screenshot_path">
                   <summary>步骤截图</summary>
                   <div class="screenshot-wrap">
-                    <p class="screenshot-path">
-                      截图：<code>{{ step.screenshot_path }}</code>
-                    </p>
-                    <img
-                      class="screenshot"
-                      :src="screenshotSrc(step.screenshot_path)"
-                      :alt="'步骤 ' + step.step_number + ' 截图'"
-                      loading="lazy"
-                    />
+                    <p class="screenshot-path">截图：<code>{{ step.screenshot_path }}</code></p>
+                    <img class="screenshot" :src="screenshotSrc(step.screenshot_path)" :alt="'步骤 ' + step.step_number + ' 截图'" loading="lazy" />
                   </div>
                 </details>
               </div>
             </article>
           </div>
-          <div v-else class="empty-state">
-            <strong>暂无执行步骤</strong>
-            <span>当前任务还没有记录浏览器动作。</span>
-          </div>
+          <el-empty v-else description="暂无执行步骤" />
         </section>
 
         <section class="section r-card" id="findings">
@@ -218,9 +192,7 @@
               <h2>问题清单</h2>
               <p class="section-subtitle">展示测试过程中识别到的缺陷、异常、风险或未完成目标。</p>
             </div>
-            <span :class="['badge', findingCount === 0 ? 'success' : 'failed']">
-              {{ findingCount }} findings
-            </span>
+            <el-tag :type="findingCount === 0 ? 'success' : 'danger'" size="small">{{ findingCount }} findings</el-tag>
           </div>
 
           <div v-if="report.findings.length" class="timeline">
@@ -238,45 +210,29 @@
                   </div>
                   <p class="muted">{{ finding.description }}</p>
                 </div>
-                <span :class="['badge', findingSeverityClass(finding.severity)]">
-                  {{ finding.severity }}
-                </span>
+                <el-tag :type="severityTagType(finding.severity)" size="small">{{ finding.severity }}</el-tag>
               </div>
               <div class="step-body">
                 <table class="info-table">
                   <tbody>
-                    <tr>
-                      <th>问题 ID</th>
-                      <td><code>{{ finding.finding_id }}</code></td>
-                    </tr>
+                    <tr><th>问题 ID</th><td><code>{{ finding.finding_id }}</code></td></tr>
                     <tr><th>类型</th><td>{{ finding.finding_type }}</td></tr>
                     <tr><th>URL</th><td>{{ finding.url || '' }}</td></tr>
                     <tr><th>位置</th><td>{{ finding.location || '' }}</td></tr>
                     <tr><th>时间</th><td>{{ formatDate(finding.created_at) }}</td></tr>
                   </tbody>
                 </table>
-
                 <details v-if="finding.screenshot_path">
                   <summary>问题截图</summary>
                   <div class="screenshot-wrap">
-                    <p class="screenshot-path">
-                      截图：<code>{{ finding.screenshot_path }}</code>
-                    </p>
-                    <img
-                      class="screenshot"
-                      :src="screenshotSrc(finding.screenshot_path)"
-                      :alt="finding.title + ' 截图'"
-                      loading="lazy"
-                    />
+                    <p class="screenshot-path">截图：<code>{{ finding.screenshot_path }}</code></p>
+                    <img class="screenshot" :src="screenshotSrc(finding.screenshot_path)" :alt="finding.title + ' 截图'" loading="lazy" />
                   </div>
                 </details>
               </div>
             </article>
           </div>
-          <div v-else class="empty-state">
-            <strong>未记录问题</strong>
-            <span>本次黑盒测试未发现明确问题或异常。</span>
-          </div>
+          <el-empty v-else description="未记录问题" />
         </section>
       </main>
     </div>
@@ -302,28 +258,22 @@ const failedCount = computed(() => failedSteps.value.length);
 const findingCount = computed(() => props.report?.findings?.length ?? 0);
 const stepCount = computed(() => displaySteps.value.length);
 
-const statusClass = computed(() => {
+const statusTagType = computed(() => {
   const s = status.value;
   if (s === "completed") return "success";
-  if (s === "failed" || s === "timeout" || s === "cancelled") return "failed";
-  if (s === "running") return "running";
-  return "pending";
+  if (s === "failed" || s === "timeout" || s === "cancelled") return "danger";
+  if (s === "running") return "warning";
+  return "info";
 });
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
   try {
     return new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
     }).format(new Date(value));
-  } catch {
-    return value;
-  }
+  } catch { return value; }
 }
 
 function prettyJson(value: unknown): string {
@@ -334,15 +284,10 @@ function screenshotSrc(path: string): string {
   return screenshotUrl(props.taskId, path);
 }
 
-function findingSeverityClass(severity: FindingSeverity): string {
-  const classes: Record<FindingSeverity, string> = {
-    info: "info",
-    low: "low",
-    medium: "medium",
-    high: "failed",
-    critical: "failed",
-  };
-  return classes[severity] ?? "info";
+function severityTagType(severity: FindingSeverity): string {
+  if (severity === "high" || severity === "critical") return "danger";
+  if (severity === "medium") return "warning";
+  return "info";
 }
 </script>
 
@@ -487,9 +432,7 @@ function findingSeverityClass(severity: FindingSeverity): string {
   transition: background 0.12s ease;
 }
 
-.nav-link:hover {
-  background: #eef3f5;
-}
+.nav-link:hover { background: #eef3f5; }
 
 .nav-link span:last-child {
   color: var(--report-muted);
@@ -503,10 +446,7 @@ function findingSeverityClass(severity: FindingSeverity): string {
   gap: 28px;
 }
 
-.section {
-  display: grid;
-  gap: 16px;
-}
+.section { display: grid; gap: 16px; }
 
 .section-head {
   display: flex;
@@ -568,13 +508,9 @@ function findingSeverityClass(severity: FindingSeverity): string {
 }
 
 /* ===== Tables ===== */
-.info-table {
-  width: 100%;
-  border-collapse: collapse;
-}
+.info-table { width: 100%; border-collapse: collapse; }
 
-.info-table th,
-.info-table td {
+.info-table th, .info-table td {
   padding: 9px 12px;
   border-bottom: 1px solid #f2f6f8;
   text-align: left;
@@ -598,12 +534,9 @@ function findingSeverityClass(severity: FindingSeverity): string {
 }
 
 .info-table tr:last-child th,
-.info-table tr:last-child td {
-  border-bottom: 0;
-}
+.info-table tr:last-child td { border-bottom: 0; }
 
-.info-table code,
-code {
+.info-table code, code {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 11px;
   background: #f4f7f8;
@@ -612,74 +545,8 @@ code {
   color: #374e57;
 }
 
-/* ===== Badges ===== */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 620;
-  white-space: nowrap;
-  letter-spacing: 0.2px;
-  border: 1px solid transparent;
-}
-
-.badge.success {
-  border-color: #b5dfd5;
-  background: #ecf8f5;
-  color: #0f766e;
-}
-
-.badge.failed {
-  border-color: #f0b8b2;
-  background: #fff1ef;
-  color: #dc2626;
-}
-
-.badge.running {
-  border-color: #b8dec5;
-  background: #eef8f1;
-  color: #1f7a45;
-}
-
-.badge.pending {
-  border-color: #dce3e6;
-  background: #f4f7f8;
-  color: #5a6b75;
-}
-
-.badge.info {
-  border-color: #c5cfe0;
-  background: #f4f7fc;
-  color: #495f7a;
-}
-
-.badge.low {
-  border-color: #c5cfe0;
-  background: #f4f7fc;
-  color: #495f7a;
-}
-
-.badge.medium {
-  border-color: #e3dca6;
-  background: #fbf8df;
-  color: #866800;
-}
-
-.badge.high,
-.badge.critical {
-  border-color: #f0b8b2;
-  background: #fff1ef;
-  color: #dc2626;
-}
-
 /* ===== Timeline / Steps ===== */
-.timeline {
-  display: grid;
-  gap: 12px;
-}
+.timeline { display: grid; gap: 12px; }
 
 .step {
   border: 1px solid var(--report-line);
@@ -688,33 +555,14 @@ code {
   overflow: hidden;
 }
 
-.step.result-success {
-  border-left: 3px solid #16a34a;
-}
+.step.result-success { border-left: 3px solid #16a34a; }
+.step.result-failed { border-left: 3px solid #dc2626; }
+.step.result-info { border-left: 3px solid #7a8a9a; }
+.step.result-low { border-left: 3px solid #5b7aad; }
+.step.result-medium { border-left: 3px solid #d97706; }
+.step.result-high, .step.result-critical { border-left: 3px solid #dc2626; }
 
-.step.result-failed {
-  border-left: 3px solid #dc2626;
-}
-
-.step.result-info {
-  border-left: 3px solid #7a8a9a;
-}
-
-.step.result-low {
-  border-left: 3px solid #5b7aad;
-}
-
-.step.result-medium {
-  border-left: 3px solid #d97706;
-}
-
-.step.result-high,
-.step.result-critical {
-  border-left: 3px solid #dc2626;
-}
-
-.step-head,
-.finding-head {
+.step-head, .finding-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -766,9 +614,7 @@ details {
   padding: 10px 14px;
 }
 
-details[open] {
-  padding-bottom: 14px;
-}
+details[open] { padding-bottom: 14px; }
 
 summary {
   cursor: pointer;
@@ -779,9 +625,7 @@ summary {
   user-select: none;
 }
 
-summary:hover {
-  color: var(--report-text);
-}
+summary:hover { color: var(--report-text); }
 
 .params {
   margin: 10px 0 0;
@@ -797,11 +641,7 @@ summary:hover {
 }
 
 /* ===== Screenshots ===== */
-.screenshot-wrap {
-  margin-top: 10px;
-  display: grid;
-  gap: 10px;
-}
+.screenshot-wrap { margin-top: 10px; display: grid; gap: 10px; }
 
 .screenshot-path {
   margin: 0;
@@ -817,9 +657,7 @@ summary:hover {
 }
 
 /* ===== Failure Summary ===== */
-.failure-summary {
-  margin-bottom: 4px;
-}
+.failure-summary { margin-bottom: 4px; }
 
 .failure-summary h3 {
   margin: 0 0 4px;
@@ -829,68 +667,22 @@ summary:hover {
 }
 
 /* ===== Empty States ===== */
-.empty-state {
-  text-align: center;
-  padding: 48px 24px;
-  color: var(--report-muted);
-  display: grid;
-  gap: 6px;
-}
+.empty-state { text-align: center; padding: 48px 24px; }
 
-.empty-state strong {
-  font-size: 15px;
-  color: var(--report-text);
-}
+/* ===== Utility ===== */
+.muted { color: var(--report-muted); }
+.mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; font-size: 11px; }
 
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
-  .report-layout {
-    grid-template-columns: 1fr;
-    padding: 20px 18px 40px;
-  }
-
-  .report-sidebar {
-    position: static;
-  }
-
-  .nav-card {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 4px;
-  }
-
-  .nav-title {
-    display: none;
-  }
-
-  .nav-link {
-    justify-content: center;
-    font-size: 12px;
-    padding: 6px;
-  }
-
-  .nav-link span:last-child {
-    display: none;
-  }
-
-  .report-hero {
-    padding: 24px 20px;
-  }
-
-  .hero-inner {
-    flex-direction: column;
-  }
-
-  .metrics {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  }
-}
-
-.muted {
-  color: var(--report-muted);
-}
-
-.mono {
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 11px;
+  .report-layout { grid-template-columns: 1fr; padding: 20px 18px 40px; }
+  .report-sidebar { position: static; }
+  .nav-card { grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .nav-title { display: none; }
+  .nav-link { justify-content: center; font-size: 12px; padding: 6px; }
+  .nav-link span:last-child { display: none; }
+  .report-hero { padding: 24px 20px; }
+  .hero-inner { flex-direction: column; }
+  .metrics { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }
 </style>

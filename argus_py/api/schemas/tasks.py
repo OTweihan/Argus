@@ -27,6 +27,7 @@ class TaskLogResponse(ApiModel):
     screenshot_path: str | None = Field(default=None, alias="screenshotPath")
     message: str | None = None
     error: str | None = None
+    error_code: str | None = Field(default=None, alias="errorCode")
     created_at: datetime = Field(alias="createdAt")
 
     @classmethod
@@ -47,6 +48,8 @@ class TaskLogResponse(ApiModel):
             value = data.get(text_key)
             if isinstance(value, str):
                 data[text_key] = redact_sensitive_text(value)
+        # error_code 是结构化失败编码，不做脱敏
+        data["error_code"] = data.get("error_code")
         return cls.model_validate(data)
 
 

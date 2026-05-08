@@ -192,6 +192,7 @@ class TaskService:
         screenshot_path: str | None = None,
         message: str | None = None,
         error: str | None = None,
+        error_code: str | None = None,
         step_number: int | None = None,
     ) -> Task:
         """追加任务步骤日志并保存。"""
@@ -206,6 +207,7 @@ class TaskService:
             screenshot_path=screenshot_path,
             message=message,
             error=error,
+            error_code=error_code,
         )
         resolved.logs.append(log)
         saved = self.save_task(resolved)

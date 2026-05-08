@@ -20,6 +20,8 @@ def to_jsonable(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, (BaseException, Exception)):
+        return str(value)
     if isinstance(value, dict):
         return {str(k): to_jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple, set)):

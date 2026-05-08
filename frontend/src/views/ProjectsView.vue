@@ -1,78 +1,58 @@
 <template>
-  <section class="panel">
-    <h2 class="panel-header">
-      <span>项目列表</span>
-      <button class="primary" type="button" @click="openNewProjectDialog">新增项目</button>
-    </h2>
-    <ProjectTable :projects="projects" @edit="editProject" @delete="deleteProject"/>
-  </section>
-
-  <div v-if="showProjectDialog" class="dialog-backdrop">
-    <div class="dialog wide" role="dialog" aria-modal="true">
-      <div class="dialog-header">
-        <h2>{{ projectForm.editingId ? '编辑项目' : '新增项目' }}</h2>
-        <button type="button" aria-label="关闭" @click="closeProjectDialog">×</button>
+  <el-card>
+    <template #header>
+      <div class="card-header">
+        <span>项目列表</span>
+        <el-button type="primary" @click="openNewProjectDialog">新增项目</el-button>
       </div>
-      <form @submit.prevent="saveProject">
-        <div class="dialog-body">
-          <div v-if="error" class="banner error dialog-error">{{ error }}</div>
-          <div class="form-grid">
-            <div class="field" :class="{'has-error': formErrors.name}">
-              <label>名称</label>
-              <input v-model="projectForm.name" @input="delete formErrors.name"/>
-              <div v-if="formErrors.name" class="field-error">{{ formErrors.name }}</div>
-            </div>
-            <div class="field">
-              <label>描述</label>
-              <textarea v-model="projectForm.description"></textarea>
-            </div>
-            <div class="field">
-              <label>基础 URL</label>
-              <input v-model="projectForm.baseUrl" placeholder="https://example.com"/>
-            </div>
-            <div class="field">
-              <label>Git URL</label>
-              <input v-model="projectForm.gitUrl"/>
-            </div>
-            <div class="field">
-              <label>登录态名称</label>
-              <input v-model="projectForm.authStateName"/>
-            </div>
-            <div class="form-grid two">
-              <div class="field">
-                <label>默认最大步骤</label>
-                <input v-model="projectForm.defaultMaxSteps" type="number" min="1"/>
-              </div>
-              <div class="field">
-                <label>默认超时秒数</label>
-                <input v-model="projectForm.defaultTimeoutSeconds" type="number" min="1"/>
-              </div>
-            </div>
-            <div class="checks">
-              <label>
-                <input v-model="projectForm.defaultCaptureScreenshots" type="checkbox"/>
-                截图
-              </label>
-            </div>
-            <div class="field" :class="{'has-error': formErrors.projectParameters}">
-              <label>参数 JSON</label>
-              <textarea v-model="projectForm.parameters" @input="delete formErrors.projectParameters"></textarea>
-              <div v-if="formErrors.projectParameters" class="field-error">{{ formErrors.projectParameters }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="dialog-actions">
-          <button class="primary" type="submit">{{ projectForm.editingId ? '保存' : '创建' }}</button>
-          <button type="button" @click="closeProjectDialog">取消</button>
-        </div>
-      </form>
-    </div>
-  </div>
+    </template>
+    <ProjectTable :projects="projects" @edit="editProject" @delete="deleteProject"/>
+  </el-card>
+
+  <el-dialog v-model="showProjectDialog" :title="projectForm.editingId ? '编辑项目' : '新增项目'" width="580px"
+             append-to-body>
+    <el-form :model="projectForm" label-position="top" @submit.prevent="saveProject">
+      <el-form-item label="名称" :error="formErrors.name" required>
+        <el-input v-model="projectForm.name" maxlength="50" @input="delete formErrors.name" show-word-limit/>
+      </el-form-item>
+      <el-form-item label="描述">
+        <el-input v-model="projectForm.description" type="textarea" :rows="4" maxlength="200" show-word-limit/>
+      </el-form-item>
+      <el-form-item label="基础 URL" :error="formErrors.baseUrl">
+        <el-input v-model="projectForm.baseUrl" placeholder="https://example.com" @input="delete formErrors.baseUrl"/>
+      </el-form-item>
+      <el-row :gutter="12">
+        <el-col :span="12">
+          <el-form-item label="默认最大步骤">
+            <el-input-number v-model="projectForm.defaultMaxSteps" :min="1" :max="1000" :step="1" :precision="0"
+                             style="width:100%"/>
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="默认超时秒数">
+            <el-input-number v-model="projectForm.defaultTimeoutSeconds" :min="1" :max="3600" :step="1" :precision="0"
+                             style="width:100%"/>
+          </el-form-item>
+        </el-col>
+      </el-row>
+      <el-form-item label="截图">
+        <el-checkbox v-model="projectForm.defaultCaptureScreenshots">默认开启截图</el-checkbox>
+      </el-form-item>
+      <el-form-item label="参数 JSON" :error="formErrors.projectParameters">
+        <el-input v-model="projectForm.parameters" type="textarea" :rows="3"
+                  @input="delete formErrors.projectParameters"/>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="showProjectDialog = false">取消</el-button>
+      <el-button type="primary" @click="saveProject">{{ projectForm.editingId ? '保存' : '创建' }}</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
 import ProjectTable from "../components/ProjectTable.vue";
-import { useConsoleApp } from "../composables/useConsoleApp";
+import {useConsoleApp} from "../composables/useConsoleApp";
 
 type AppContext = ReturnType<typeof useConsoleApp>;
 
@@ -81,8 +61,12 @@ const {
   projects, projectForm, showProjectDialog, formErrors, error,
   editProject, deleteProject, saveProject, openNewProjectDialog,
 } = props.app;
-
-function closeProjectDialog(): void {
-  showProjectDialog.value = false;
-}
 </script>
+
+<style scoped>
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+</style>
