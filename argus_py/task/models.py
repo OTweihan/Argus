@@ -135,7 +135,7 @@ class Task:
     @property
     def current_step(self) -> int:
         """当前已记录步骤数（有缓存时优先返回缓存值）。"""
-        cache = self._step_cache  # type: ignore[attr-defined]
+        cache = self._step_cache
         if cache is not None:
             return cache
         return len(self.logs)
@@ -147,7 +147,7 @@ class Task:
     @property
     def finding_count(self) -> int:
         """问题数量（有缓存时优先返回缓存值）。"""
-        cache = self._finding_cache  # type: ignore[attr-defined]
+        cache = self._finding_cache
         if cache is not None:
             return cache
         return len(self.findings)

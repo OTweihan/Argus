@@ -54,7 +54,9 @@ def load_prompt_template(
             "Prompt template not found: "
             f"{name} (user_dir={Path(prompts_dir)}, builtin_dir={Path(builtin_prompts_dir)})"
         )
-    return PromptTemplate(name=path.name, content=path.read_text(encoding="utf-8"), source=str(path))
+    return PromptTemplate(
+        name=path.name, content=path.read_text(encoding="utf-8"), source=str(path)
+    )
 
 
 def load_prompt(

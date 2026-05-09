@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "vue-tsc --noEmit"
+    "lint": "vue-tsc --noEmit && eslint --fix src/",
+    "format": "prettier --write src/"
   },
   "dependencies": {
     "element-plus": "^2.13.7",
@@ -18,6 +19,11 @@
     "@vitejs/plugin-vue": "^5.0.0",
     "typescript": "^5.4.0",
     "vite": "^5.2.0",
-    "vue-tsc": "^2.0.0"
+    "vue-tsc": "^2.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-vue": "^9.27.0",
+    "prettier": "^3.3.0"
   }
 }

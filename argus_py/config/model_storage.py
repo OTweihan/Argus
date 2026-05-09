@@ -25,7 +25,9 @@ class ModelConfigSQLiteStorage:
         with closing(connect(self.db_path)) as connection:
             with connection:
                 if config.is_default:
-                    self._clear_default(connection, config.task_type, exclude_id=config.model_config_id)
+                    self._clear_default(
+                        connection, config.task_type, exclude_id=config.model_config_id
+                    )
                 connection.execute(
                     """
                     INSERT INTO model_configs (

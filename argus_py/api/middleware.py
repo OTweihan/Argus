@@ -39,7 +39,9 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
         message = str(exc)
         code = "PROJECT_NOT_FOUND" if "not found" in message.lower() else "PROJECT_ERROR"
         http_status = (
-            status.HTTP_404_NOT_FOUND if code == "PROJECT_NOT_FOUND" else status.HTTP_400_BAD_REQUEST
+            status.HTTP_404_NOT_FOUND
+            if code == "PROJECT_NOT_FOUND"
+            else status.HTTP_400_BAD_REQUEST
         )
         return _error_response(code, message, http_status)
 
@@ -48,7 +50,9 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
         message = str(exc)
         code = "MODEL_CONFIG_NOT_FOUND" if "not found" in message.lower() else "MODEL_CONFIG_ERROR"
         http_status = (
-            status.HTTP_404_NOT_FOUND if code == "MODEL_CONFIG_NOT_FOUND" else status.HTTP_400_BAD_REQUEST
+            status.HTTP_404_NOT_FOUND
+            if code == "MODEL_CONFIG_NOT_FOUND"
+            else status.HTTP_400_BAD_REQUEST
         )
         return _error_response(code, message, http_status)
 

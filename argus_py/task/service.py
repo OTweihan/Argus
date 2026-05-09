@@ -228,18 +228,36 @@ class TaskService:
         """移除任务的取消/暂停信号量。"""
         self._cancellation_tokens.pop(task_id, None)
 
-    def update_status(self, task: Task, target: TaskStatus, error_message: str | None = None) -> Task:
+    def update_status(
+        self, task: Task, target: TaskStatus, error_message: str | None = None
+    ) -> Task:
         """更新任务状态。"""
         assert_transition(task.status, target)
         previous_status = task.status
         now = datetime.now(timezone.utc)
         if target is TaskStatus.RUNNING and task.started_at is None:
             task.started_at = now
-        if target in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED}:
+        if target in {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.TIMEOUT,
+            TaskStatus.CANCELLED,
+        }:
             task.completed_at = now
         task.status = target
         task.error_message = error_message
-        self.storage.save(task)
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.update_task(
+                task.task_id,
+                status=task.status.value,
+                started_at=task.started_at.isoformat() if task.started_at else None,
+                completed_at=task.completed_at.isoformat() if task.completed_at else None,
+                error_message=task.error_message,
+                result_summary=task.result_summary,
+                report_path=task.report_path,
+            )
+        else:
+            self.storage.save(task)
         self._publish(
             "task.status",
             task,

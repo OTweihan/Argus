@@ -10,7 +10,13 @@ from pathlib import Path
 
 from argus_py.cli.messages import llm_field_label, llm_message
 from argus_py.cli.utils import print_cli_error
-from argus_py.core.constants import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MAX_RETRIES, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_MODEL, DEFAULT_LLM_TEMPERATURE
+from argus_py.core.constants import (
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MAX_RETRIES,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_TEMPERATURE,
+)
 from argus_py.core.crypto import encrypt_api_key
 from argus_py.core.paths import resolve_project_path
 
@@ -31,8 +37,14 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
     config_parser = subparsers.add_parser("config", help="交互式配置命令")
     config_subparsers = config_parser.add_subparsers(dest="config_command")
     llm_parser = config_subparsers.add_parser("llm", help="交互式配置大模型 API")
-    llm_parser.add_argument("--env-file", default=str(DEFAULT_LLM_ENV_FILE), help="写入的大模型配置文件路径，默认 config/llm.env")
-    llm_parser.add_argument("--advanced", action="store_true", help="显示最大输出 Token 数、温度、重试次数等高级配置")
+    llm_parser.add_argument(
+        "--env-file",
+        default=str(DEFAULT_LLM_ENV_FILE),
+        help="写入的大模型配置文件路径，默认 config/llm.env",
+    )
+    llm_parser.add_argument(
+        "--advanced", action="store_true", help="显示最大输出 Token 数、温度、重试次数等高级配置"
+    )
 
 
 def run_llm(args: argparse.Namespace) -> int:
@@ -55,12 +67,25 @@ def run_llm(args: argparse.Namespace) -> int:
             return 1
         updates["LLM_API_KEY"] = encrypt_api_key(api_key)
 
-    updates["LLM_BASE_URL"] = _prompt_text(llm_field_label("LLM_BASE_URL"), current.get("LLM_BASE_URL", DEFAULT_LLM_BASE_URL))
-    updates["LLM_MODEL"] = _prompt_text(llm_field_label("LLM_MODEL"), current.get("LLM_MODEL", DEFAULT_LLM_MODEL))
+    updates["LLM_BASE_URL"] = _prompt_text(
+        llm_field_label("LLM_BASE_URL"), current.get("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+    )
+    updates["LLM_MODEL"] = _prompt_text(
+        llm_field_label("LLM_MODEL"), current.get("LLM_MODEL", DEFAULT_LLM_MODEL)
+    )
     if args.advanced:
-        updates["LLM_MAX_TOKENS"] = _prompt_text(llm_field_label("LLM_MAX_TOKENS"), current.get("LLM_MAX_TOKENS", str(DEFAULT_LLM_MAX_TOKENS)))
-        updates["LLM_TEMPERATURE"] = _prompt_text(llm_field_label("LLM_TEMPERATURE"), current.get("LLM_TEMPERATURE", str(DEFAULT_LLM_TEMPERATURE)))
-        updates["LLM_MAX_RETRIES"] = _prompt_text(llm_field_label("LLM_MAX_RETRIES"), current.get("LLM_MAX_RETRIES", str(DEFAULT_LLM_MAX_RETRIES)))
+        updates["LLM_MAX_TOKENS"] = _prompt_text(
+            llm_field_label("LLM_MAX_TOKENS"),
+            current.get("LLM_MAX_TOKENS", str(DEFAULT_LLM_MAX_TOKENS)),
+        )
+        updates["LLM_TEMPERATURE"] = _prompt_text(
+            llm_field_label("LLM_TEMPERATURE"),
+            current.get("LLM_TEMPERATURE", str(DEFAULT_LLM_TEMPERATURE)),
+        )
+        updates["LLM_MAX_RETRIES"] = _prompt_text(
+            llm_field_label("LLM_MAX_RETRIES"),
+            current.get("LLM_MAX_RETRIES", str(DEFAULT_LLM_MAX_RETRIES)),
+        )
     else:
         updates["LLM_MAX_TOKENS"] = current.get("LLM_MAX_TOKENS", str(DEFAULT_LLM_MAX_TOKENS))
         updates["LLM_TEMPERATURE"] = current.get("LLM_TEMPERATURE", str(DEFAULT_LLM_TEMPERATURE))
@@ -72,7 +97,11 @@ def run_llm(args: argparse.Namespace) -> int:
         float(updates["LLM_TEMPERATURE"])
         int(updates["LLM_MAX_RETRIES"])
     except ValueError as exc:
-        print_cli_error("大模型配置失败", f"数值配置格式错误：{exc}", "请检查最大输出 Token 数、温度和最大重试次数。")
+        print_cli_error(
+            "大模型配置失败",
+            f"数值配置格式错误：{exc}",
+            "请检查最大输出 Token 数、温度和最大重试次数。",
+        )
         return 1
 
     _write_env_values(env_path, updates)

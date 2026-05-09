@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
@@ -41,7 +42,9 @@ async def get_config_summary() -> ConfigSummaryResponse:
         events_history_limit=settings.events_history_limit,
         events_subscriber_queue_size=settings.events_subscriber_queue_size,
         model_configs_count=len(model_configs),
-        default_model_config_id=default_model_config.model_config_id if default_model_config else None,
+        default_model_config_id=(
+            default_model_config.model_config_id if default_model_config else None
+        ),
     )
 
 
@@ -111,7 +114,9 @@ async def update_model_config(
 ) -> ModelConfigResponse:
     """更新模型配置。"""
     updates = request.model_dump(exclude_unset=True)
-    return ModelConfigResponse.from_model_config(service.update_model_config(model_config_id, updates))
+    return ModelConfigResponse.from_model_config(
+        service.update_model_config(model_config_id, updates)
+    )
 
 
 @router.delete("/models/{model_config_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -157,12 +162,12 @@ def _resolve_test_config(
 
 def _normalize_test_updates(
     config: ModelConfig,
-    updates: dict[str, object],
-) -> dict[str, object]:
+    updates: dict[str, Any],
+) -> dict[str, Any]:
     """规范化连接检查覆盖项。"""
     normalized = dict(updates)
-    provider = normalized.get("provider")
-    if "base_url" not in normalized:
+    provider = cast(str | None, normalized.get("provider"))
+    if "base_url" not in normalized and provider:
         normalized["base_url"] = get_provider_spec(provider).default_base_url
     if "base_url" in normalized and normalized["base_url"] is not None:
         normalized["base_url"] = str(normalized["base_url"]).strip().rstrip("/")

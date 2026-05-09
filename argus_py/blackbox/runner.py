@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -13,13 +12,13 @@ from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
 from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.browser import BrowserSession, PageSnapshot
-from argus_py.browser.snapshot import redact_href, redact_step_params
 from argus_py.browser.errors import BrowserTimeoutError, ElementNotFoundError
+from argus_py.browser.snapshot import redact_href, redact_step_params
 from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import resolve_llm_client_for_task
+from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import ActionType, FindingSeverity, FindingType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
-from argus_py.core.cancellation import CancellationToken
 from argus_py.core.paths import SCREENSHOTS_DIR
 from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.models import Task
@@ -89,7 +88,9 @@ class BlackboxRunner:
                         executed_steps += 1
 
                         try:
-                            resolved, latest_observation = await self._execute_action(resolved, session, action_step)
+                            resolved, latest_observation = await self._execute_action(
+                                resolved, session, action_step
+                            )
                             recovery_attempts = 0
                             self._last_error = None
                         except TaskError as exc:
@@ -102,11 +103,17 @@ class BlackboxRunner:
                             }
                             # URL/参数格式错误 → 不计恢复次数，直接重规划
                             if exc.error_code in (
-                                "empty_url", "invalid_scheme", "malformed_url",
-                                "markdown_link_text", "plain_text", "param_invalid",
+                                "empty_url",
+                                "invalid_scheme",
+                                "malformed_url",
+                                "markdown_link_text",
+                                "plain_text",
+                                "param_invalid",
                             ):
                                 latest_observation = await self._safe_observation(session)
-                                sequence = ActionSequence(steps=[], summary=f"参数校验失败：{exc}，重新规划。")
+                                sequence = ActionSequence(
+                                    steps=[], summary=f"参数校验失败：{exc}，重新规划。"
+                                )
                                 break
                             # 其他错误（element_not_found、timeout、未知）→ 计入恢复次数
                             if recovery_attempts >= self.max_recovery_attempts:
@@ -205,7 +212,11 @@ class BlackboxRunner:
         if not self._uses_default_planner and not self._uses_default_evaluator:
             return self.planner, self.evaluator
         llm_client = resolve_llm_client_for_task(task)
-        planner = self.planner if not self._uses_default_planner else BlackboxPlanner(llm_client=llm_client)
+        planner = (
+            self.planner
+            if not self._uses_default_planner
+            else BlackboxPlanner(llm_client=llm_client)
+        )
         evaluator = (
             self.evaluator
             if not self._uses_default_evaluator
@@ -235,10 +246,14 @@ class BlackboxRunner:
                 error=str(exc),
                 error_code=error_code,
             )
-            raise TaskError(f"黑盒动作执行失败：{step.action.value}，原因：{exc}", error_code=error_code) from exc
+            raise TaskError(
+                f"黑盒动作执行失败：{step.action.value}，原因：{exc}", error_code=error_code
+            ) from exc
 
         screenshot_path = result.get("screenshot_path")
-        screenshot_path, snapshot = await self._capture_step_evidence(task, session, screenshot_path=screenshot_path)
+        screenshot_path, snapshot = await self._capture_step_evidence(
+            task, session, screenshot_path=screenshot_path
+        )
         observation = snapshot.to_prompt_text() if snapshot is not None else ""
 
         return (

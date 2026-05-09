@@ -6,7 +6,8 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from argus_py.browser.errors import BrowserActionError, BrowserError, BrowserTimeoutError
 from argus_py.browser.selectors import SelectorQuery, require_visible
@@ -45,7 +46,9 @@ class BrowserActions:
             if require_load:
                 await self.page.wait_for_load_state("load", timeout=self.navigation_timeout_ms)
             else:
-                await self.page.wait_for_load_state("domcontentloaded", timeout=self.page_ready_timeout_ms)
+                await self.page.wait_for_load_state(
+                    "domcontentloaded", timeout=self.page_ready_timeout_ms
+                )
         except PlaywrightTimeoutError:
             # SPA、埋点或长连接页面可能迟迟不触发 load；保留后续截图和快照证据。
             pass
@@ -106,9 +109,15 @@ class BrowserActions:
             raise
         except Exception as exc:
             raise BrowserActionError("click", str(exc), str(target)) from exc
-        return {"url_before": before, "url_after": ready_state["url_after"], "title": ready_state["title"]}
+        return {
+            "url_before": before,
+            "url_after": ready_state["url_after"],
+            "title": ready_state["title"],
+        }
 
-    async def fill(self, target: str | SelectorQuery, text: str, clear: bool = True) -> dict[str, Any]:
+    async def fill(
+        self, target: str | SelectorQuery, text: str, clear: bool = True
+    ) -> dict[str, Any]:
         """填写输入框。"""
         try:
             await self.wait_for_page_ready(require_load=False)

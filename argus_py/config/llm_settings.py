@@ -8,8 +8,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from argus_py.core.crypto import decrypt_api_key
-from argus_py.core.paths import LLM_ENV_FILE
 from argus_py.core.constants import (
     DEFAULT_LLM_BASE_URL,
     DEFAULT_LLM_MAX_RETRIES,
@@ -17,6 +15,8 @@ from argus_py.core.constants import (
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_TEMPERATURE,
 )
+from argus_py.core.crypto import decrypt_api_key
+from argus_py.core.paths import LLM_ENV_FILE
 
 DEFAULT_LLM_ENV_FILE = LLM_ENV_FILE
 

@@ -7,7 +7,7 @@ import asyncio
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession, PlaywrightClient
-from argus_py.cli.utils import print_cli_error, print_cli_cancelled, resolve_auth_state_path
+from argus_py.cli.utils import print_cli_cancelled, print_cli_error, resolve_auth_state_path
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
@@ -25,9 +25,14 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
     parser.add_argument("--goal", required=True, help="自然语言测试目标")
     parser.add_argument("--url", required=True, help="起始 URL")
     parser.add_argument("--max-steps", type=positive_int, help="最大动作步数；不传时系统自动分配")
-    parser.add_argument("--timeout", type=positive_int, help="任务超时时间，单位秒；不传时系统自动分配")
     parser.add_argument(
-        "--browser", choices=("chromium", "firefox", "webkit"), default="chromium", help="浏览器类型"
+        "--timeout", type=positive_int, help="任务超时时间，单位秒；不传时系统自动分配"
+    )
+    parser.add_argument(
+        "--browser",
+        choices=("chromium", "firefox", "webkit"),
+        default="chromium",
+        help="浏览器类型",
     )
     parser.add_argument("--headed", action="store_true", help="显示浏览器窗口，默认 headless")
     parser.add_argument("--auth-state", help="复用已保存登录态")
@@ -75,7 +80,9 @@ async def run(args: argparse.Namespace) -> int:
             screenshot_dir=SCREENSHOTS_DIR / current_task.task_id,
         )
 
-    blackbox_runner = BlackboxRunner(service=service, browser_session_factory=browser_session_factory)
+    blackbox_runner = BlackboxRunner(
+        service=service, browser_session_factory=browser_session_factory
+    )
     runner = TaskRunner(service=service, handlers={TaskType.BLACKBOX: blackbox_runner.run})
 
     print("开始执行黑盒任务...")

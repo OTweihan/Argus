@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,7 +17,7 @@ from argus_py.task.storage import TaskFileStorage
 
 
 def test_extract_json_from_markdown_block():
-    data = extract_json("```json\n{\"action\": \"screenshot\"}\n```")
+    data = extract_json('```json\n{"action": "screenshot"}\n```')
 
     assert data["action"] == "screenshot"
 
@@ -48,18 +49,14 @@ class FakeLLMClient:
 
 @pytest.mark.asyncio
 async def test_blackbox_planner_parses_llm_actions():
-    planner = BlackboxPlanner(
-        llm_client=FakeLLMClient(
-            """
+    planner = BlackboxPlanner(llm_client=FakeLLMClient("""
             {
               "summary": "点击表单入口",
               "steps": [
                 {"action": "click", "selector": "text=HTML Forms", "reason": "进入表单页"}
               ]
             }
-            """
-        )
-    )
+            """))
 
     sequence = await planner.plan_next(
         goal="进入表单页",
@@ -75,9 +72,7 @@ async def test_blackbox_planner_parses_llm_actions():
 
 @pytest.mark.asyncio
 async def test_blackbox_evaluator_parses_llm_findings():
-    evaluator = BlackboxEvaluator(
-        llm_client=FakeLLMClient(
-            """
+    evaluator = BlackboxEvaluator(llm_client=FakeLLMClient("""
             {
               "completed": true,
               "success": false,
@@ -91,9 +86,7 @@ async def test_blackbox_evaluator_parses_llm_findings():
                 }
               ]
             }
-            """
-        )
-    )
+            """))
 
     result = await evaluator.evaluate("检查页面", "页面错误", history=[])
 
@@ -104,7 +97,7 @@ async def test_blackbox_evaluator_parses_llm_findings():
 
 class FakeSnapshot:
     url = "https://example.com"
-    interactive_elements = []
+    interactive_elements: list[Any] = []
 
     def to_prompt_text(self) -> str:
         return "URL: https://example.com\nTitle: Example"
@@ -139,7 +132,7 @@ class FakeBrowserSession:
 class CountingEvaluator:
     def __init__(self) -> None:
         self.count = 0
-        self.last_history = []
+        self.last_history: list[Any] = []
 
     async def evaluate(self, goal: str, observation: str, history=None) -> EvaluationResult:
         self.count += 1
@@ -170,7 +163,10 @@ async def test_blackbox_runner_executes_initial_browser_loop(tmp_path):
     assert completed.logs[0].action == "goto"
     assert completed.logs[0].screenshot_path is not None
     # history 记录的是 filename（无路径），logs 是完整路径，只校验文件名一致
-    assert runner.evaluator.last_history[0]["screenshot_path"] == Path(completed.logs[0].screenshot_path).name
+    assert (
+        runner.evaluator.last_history[0]["screenshot_path"]
+        == Path(completed.logs[0].screenshot_path).name
+    )
     assert completed.result_summary == "初始页面已记录"
     assert completed.report_path is not None
 
@@ -183,13 +179,17 @@ class RecoveryPlanner:
         return ActionSequence(
             steps=[
                 ActionStep(action=ActionType.GOTO, url=task_input.start_url),
-                ActionStep(action=ActionType.CLICK, selector="css=.missing", reason="尝试点击登录按钮"),
+                ActionStep(
+                    action=ActionType.CLICK, selector="css=.missing", reason="尝试点击登录按钮"
+                ),
             ]
         )
 
     async def plan_next(self, **kwargs) -> ActionSequence:
         self.plan_next_calls += 1
-        return ActionSequence(steps=[ActionStep(action=ActionType.SCREENSHOT, reason="恢复后记录页面")])
+        return ActionSequence(
+            steps=[ActionStep(action=ActionType.SCREENSHOT, reason="恢复后记录页面")]
+        )
 
 
 class FailingClickBrowserSession(FakeBrowserSession):

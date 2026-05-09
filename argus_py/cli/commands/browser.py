@@ -19,10 +19,17 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
 
     check_parser = browser_subparsers.add_parser("check", help="打开页面、执行可选动作并截图")
     check_parser.add_argument("--url", required=True, help="要打开的 URL")
-    check_parser.add_argument("--browser", choices=("chromium", "firefox", "webkit"), default="chromium", help="浏览器类型")
+    check_parser.add_argument(
+        "--browser",
+        choices=("chromium", "firefox", "webkit"),
+        default="chromium",
+        help="浏览器类型",
+    )
     check_parser.add_argument("--headed", action="store_true", help="显示浏览器窗口，默认 headless")
     check_parser.add_argument(
-        "--screenshot", default=str(SCREENSHOTS_DIR / "browser-check.png"), help="截图输出路径",
+        "--screenshot",
+        default=str(SCREENSHOTS_DIR / "browser-check.png"),
+        help="截图输出路径",
     )
     check_parser.add_argument("--click", help="可选：打开页面后点击指定选择器")
     check_parser.add_argument("--fill-selector", help="可选：要输入文本的选择器")

@@ -24,7 +24,7 @@ class RetryConfig:
 
     def delay_for_attempt(self, attempt: int) -> float:
         """根据重试次数计算退避时间。"""
-        return min(self.base_delay_seconds * (2 ** attempt), self.max_delay_seconds)
+        return min(self.base_delay_seconds * (2**attempt), self.max_delay_seconds)
 
 
 async def retry_async(

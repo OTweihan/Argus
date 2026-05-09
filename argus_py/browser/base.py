@@ -5,13 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from playwright.async_api import BrowserContext, ConsoleMessage as PwConsoleMessage, Page
+from playwright.async_api import BrowserContext
+from playwright.async_api import ConsoleMessage as PwConsoleMessage
+from playwright.async_api import Page
 
 from argus_py.browser.actions import BrowserActions
 from argus_py.browser.errors import BrowserActionError, BrowserNotStartedError
 from argus_py.browser.playwright_client import PlaywrightClient
 from argus_py.browser.snapshot import ConsoleMessage, PageSnapshot, capture_snapshot
-from argus_py.core.constants import DEFAULT_PAGE_READY_TIMEOUT_MS, DEFAULT_PAGE_SETTLE_MS, DEFAULT_SCREENSHOTS_DIR
+from argus_py.core.constants import (
+    DEFAULT_PAGE_READY_TIMEOUT_MS,
+    DEFAULT_PAGE_SETTLE_MS,
+    DEFAULT_SCREENSHOTS_DIR,
+)
 
 
 class BrowserSession:
@@ -107,7 +113,9 @@ class BrowserSession:
 
     def _on_console(self, message: PwConsoleMessage) -> None:
         page_url = self.page.url if self.page else ""
-        self.console_messages.append(ConsoleMessage(level=message.type, text=message.text, page_url=page_url))
+        self.console_messages.append(
+            ConsoleMessage(level=message.type, text=message.text, page_url=page_url)
+        )
 
     async def __aenter__(self) -> "BrowserSession":
         return await self.start()

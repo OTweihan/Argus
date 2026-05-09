@@ -13,7 +13,7 @@ from typing import Any
 def to_jsonable(value: Any) -> Any:
     """将常见 Python 对象转换为可 JSON 序列化对象。"""
     if is_dataclass(value):
-        return to_jsonable(asdict(value))
+        return to_jsonable(asdict(value))  # type: ignore[arg-type]
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, (datetime, date)):

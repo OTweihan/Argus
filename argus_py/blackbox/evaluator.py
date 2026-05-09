@@ -42,7 +42,9 @@ class EvaluationResult:
                 Finding(
                     title=str(item.get("title") or "未命名问题"),
                     description=str(item.get("description") or ""),
-                    severity=FindingSeverity(str(item.get("severity") or FindingSeverity.INFO.value)),
+                    severity=FindingSeverity(
+                        str(item.get("severity") or FindingSeverity.INFO.value)
+                    ),
                     finding_type=FindingType(str(item.get("type") or FindingType.FUNCTIONAL.value)),
                     url=item.get("url"),
                     location=item.get("location"),

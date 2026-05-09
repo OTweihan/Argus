@@ -71,18 +71,19 @@ class TaskSQLiteStorage:
     """基于 SQLite 的任务存储。"""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
-        from argus_py.infra.db import connect as _connect_fn, init_database
+        from argus_py.infra.db import connect as _connect_fn
+        from argus_py.infra.db import init_database
 
-        self._connect = lambda: _connect_fn(db_path) if db_path else _connect_fn(DATA_DIR / "argus.db")
+        self._connect = lambda: (
+            _connect_fn(db_path) if db_path else _connect_fn(DATA_DIR / "argus.db")
+        )
         self.db_path = Path(db_path) if db_path else DATA_DIR / "argus.db"
         init_database(self.db_path)
 
     def exists(self, task_id: str) -> bool:
         """判断任务是否存在。"""
         with closing(self._connect()) as connection:
-            row = connection.execute(
-                "SELECT 1 FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()
+            row = connection.execute("SELECT 1 FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row is not None
 
     def save(self, task: Task) -> Task:
@@ -130,6 +131,29 @@ class TaskSQLiteStorage:
                         self._finding_to_row(task.task_id, finding),
                     )
         return task
+
+    def update_task(self, task_id: str, **fields: Any) -> None:
+        """窄更新：只修改 tasks 表的指定列，不触及 task_logs/findings。"""
+        allowed = {
+            "status",
+            "current_step",
+            "started_at",
+            "completed_at",
+            "report_path",
+            "result_summary",
+            "error_message",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+        if not updates:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [task_id]
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute(
+                    f"UPDATE tasks SET {set_clause} WHERE task_id = ?",
+                    values,
+                )
 
     def append_log(self, task_id: str, log: TaskLog) -> None:
         """追加单条步骤日志。"""
@@ -386,7 +410,7 @@ class TaskSQLiteStorage:
     ) -> Task:
         """将 SQLite 行还原为 Task 实体。"""
         from argus_py.core.enums import TaskStatus, TaskType
-        from argus_py.task.models import _parse_datetime
+        from argus_py.task.models import _parse_datetime, utc_now
 
         return Task(
             task_id=task_row["task_id"],
@@ -402,7 +426,7 @@ class TaskSQLiteStorage:
             parameters=json.loads(task_row["parameters_json"] or "{}"),
             logs=[self._row_to_log(r) for r in log_rows],
             findings=[self._row_to_finding(r) for r in finding_rows],
-            created_at=_parse_datetime(task_row["created_at"]),
+            created_at=_parse_datetime(task_row["created_at"]) or utc_now(),
             started_at=_parse_datetime(task_row["started_at"]),
             completed_at=_parse_datetime(task_row["completed_at"]),
             report_path=task_row["report_path"],
@@ -413,7 +437,7 @@ class TaskSQLiteStorage:
     def _row_to_log(self, row: Any) -> TaskLog:
         """将 SQLite 行还原为 TaskLog 实体。"""
         from argus_py.core.enums import StepResult
-        from argus_py.task.models import _parse_datetime
+        from argus_py.task.models import _parse_datetime, utc_now
 
         return TaskLog(
             task_log_id=row["task_log_id"],
@@ -427,13 +451,13 @@ class TaskSQLiteStorage:
             message=row["message"],
             error=row["error"],
             error_code=row["error_code"],
-            created_at=_parse_datetime(row["created_at"]),
+            created_at=_parse_datetime(row["created_at"]) or utc_now(),
         )
 
     def _row_to_finding(self, row: Any) -> Finding:
         """将 SQLite 行还原为 Finding 实体。"""
         from argus_py.core.enums import FindingSeverity, FindingType
-        from argus_py.task.models import _parse_datetime
+        from argus_py.task.models import _parse_datetime, utc_now
 
         return Finding(
             finding_id=row["finding_id"],
@@ -444,5 +468,5 @@ class TaskSQLiteStorage:
             url=row["url"],
             location=row["location"],
             screenshot_path=row["screenshot_path"],
-            created_at=_parse_datetime(row["created_at"]),
+            created_at=_parse_datetime(row["created_at"]) or utc_now(),
         )

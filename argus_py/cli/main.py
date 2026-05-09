@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from argus_py.cli.commands import serve, run, browser, auth, llm as llm_cmd, config
+from argus_py.cli.commands import auth, browser, config
+from argus_py.cli.commands import llm as llm_cmd
+from argus_py.cli.commands import run, serve
 from argus_py.core.constants import PROJECT_NAME, PROJECT_VERSION
 
 
@@ -34,24 +36,29 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         import asyncio
+
         try:
             return asyncio.run(run.run(args))
         except KeyboardInterrupt:
             from argus_py.cli.utils import print_cli_cancelled
+
             print_cli_cancelled("任务执行")
             return 130
         except Exception as exc:
             from argus_py.cli.utils import print_cli_error
+
             print_cli_error("任务执行失败", exc)
             return 1
 
     if args.command == "browser":
         import asyncio
+
         if args.browser_command == "check":
             try:
                 return asyncio.run(browser.run_check(args))
             except Exception as exc:
                 from argus_py.cli.utils import print_cli_error
+
                 print_cli_error("浏览器检查失败", exc)
                 return 1
         parser.print_help()
@@ -59,15 +66,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "auth":
         import asyncio
+
         if args.auth_command == "save":
             try:
                 return asyncio.run(auth.run_save(args))
             except KeyboardInterrupt:
                 from argus_py.cli.utils import print_cli_cancelled
+
                 print_cli_cancelled("登录态保存")
                 return 130
             except Exception as exc:
                 from argus_py.cli.utils import print_cli_error
+
                 print_cli_error("登录态保存失败", exc)
                 return 1
         if args.auth_command == "list":
@@ -77,15 +87,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "llm":
         import asyncio
+
         if args.llm_command == "check":
             try:
                 return asyncio.run(llm_cmd.run_check(args))
             except KeyboardInterrupt:
                 from argus_py.cli.utils import print_cli_cancelled
+
                 print_cli_cancelled("LLM 检查")
                 return 130
             except Exception as exc:
                 from argus_py.cli.utils import print_cli_error
+
                 print_cli_error("LLM 检查失败", exc)
                 return 1
         parser.print_help()

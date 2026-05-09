@@ -1,4 +1,4 @@
-import {ApiError, reportUrl, request} from "../client";
+import {request} from "../client";
 import type {TaskPayload} from "../types";
 import type {ReportData, Task, TaskDisplayStatus, TaskListResponse, TaskStartResponse,} from "../../types";
 
@@ -47,23 +47,11 @@ export function startTask(taskId: string): Promise<TaskStartResponse> {
 }
 
 export function getTaskReportJson(taskId: string): Promise<ReportData> {
-    return fetchReportJson(taskId);
+    return request<ReportData>(`/tasks/${encodeURIComponent(taskId)}/report.json`);
 }
 
 export function inferTaskLimits(goal: string, startUrl?: string): Promise<{maxSteps: number; timeoutSeconds: number}> {
     const params = new URLSearchParams({goal});
     if (startUrl) params.set("startUrl", startUrl);
     return request(`/tasks/infer-limits?${params.toString()}`);
-}
-
-async function fetchReportJson(taskId: string): Promise<ReportData> {
-    const response = await fetch(reportUrl(taskId, true));
-    if (!response.ok) {
-        throw new ApiError(`获取 JSON 报告失败：HTTP ${response.status}`, response.status);
-    }
-    try {
-        return (await response.json()) as ReportData;
-    } catch {
-        throw new ApiError("服务返回了无效 JSON 报告。", response.status, "INVALID_JSON_RESPONSE");
-    }
 }

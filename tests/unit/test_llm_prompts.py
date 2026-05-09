@@ -1,4 +1,9 @@
-from argus_py.llm.prompts import load_prompt, load_prompt_template, render_prompt, resolve_prompt_path
+from argus_py.llm.prompts import (
+    load_prompt,
+    load_prompt_template,
+    render_prompt,
+    resolve_prompt_path,
+)
 
 
 def test_load_prompt_falls_back_to_builtin_when_user_template_missing(tmp_path):

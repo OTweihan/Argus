@@ -10,7 +10,12 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from argus_py.browser import BrowserSession, PlaywrightClient
-from argus_py.cli.utils import print_cli_error, print_cli_cancelled, resolve_auth_state_path, auth_state_name_from_url
+from argus_py.cli.utils import (
+    auth_state_name_from_url,
+    print_cli_cancelled,
+    print_cli_error,
+    resolve_auth_state_path,
+)
 from argus_py.core.paths import BROWSER_STATES_DIR
 
 
@@ -22,8 +27,15 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
     save_parser = auth_subparsers.add_parser("save", help="打开登录页并保存浏览器登录态")
     save_parser.add_argument("--name", help="登录态名称；不传时默认使用 URL 域名")
     save_parser.add_argument("--url", required=True, help="需要手动登录的页面 URL")
-    save_parser.add_argument("--browser", choices=("chromium", "firefox", "webkit"), default="chromium", help="浏览器类型")
-    save_parser.add_argument("--headed", action="store_true", help="显示浏览器窗口；auth save 默认显示")
+    save_parser.add_argument(
+        "--browser",
+        choices=("chromium", "firefox", "webkit"),
+        default="chromium",
+        help="浏览器类型",
+    )
+    save_parser.add_argument(
+        "--headed", action="store_true", help="显示浏览器窗口；auth save 默认显示"
+    )
     save_parser.add_argument("--headless", action="store_true", help="不显示浏览器窗口")
 
     auth_subparsers.add_parser("list", help="列出已保存的浏览器登录态")
@@ -59,7 +71,7 @@ async def run_save(args: argparse.Namespace) -> int:
 
     print(f"登录态已保存：{auth_state_path}")
     print(f"登录态名称：{auth_state_name}")
-    print(f"运行任务时可使用：argus run --auth-state {auth_state_name} --goal \"...\" --url \"...\"")
+    print(f'运行任务时可使用：argus run --auth-state {auth_state_name} --goal "..." --url "..."')
     return 0
 
 
@@ -79,7 +91,7 @@ def run_list() -> int:
         print(f"- 名称：{state_file.stem}")
         print(f"  关联站点：{_read_auth_state_sites(state_file)}")
         print(f"  修改时间：{_format_local_timestamp(state_file.stat().st_mtime)}")
-        print(f"  复用命令：argus run --auth-state {state_file.stem} --goal \"...\" --url \"...\"")
+        print(f'  复用命令：argus run --auth-state {state_file.stem} --goal "..." --url "..."')
         print(f"  文件路径：{state_file}")
     return 0
 

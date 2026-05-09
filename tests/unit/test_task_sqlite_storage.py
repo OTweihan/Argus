@@ -14,7 +14,8 @@ from argus_py.core.enums import (
     TaskType,
 )
 from argus_py.core.exceptions import TaskError
-from argus_py.infra.db import connect as _connect, init_database
+from argus_py.infra.db import connect as _connect
+from argus_py.infra.db import init_database
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.storage import TaskSQLiteStorage
 
@@ -444,7 +445,9 @@ class TestMigration:
         cols = {row["name"] for row in conn2.execute("PRAGMA table_info(tasks)").fetchall()}
         assert "current_step" in cols
         current_step_cols = [
-            row for row in conn2.execute("PRAGMA table_info(tasks)") if row["name"] == "current_step"
+            row
+            for row in conn2.execute("PRAGMA table_info(tasks)")
+            if row["name"] == "current_step"
         ]
         assert len(current_step_cols) == 1
         conn2.close()

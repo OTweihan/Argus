@@ -22,7 +22,9 @@ class BlackboxPlanner:
 
     async def plan_initial(self, task_input: BlackboxTaskInput) -> ActionSequence:
         """生成初始动作序列，先确定性打开起始 URL。"""
-        steps = [ActionStep(action=ActionType.GOTO, url=task_input.start_url, reason="打开起始 URL")]
+        steps = [
+            ActionStep(action=ActionType.GOTO, url=task_input.start_url, reason="打开起始 URL")
+        ]
         return ActionSequence(steps=steps, summary="打开起始页面。")
 
     async def plan_next(

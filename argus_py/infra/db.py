@@ -142,10 +142,7 @@ _REQUIRED_TASK_COLUMNS: dict[str, str] = {
 
 def _migrate_tasks_table(connection: sqlite3.Connection) -> None:
     """检查 tasks 表并补全缺失列（兼容旧库迁移）。"""
-    existing = {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
-    }
+    existing = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
     for col_name, col_def in _REQUIRED_TASK_COLUMNS.items():
         if col_name not in existing:
             connection.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_def}")

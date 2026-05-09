@@ -5,10 +5,8 @@ from __future__ import annotations
 import argparse
 import os
 
-import os
-
 from argus_py.api.dependencies import SERVER_CONFIG_ENV, load_server_settings
-from argus_py.cli.utils import print_cli_error, print_cli_cancelled
+from argus_py.cli.utils import print_cli_cancelled, print_cli_error
 from argus_py.core.paths import resolve_project_path
 
 

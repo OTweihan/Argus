@@ -59,6 +59,7 @@ def coerce_float(value: Any, default: float, minimum: float | None = None) -> fl
 
 # ---- env 变量读取辅助 --------------------------------------------------------
 
+
 def env_bool(name: str, default: bool) -> bool:
     """从环境变量读取布尔值。"""
     return coerce_bool(os.getenv(name), default)

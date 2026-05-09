@@ -90,6 +90,16 @@ class TaskQueue:
                 return "queued"
         return None
 
+    async def snapshot_statuses(self) -> dict[str, str]:
+        """批量快照当前调度状态，返回 {task_id: status}。"""
+        async with self._lock:
+            result: dict[str, str] = {}
+            for tid in self._active_ids:
+                result[tid] = "running"
+            for tid in self._queued_ids:
+                result[tid] = "queued"
+            return result
+
     async def is_known(self, task_id: str) -> bool:
         """判断任务是否已入队或正在执行。"""
         return (await self.scheduler_status(task_id)) is not None

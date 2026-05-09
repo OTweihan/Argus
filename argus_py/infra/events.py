@@ -38,7 +38,9 @@ class TaskEvent:
 class EventSubscription:
     """事件订阅。"""
 
-    def __init__(self, bus: "EventBus", queue: asyncio.Queue[TaskEvent], task_id: str | None) -> None:
+    def __init__(
+        self, bus: "EventBus", queue: asyncio.Queue[TaskEvent], task_id: str | None
+    ) -> None:
         self.bus = bus
         self.queue = queue
         self.task_id = task_id

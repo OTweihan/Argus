@@ -2,7 +2,7 @@ import {computed, nextTick, onMounted, onUnmounted, reactive, ref, watch} from "
 
 import {ElMessage} from "element-plus";
 import {getTask as apiGetTask, summary as apiSummary} from "../api";
-import type {ConfigSummary, ModelConfig, Project, Task,} from "../types";
+import type {ConfigSummary, ModelConfig, Project, Task, TaskEvent} from "../types";
 import {compact, errorMessage, upsertById} from "../utils";
 import {TaskEventStream} from "../ws";
 import {useProjects} from "./useProjects";
@@ -50,7 +50,7 @@ export function useConsoleApp() {
     } = useTasks({allTasks, projects, models, error, message, formErrors, view, connectEventStream});
 
     const {
-        modelForm, showModelDialog, providers,
+        modelForm, showModelDialog,
         loadModels, saveModel, editModel, deleteModel, testModel, openNewModelDialog, resetModelForm,
     } = useModels({models, error, message, formErrors, dialog});
 
@@ -92,9 +92,8 @@ export function useConsoleApp() {
     });
     eventStream.onEvent((event) => {
         const eventType = event.eventType ?? event.type ?? "";
-        if (eventType.startsWith("task.")) {
-            scheduleRefresh();
-        }
+        if (!eventType.startsWith("task.")) return;
+        applyEvent(event);
     });
 
     watch(
@@ -167,6 +166,60 @@ export function useConsoleApp() {
             view.value = hash as ViewKey;
             connectEventStream();
         }
+    }
+
+    function applyEvent(event: TaskEvent): void {
+        const data = event.data ?? {};
+        const summary = data.task as Record<string, unknown> | undefined;
+        const taskId = (summary?.taskId as string | undefined) ?? (data.taskId as string | undefined);
+        if (!taskId) {
+            scheduleRefresh();
+            return;
+        }
+
+        const eventType = event.eventType ?? event.type ?? "";
+        if (eventType === "task.deleted") {
+            const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
+            if (idx !== -1) {
+                allTasks.value = [...allTasks.value.slice(0, idx), ...allTasks.value.slice(idx + 1)];
+            }
+            return;
+        }
+
+        const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
+        if (idx === -1 && eventType === "task.created" && summary) {
+            allTasks.value = [summary as unknown as Task, ...allTasks.value];
+            return;
+        }
+
+        if (idx === -1 || !summary) {
+            scheduleRefresh();
+            return;
+        }
+
+        const existing = allTasks.value[idx];
+        const patch: Partial<Task> = {};
+        if (summary.status !== undefined) patch.status = summary.status as Task["status"];
+        if (summary.currentStep !== undefined) patch.currentStep = summary.currentStep as number;
+        if (summary.findingCount !== undefined) patch.findingCount = summary.findingCount as number;
+        if (summary.name !== undefined) patch.name = summary.name as string | null;
+        if (summary.goal !== undefined) patch.goal = summary.goal as string;
+        if (summary.projectId !== undefined) patch.projectId = summary.projectId as string | null;
+        if (summary.reportPath !== undefined) patch.reportPath = summary.reportPath as string | null;
+        if (summary.resultSummary !== undefined) patch.resultSummary = summary.resultSummary as string | null;
+        if (summary.errorMessage !== undefined) patch.errorMessage = summary.errorMessage as string | null;
+
+        if (eventType === "task.complete") {
+            patch.status = "completed";
+            if (data.reportPath) patch.reportPath = data.reportPath as string;
+            if (data.resultSummary) patch.resultSummary = data.resultSummary as string;
+        }
+
+        allTasks.value = [
+            ...allTasks.value.slice(0, idx),
+            { ...existing, ...patch },
+            ...allTasks.value.slice(idx + 1),
+        ];
     }
 
     function connectEventStream(): void {
@@ -257,7 +310,6 @@ export function useConsoleApp() {
         pageSize,
         projectForm,
         projects,
-        providers,
         recentTasks,
         removeParam,
         reportData,

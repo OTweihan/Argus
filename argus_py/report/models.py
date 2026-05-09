@@ -28,4 +28,9 @@ class Report:
     @classmethod
     def from_task(cls, task: Task, summary: str = "") -> "Report":
         """根据任务生成报告对象。"""
-        return cls(task=task, summary=summary or task.result_summary or "", steps=task.logs, findings=task.findings)
+        return cls(
+            task=task,
+            summary=summary or task.result_summary or "",
+            steps=task.logs,
+            findings=task.findings,
+        )

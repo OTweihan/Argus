@@ -1,6 +1,6 @@
+from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.report.models import Report
 from argus_py.report.serializer import report_to_dict
-from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.models import Task, TaskLog
 
 

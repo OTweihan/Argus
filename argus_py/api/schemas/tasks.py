@@ -122,9 +122,7 @@ class TaskCreateRequest(ApiModel):
             if len(key) > _PARAMS_MAX_KEY_LEN:
                 raise ValueError(f"参数键过长：{key[:80]}...（最多 {_PARAMS_MAX_KEY_LEN} 字符）")
             if isinstance(val, str) and len(val) > _PARAMS_MAX_VALUE_STR_LEN:
-                raise ValueError(
-                    f"参数值过长：{key[:80]}（最多 {_PARAMS_MAX_VALUE_STR_LEN} 字符）"
-                )
+                raise ValueError(f"参数值过长：{key[:80]}（最多 {_PARAMS_MAX_VALUE_STR_LEN} 字符）")
         return value
 
 

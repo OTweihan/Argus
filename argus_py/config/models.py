@@ -16,7 +16,6 @@ from argus_py.core.enums import TaskType
 from argus_py.core.ids import generate_model_config_id
 from argus_py.project.models import parse_datetime
 
-
 ModelProvider = str
 
 

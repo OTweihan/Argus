@@ -58,5 +58,7 @@ def resolve_execution_limits(
     inferred = infer_execution_limits(goal, url)
     return TaskExecutionLimits(
         max_steps=max_steps if max_steps is not None else inferred.max_steps,
-        timeout_seconds=timeout_seconds if timeout_seconds is not None else inferred.timeout_seconds,
+        timeout_seconds=(
+            timeout_seconds if timeout_seconds is not None else inferred.timeout_seconds
+        ),
     )

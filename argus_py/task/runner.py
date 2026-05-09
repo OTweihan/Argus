@@ -57,7 +57,9 @@ class TaskRunner:
             latest = self._latest_task(running_task)
             if latest.status is not TaskStatus.RUNNING:
                 return self._generate_report(latest)
-            logger.warning("任务超时：%s（%ds）", running_task.task_id, running_task.timeout_seconds)
+            logger.warning(
+                "任务超时：%s（%ds）", running_task.task_id, running_task.timeout_seconds
+            )
             timeout_task = self.service.timeout_task(latest)
             timeout_task = self._generate_report(timeout_task)
             raise TaskError(timeout_task.error_message or "任务执行超时。") from exc

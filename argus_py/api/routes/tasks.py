@@ -19,10 +19,10 @@ from argus_py.api.schemas import (
     TaskSummaryResponse,
     TaskUpdateRequest,
 )
+from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
-from argus_py.config.service import ModelConfigService
 from argus_py.project.service import ProjectService
 from argus_py.task.service import TaskService
 from argus_py.task.strategy import infer_execution_limits, resolve_execution_limits
@@ -179,17 +179,18 @@ async def list_tasks(
     queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskSummaryListResponse:
     """列出任务（轻量，不含日志和发现项），支持按状态、项目和关键词过滤及分页。"""
-    tasks = service.list_task_summaries(status=status, project_id=project_id, offset=offset, limit=limit, q=q)
+    tasks = service.list_task_summaries(
+        status=status, project_id=project_id, offset=offset, limit=limit, q=q
+    )
     total = service.count_tasks(status=status, project_id=project_id, q=q)
-    responses = []
-    for task in tasks:
-        responses.append(
-            TaskSummaryResponse.from_task(
-                task,
-                scheduler_status=await queue.scheduler_status(task.task_id),
-            )
-        )
-    return TaskSummaryListResponse(total=total, tasks=responses)
+    status_snapshot = await queue.snapshot_statuses()
+    return TaskSummaryListResponse(
+        total=total,
+        tasks=[
+            TaskSummaryResponse.from_task(task, scheduler_status=status_snapshot.get(task.task_id))
+            for task in tasks
+        ],
+    )
 
 
 @router.get("/infer-limits", response_model=InferredLimitsResponse)
@@ -232,7 +233,12 @@ async def cancel_task(
     if scheduler_status == "queued":
         await queue.cancel(task_id)
 
-    if task.status in (TaskStatus.CANCELLED, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT):
+    if task.status in (
+        TaskStatus.CANCELLED,
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.TIMEOUT,
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -335,7 +341,12 @@ async def stop_task(
     if scheduler_status == "queued":
         await queue.cancel(task_id)
 
-    if task.status in (TaskStatus.CANCELLED, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT):
+    if task.status in (
+        TaskStatus.CANCELLED,
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.TIMEOUT,
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={

@@ -1,6 +1,13 @@
 """应用级常量。"""
 
-from argus_py.core.paths import LOGS_DIR, OUTPUT_DIR, PROMPTS_DIR, REPORTS_DIR, SCREENSHOTS_DIR, TEMP_DIR
+from argus_py.core.paths import (
+    LOGS_DIR,
+    OUTPUT_DIR,
+    PROMPTS_DIR,
+    REPORTS_DIR,
+    SCREENSHOTS_DIR,
+    TEMP_DIR,
+)
 
 PROJECT_NAME = "Argus"
 PROJECT_VERSION = "0.1.0"

@@ -90,10 +90,16 @@ class InteractiveElement:
 
     def selector_hint(self) -> str:
         """生成推荐给 LLM 使用的稳定定位表达式。"""
-        label = self.text or self.aria_label or self.placeholder or self.name or self.element_id or ""
+        label = (
+            self.text or self.aria_label or self.placeholder or self.name or self.element_id or ""
+        )
         if self.tag in {"input", "textarea", "select"} and self.name:
             return f'css=[name="{_escape_selector_value(self.name)}"]'
-        if self.tag in {"input", "textarea", "select"} and self.element_id and _is_simple_css_id(self.element_id):
+        if (
+            self.tag in {"input", "textarea", "select"}
+            and self.element_id
+            and _is_simple_css_id(self.element_id)
+        ):
             return f"css=#{self.element_id}"
         if self.tag == "input" and self.element_type == "password":
             return 'css=input[type="password"]'
@@ -164,7 +170,14 @@ class PageSnapshot:
         if self.interactive_elements:
             lines.append("Interactive elements:")
             for item in self.interactive_elements[:max_elements]:
-                label = redact_sensitive_text(item.text or item.aria_label or item.placeholder or item.name or item.element_id or "")
+                label = redact_sensitive_text(
+                    item.text
+                    or item.aria_label
+                    or item.placeholder
+                    or item.name
+                    or item.element_id
+                    or ""
+                )
                 details = [
                     f"- [{item.index}] <{item.tag}>",
                     label,
@@ -175,9 +188,9 @@ class PageSnapshot:
                 if item.name:
                     details.append(f"name={item.name}")
                 if item.href:
-                    details.append(f'href={redact_href(item.href)}')
+                    details.append(f"href={redact_href(item.href)}")
                 if item.resolved_url and item.resolved_url != item.href:
-                    details.append(f'resolved_url={redact_href(item.resolved_url)}')
+                    details.append(f"resolved_url={redact_href(item.resolved_url)}")
                 flags = []
                 if item.disabled:
                     flags.append("disabled")
@@ -297,7 +310,11 @@ async def capture_snapshot(
     accessibility_tree = await _capture_accessibility_summary(page)
 
     all_messages = console_messages or []
-    errors = [msg for msg in all_messages if msg.level in {"error", "warning"} and msg.page_url == current_url]
+    errors = [
+        msg
+        for msg in all_messages
+        if msg.level in {"error", "warning"} and msg.page_url == current_url
+    ]
 
     return PageSnapshot(
         url=current_url,
@@ -331,13 +348,29 @@ def _clean_html_for_prompt(html: str) -> str:
     """清洗 HTML：删除脚本、样式，保留关键结构属性，敏感字段和超长值脱敏。"""
     import re
 
-    _KEEP_ATTRS = frozenset({
-        "id", "name", "type", "role", "aria-label", "placeholder",
-        "href", "value", "disabled", "checked", "required",
-    })
+    _KEEP_ATTRS = frozenset(
+        {
+            "id",
+            "name",
+            "type",
+            "role",
+            "aria-label",
+            "placeholder",
+            "href",
+            "value",
+            "disabled",
+            "checked",
+            "required",
+        }
+    )
 
     # 删除 script/style/svg/path/noscript 标签及其内容
-    html = re.sub(r"<(script|style|svg|path|noscript)\b[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(
+        r"<(script|style|svg|path|noscript)\b[^>]*>.*?</\1>",
+        "",
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
     html = re.sub(r"<(script|style|svg|path|noscript)\b[^>]*/>", "", html, flags=re.IGNORECASE)
 
     def _filter_attrs(match: re.Match) -> str:
@@ -465,11 +498,17 @@ def _is_simple_css_id(value: str) -> bool:
 
 _SENSITIVE_TEXT_PATTERNS = [
     # key=value query/fragment pairs
-    (r'(?i)(token|access_token|api_key|apikey|secret|password|credential|auth|authorization|session|sess|sid|jwt)\s*=\s*\S+', r'\1=[REDACTED]'),
+    (
+        r"(?i)(token|access_token|api_key|apikey|secret|password|credential|auth|authorization|session|sess|sid|jwt)\s*=\s*\S+",
+        r"\1=[REDACTED]",
+    ),
     # Bearer/Basic auth headers
-    (r'(?i)(Authorization|Auth)\s*:\s*(Bearer|Basic)\s+\S+', r'\1: \2 [REDACTED]'),
+    (r"(?i)(Authorization|Auth)\s*:\s*(Bearer|Basic)\s+\S+", r"\1: \2 [REDACTED]"),
     # JSON-like patterns: "token":"...", "api_key":"..."
-    (r'(?i)"(token|access_token|api_key|apikey|secret|password|credential|session|jwt)"\s*:\s*"[^"]*"', r'"\1":"[REDACTED]"'),
+    (
+        r'(?i)"(token|access_token|api_key|apikey|secret|password|credential|session|jwt)"\s*:\s*"[^"]*"',
+        r'"\1":"[REDACTED]"',
+    ),
 ]
 
 

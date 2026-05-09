@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
@@ -27,9 +28,7 @@ async def task_events(
     try:
         service.get_task(task_id)
     except TaskError as exc:
-        await websocket.send_json(
-            _system_event("system.error", task_id=task_id, message=str(exc))
-        )
+        await websocket.send_json(_system_event("system.error", task_id=task_id, message=str(exc)))
         await websocket.close(code=1008)
         return
 
@@ -77,9 +76,9 @@ def _system_event(
     event_type: str,
     task_id: str | None = None,
     message: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """生成系统事件。"""
-    event = {
+    event: dict[str, Any] = {
         "type": event_type,
         "taskId": task_id,
         "data": {},

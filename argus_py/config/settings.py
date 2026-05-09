@@ -8,7 +8,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from argus_py.core.paths import OUTPUT_DIR, resolve_project_path
 from argus_py.core.constants import (
     DEFAULT_BROWSER,
     DEFAULT_HEADLESS,
@@ -16,6 +15,7 @@ from argus_py.core.constants import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_TASK_TIMEOUT_S,
 )
+from argus_py.core.paths import OUTPUT_DIR, resolve_project_path
 
 
 def _env_bool(name: str, default: bool) -> bool:

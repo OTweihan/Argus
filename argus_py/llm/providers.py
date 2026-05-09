@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from argus_py.config.models import ModelConfig
-from argus_py.core.constants import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
-from argus_py.core.constants import DEFAULT_LLM_BASE_URL
+from argus_py.core.constants import (
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TEMPERATURE,
+)
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.llm.client import LLMClient
 

@@ -133,8 +133,13 @@ def test_resolve_auth_state_path_uses_named_state(monkeypatch, tmp_path):
     monkeypatch.setattr(auth_cmd, "BROWSER_STATES_DIR", browser_states_dir)
 
     assert cli_utils.resolve_auth_state_path("default") == browser_states_dir / "default.json"
-    assert cli_utils.resolve_auth_state_path("example.com") == browser_states_dir / "example.com.json"
-    assert cli_utils.resolve_auth_state_path("10.18.90.80-8580") == browser_states_dir / "10.18.90.80-8580.json"
+    assert (
+        cli_utils.resolve_auth_state_path("example.com") == browser_states_dir / "example.com.json"
+    )
+    assert (
+        cli_utils.resolve_auth_state_path("10.18.90.80-8580")
+        == browser_states_dir / "10.18.90.80-8580.json"
+    )
     assert cli_utils.resolve_auth_state_path("default.json") == browser_states_dir / "default.json"
 
 
@@ -228,14 +233,18 @@ async def test_run_task_executes_runner(monkeypatch, capsys):
 
 
 def test_resolve_run_limits_uses_user_values():
-    assert resolve_execution_limits("打开页面", "https://example.com", 9, 120) == TaskExecutionLimits(
+    assert resolve_execution_limits(
+        "打开页面", "https://example.com", 9, 120
+    ) == TaskExecutionLimits(
         max_steps=9,
         timeout_seconds=120,
     )
 
 
 def test_resolve_run_limits_allows_partial_user_values():
-    assert resolve_execution_limits("打开页面", "https://example.com", 9, None) == TaskExecutionLimits(
+    assert resolve_execution_limits(
+        "打开页面", "https://example.com", 9, None
+    ) == TaskExecutionLimits(
         max_steps=9,
         timeout_seconds=180,
     )

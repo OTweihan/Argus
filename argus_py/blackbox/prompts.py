@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from argus_py.llm.prompts import load_prompt, render_prompt
 
 PLANNER_PROMPT = "blackbox_planner.md"
@@ -16,9 +18,9 @@ def load_evaluator_prompt() -> str:
     return load_prompt(EVALUATOR_PROMPT)
 
 
-def render_planner_prompt(**kwargs: object) -> str:
+def render_planner_prompt(**kwargs: Any) -> str:
     return render_prompt(PLANNER_PROMPT, **kwargs)
 
 
-def render_evaluator_prompt(**kwargs: object) -> str:
+def render_evaluator_prompt(**kwargs: Any) -> str:
     return render_prompt(EVALUATOR_PROMPT, **kwargs)

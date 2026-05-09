@@ -44,7 +44,12 @@ def test_recover_skips_terminal_states(tmp_path):
     service = _make_service(tmp_path)
 
     tasks = {}
-    for status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED):
+    for status in (
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.TIMEOUT,
+        TaskStatus.CANCELLED,
+    ):
         t = service.create_task(f"{status.value} task", start_url="https://example.com")
         service.start_task(t)
         service.update_status(t, status)
@@ -92,4 +97,4 @@ def test_recover_writes_completed_at(tmp_path):
     recovered = service.get_task(t.task_id)
     assert recovered.completed_at is not None
     # completed_at > started_at
-    assert recovered.completed_at > recovered.started_at  # type: ignore[operator]
+    assert recovered.completed_at > recovered.started_at

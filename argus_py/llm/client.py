@@ -36,13 +36,15 @@ class LLMClient:
         self.api_key = api_key or os.getenv("LLM_API_KEY", "")
         if not self.api_key:
             raise ConfigError("API Key 未配置。请先执行：argus config llm")
-        self.base_url = (base_url or os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)).rstrip("/")
+        self.base_url = str(base_url or os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)).rstrip("/")
         self.model = model or os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.timeout_seconds = timeout_seconds
         self.retry_config = RetryConfig(max_retries=max_retries)
-        self.completions_path = completions_path if completions_path.startswith("/") else f"/{completions_path}"
+        self.completions_path = (
+            completions_path if completions_path.startswith("/") else f"/{completions_path}"
+        )
 
     @property
     def completions_url(self) -> str:
@@ -57,7 +59,7 @@ class LLMClient:
     ) -> ChatResponse:
         """发送 OpenAI Chat Completions 请求。"""
         request = ChatCompletionRequest(
-            model=self.model,
+            model=self.model or DEFAULT_LLM_MODEL,
             messages=messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
@@ -117,6 +119,8 @@ class LLMClient:
             raise LLMError(f"LLM 响应不是有效 JSON：{response.text}") from exc
 
         try:
-            return ChatResponse.from_openai_response(data, fallback_model=self.model)
+            return ChatResponse.from_openai_response(
+                data, fallback_model=self.model or DEFAULT_LLM_MODEL
+            )
         except ValueError as exc:
             raise LLMError(str(exc)) from exc

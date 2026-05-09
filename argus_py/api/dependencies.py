@@ -10,8 +10,8 @@ from typing import Any
 
 import yaml
 
-from argus_py.core.paths import resolve_project_path
 from argus_py.config.service import ModelConfigService
+from argus_py.core.paths import resolve_project_path
 from argus_py.infra.events import EventBus
 from argus_py.infra.queue import TaskQueue
 from argus_py.infra.worker import TaskWorker
