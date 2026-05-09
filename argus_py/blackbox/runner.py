@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from collections.abc import Callable
 from pathlib import Path
@@ -18,11 +19,14 @@ from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import resolve_llm_client_for_task
 from argus_py.core.enums import ActionType, FindingSeverity, FindingType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
+from argus_py.core.cancellation import CancellationToken
 from argus_py.core.paths import SCREENSHOTS_DIR
 from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 from argus_py.utils.jsonx import to_jsonable
+
+logger = logging.getLogger(__name__)
 
 BrowserSessionFactory = Callable[[Task], BrowserSession]
 
@@ -71,6 +75,9 @@ class BlackboxRunner:
                 recovery_attempts = 0
 
                 while executed_steps < task_input.max_steps:
+                    if await self._check_cancelled(resolved):
+                        resolved = self.service.get_latest_task(resolved)
+                        return self._finalize(resolved, owns_status)
                     if not sequence.steps:
                         sequence = await self._plan_next(resolved, latest_observation, planner)
                         if not sequence.steps:
@@ -133,14 +140,17 @@ class BlackboxRunner:
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
         except Exception as exc:
-            if owns_status and resolved.status is TaskStatus.RUNNING:
-                failed = self.service.fail_task(self.service.get_latest_task(resolved), str(exc))
+            logger.exception("黑盒任务异常：%s", resolved.task_id)
+            latest = self.service.get_latest_task(resolved)
+            if owns_status and latest.status is TaskStatus.RUNNING:
+                failed = self.service.fail_task(latest, str(exc))
                 self._generate_report(failed)
             raise
 
         message = f"达到最大步骤 {task_input.max_steps} 后仍未完成目标。"
-        if owns_status and resolved.status is TaskStatus.RUNNING:
-            failed = self.service.fail_task(resolved, message)
+        latest = self.service.get_latest_task(resolved)
+        if owns_status and latest.status is TaskStatus.RUNNING:
+            failed = self.service.fail_task(latest, message)
             self._generate_report(failed)
         raise TaskError(message)
 
@@ -328,11 +338,13 @@ class BlackboxRunner:
                 captured = await session.screenshot(self._screenshot_name(task), full_page=True)
                 captured_path = str(captured)
             except Exception:
+                logger.debug("步骤截图采集失败：%s step %d", task.task_id, task.current_step + 1)
                 captured_path = None
 
         try:
             return captured_path, await session.snapshot()
         except Exception:
+            logger.debug("页面快照采集失败：%s step %d", task.task_id, task.current_step + 1)
             return captured_path, None
 
     def _append_evaluation(self, task: Task, evaluation: EvaluationResult) -> Task:
@@ -360,11 +372,31 @@ class BlackboxRunner:
         return resolved
 
     def _finish_success(self, task: Task, owns_status: bool) -> Task:
-        """按调用方式完成任务。"""
-        if owns_status and task.status is TaskStatus.RUNNING:
-            completed = self.service.complete_task(task, result_summary=task.result_summary)
+        """按调用方式完成任务。从存储重载避免覆盖外部状态变更（cancel/pause）。"""
+        latest = self.service.get_latest_task(task)
+        if latest.status is not TaskStatus.RUNNING:
+            return self._generate_report(latest)
+        if owns_status:
+            completed = self.service.complete_task(latest, result_summary=task.result_summary)
             return self._generate_report(completed)
-        return self.service.save_task(task)
+        return self.service.save_task(latest)
+
+    def _finalize(self, task: Task, owns_status: bool) -> Task:
+        """外部终止（cancel/pause）后的收尾，需要时生成报告。"""
+        if owns_status and task.status in (TaskStatus.CANCELLED, TaskStatus.PAUSED):
+            return self._generate_report(task)
+        return task
+
+    async def _check_cancelled(self, task: Task) -> bool:
+        """检查任务是否被外部取消或暂停。返回 True 表示应停止执行。"""
+        token: CancellationToken = self.service.get_cancellation_token(task.task_id)
+        if token.is_cancelled:
+            return True
+        if token.is_paused:
+            await token.wait_if_paused()
+            latest = self.service.get_latest_task(task)
+            return latest.status is not TaskStatus.RUNNING
+        return False
 
     def _generate_report(self, task: Task) -> Task:
         """生成任务报告并回写 HTML 报告路径。"""

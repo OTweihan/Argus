@@ -169,7 +169,8 @@ async def test_blackbox_runner_executes_initial_browser_loop(tmp_path):
     assert completed.current_step == 1
     assert completed.logs[0].action == "goto"
     assert completed.logs[0].screenshot_path is not None
-    assert runner.evaluator.last_history[0]["screenshot_path"] == completed.logs[0].screenshot_path
+    # history 记录的是 filename（无路径），logs 是完整路径，只校验文件名一致
+    assert runner.evaluator.last_history[0]["screenshot_path"] == Path(completed.logs[0].screenshot_path).name
     assert completed.result_summary == "初始页面已记录"
     assert completed.report_path is not None
 

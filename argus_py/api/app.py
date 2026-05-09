@@ -8,12 +8,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from argus_py.api.dependencies import get_task_worker, load_server_settings
+from argus_py.api.dependencies import get_task_service, get_task_worker, load_server_settings
 from argus_py.api.middleware import configure_middleware
 from argus_py.api.routes import config, health, projects, reports, tasks, ws
 from argus_py.config.settings import load_settings
 from argus_py.core.constants import PROJECT_NAME, PROJECT_TAGLINE, PROJECT_VERSION
+from argus_py.core.crypto import ensure_fernet_key
 from argus_py.core.paths import API_STATIC_DIR
+from argus_py.infra.db import DEFAULT_DB_PATH
+from argus_py.infra.recovery import recover_interrupted_tasks
 from argus_py.utils.logger import setup_logging
 
 API_PREFIX = "/api/v1"
@@ -28,6 +31,8 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         """管理后台任务 Worker 生命周期。"""
+        ensure_fernet_key(DEFAULT_DB_PATH)
+        recover_interrupted_tasks(get_task_service())
         await get_task_worker().start()
         try:
             yield

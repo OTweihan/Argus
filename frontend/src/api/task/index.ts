@@ -12,6 +12,7 @@ export function listTasks(
     filters: {
         status?: TaskDisplayStatus | "";
         projectId?: string;
+        q?: string;
         offset?: number;
         limit?: number;
     } = {},
@@ -19,8 +20,9 @@ export function listTasks(
     const params = new URLSearchParams();
     if (filters.status && filters.status !== "queued") params.set("status", filters.status);
     if (filters.projectId) params.set("projectId", filters.projectId);
-    if (filters.offset) params.set("offset", String(filters.offset));
-    if (filters.limit) params.set("limit", String(filters.limit));
+    if (filters.q) params.set("q", filters.q);
+    if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+    if (filters.limit !== undefined) params.set("limit", String(filters.limit));
     const query = params.toString();
     return request<TaskListResponse>(`/tasks${query ? `?${query}` : ""}`);
 }
@@ -39,12 +41,18 @@ export function startTask(taskId: string): Promise<TaskStartResponse> {
     });
 }
 
-export async function getTaskReportHtml(taskId: string): Promise<string> {
-    const response = await fetch(reportUrl(taskId));
-    if (!response.ok) throw new ApiError(`获取报告失败：HTTP ${response.status}`, response.status);
-    return response.text();
+export function getTaskReportJson(taskId: string): Promise<ReportData> {
+    return fetchReportJson(taskId);
 }
 
-export function getTaskReportJson(taskId: string): Promise<ReportData> {
-    return request<ReportData>(reportUrl(taskId, true));
+async function fetchReportJson(taskId: string): Promise<ReportData> {
+    const response = await fetch(reportUrl(taskId, true));
+    if (!response.ok) {
+        throw new ApiError(`获取 JSON 报告失败：HTTP ${response.status}`, response.status);
+    }
+    try {
+        return (await response.json()) as ReportData;
+    } catch {
+        throw new ApiError("服务返回了无效 JSON 报告。", response.status, "INVALID_JSON_RESPONSE");
+    }
 }

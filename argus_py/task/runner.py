@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from collections.abc import Awaitable, Callable
 
 from argus_py.core.enums import TaskStatus, TaskType
@@ -11,6 +12,8 @@ from argus_py.core.exceptions import TaskError
 from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
+
+logger = logging.getLogger(__name__)
 
 TaskHandler = Callable[[Task], Task | Awaitable[Task | None] | None]
 
@@ -51,19 +54,25 @@ class TaskRunner:
                 timeout=running_task.timeout_seconds,
             )
         except TimeoutError as exc:
-            timeout_task = self.service.timeout_task(self._latest_task(running_task))
+            latest = self._latest_task(running_task)
+            if latest.status is not TaskStatus.RUNNING:
+                return self._generate_report(latest)
+            logger.warning("任务超时：%s（%ds）", running_task.task_id, running_task.timeout_seconds)
+            timeout_task = self.service.timeout_task(latest)
             timeout_task = self._generate_report(timeout_task)
             raise TaskError(timeout_task.error_message or "任务执行超时。") from exc
         except Exception as exc:
-            failed_task = self.service.fail_task(self._latest_task(running_task), str(exc))
+            latest = self._latest_task(running_task)
+            if latest.status is not TaskStatus.RUNNING:
+                return self._generate_report(latest)
+            logger.exception("任务执行异常：%s", running_task.task_id)
+            failed_task = self.service.fail_task(latest, str(exc))
             failed_task = self._generate_report(failed_task)
             raise TaskError(failed_task.error_message or "任务执行失败。") from exc
 
         completed_task = result or running_task
         if completed_task.status is TaskStatus.RUNNING:
             completed_task = self.service.complete_task(completed_task)
-        else:
-            completed_task = self.service.save_task(completed_task)
         return self._generate_report(completed_task)
 
     async def _run_handler(self, handler: TaskHandler, task: Task) -> Task | None:
@@ -84,6 +93,7 @@ class TaskRunner:
         try:
             return self.service.get_task(task.task_id)
         except TaskError:
+            logger.warning("从存储读取任务快照失败：%s", task.task_id)
             return task
 
     def _generate_report(self, task: Task) -> Task:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
@@ -10,6 +11,8 @@ from argus_py.infra.queue import TaskQueue
 from argus_py.task.models import Task
 from argus_py.task.runner import TaskRunner
 from argus_py.task.service import TaskService
+
+logger = logging.getLogger(__name__)
 
 
 class TaskWorker:
@@ -72,6 +75,7 @@ class TaskWorker:
         try:
             task = self.service.get_task(task_id)
         except TaskError:
+            logger.warning("Worker 获取任务失败：%s", task_id)
             return
 
         if task.status is not TaskStatus.PENDING:
@@ -81,8 +85,10 @@ class TaskWorker:
         try:
             await runner.run(task)
         except TaskError:
+            logger.warning("任务执行失败：%s", task_id)
             return
         except Exception as exc:
+            logger.exception("任务执行异常：%s", task_id)
             latest = self.service.get_latest_task(task)
             if latest.status in {TaskStatus.PENDING, TaskStatus.RUNNING}:
                 self.service.fail_task(latest, str(exc))

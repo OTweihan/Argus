@@ -1,0 +1,31 @@
+# 安装方式：pip install pre-commit && pre-commit install
+# 首次安装后建议运行 pre-commit run --all-files 检查全部文件
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-json
+      - id: check-yaml
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+        exclude: '\.md$'
+
+  # - repo: https://github.com/Yelp/detect-secrets
+  #   rev: v1.5.0
+  #   hooks:
+  #     - id: detect-secrets
+  #       初次使用需要生成 baseline：detect-secrets scan > .secrets.baseline
+  #       然后取消注释并添加 --baseline .secrets.baseline
+
+  - repo: local
+    hooks:
+      - id: sensitive-file-check
+        name: 检查敏感文件
+        description: 阻止 config/llm.env、browser-states/*.json 等敏感文件提交
+        entry: python scripts/pre-commit-sensitive.py
+        language: system
+        pass_filenames: true

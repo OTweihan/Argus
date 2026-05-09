@@ -16,7 +16,6 @@ export {
     getTask,
     createTask,
     startTask,
-    getTaskReportHtml,
     getTaskReportJson,
 } from "./task";
 export {

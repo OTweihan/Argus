@@ -231,8 +231,9 @@ class TaskSQLiteStorage:
         self,
         status: str | None = None,
         project_id: str | None = None,
+        q: str | None = None,
     ) -> int:
-        """返回任务总数，支持按状态和项目过滤。"""
+        """返回任务总数，支持按状态、项目和关键词过滤。"""
         with closing(self._connect()) as connection:
             query = "SELECT COUNT(*) AS cnt FROM tasks"
             params: list[Any] = []
@@ -243,6 +244,12 @@ class TaskSQLiteStorage:
             if project_id is not None:
                 where_clauses.append("project_id = ?")
                 params.append(project_id)
+            if q:
+                pattern = f"%{q}%"
+                where_clauses.append(
+                    "(goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
+                )
+                params.extend([pattern] * 5)
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
             row = connection.execute(query, params).fetchone()
@@ -254,6 +261,7 @@ class TaskSQLiteStorage:
         limit: int | None = None,
         status: str | None = None,
         project_id: str | None = None,
+        q: str | None = None,
     ) -> list[Task]:
         """轻量列表查询（不含日志和发现项），供任务列表页使用。"""
         with closing(self._connect()) as connection:
@@ -265,6 +273,12 @@ class TaskSQLiteStorage:
             if project_id is not None:
                 where_clauses.append("project_id = ?")
                 params.append(project_id)
+            if q:
+                pattern = f"%{q}%"
+                where_clauses.append(
+                    "(goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
+                )
+                params.extend([pattern] * 5)
 
             query = """
                 SELECT tasks.*,

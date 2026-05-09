@@ -19,37 +19,43 @@ router = APIRouter(prefix="/tasks", tags=["reports"])
 async def get_task_report(
     task_id: str,
     format: str = Query(default="html", pattern="^(html|json)$"),
+    download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
     """返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。"""
     task = service.get_task(task_id)
     if format == "json":
-        return _json_report_response(task)
-    return _html_report_response(task)
+        return _json_report_response(task, download=download)
+    return _html_report_response(task, download=download)
 
 
 @router.get("/{task_id}/report.json")
 async def get_task_report_json(
     task_id: str,
+    download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
     """返回任务 JSON 报告文件。"""
-    return _json_report_response(service.get_task(task_id))
+    return _json_report_response(service.get_task(task_id), download=download)
 
 
-def _html_report_response(task: Task) -> FileResponse:
+def _html_report_response(task: Task, download: bool = False) -> FileResponse:
     """返回 HTML 报告。"""
     html_path = _resolve_html_report_path(task)
+    if download:
+        return FileResponse(html_path, media_type="text/html", filename="index.html")
     return FileResponse(html_path, media_type="text/html")
 
 
-def _json_report_response(task: Task) -> FileResponse:
+def _json_report_response(task: Task, download: bool = False) -> FileResponse:
     """返回 JSON 报告。"""
     html_path = _resolve_html_report_path(task)
     json_path = html_path.parent / "report.json"
     if not json_path.exists():
         raise _report_not_found(task.task_id, "JSON 报告文件不存在。")
-    return FileResponse(json_path, media_type="application/json", filename="report.json")
+    if download:
+        return FileResponse(json_path, media_type="application/json", filename="report.json")
+    return FileResponse(json_path, media_type="application/json")
 
 
 def _resolve_html_report_path(task: Task) -> Path:

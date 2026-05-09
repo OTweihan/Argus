@@ -271,6 +271,7 @@ outputs/screenshots/<task_id>/
 
 - 前端采用 Vue 3 + TypeScript + Vite；当前定位是后续可扩展的控制台，不是一次性临时页面。
 - Vite 构建输出目录为 `argus_py/api/static`；只有该目录存在 `index.html` 时，FastAPI 才会把 `/` 挂载为控制台静态站点。
+- `argus_py/api/static` 是随 Python 包分发的 Web 控制台构建产物，当前策略是纳入版本控制；修改 `frontend/src` 后如影响控制台运行效果，需要重新构建并提交该目录。不要手工修改静态产物。
 - 控制台包含仪表盘、项目、任务、模型四个视图。
 - `main.ts` 只负责 Vue 应用挂载；`App.vue` 负责布局和组合视图；
   `composables/useConsoleApp.ts` 负责页面状态、接口调用和 WebSocket 事件流；
@@ -503,7 +504,7 @@ outputs/screenshots/<task_id>/
 
 ### 低优先级
 
-- 清理或确认 `argus_py/api/static` 构建产物的版本控制策略；不要手工修改构建产物作为源码。
+- 持续保持 `frontend/src` 和 `argus_py/api/static` 构建产物同步；不要手工修改构建产物作为源码。
 - 清理历史 `__pycache__`、临时文件和过时占位内容；清理前先确认不会影响用户本地运行产物。
 - 后续如果进入 Java 白盒分析阶段，再补 `java_analyzer` 的 Maven 工程结构和 Python 调用边界。
 

@@ -66,7 +66,7 @@ def generate_report_safely(
         task.report_path = str(generated.html_path)
     except Exception as exc:
         message = f"报告生成失败：{exc}"
-        logger.warning("任务 %s 报告生成失败: %s", task.task_id, exc)
+        logger.exception("任务 %s 报告生成失败: %s", task.task_id, exc)
         if task.error_message:
             task.error_message = f"{task.error_message}；{message}"
         else:

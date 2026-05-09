@@ -3,7 +3,11 @@
     <template v-if="view === 'task-detail'">
       <div class="report-bar">
         <el-button @click="goBackToTasks">返回任务列表</el-button>
-        <el-button v-if="selectedTask" @click="openReport">在新标签页打开</el-button>
+        <template v-if="selectedTask?.reportPath">
+          <el-button @click="openHtmlReport">查看 HTML 报告</el-button>
+          <el-button @click="downloadHtmlReport">下载 HTML 报告</el-button>
+          <el-button @click="downloadJsonReport">下载 JSON 报告</el-button>
+        </template>
       </div>
       <div v-if="!selectedTask" class="empty">未选择任务</div>
       <ReportView
@@ -38,13 +42,25 @@
             <el-option v-for="project in projects" :key="project.projectId" :label="project.name" :value="project.projectId" />
           </el-select>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap" v-loading="taskLoading">
           <TaskTable
-            :tasks="visibleTasks"
+            :tasks="allTasks"
             :projects="projects"
             height="100%"
             @select="selectTask"
             @start="startTask"
+          />
+        </div>
+        <div class="pagination-bar">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :total="total"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next"
+            background
+            @current-change="onPageChange"
+            @size-change="onPageSizeChange"
           />
         </div>
       </el-card>
@@ -110,15 +126,29 @@ type AppContext = ReturnType<typeof useConsoleApp>;
 
 const props = defineProps<{ app: AppContext }>();
 const {
-  view, projects, visibleTasks, taskStatusFilter, taskProjectFilter,
+  view, projects, allTasks, taskStatusFilter, taskProjectFilter,
   taskSearchQuery, taskStatuses, selectedTask, reportData, reportLoading, taskForm,
   showTaskDialog, formErrors, error, enabledModels,
+  page, pageSize, total, taskLoading,
   selectTask, startTask, goBackToTasks, saveTask, openNewTaskDialog,
+  onPageChange, onPageSizeChange,
 } = props.app;
 
-function openReport(): void {
+function openHtmlReport(): void {
   if (selectedTask.value) {
     window.open(reportUrl(selectedTask.value.taskId), "_blank");
+  }
+}
+
+function downloadHtmlReport(): void {
+  if (selectedTask.value) {
+    window.open(reportUrl(selectedTask.value.taskId, false, true), "_blank");
+  }
+}
+
+function downloadJsonReport(): void {
+  if (selectedTask.value) {
+    window.open(reportUrl(selectedTask.value.taskId, true, true), "_blank");
   }
 }
 </script>
@@ -149,6 +179,15 @@ function openReport(): void {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 0 0;
+  flex-shrink: 0;
 }
 
 .card-header { display: flex; align-items: center; justify-content: space-between; }

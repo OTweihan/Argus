@@ -76,14 +76,15 @@ async def create_task(
 async def list_tasks(
     status: TaskStatus | None = None,
     project_id: str | None = Query(default=None, alias="projectId"),
+    q: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, gt=0, le=200),
     service: TaskService = Depends(get_task_service),
     queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskSummaryListResponse:
-    """列出任务（轻量，不含日志和发现项），支持按状态和项目过滤及分页。"""
-    tasks = service.list_task_summaries(status=status, project_id=project_id, offset=offset, limit=limit)
-    total = service.count_tasks(status=status, project_id=project_id)
+    """列出任务（轻量，不含日志和发现项），支持按状态、项目和关键词过滤及分页。"""
+    tasks = service.list_task_summaries(status=status, project_id=project_id, offset=offset, limit=limit, q=q)
+    total = service.count_tasks(status=status, project_id=project_id, q=q)
     responses = []
     for task in tasks:
         responses.append(
@@ -115,9 +116,24 @@ async def cancel_task(
     service: TaskService = Depends(get_task_service),
     queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskResponse:
-    """取消尚未完成的任务。"""
-    await queue.cancel(task_id)
-    task = service.cancel_task(task_id)
+    """取消任务。支持 pending、queued 和 running 状态。"""
+    task = service.get_task(task_id)
+    scheduler_status = await queue.scheduler_status(task_id)
+
+    if scheduler_status == "queued":
+        await queue.cancel(task_id)
+
+    if task.status in (TaskStatus.CANCELLED, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "TASK_ALREADY_FINISHED",
+                "message": f"任务已处于终态，不能取消：{task.status.value}。",
+                "details": {"taskId": task_id, "status": task.status.value},
+            },
+        )
+
+    task = service.cancel_task(task)
     return TaskResponse.from_task(
         task,
         scheduler_status=await queue.scheduler_status(task.task_id),
@@ -162,16 +178,39 @@ async def pause_task(
     task_id: str,
     service: TaskService = Depends(get_task_service),
 ) -> TaskResponse:
-    """暂停任务占位；暂停语义需要 T012/T013 的执行中断和事件机制。"""
+    """暂停运行中的任务。执行循环通过 CancellationToken 检测暂停信号并等待。"""
     task = service.get_task(task_id)
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={
-            "code": "TASK_PAUSE_NOT_SUPPORTED",
-            "message": "暂停任务需要执行循环中断点和事件总线，当前阶段暂不支持。",
-            "details": {"taskId": task.task_id, "status": task.status.value},
-        },
-    )
+    if task.status is not TaskStatus.RUNNING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TASK_NOT_RUNNING",
+                "message": f"只有运行中的任务可以暂停，当前状态：{task.status.value}。",
+                "details": {"taskId": task.task_id, "status": task.status.value},
+            },
+        )
+    task = service.pause_task(task)
+    return TaskResponse.from_task(task)
+
+
+@router.post("/{task_id}/resume", response_model=TaskResponse)
+async def resume_task(
+    task_id: str,
+    service: TaskService = Depends(get_task_service),
+) -> TaskResponse:
+    """恢复暂停的任务。通过 CancellationToken 唤醒等待中的执行循环。"""
+    task = service.get_task(task_id)
+    if task.status is not TaskStatus.PAUSED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TASK_NOT_PAUSED",
+                "message": f"只有暂停的任务可以恢复，当前状态：{task.status.value}。",
+                "details": {"taskId": task.task_id, "status": task.status.value},
+            },
+        )
+    task = service.resume_task(task)
+    return TaskResponse.from_task(task)
 
 
 @router.post("/{task_id}/stop", response_model=TaskResponse)
@@ -180,36 +219,25 @@ async def stop_task(
     service: TaskService = Depends(get_task_service),
     queue: TaskQueue = Depends(get_task_queue),
 ) -> TaskResponse:
-    """终止任务；pending/queued 任务直接取消，running 中断后续实现。"""
+    """强制终止任务。pending/queued 从队列移除；running 通过信号量中断。"""
     task = service.get_task(task_id)
     scheduler_status = await queue.scheduler_status(task.task_id)
+
     if scheduler_status == "queued":
-        await queue.cancel(task.task_id)
-        cancelled = service.cancel_task(task)
-        return TaskResponse.from_task(
-            cancelled,
-            scheduler_status=await queue.scheduler_status(cancelled.task_id),
-        )
-    if task.status is TaskStatus.PENDING:
-        return TaskResponse.from_task(service.cancel_task(task))
-    if task.status is TaskStatus.RUNNING or scheduler_status == "running":
+        await queue.cancel(task_id)
+
+    if task.status in (TaskStatus.CANCELLED, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT):
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "code": "TASK_STOP_NOT_SUPPORTED",
-                "message": "运行中任务当前不支持可靠中断。",
-                "details": {
-                    "taskId": task.task_id,
-                    "status": task.status.value,
-                    "schedulerStatus": scheduler_status,
-                },
+                "code": "TASK_ALREADY_FINISHED",
+                "message": f"任务已处于终态，不能终止：{task.status.value}。",
+                "details": {"taskId": task_id, "status": task.status.value},
             },
         )
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail={
-            "code": "TASK_ALREADY_FINISHED",
-            "message": f"任务已处于终态，不能终止：{task.status.value}。",
-            "details": {"taskId": task.task_id, "status": task.status.value},
-        },
+
+    task = service.cancel_task(task)
+    return TaskResponse.from_task(
+        task,
+        scheduler_status=await queue.scheduler_status(task.task_id),
     )

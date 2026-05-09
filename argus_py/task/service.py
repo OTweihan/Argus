@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from argus_py.browser.snapshot import redact_href, redact_sensitive_text, redact_step_params
+from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.task.models import Finding, Task, TaskLog
@@ -27,6 +28,7 @@ class TaskService:
     ) -> None:
         self.storage = storage or TaskSQLiteStorage()
         self.event_publisher = event_publisher
+        self._cancellation_tokens: dict[str, CancellationToken] = {}
 
     def create_task(
         self,
@@ -100,16 +102,30 @@ class TaskService:
         self,
         status: TaskStatus | None = None,
         project_id: str | None = None,
+        q: str | None = None,
     ) -> int:
-        """返回任务总数，支持按状态和项目过滤。"""
+        """返回任务总数，支持按状态、项目和关键词过滤。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             return self.storage.count_tasks(
                 status=status.value if status else None,
                 project_id=project_id,
+                q=q,
             )
-        if status is None and project_id is None:
+        if status is None and project_id is None and q is None:
             return self.storage.count_tasks()
-        return len(self.list_tasks(status=status, project_id=project_id))
+        tasks = self.list_tasks(status=status, project_id=project_id)
+        if q:
+            kw = q.lower()
+            tasks = [
+                t
+                for t in tasks
+                if kw in (t.goal or "").lower()
+                or kw in (t.task_id or "").lower()
+                or kw in (t.start_url or "").lower()
+                or kw in (t.result_summary or "").lower()
+                or kw in (t.error_message or "").lower()
+            ]
+        return len(tasks)
 
     def list_task_summaries(
         self,
@@ -117,6 +133,7 @@ class TaskService:
         project_id: str | None = None,
         offset: int = 0,
         limit: int | None = None,
+        q: str | None = None,
     ) -> list[Task]:
         """轻量列表查询（不含日志和发现项），供列表页使用。"""
         if isinstance(self.storage, TaskSQLiteStorage):
@@ -125,8 +142,25 @@ class TaskService:
                 limit=limit,
                 status=status.value if status else None,
                 project_id=project_id,
+                q=q,
             )
-        return self.list_tasks(status=status, project_id=project_id, offset=offset, limit=limit)
+        tasks = self.list_tasks(status=status, project_id=project_id)
+        if q:
+            kw = q.lower()
+            tasks = [
+                t
+                for t in tasks
+                if kw in (t.goal or "").lower()
+                or kw in (t.task_id or "").lower()
+                or kw in (t.start_url or "").lower()
+                or kw in (t.result_summary or "").lower()
+                or kw in (t.error_message or "").lower()
+            ]
+        if offset:
+            tasks = tasks[offset:]
+        if limit is not None:
+            tasks = tasks[:limit]
+        return tasks
 
     def save_task(self, task: Task) -> Task:
         """保存任务当前快照。"""
@@ -139,12 +173,22 @@ class TaskService:
             return task
         return self.get_task(task)
 
+    def get_cancellation_token(self, task_id: str) -> CancellationToken:
+        """获取任务的取消/暂停信号量，懒创建。"""
+        if task_id not in self._cancellation_tokens:
+            self._cancellation_tokens[task_id] = CancellationToken()
+        return self._cancellation_tokens[task_id]
+
+    def remove_cancellation_token(self, task_id: str) -> None:
+        """移除任务的取消/暂停信号量。"""
+        self._cancellation_tokens.pop(task_id, None)
+
     def update_status(self, task: Task, target: TaskStatus, error_message: str | None = None) -> Task:
         """更新任务状态。"""
         assert_transition(task.status, target)
         previous_status = task.status
         now = datetime.now(timezone.utc)
-        if target is TaskStatus.RUNNING:
+        if target is TaskStatus.RUNNING and task.started_at is None:
             task.started_at = now
         if target in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED}:
             task.completed_at = now
@@ -208,7 +252,24 @@ class TaskService:
 
     def cancel_task(self, task: Task | str) -> Task:
         """将任务标记为取消。"""
-        return self.update_status(self._resolve_task(task), TaskStatus.CANCELLED)
+        resolved = self._resolve_task(task)
+        token = self.get_cancellation_token(resolved.task_id)
+        token.cancel()
+        return self.update_status(resolved, TaskStatus.CANCELLED)
+
+    def pause_task(self, task: Task | str) -> Task:
+        """将运行中的任务标记为暂停。"""
+        resolved = self._resolve_task(task)
+        token = self.get_cancellation_token(resolved.task_id)
+        token.pause()
+        return self.update_status(resolved, TaskStatus.PAUSED)
+
+    def resume_task(self, task: Task | str) -> Task:
+        """将暂停的任务恢复为运行中。"""
+        resolved = self._resolve_task(task)
+        token = self.get_cancellation_token(resolved.task_id)
+        token.resume()
+        return self.update_status(resolved, TaskStatus.RUNNING)
 
     def append_log(
         self,

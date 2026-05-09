@@ -77,8 +77,9 @@ export async function request<T>(
     return body as T;
 }
 
-export function reportUrl(taskId: string, json = false): string {
-    return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/${json ? "report.json" : "report"}`;
+export function reportUrl(taskId: string, json = false, download = false): string {
+    const path = `${API_BASE}/tasks/${encodeURIComponent(taskId)}/${json ? "report.json" : "report"}`;
+    return download ? `${path}?download=true` : path;
 }
 
 export function screenshotUrl(taskId: string, screenshotPath: string): string {

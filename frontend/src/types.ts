@@ -1,6 +1,7 @@
 export type TaskStatus =
   | "pending"
   | "running"
+  | "paused"
   | "completed"
   | "failed"
   | "cancelled"

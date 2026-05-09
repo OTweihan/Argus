@@ -194,5 +194,3 @@ class BrowserActions:
         """获取页面基础状态。"""
         await self.wait_for_page_ready(require_load=False)
         return {"url": self.page.url, "title": await self.page.title()}
-
-

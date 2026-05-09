@@ -39,6 +39,7 @@
           <a class="nav-link" href="#task"><span>任务信息</span><span>02</span></a>
           <a class="nav-link" href="#steps"><span>执行步骤</span><span>03</span></a>
           <a class="nav-link" href="#findings"><span>问题清单</span><span>04</span></a>
+          <a class="nav-link" href="#raw-json"><span>原始 JSON</span><span>05</span></a>
         </nav>
       </aside>
 
@@ -234,6 +235,19 @@
           </div>
           <el-empty v-else description="未记录问题" />
         </section>
+
+        <section class="section r-card" id="raw-json">
+          <div class="section-head">
+            <div>
+              <h2>原始 JSON</h2>
+              <p class="section-subtitle">完整结构化报告内容，可用于排查、归档或二次处理。</p>
+            </div>
+          </div>
+          <details>
+            <summary>查看原始 JSON</summary>
+            <pre class="raw-json">{{ reportJson }}</pre>
+          </details>
+        </section>
       </main>
     </div>
   </div>
@@ -257,6 +271,7 @@ const failedSteps = computed(() => displaySteps.value.filter((s) => s.result ===
 const failedCount = computed(() => failedSteps.value.length);
 const findingCount = computed(() => props.report?.findings?.length ?? 0);
 const stepCount = computed(() => displaySteps.value.length);
+const reportJson = computed(() => prettyJson(props.report));
 
 const statusTagType = computed(() => {
   const s = status.value;
@@ -637,6 +652,20 @@ summary:hover { color: var(--report-text); }
   font-size: 11px;
   line-height: 1.6;
   overflow-x: auto;
+  white-space: pre;
+}
+
+.raw-json {
+  margin: 10px 0 0;
+  max-height: 520px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: #272d32;
+  color: #dce8eb;
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
   white-space: pre;
 }
 

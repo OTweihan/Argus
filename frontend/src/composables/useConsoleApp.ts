@@ -1,7 +1,7 @@
 import {computed, nextTick, onMounted, onUnmounted, reactive, ref, watch} from "vue";
 
 import {ElMessage} from "element-plus";
-import {summary as apiSummary, listTasks as apiListTasks, getTask as apiGetTask} from "../api";
+import {summary as apiSummary, getTask as apiGetTask} from "../api";
 import type {ConfigSummary, ModelConfig, Project, Task,} from "../types";
 import {compact, errorMessage, upsertById} from "../utils";
 import {TaskEventStream} from "../ws";
@@ -43,8 +43,9 @@ export function useConsoleApp() {
     const {
         taskForm, showTaskDialog, taskStatusFilter, taskProjectFilter,
         taskSearchQuery, selectedTaskId, reportData, reportLoading,
-        selectedTask, visibleTasks, taskStatuses,
-        loadTasks, selectTask, goBackToTasks, startTask, saveTask, openNewTaskDialog, resetTaskForm,
+        selectedTask, page, pageSize, total, taskLoading, taskStatuses,
+        loadTasks, onPageChange, onPageSizeChange,
+        selectTask, goBackToTasks, startTask, saveTask, openNewTaskDialog, resetTaskForm,
     } = useTasks({allTasks, projects, models, error, message, formErrors, view, connectEventStream});
 
     const {
@@ -185,17 +186,17 @@ export function useConsoleApp() {
 
     async function refreshRuntimeData(): Promise<void> {
         try {
-            const [tasks, summaryResponse] = await Promise.all([
-                apiListTasks({limit: 100}),
+            const [summaryResponse] = await Promise.all([
                 apiSummary(),
+                loadTasks(),
             ]);
             let selectedTaskSnapshot: Task | null = null;
             if (selectedTaskId.value) {
                 selectedTaskSnapshot = await apiGetTask(selectedTaskId.value);
             }
-            allTasks.value = selectedTaskSnapshot
-                ? upsertById(tasks.tasks, selectedTaskSnapshot, "taskId")
-                : tasks.tasks;
+            if (selectedTaskSnapshot) {
+                allTasks.value = upsertById(allTasks.value, selectedTaskSnapshot, "taskId");
+            }
             summary.value = summaryResponse;
             error.value = "";
         } catch (caught) {
@@ -243,9 +244,13 @@ export function useConsoleApp() {
         message,
         modelForm,
         models,
+        onPageChange,
+        onPageSizeChange,
         openNewModelDialog,
         openNewProjectDialog,
         openNewTaskDialog,
+        page,
+        pageSize,
         projectForm,
         projects,
         providers,
@@ -265,13 +270,14 @@ export function useConsoleApp() {
         showTaskDialog,
         startTask,
         taskForm,
+        taskLoading,
         taskProjectFilter,
         taskSearchQuery,
         taskStatuses,
         taskStatusFilter,
         testModel,
+        total,
         view,
         viewTitle,
-        visibleTasks,
     };
 }

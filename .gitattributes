@@ -1,0 +1,19 @@
+# 统一行尾为 LF（项目在 Windows 下开发）
+* text=auto eol=lf
+
+# 二进制文件标记
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.whl binary
+
+# 敏感文件——额外安全层，确保 Git 合并时不出错
+config/llm.env linguist-generated=true
+config/llm.local.env linguist-generated=true
+config/.fernet_key linguist-generated=true
+config/browser-states/*.json linguist-generated=true

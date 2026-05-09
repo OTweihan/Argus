@@ -1,4 +1,4 @@
-import {computed, reactive, ref, type Ref} from "vue";
+import {computed, reactive, ref, watch, type Ref} from "vue";
 import {
     listTasks as apiListTasks,
     getTask as apiGetTask,
@@ -7,7 +7,7 @@ import {
     getTaskReportJson as apiGetTaskReportJson,
 } from "../api";
 import type {ModelConfig, Project, ReportData, Task, TaskDisplayStatus} from "../types";
-import {errorMessage, nullableBoolean, nullableText, parseJsonObject, taskDisplayStatus, upsertById} from "../utils";
+import {errorMessage, nullableBoolean, nullableText, parseJsonObject, upsertById} from "../utils";
 
 interface TaskForm {
     goal: string;
@@ -39,28 +39,14 @@ export function useTasks(opts: {
     const selectedTaskId = ref<string | null>(null);
     const reportData = ref<ReportData | null>(null);
     const reportLoading = ref(false);
+    const page = ref(1);
+    const pageSize = ref(20);
+    const total = ref(0);
+    const taskLoading = ref(false);
 
     const selectedTask = computed(() => {
         if (!selectedTaskId.value) return null;
         return allTasks.value.find((task) => task.taskId === selectedTaskId.value) ?? null;
-    });
-
-    const visibleTasks = computed(() => {
-        const keyword = taskSearchQuery.value.trim().toLowerCase();
-        return allTasks.value.filter((task) => {
-            if (taskStatusFilter.value && taskDisplayStatus(task) !== taskStatusFilter.value) return false;
-            if (taskProjectFilter.value && task.projectId !== taskProjectFilter.value) return false;
-            if (!keyword) return true;
-            const projectName = projects.value.find((project) => project.projectId === task.projectId)?.name ?? "";
-            return [
-                task.goal,
-                task.taskId,
-                task.startUrl ?? "",
-                task.resultSummary ?? "",
-                task.errorMessage ?? "",
-                projectName,
-            ].some((value) => value.toLowerCase().includes(keyword));
-        });
     });
 
     const taskStatuses: TaskDisplayStatus[] = [
@@ -68,9 +54,47 @@ export function useTasks(opts: {
     ];
 
     async function loadTasks(): Promise<void> {
-        const res = await apiListTasks({limit: 100});
-        allTasks.value = res.tasks;
+        taskLoading.value = true;
+        try {
+            const status = taskStatusFilter.value || undefined;
+            const res = await apiListTasks({
+                status,
+                projectId: taskProjectFilter.value || undefined,
+                q: taskSearchQuery.value.trim() || undefined,
+                offset: (page.value - 1) * pageSize.value,
+                limit: pageSize.value,
+            });
+            allTasks.value = res.tasks;
+            total.value = res.total;
+        } finally {
+            taskLoading.value = false;
+        }
     }
+
+    function onPageChange(newPage: number): void {
+        page.value = newPage;
+        loadTasks();
+    }
+
+    function onPageSizeChange(newSize: number): void {
+        pageSize.value = newSize;
+        page.value = 1;
+        loadTasks();
+    }
+
+    let searchTimer: number | null = null;
+    watch(taskSearchQuery, () => {
+        if (searchTimer !== null) clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(() => {
+            page.value = 1;
+            loadTasks();
+        }, 300);
+    });
+
+    watch([taskStatusFilter, taskProjectFilter], () => {
+        page.value = 1;
+        loadTasks();
+    });
 
     async function selectTask(taskId: string): Promise<void> {
         try {
@@ -175,9 +199,14 @@ export function useTasks(opts: {
         reportData,
         reportLoading,
         selectedTask,
-        visibleTasks,
+        page,
+        pageSize,
+        total,
+        taskLoading,
         taskStatuses,
         loadTasks,
+        onPageChange,
+        onPageSizeChange,
         selectTask,
         goBackToTasks,
         startTask,

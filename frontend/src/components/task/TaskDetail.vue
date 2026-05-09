@@ -3,10 +3,12 @@
     <div class="detail-toolbar">
       <el-tag :type="tagType" size="small">{{ taskDisplayStatus(task) }}</el-tag>
       <code class="mono">{{ task.taskId }}</code>
-      <el-button v-if="!task.reportPath" disabled size="small">HTML 报告</el-button>
-      <el-button v-if="!task.reportPath" disabled size="small">JSON 报告</el-button>
-      <el-button v-if="task.reportPath" size="small" @click="openReport(false)">HTML 报告</el-button>
-      <el-button v-if="task.reportPath" size="small" @click="openReport(true)">JSON 报告</el-button>
+      <el-button v-if="!task.reportPath" disabled size="small">查看 HTML</el-button>
+      <el-button v-if="!task.reportPath" disabled size="small">下载 HTML</el-button>
+      <el-button v-if="!task.reportPath" disabled size="small">下载 JSON</el-button>
+      <el-button v-if="task.reportPath" size="small" @click="openReport(false)">查看 HTML</el-button>
+      <el-button v-if="task.reportPath" size="small" @click="downloadReport(false)">下载 HTML</el-button>
+      <el-button v-if="task.reportPath" size="small" @click="downloadReport(true)">下载 JSON</el-button>
     </div>
     <div class="detail-goal">{{ task.goal }}</div>
     <div class="detail-desc muted">{{ task.resultSummary ?? task.errorMessage ?? "" }}</div>
@@ -67,6 +69,10 @@ function findingTagType(severity: FindingSeverity): string {
 
 function openReport(json: boolean): void {
   window.open(reportUrl(props.task.taskId, json), "_blank");
+}
+
+function downloadReport(json: boolean): void {
+  window.open(reportUrl(props.task.taskId, json, true), "_blank");
 }
 </script>
 

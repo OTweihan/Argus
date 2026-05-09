@@ -76,11 +76,3 @@ export function upsertById<T extends Record<K, string>, K extends keyof T>(
   if (index < 0) return [item, ...items];
   return items.map((current, currentIndex) => (currentIndex === index ? item : current));
 }
-
-/** Injects a click handler into report HTML so anchor (#) links scroll inside the iframe
- *  while all other links open in a new tab instead of navigating the iframe. */
-export function injectReportLinkHandler(html: string): string {
-  const script =
-    '<script>document.addEventListener("click",function(e){var a=e.target.closest("a");if(!a||!a.href)return;var h=a.getAttribute("href");if(h&&h[0]==="#")return;e.preventDefault();window.open(a.href,"_blank")})</script>';
-  return html.replace("</head>", script + "</head>");
-}

@@ -9,7 +9,12 @@
       "Bash(python -m pytest tests/ -x -q)",
       "Bash(uv run *)",
       "Bash(cat node_modules/element-plus/theme-chalk/el-main.css)",
-      "Bash(cat node_modules/element-plus/es/components/container/style/css.mjs)"
+      "Bash(cat node_modules/element-plus/es/components/container/style/css.mjs)",
+      "Bash(python -m py_compile argus_py/core/cancellation.py)",
+      "Bash(python -m py_compile argus_py/core/enums.py)",
+      "Bash(python -m py_compile argus_py/task/status.py)",
+      "Bash(python -m py_compile argus_py/task/service.py)",
+      "Bash(python -m py_compile argus_py/task/runner.py)"
     ]
   }
 }

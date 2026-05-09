@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import argparse
 
 import pytest
 
 from argus_py.cli import main as cli_main
+from argus_py.cli import utils as cli_utils
+from argus_py.cli.commands import auth as auth_cmd
+from argus_py.cli.commands import run as run_cmd
 from argus_py.core.enums import TaskStatus
 from argus_py.task.models import Task
 from argus_py.task.strategy import TaskExecutionLimits, resolve_execution_limits
@@ -123,12 +128,14 @@ def test_run_parser_accepts_auth_state():
 
 def test_resolve_auth_state_path_uses_named_state(monkeypatch, tmp_path):
     browser_states_dir = tmp_path / "browser-states"
-    monkeypatch.setattr(cli_main, "BROWSER_STATES_DIR", browser_states_dir)
+    monkeypatch.setattr(cli_utils, "BROWSER_STATES_DIR", browser_states_dir)
+    # auth_cmd 模块也有自己的 BROWSER_STATES_DIR 引用
+    monkeypatch.setattr(auth_cmd, "BROWSER_STATES_DIR", browser_states_dir)
 
-    assert cli_main._resolve_auth_state_path("default") == browser_states_dir / "default.json"
-    assert cli_main._resolve_auth_state_path("example.com") == browser_states_dir / "example.com.json"
-    assert cli_main._resolve_auth_state_path("10.18.90.80-8580") == browser_states_dir / "10.18.90.80-8580.json"
-    assert cli_main._resolve_auth_state_path("default.json") == browser_states_dir / "default.json"
+    assert cli_utils.resolve_auth_state_path("default") == browser_states_dir / "default.json"
+    assert cli_utils.resolve_auth_state_path("example.com") == browser_states_dir / "example.com.json"
+    assert cli_utils.resolve_auth_state_path("10.18.90.80-8580") == browser_states_dir / "10.18.90.80-8580.json"
+    assert cli_utils.resolve_auth_state_path("default.json") == browser_states_dir / "default.json"
 
 
 def test_auth_save_parser_allows_domain_name_default():
@@ -137,8 +144,8 @@ def test_auth_save_parser_allows_domain_name_default():
     args = parser.parse_args(["auth", "save", "--url", "https://example.com/login"])
 
     assert args.name is None
-    assert cli_main._auth_state_name_from_url(args.url) == "example.com"
-    assert cli_main._auth_state_name_from_url("http://localhost:8080/login") == "localhost-8080"
+    assert cli_utils.auth_state_name_from_url(args.url) == "example.com"
+    assert cli_utils.auth_state_name_from_url("http://localhost:8080/login") == "localhost-8080"
 
 
 def test_read_auth_state_sites(tmp_path):
@@ -153,7 +160,7 @@ def test_read_auth_state_sites(tmp_path):
         encoding="utf-8",
     )
 
-    assert cli_main._read_auth_state_sites(state_file) == "app.example.com、example.com"
+    assert auth_cmd._read_auth_state_sites(state_file) == "app.example.com、example.com"
 
 
 def test_browser_parser_rejects_unknown_browser():
@@ -174,7 +181,7 @@ def test_browser_parser_rejects_unknown_browser():
 
 @pytest.mark.asyncio
 async def test_run_task_create_only(monkeypatch, capsys):
-    monkeypatch.setattr(cli_main, "TaskService", FakeTaskService)
+    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
     args = argparse.Namespace(
         goal="打开页面",
         url="https://example.com",
@@ -186,7 +193,7 @@ async def test_run_task_create_only(monkeypatch, capsys):
         browser="chromium",
     )
 
-    exit_code = await cli_main._run_task(args)
+    exit_code = await run_cmd.run(args)
 
     output = capsys.readouterr().out
     assert exit_code == 0
@@ -197,9 +204,9 @@ async def test_run_task_create_only(monkeypatch, capsys):
 
 @pytest.mark.asyncio
 async def test_run_task_executes_runner(monkeypatch, capsys):
-    monkeypatch.setattr(cli_main, "TaskService", FakeTaskService)
-    monkeypatch.setattr(cli_main, "TaskRunner", FakeTaskRunner)
-    monkeypatch.setattr(cli_main, "BlackboxRunner", FakeBlackboxRunner)
+    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
+    monkeypatch.setattr(run_cmd, "TaskRunner", FakeTaskRunner)
+    monkeypatch.setattr(run_cmd, "BlackboxRunner", FakeBlackboxRunner)
     args = argparse.Namespace(
         goal="打开页面",
         url="https://example.com",
@@ -211,7 +218,7 @@ async def test_run_task_executes_runner(monkeypatch, capsys):
         browser="chromium",
     )
 
-    exit_code = await cli_main._run_task(args)
+    exit_code = await run_cmd.run(args)
 
     output = capsys.readouterr().out
     assert exit_code == 0
@@ -247,10 +254,10 @@ def test_resolve_run_limits_infers_complex_task():
 
 
 def test_main_run_handles_keyboard_interrupt(monkeypatch, capsys):
-    async def fake_run_task(args):
+    async def fake_run(args):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli_main, "_run_task", fake_run_task)
+    monkeypatch.setattr(run_cmd, "run", fake_run)
 
     exit_code = cli_main.main(["run", "--goal", "打开页面", "--url", "https://example.com"])
 
@@ -260,10 +267,10 @@ def test_main_run_handles_keyboard_interrupt(monkeypatch, capsys):
 
 
 def test_main_run_handles_generic_error_with_unified_format(monkeypatch, capsys):
-    async def fake_run_task(args):
+    async def fake_run(args):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(cli_main, "_run_task", fake_run_task)
+    monkeypatch.setattr(run_cmd, "run", fake_run)
 
     exit_code = cli_main.main(["run", "--goal", "打开页面", "--url", "https://example.com"])
 
