@@ -6,22 +6,19 @@
         <div style="color:#909399;font-size:12px">{{ row.modelConfigId }}</div>
       </template>
     </el-table-column>
-    <el-table-column prop="provider" label="供应商" width="110"/>
-    <el-table-column prop="model" label="模型" width="180"/>
-    <el-table-column label="作用域" width="120">
-      <template #default="{ row }">{{ row.taskType ?? "全局" }}{{ row.isDefault ? " / 默认" : "" }}</template>
-    </el-table-column>
-    <el-table-column label="状态" width="140">
+    <el-table-column prop="provider" label="供应商" min-width="110"/>
+    <el-table-column prop="model" label="模型" min-width="180"/>
+    <el-table-column label="状态" width="200">
       <template #default="{ row }">{{ row.enabled ? "启用" : "停用" }} / Key {{
           row.apiKeySet ? "已配置" : "未配置"
         }}
       </template>
     </el-table-column>
-    <el-table-column label="操作" width="200" fixed="right">
+    <el-table-column label="操作" width="300" fixed="right">
       <template #default="{ row }">
-        <el-button size="small" @click="$emit('edit', row)">编辑</el-button>
-        <el-button size="small" @click="$emit('test', row.modelConfigId)">测试</el-button>
-        <el-button size="small" type="danger" @click="$emit('delete', row.modelConfigId)">删除</el-button>
+        <el-button @click="$emit('edit', row)">编辑</el-button>
+        <el-button @click="$emit('test', row.modelConfigId)">测试</el-button>
+        <el-button type="danger" @click="$emit('delete', row.modelConfigId)">删除</el-button>
       </template>
     </el-table-column>
   </el-table>

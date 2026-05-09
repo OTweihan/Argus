@@ -1,4 +1,4 @@
-import type {ModelProvider, TaskType} from "../types";
+import type {TaskType} from "../types";
 
 export interface ProjectPayload {
     name: string;
@@ -27,13 +27,11 @@ export interface TaskPayload {
 
 export interface ModelConfigPayload {
     name: string;
-    provider: ModelProvider;
+    provider: string;
     model: string;
     apiKey?: string;
     baseUrl?: string | null;
     completionsPath?: string | null;
-    maxTokens?: number | null;
-    temperature?: number | null;
     maxRetries?: number | null;
     timeoutSeconds?: number | null;
     taskType?: TaskType | null;

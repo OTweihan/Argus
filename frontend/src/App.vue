@@ -8,7 +8,7 @@
         <div class="status">
           <span class="dot" :class="eventStatus"></span>
           <span>事件流：{{ eventStatusText }}</span>
-          <el-button size="small" @click="loadAll">刷新</el-button>
+          <el-button @click="loadAll">刷新</el-button>
         </div>
       </el-header>
 

@@ -29,7 +29,7 @@ class LLMClient:
         model: str | None = None,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         temperature: float = DEFAULT_LLM_TEMPERATURE,
-        timeout_seconds: float = 60.0,
+        timeout_seconds: float = 120.0,
         max_retries: int = DEFAULT_LLM_MAX_RETRIES,
         completions_path: str = "/chat/completions",
     ) -> None:

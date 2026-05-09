@@ -8,7 +8,7 @@ from typing import Any
 
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
-from argus_py.config.models import ModelConfig, ModelProvider
+from argus_py.config.models import ModelConfig
 from argus_py.core.constants import (
     DEFAULT_LLM_MAX_RETRIES,
     DEFAULT_LLM_MAX_TOKENS,
@@ -30,13 +30,11 @@ class ModelConfigService:
     def create_model_config(
         self,
         name: str,
-        provider: ModelProvider = ModelProvider.DASHSCOPE,
+        provider: str = "",
         model: str = "",
         api_key: str = "",
         base_url: str | None = None,
         completions_path: str | None = None,
-        max_tokens: int | None = None,
-        temperature: float | None = None,
         max_retries: int | None = None,
         timeout_seconds: float | None = None,
         task_type: TaskType | None = None,
@@ -59,10 +57,8 @@ class ModelConfigService:
             api_key=api_key.strip(),
             base_url=_normalize_base_url(base_url) or spec.default_base_url,
             completions_path=_normalize_completions_path(completions_path or spec.completions_path),
-            max_tokens=max_tokens or DEFAULT_LLM_MAX_TOKENS,
-            temperature=temperature if temperature is not None else DEFAULT_LLM_TEMPERATURE,
             max_retries=max_retries if max_retries is not None else DEFAULT_LLM_MAX_RETRIES,
-            timeout_seconds=timeout_seconds if timeout_seconds is not None else 60.0,
+            timeout_seconds=timeout_seconds if timeout_seconds is not None else 120.0,
             task_type=task_type,
             is_default=is_default,
             enabled=enabled,
@@ -94,7 +90,7 @@ class ModelConfigService:
                 if not value:
                     raise ModelConfigError("模型名称不能为空。")
             if field_name == "provider":
-                value = ModelProvider(str(value))
+                value = str(value)
             if field_name == "api_key":
                 value = "" if value is None else str(value).strip()
             if field_name == "base_url":
@@ -169,8 +165,6 @@ def resolve_llm_client_for_task(task: Task) -> LLMClient:
         api_key=settings.api_key,
         base_url=settings.base_url,
         model=settings.model,
-        max_tokens=settings.max_tokens,
-        temperature=settings.temperature,
         max_retries=settings.max_retries,
     )
 

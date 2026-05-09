@@ -16,7 +16,7 @@ from argus_py.api.schemas import (
     ModelConfigUpdateRequest,
     ModelConnectionTestResponse,
 )
-from argus_py.config.models import ModelConfig, ModelProvider
+from argus_py.config.models import ModelConfig
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.llm.providers import get_provider_spec
@@ -71,8 +71,6 @@ async def create_model_config(
         api_key=request.api_key,
         base_url=request.base_url,
         completions_path=request.completions_path,
-        max_tokens=request.max_tokens,
-        temperature=request.temperature,
         max_retries=request.max_retries,
         timeout_seconds=request.timeout_seconds,
         task_type=request.task_type,
@@ -140,7 +138,7 @@ def _resolve_test_config(
         }
         return replace(config, **_normalize_test_updates(config, updates))
 
-    provider = request.provider or ModelProvider.DASHSCOPE
+    provider = request.provider or ""
     model = (request.model or "").strip()
     if not model:
         raise ModelConfigError("连接检查需要提供 model，或传入已保存的 modelConfigId。")
@@ -152,8 +150,6 @@ def _resolve_test_config(
         api_key=(request.api_key or "").strip(),
         base_url=(request.base_url or spec.default_base_url).strip().rstrip("/"),
         completions_path=request.completions_path or spec.completions_path,
-        max_tokens=request.max_tokens or 256,
-        temperature=request.temperature if request.temperature is not None else 0.1,
         max_retries=request.max_retries if request.max_retries is not None else 0,
         timeout_seconds=request.timeout_seconds or 30.0,
     )
@@ -166,7 +162,7 @@ def _normalize_test_updates(
     """规范化连接检查覆盖项。"""
     normalized = dict(updates)
     provider = normalized.get("provider")
-    if isinstance(provider, ModelProvider) and "base_url" not in normalized:
+    if "base_url" not in normalized:
         normalized["base_url"] = get_provider_spec(provider).default_base_url
     if "base_url" in normalized and normalized["base_url"] is not None:
         normalized["base_url"] = str(normalized["base_url"]).strip().rstrip("/")

@@ -39,8 +39,6 @@ CREATE TABLE IF NOT EXISTS model_configs (
   api_key TEXT,
   base_url TEXT NOT NULL,
   completions_path TEXT NOT NULL DEFAULT '/chat/completions',
-  max_tokens INTEGER NOT NULL,
-  temperature REAL NOT NULL,
   max_retries INTEGER NOT NULL,
   timeout_seconds REAL NOT NULL,
   task_type TEXT,

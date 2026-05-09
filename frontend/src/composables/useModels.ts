@@ -8,22 +8,18 @@ import {
     testModel as apiTestModel,
     updateModel as apiUpdateModel,
 } from "../api";
-import type {ModelConfig, ModelProvider, TaskType} from "../types";
+import type {ModelConfig} from "../types";
 import {errorMessage, nullableText, upsertById} from "../utils";
 
 interface ModelForm {
     editingId: string | null;
     name: string;
-    provider: ModelProvider;
+    provider: string;
     model: string;
     apiKey: string;
     baseUrl: string;
-    completionsPath: string;
-    maxTokens: number | null;
-    temperature: number | null;
     maxRetries: number | null;
     timeoutSeconds: number | null;
-    taskType: "" | TaskType;
     isDefault: boolean;
     enabled: boolean;
 }
@@ -45,8 +41,6 @@ export function useModels(opts: {
     const modelForm = reactive<ModelForm>(defaultModelForm());
     const showModelDialog = ref(false);
 
-    const providers: ModelProvider[] = ["dashscope", "openai", "ollama", "custom"];
-
     async function loadModels(): Promise<void> {
         const res = await apiListModels(true);
         models.value = res.models;
@@ -58,8 +52,20 @@ export function useModels(opts: {
             formErrors.modelName = "名称不能为空";
             return;
         }
+        if (!String(modelForm.provider).trim()) {
+            formErrors.modelProvider = "供应商不能为空";
+            return;
+        }
         if (!String(modelForm.model).trim()) {
             formErrors.modelModel = "模型不能为空";
+            return;
+        }
+        if (!String(modelForm.apiKey).trim()) {
+            formErrors.modelApiKey = "API密钥不能为空";
+            return;
+        }
+        if (!String(modelForm.baseUrl).trim()) {
+            formErrors.modelBaseUrl = "基础URL不能为空";
             return;
         }
         try {
@@ -87,12 +93,8 @@ export function useModels(opts: {
             model: model.model ?? "",
             apiKey: "",
             baseUrl: model.baseUrl,
-            completionsPath: model.completionsPath,
-            maxTokens: model.maxTokens,
-            temperature: model.temperature,
             maxRetries: model.maxRetries,
             timeoutSeconds: model.timeoutSeconds,
-            taskType: model.taskType ?? "",
             isDefault: model.isDefault,
             enabled: model.enabled,
         });
@@ -155,12 +157,8 @@ export function useModels(opts: {
             provider: modelForm.provider,
             model: String(modelForm.model).trim(),
             baseUrl: nullableText(modelForm.baseUrl),
-            completionsPath: nullableText(modelForm.completionsPath),
-            maxTokens: modelForm.maxTokens,
-            temperature: modelForm.temperature,
             maxRetries: modelForm.maxRetries,
             timeoutSeconds: modelForm.timeoutSeconds,
-            taskType: modelForm.taskType || null,
             isDefault: modelForm.isDefault,
             enabled: modelForm.enabled,
         };
@@ -182,7 +180,6 @@ export function useModels(opts: {
     return {
         modelForm,
         showModelDialog,
-        providers,
         loadModels,
         saveModel,
         editModel,
@@ -197,16 +194,12 @@ function defaultModelForm(): ModelForm {
     return {
         editingId: null,
         name: "",
-        provider: "dashscope",
+        provider: "",
         model: "",
         apiKey: "",
         baseUrl: "",
-        completionsPath: "/chat/completions",
-        maxTokens: 4096,
-        temperature: 0.1,
-        maxRetries: 3,
-        timeoutSeconds: 60,
-        taskType: "",
+        maxRetries: 5,
+        timeoutSeconds: 120,
         isDefault: false,
         enabled: true,
     };

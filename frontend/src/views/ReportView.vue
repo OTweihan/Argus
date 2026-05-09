@@ -13,9 +13,9 @@
           <h1>{{ report.title }}</h1>
           <p class="hero-desc">{{ summary }}</p>
           <div class="hero-status">
-            <el-tag :type="statusTagType" size="small">{{ status }}</el-tag>
-            <el-tag :type="findingCount === 0 ? 'success' : 'danger'" size="small">问题 {{ findingCount }}</el-tag>
-            <el-tag type="info" size="small">步骤 {{ stepCount }} / {{ report.task.max_steps }}</el-tag>
+            <el-tag :type="statusTagType">{{ status }}</el-tag>
+            <el-tag :type="findingCount === 0 ? 'success' : 'danger'">问题 {{ findingCount }}</el-tag>
+            <el-tag type="info">步骤 {{ stepCount }} / {{ report.task.max_steps }}</el-tag>
           </div>
         </div>
         <aside class="hero-meta" aria-label="报告元信息">
@@ -53,7 +53,7 @@
             <div class="r-metric">
               <span>任务状态</span>
               <strong>
-                <el-tag :type="statusTagType" size="small">{{ status }}</el-tag>
+                <el-tag :type="statusTagType">{{ status }}</el-tag>
               </strong>
             </div>
             <div class="r-metric"><span>展示步骤</span><strong>{{ stepCount }}</strong></div>
@@ -69,7 +69,7 @@
               <h2>任务信息</h2>
               <p class="section-subtitle">记录测试目标、入口地址、执行结果与时间线。</p>
             </div>
-            <el-tag :type="statusTagType" size="small">{{ status }}</el-tag>
+            <el-tag :type="statusTagType">{{ status }}</el-tag>
           </div>
           <table class="info-table">
             <tbody>
@@ -127,7 +127,7 @@
                 </template>
               </p>
             </div>
-            <el-tag :type="failedCount === 0 ? 'success' : 'danger'" size="small">
+            <el-tag :type="failedCount === 0 ? 'success' : 'danger'">
               失败 {{ failedCount }}
             </el-tag>
           </div>
@@ -164,7 +164,7 @@
                   </div>
                   <p class="muted">{{ step.message || '未记录步骤说明。' }}</p>
                 </div>
-                <el-tag :type="step.result === 'success' ? 'success' : 'danger'" size="small">{{ step.result }}</el-tag>
+                <el-tag :type="step.result === 'success' ? 'success' : 'danger'">{{ step.result }}</el-tag>
               </div>
               <div class="step-body">
                 <table class="info-table">
@@ -230,7 +230,7 @@
               <h2>问题清单</h2>
               <p class="section-subtitle">展示测试过程中识别到的缺陷、异常、风险或未完成目标。</p>
             </div>
-            <el-tag :type="findingCount === 0 ? 'success' : 'danger'" size="small">{{ findingCount }} findings</el-tag>
+            <el-tag :type="findingCount === 0 ? 'success' : 'danger'">{{ findingCount }} findings</el-tag>
           </div>
 
           <div v-if="report.findings.length" class="timeline">
@@ -248,7 +248,7 @@
                   </div>
                   <p class="muted">{{ finding.description }}</p>
                 </div>
-                <el-tag :type="severityTagType(finding.severity)" size="small">{{ finding.severity }}</el-tag>
+                <el-tag :type="severityTagType(finding.severity)">{{ finding.severity }}</el-tag>
               </div>
               <div class="step-body">
                 <table class="info-table">

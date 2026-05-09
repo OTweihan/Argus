@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import Field, field_validator
 
 from argus_py.api.schemas.base import ApiModel, blank_to_none, strip_text
-from argus_py.config.models import ModelConfig, ModelProvider
+from argus_py.config.models import ModelConfig
 from argus_py.core.enums import TaskType
 
 
@@ -15,13 +15,11 @@ class ModelConfigCreateRequest(ApiModel):
     """创建模型配置请求。"""
 
     name: str = Field(min_length=1)
-    provider: ModelProvider = ModelProvider.DASHSCOPE
+    provider: str = ""
     model: str = Field(min_length=1)
     api_key: str = Field(default="", alias="apiKey")
     base_url: str | None = Field(default=None, alias="baseUrl")
     completions_path: str | None = Field(default=None, alias="completionsPath")
-    max_tokens: int | None = Field(default=None, alias="maxTokens", gt=0)
-    temperature: float | None = Field(default=None, ge=0)
     max_retries: int | None = Field(default=None, alias="maxRetries", ge=0)
     timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds", gt=0)
     task_type: TaskType | None = Field(default=None, alias="taskType")
@@ -45,13 +43,11 @@ class ModelConfigUpdateRequest(ApiModel):
     """更新模型配置请求。"""
 
     name: str | None = Field(default=None, min_length=1)
-    provider: ModelProvider | None = None
+    provider: str | None = None
     model: str | None = Field(default=None, min_length=1)
     api_key: str | None = Field(default=None, alias="apiKey")
     base_url: str | None = Field(default=None, alias="baseUrl")
     completions_path: str | None = Field(default=None, alias="completionsPath")
-    max_tokens: int | None = Field(default=None, alias="maxTokens", gt=0)
-    temperature: float | None = Field(default=None, ge=0)
     max_retries: int | None = Field(default=None, alias="maxRetries", ge=0)
     timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds", gt=0)
     task_type: TaskType | None = Field(default=None, alias="taskType")
@@ -75,13 +71,11 @@ class ModelConfigTestRequest(ApiModel):
     """模型连接检查请求。"""
 
     model_config_id: str | None = Field(default=None, alias="modelConfigId")
-    provider: ModelProvider | None = None
+    provider: str | None = None
     model: str | None = None
     api_key: str | None = Field(default=None, alias="apiKey")
     base_url: str | None = Field(default=None, alias="baseUrl")
     completions_path: str | None = Field(default=None, alias="completionsPath")
-    max_tokens: int | None = Field(default=None, alias="maxTokens", gt=0)
-    temperature: float | None = Field(default=None, ge=0)
     max_retries: int | None = Field(default=None, alias="maxRetries", ge=0)
     timeout_seconds: float | None = Field(default=None, alias="timeoutSeconds", gt=0)
 
@@ -110,13 +104,11 @@ class ModelConfigResponse(ApiModel):
 
     model_config_id: str = Field(alias="modelConfigId")
     name: str
-    provider: ModelProvider
+    provider: str
     model: str
     api_key_set: bool = Field(alias="apiKeySet")
     base_url: str = Field(alias="baseUrl")
     completions_path: str = Field(alias="completionsPath")
-    max_tokens: int = Field(alias="maxTokens")
-    temperature: float
     max_retries: int = Field(alias="maxRetries")
     timeout_seconds: float = Field(alias="timeoutSeconds")
     task_type: TaskType | None = Field(default=None, alias="taskType")
@@ -136,8 +128,6 @@ class ModelConfigResponse(ApiModel):
             api_key_set=bool(config.api_key),
             base_url=config.base_url,
             completions_path=config.completions_path,
-            max_tokens=config.max_tokens,
-            temperature=config.temperature,
             max_retries=config.max_retries,
             timeout_seconds=config.timeout_seconds,
             task_type=config.task_type,

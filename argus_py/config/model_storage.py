@@ -36,8 +36,6 @@ class ModelConfigSQLiteStorage:
                       api_key,
                       base_url,
                       completions_path,
-                      max_tokens,
-                      temperature,
                       max_retries,
                       timeout_seconds,
                       task_type,
@@ -45,7 +43,7 @@ class ModelConfigSQLiteStorage:
                       enabled,
                       created_at,
                       updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(model_config_id) DO UPDATE SET
                       name = excluded.name,
                       provider = excluded.provider,
@@ -53,8 +51,6 @@ class ModelConfigSQLiteStorage:
                       api_key = excluded.api_key,
                       base_url = excluded.base_url,
                       completions_path = excluded.completions_path,
-                      max_tokens = excluded.max_tokens,
-                      temperature = excluded.temperature,
                       max_retries = excluded.max_retries,
                       timeout_seconds = excluded.timeout_seconds,
                       task_type = excluded.task_type,
@@ -155,13 +151,11 @@ class ModelConfigSQLiteStorage:
         return (
             config.model_config_id,
             config.name,
-            config.provider.value,
+            config.provider,
             config.model,
             encrypt_api_key(config.api_key),
             config.base_url,
             config.completions_path,
-            config.max_tokens,
-            config.temperature,
             config.max_retries,
             config.timeout_seconds,
             config.task_type.value if config.task_type else None,
@@ -182,8 +176,6 @@ class ModelConfigSQLiteStorage:
                 "api_key": decrypt_api_key(row["api_key"]),
                 "base_url": row["base_url"],
                 "completions_path": row["completions_path"],
-                "max_tokens": row["max_tokens"],
-                "temperature": row["temperature"],
                 "max_retries": row["max_retries"],
                 "timeout_seconds": row["timeout_seconds"],
                 "task_type": row["task_type"],
