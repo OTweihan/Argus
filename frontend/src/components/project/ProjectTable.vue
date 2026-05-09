@@ -10,7 +10,8 @@
       <template #default="{ row }">{{ row.baseUrl ?? "-" }}</template>
     </el-table-column>
     <el-table-column label="默认值" width="240">
-      <template #default="{ row }">{{ row.defaultMaxSteps ?? "-" }} 步 / {{ row.defaultTimeoutSeconds ?? "-" }} 秒</template>
+      <template #default="{ row }">{{ row.defaultMaxSteps ?? "-" }} 步 / {{ row.defaultTimeoutSeconds ?? "-" }} 秒
+      </template>
     </el-table-column>
     <el-table-column label="更新时间" width="240">
       <template #default="{ row }">{{ formatDate(row.updatedAt) }}</template>
@@ -23,7 +24,7 @@
       </template>
     </el-table-column>
   </el-table>
-  <el-empty v-else description="暂无项目" />
+  <el-empty v-else description="暂无项目"/>
 </template>
 
 <script setup lang="ts">

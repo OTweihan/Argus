@@ -12,9 +12,12 @@ export {
     deleteProject,
 } from "./project";
 export {
+    inferTaskLimits,
     listTasks,
     getTask,
     createTask,
+    updateTask,
+    deleteTask,
     startTask,
     getTaskReportJson,
 } from "./task";

@@ -1,7 +1,7 @@
 import {computed, nextTick, onMounted, onUnmounted, reactive, ref, watch} from "vue";
 
 import {ElMessage} from "element-plus";
-import {summary as apiSummary, getTask as apiGetTask} from "../api";
+import {getTask as apiGetTask, summary as apiSummary} from "../api";
 import type {ConfigSummary, ModelConfig, Project, Task,} from "../types";
 import {compact, errorMessage, upsertById} from "../utils";
 import {TaskEventStream} from "../ws";
@@ -45,7 +45,8 @@ export function useConsoleApp() {
         taskSearchQuery, selectedTaskId, reportData, reportLoading,
         selectedTask, page, pageSize, total, taskLoading, taskStatuses,
         loadTasks, onPageChange, onPageSizeChange,
-        selectTask, goBackToTasks, startTask, saveTask, openNewTaskDialog, resetTaskForm,
+        selectTask, goBackToTasks, startTask, deleteTask, saveTask, openNewTaskDialog, openEditTaskDialog, resetTaskForm,
+        addParam, removeParam,
     } = useTasks({allTasks, projects, models, error, message, formErrors, view, connectEventStream});
 
     const {
@@ -223,9 +224,11 @@ export function useConsoleApp() {
     });
 
     return {
+        addParam,
         allTasks,
         changeView,
         closeDialog,
+        deleteTask,
         deleteModel,
         deleteProject,
         dialog,
@@ -248,6 +251,7 @@ export function useConsoleApp() {
         onPageSizeChange,
         openNewModelDialog,
         openNewProjectDialog,
+        openEditTaskDialog,
         openNewTaskDialog,
         page,
         pageSize,
@@ -255,6 +259,7 @@ export function useConsoleApp() {
         projects,
         providers,
         recentTasks,
+        removeParam,
         reportData,
         reportLoading,
         resetModelForm,

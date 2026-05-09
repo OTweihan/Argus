@@ -6,7 +6,8 @@
         <el-card shadow="hover" class="metric-card metric-projects">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                   stroke-linejoin="round">
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
               </svg>
             </div>
@@ -23,7 +24,8 @@
         <el-card shadow="hover" class="metric-card metric-tasks">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                   stroke-linejoin="round">
                 <path d="M9 11l3 3L22 4"/>
                 <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
               </svg>
@@ -41,7 +43,8 @@
         <el-card shadow="hover" class="metric-card metric-running">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                   stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <polyline points="12 6 12 12 16 14"/>
               </svg>
@@ -59,7 +62,8 @@
         <el-card shadow="hover" class="metric-card metric-findings">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                   stroke-linejoin="round">
                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                 <line x1="12" y1="9" x2="12" y2="13"/>
                 <line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -82,23 +86,57 @@
         </div>
       </template>
       <TaskTable
-        :tasks="recentTasks"
-        :projects="projects"
-        @select="selectTask"
-        @start="startTask"
+          :tasks="recentTasks"
+          :projects="projects"
+          :show-edit="false"
+          :show-report="false"
+          :show-delete="false"
+          @select="showTaskDetail"
+          @start="startTask"
       />
     </el-card>
+
+    <TaskDetailDialog
+        :visible="detailVisible"
+        :task="detailTask"
+        :loading="detailLoading"
+        :projects="projects"
+        :enabled-models="enabledModels"
+        @close="detailVisible = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+import {ref} from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
-import { useConsoleApp } from "../composables/useConsoleApp";
+import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
+import {getTask} from "../api";
+import {useConsoleApp} from "../composables/useConsoleApp";
+import type {Task} from "../types";
 
 type AppContext = ReturnType<typeof useConsoleApp>;
 
 const props = defineProps<{ app: AppContext }>();
-const { projects, allTasks, recentTasks, runningCount, findingCount, selectTask, startTask } = props.app;
+const {projects, allTasks, recentTasks, runningCount, findingCount, startTask, enabledModels, error} = props.app;
+
+const detailVisible = ref(false);
+const detailLoading = ref(false);
+const detailTask = ref<Task | null>(null);
+
+async function showTaskDetail(taskId: string): Promise<void> {
+  detailVisible.value = true;
+  detailLoading.value = true;
+  detailTask.value = null;
+  try {
+    detailTask.value = await getTask(taskId);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : "获取任务详情失败";
+    detailVisible.value = false;
+  } finally {
+    detailLoading.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -110,6 +148,7 @@ const { projects, allTasks, recentTasks, runningCount, findingCount, selectTask,
   flex-direction: column;
   overflow: hidden;
 }
+
 .mb-4 {
   margin-bottom: 16px;
   flex-shrink: 0;
@@ -167,14 +206,17 @@ const { projects, allTasks, recentTasks, runningCount, findingCount, selectTask,
   background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
   color: #4f46e5;
 }
+
 .metric-tasks .metric-icon {
   background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
   color: #10b981;
 }
+
 .metric-running .metric-icon {
   background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
   color: #f59e0b;
 }
+
 .metric-findings .metric-icon {
   background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
   color: #ef4444;

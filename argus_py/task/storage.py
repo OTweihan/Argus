@@ -59,6 +59,13 @@ class TaskFileStorage:
         """快速返回任务总数（仅列文件名，不反序列化）。"""
         return len(self.list_ids())
 
+    def delete(self, task_id: str) -> None:
+        """删除任务快照。"""
+        path = self.task_path(task_id)
+        if not path.exists():
+            raise TaskError(f"Task not found: {task_id}")
+        path.unlink()
+
 
 class TaskSQLiteStorage:
     """基于 SQLite 的任务存储。"""
@@ -85,13 +92,14 @@ class TaskSQLiteStorage:
                 connection.execute(
                     """
                     INSERT INTO tasks (
-                      task_id, goal, start_url, task_type, status, project_id,
+                      task_id, goal, name, start_url, task_type, status, project_id,
                       max_steps, timeout_seconds, capture_screenshots, current_step, parameters_json,
                       created_at, started_at, completed_at, report_path,
                       result_summary, error_message
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(task_id) DO UPDATE SET
                       goal = excluded.goal,
+                      name = excluded.name,
                       start_url = excluded.start_url,
                       task_type = excluded.task_type,
                       status = excluded.status,
@@ -162,6 +170,16 @@ class TaskSQLiteStorage:
                 (task_id,),
             ).fetchall()
         return self._row_to_task(task_row, log_rows, finding_rows)
+
+    def delete(self, task_id: str) -> None:
+        """删除任务及关联的日志和发现项。"""
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute("DELETE FROM task_logs WHERE task_id = ?", (task_id,))
+                connection.execute("DELETE FROM findings WHERE task_id = ?", (task_id,))
+                cursor = connection.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+        if cursor.rowcount == 0:
+            raise TaskError(f"Task not found: {task_id}")
 
     def list_tasks(
         self,
@@ -247,9 +265,9 @@ class TaskSQLiteStorage:
             if q:
                 pattern = f"%{q}%"
                 where_clauses.append(
-                    "(goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
+                    "(name LIKE ? OR goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
                 )
-                params.extend([pattern] * 5)
+                params.extend([pattern] * 6)
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
             row = connection.execute(query, params).fetchone()
@@ -276,9 +294,9 @@ class TaskSQLiteStorage:
             if q:
                 pattern = f"%{q}%"
                 where_clauses.append(
-                    "(goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
+                    "(name LIKE ? OR goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
                 )
-                params.extend([pattern] * 5)
+                params.extend([pattern] * 6)
 
             query = """
                 SELECT tasks.*,
@@ -309,6 +327,7 @@ class TaskSQLiteStorage:
         return (
             task.task_id,
             task.goal,
+            task.name,
             task.start_url,
             task.task_type.value,
             task.status.value,
@@ -372,6 +391,7 @@ class TaskSQLiteStorage:
         return Task(
             task_id=task_row["task_id"],
             goal=task_row["goal"],
+            name=task_row["name"],
             start_url=task_row["start_url"],
             task_type=TaskType(task_row["task_type"]),
             status=TaskStatus(task_row["status"]),

@@ -1,6 +1,10 @@
 <template>
-  <div v-if="loading" class="empty-state"><el-empty description="正在加载报告..." /></div>
-  <div v-else-if="!report" class="empty-state"><el-empty description="该任务尚未生成报告，请先执行任务。" /></div>
+  <div v-if="loading" class="empty-state">
+    <el-empty description="正在加载报告"/>
+  </div>
+  <div v-else-if="!report" class="empty-state">
+    <el-empty description="该任务尚未生成报告，请先执行任务。"/>
+  </div>
   <div v-else class="report-container">
     <header class="report-hero">
       <div class="hero-inner">
@@ -48,7 +52,9 @@
           <div class="metrics">
             <div class="r-metric">
               <span>任务状态</span>
-              <strong><el-tag :type="statusTagType" size="small">{{ status }}</el-tag></strong>
+              <strong>
+                <el-tag :type="statusTagType" size="small">{{ status }}</el-tag>
+              </strong>
             </div>
             <div class="r-metric"><span>展示步骤</span><strong>{{ stepCount }}</strong></div>
             <div class="r-metric"><span>问题数量</span><strong>{{ findingCount }}</strong></div>
@@ -67,21 +73,45 @@
           </div>
           <table class="info-table">
             <tbody>
-              <tr><th>任务 ID</th><td><code>{{ report.task.task_id }}</code></td></tr>
-              <tr><th>目标</th><td>{{ report.task.goal }}</td></tr>
-              <tr><th>起始 URL</th><td>{{ report.task.start_url || '' }}</td></tr>
-              <tr><th>结果摘要</th><td>{{ summary }}</td></tr>
-              <tr><th>报告路径</th><td><code>{{ report.task.report_path || '' }}</code></td></tr>
-              <tr>
-                <th>错误信息</th>
-                <td>
-                  <span v-if="report.task.error_message">{{ report.task.error_message }}</span>
-                  <span v-else class="muted">无</span>
-                </td>
-              </tr>
-              <tr><th>创建时间</th><td>{{ formatDate(report.task.created_at) }}</td></tr>
-              <tr><th>开始时间</th><td>{{ formatDate(report.task.started_at) }}</td></tr>
-              <tr><th>完成时间</th><td>{{ formatDate(report.task.completed_at) }}</td></tr>
+            <tr>
+              <th>任务 ID</th>
+              <td><code>{{ report.task.task_id }}</code></td>
+            </tr>
+            <tr>
+              <th>目标</th>
+              <td>{{ report.task.goal }}</td>
+            </tr>
+            <tr>
+              <th>起始 URL</th>
+              <td>{{ report.task.start_url || '' }}</td>
+            </tr>
+            <tr>
+              <th>结果摘要</th>
+              <td>{{ summary }}</td>
+            </tr>
+            <tr>
+              <th>报告路径</th>
+              <td><code>{{ report.task.report_path || '' }}</code></td>
+            </tr>
+            <tr>
+              <th>错误信息</th>
+              <td>
+                <span v-if="report.task.error_message">{{ report.task.error_message }}</span>
+                <span v-else class="muted">无</span>
+              </td>
+            </tr>
+            <tr>
+              <th>创建时间</th>
+              <td>{{ formatDate(report.task.created_at) }}</td>
+            </tr>
+            <tr>
+              <th>开始时间</th>
+              <td>{{ formatDate(report.task.started_at) }}</td>
+            </tr>
+            <tr>
+              <th>完成时间</th>
+              <td>{{ formatDate(report.task.completed_at) }}</td>
+            </tr>
             </tbody>
           </table>
         </section>
@@ -107,24 +137,24 @@
             <p class="section-subtitle">以下步骤执行失败，可直接跳转到对应步骤查看参数、URL 和截图证据。</p>
             <table class="info-table">
               <tbody>
-                <tr v-for="step in failedSteps" :key="step.step_number">
-                  <th>#{{ step.step_number }} {{ step.action }}</th>
-                  <td>
-                    <a :href="'#step-' + step.step_number">
-                      {{ step.error || step.message || '未记录错误详情' }}
-                    </a>
-                  </td>
-                </tr>
+              <tr v-for="step in failedSteps" :key="step.step_number">
+                <th>#{{ step.step_number }} {{ step.action }}</th>
+                <td>
+                  <a :href="'#step-' + step.step_number">
+                    {{ step.error || step.message || '未记录错误详情' }}
+                  </a>
+                </td>
+              </tr>
               </tbody>
             </table>
           </div>
 
           <div v-if="displaySteps.length" class="timeline">
             <article
-              v-for="step in displaySteps"
-              :key="step.task_log_id"
-              :id="'step-' + step.step_number"
-              :class="['step', 'result-' + step.result]"
+                v-for="step in displaySteps"
+                :key="step.task_log_id"
+                :id="'step-' + step.step_number"
+                :class="['step', 'result-' + step.result]"
             >
               <div class="step-head">
                 <div>
@@ -139,33 +169,39 @@
               <div class="step-body">
                 <table class="info-table">
                   <tbody>
-                    <tr><th>步骤 ID</th><td><code>{{ step.task_log_id }}</code></td></tr>
-                    <tr>
-                      <th>URL Before</th>
-                      <td>
-                        <template v-if="step.url_before">{{ step.url_before }}</template>
-                        <span v-else class="muted">未记录</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th>URL After</th>
-                      <td>
-                        <template v-if="step.url_after">{{ step.url_after }}</template>
-                        <span v-else class="muted">未记录</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th>错误</th>
-                      <td>
-                        <template v-if="step.error">{{ step.error }}</template>
-                        <span v-else class="muted">无</span>
-                      </td>
-                    </tr>
-                    <tr v-if="step.error_code">
-                      <th>错误码</th>
-                      <td><code>{{ step.error_code }}</code></td>
-                    </tr>
-                    <tr><th>时间</th><td>{{ formatDate(step.created_at) }}</td></tr>
+                  <tr>
+                    <th>步骤 ID</th>
+                    <td><code>{{ step.task_log_id }}</code></td>
+                  </tr>
+                  <tr>
+                    <th>URL Before</th>
+                    <td>
+                      <template v-if="step.url_before">{{ step.url_before }}</template>
+                      <span v-else class="muted">未记录</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>URL After</th>
+                    <td>
+                      <template v-if="step.url_after">{{ step.url_after }}</template>
+                      <span v-else class="muted">未记录</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>错误</th>
+                    <td>
+                      <template v-if="step.error">{{ step.error }}</template>
+                      <span v-else class="muted">无</span>
+                    </td>
+                  </tr>
+                  <tr v-if="step.error_code">
+                    <th>错误码</th>
+                    <td><code>{{ step.error_code }}</code></td>
+                  </tr>
+                  <tr>
+                    <th>时间</th>
+                    <td>{{ formatDate(step.created_at) }}</td>
+                  </tr>
                   </tbody>
                 </table>
 
@@ -178,13 +214,14 @@
                   <summary>步骤截图</summary>
                   <div class="screenshot-wrap">
                     <p class="screenshot-path">截图：<code>{{ step.screenshot_path }}</code></p>
-                    <img class="screenshot" :src="screenshotSrc(step.screenshot_path)" :alt="'步骤 ' + step.step_number + ' 截图'" loading="lazy" />
+                    <img class="screenshot" :src="screenshotSrc(step.screenshot_path)"
+                         :alt="'步骤 ' + step.step_number + ' 截图'" loading="lazy"/>
                   </div>
                 </details>
               </div>
             </article>
           </div>
-          <el-empty v-else description="暂无执行步骤" />
+          <el-empty v-else description="暂无执行步骤"/>
         </section>
 
         <section class="section r-card" id="findings">
@@ -198,10 +235,10 @@
 
           <div v-if="report.findings.length" class="timeline">
             <article
-              v-for="(finding, index) in report.findings"
-              :key="finding.finding_id"
-              :id="'finding-' + index"
-              :class="['step', 'result-' + finding.severity]"
+                v-for="(finding, index) in report.findings"
+                :key="finding.finding_id"
+                :id="'finding-' + index"
+                :class="['step', 'result-' + finding.severity]"
             >
               <div class="finding-head">
                 <div>
@@ -216,24 +253,40 @@
               <div class="step-body">
                 <table class="info-table">
                   <tbody>
-                    <tr><th>问题 ID</th><td><code>{{ finding.finding_id }}</code></td></tr>
-                    <tr><th>类型</th><td>{{ finding.finding_type }}</td></tr>
-                    <tr><th>URL</th><td>{{ finding.url || '' }}</td></tr>
-                    <tr><th>位置</th><td>{{ finding.location || '' }}</td></tr>
-                    <tr><th>时间</th><td>{{ formatDate(finding.created_at) }}</td></tr>
+                  <tr>
+                    <th>问题 ID</th>
+                    <td><code>{{ finding.finding_id }}</code></td>
+                  </tr>
+                  <tr>
+                    <th>类型</th>
+                    <td>{{ finding.finding_type }}</td>
+                  </tr>
+                  <tr>
+                    <th>URL</th>
+                    <td>{{ finding.url || '' }}</td>
+                  </tr>
+                  <tr>
+                    <th>位置</th>
+                    <td>{{ finding.location || '' }}</td>
+                  </tr>
+                  <tr>
+                    <th>时间</th>
+                    <td>{{ formatDate(finding.created_at) }}</td>
+                  </tr>
                   </tbody>
                 </table>
                 <details v-if="finding.screenshot_path">
                   <summary>问题截图</summary>
                   <div class="screenshot-wrap">
                     <p class="screenshot-path">截图：<code>{{ finding.screenshot_path }}</code></p>
-                    <img class="screenshot" :src="screenshotSrc(finding.screenshot_path)" :alt="finding.title + ' 截图'" loading="lazy" />
+                    <img class="screenshot" :src="screenshotSrc(finding.screenshot_path)" :alt="finding.title + ' 截图'"
+                         loading="lazy"/>
                   </div>
                 </details>
               </div>
             </article>
           </div>
-          <el-empty v-else description="未记录问题" />
+          <el-empty v-else description="未记录问题"/>
         </section>
 
         <section class="section r-card" id="raw-json">
@@ -254,9 +307,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import type { ReportData, FindingSeverity } from "../types";
-import { screenshotUrl } from "../api";
+import {computed} from "vue";
+import type {FindingSeverity, ReportData} from "../types";
+import {screenshotUrl} from "../api";
 
 const props = defineProps<{
   report: ReportData | null;
@@ -288,7 +341,9 @@ function formatDate(value: string | null): string {
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit",
     }).format(new Date(value));
-  } catch { return value; }
+  } catch {
+    return value;
+  }
 }
 
 function prettyJson(value: unknown): string {
@@ -447,7 +502,9 @@ function severityTagType(severity: FindingSeverity): string {
   transition: background 0.12s ease;
 }
 
-.nav-link:hover { background: #eef3f5; }
+.nav-link:hover {
+  background: #eef3f5;
+}
 
 .nav-link span:last-child {
   color: var(--report-muted);
@@ -461,7 +518,10 @@ function severityTagType(severity: FindingSeverity): string {
   gap: 28px;
 }
 
-.section { display: grid; gap: 16px; }
+.section {
+  display: grid;
+  gap: 16px;
+}
 
 .section-head {
   display: flex;
@@ -523,7 +583,10 @@ function severityTagType(severity: FindingSeverity): string {
 }
 
 /* ===== Tables ===== */
-.info-table { width: 100%; border-collapse: collapse; }
+.info-table {
+  width: 100%;
+  border-collapse: collapse;
+}
 
 .info-table th, .info-table td {
   padding: 9px 12px;
@@ -549,7 +612,9 @@ function severityTagType(severity: FindingSeverity): string {
 }
 
 .info-table tr:last-child th,
-.info-table tr:last-child td { border-bottom: 0; }
+.info-table tr:last-child td {
+  border-bottom: 0;
+}
 
 .info-table code, code {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
@@ -561,7 +626,10 @@ function severityTagType(severity: FindingSeverity): string {
 }
 
 /* ===== Timeline / Steps ===== */
-.timeline { display: grid; gap: 12px; }
+.timeline {
+  display: grid;
+  gap: 12px;
+}
 
 .step {
   border: 1px solid var(--report-line);
@@ -570,12 +638,29 @@ function severityTagType(severity: FindingSeverity): string {
   overflow: hidden;
 }
 
-.step.result-success { border-left: 3px solid #16a34a; }
-.step.result-failed { border-left: 3px solid #dc2626; }
-.step.result-info { border-left: 3px solid #7a8a9a; }
-.step.result-low { border-left: 3px solid #5b7aad; }
-.step.result-medium { border-left: 3px solid #d97706; }
-.step.result-high, .step.result-critical { border-left: 3px solid #dc2626; }
+.step.result-success {
+  border-left: 3px solid #16a34a;
+}
+
+.step.result-failed {
+  border-left: 3px solid #dc2626;
+}
+
+.step.result-info {
+  border-left: 3px solid #7a8a9a;
+}
+
+.step.result-low {
+  border-left: 3px solid #5b7aad;
+}
+
+.step.result-medium {
+  border-left: 3px solid #d97706;
+}
+
+.step.result-high, .step.result-critical {
+  border-left: 3px solid #dc2626;
+}
 
 .step-head, .finding-head {
   display: flex;
@@ -629,7 +714,9 @@ details {
   padding: 10px 14px;
 }
 
-details[open] { padding-bottom: 14px; }
+details[open] {
+  padding-bottom: 14px;
+}
 
 summary {
   cursor: pointer;
@@ -640,7 +727,9 @@ summary {
   user-select: none;
 }
 
-summary:hover { color: var(--report-text); }
+summary:hover {
+  color: var(--report-text);
+}
 
 .params {
   margin: 10px 0 0;
@@ -670,7 +759,11 @@ summary:hover { color: var(--report-text); }
 }
 
 /* ===== Screenshots ===== */
-.screenshot-wrap { margin-top: 10px; display: grid; gap: 10px; }
+.screenshot-wrap {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
 
 .screenshot-path {
   margin: 0;
@@ -686,7 +779,9 @@ summary:hover { color: var(--report-text); }
 }
 
 /* ===== Failure Summary ===== */
-.failure-summary { margin-bottom: 4px; }
+.failure-summary {
+  margin-bottom: 4px;
+}
 
 .failure-summary h3 {
   margin: 0 0 4px;
@@ -696,22 +791,61 @@ summary:hover { color: var(--report-text); }
 }
 
 /* ===== Empty States ===== */
-.empty-state { text-align: center; padding: 48px 24px; }
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+}
 
 /* ===== Utility ===== */
-.muted { color: var(--report-muted); }
-.mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; font-size: 11px; }
+.muted {
+  color: var(--report-muted);
+}
+
+.mono {
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+}
 
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
-  .report-layout { grid-template-columns: 1fr; padding: 20px 18px 40px; }
-  .report-sidebar { position: static; }
-  .nav-card { grid-template-columns: repeat(4, 1fr); gap: 4px; }
-  .nav-title { display: none; }
-  .nav-link { justify-content: center; font-size: 12px; padding: 6px; }
-  .nav-link span:last-child { display: none; }
-  .report-hero { padding: 24px 20px; }
-  .hero-inner { flex-direction: column; }
-  .metrics { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .report-layout {
+    grid-template-columns: 1fr;
+    padding: 20px 18px 40px;
+  }
+
+  .report-sidebar {
+    position: static;
+  }
+
+  .nav-card {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+
+  .nav-title {
+    display: none;
+  }
+
+  .nav-link {
+    justify-content: center;
+    font-size: 12px;
+    padding: 6px;
+  }
+
+  .nav-link span:last-child {
+    display: none;
+  }
+
+  .report-hero {
+    padding: 24px 20px;
+  }
+
+  .hero-inner {
+    flex-direction: column;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
 }
 </style>

@@ -6,13 +6,16 @@
         <div style="color:#909399;font-size:12px">{{ row.modelConfigId }}</div>
       </template>
     </el-table-column>
-    <el-table-column prop="provider" label="供应商" width="110" />
-    <el-table-column prop="model" label="模型" width="180" />
+    <el-table-column prop="provider" label="供应商" width="110"/>
+    <el-table-column prop="model" label="模型" width="180"/>
     <el-table-column label="作用域" width="120">
       <template #default="{ row }">{{ row.taskType ?? "全局" }}{{ row.isDefault ? " / 默认" : "" }}</template>
     </el-table-column>
     <el-table-column label="状态" width="140">
-      <template #default="{ row }">{{ row.enabled ? "启用" : "停用" }} / Key {{ row.apiKeySet ? "已配置" : "未配置" }}</template>
+      <template #default="{ row }">{{ row.enabled ? "启用" : "停用" }} / Key {{
+          row.apiKeySet ? "已配置" : "未配置"
+        }}
+      </template>
     </el-table-column>
     <el-table-column label="操作" width="200" fixed="right">
       <template #default="{ row }">
@@ -22,7 +25,7 @@
       </template>
     </el-table-column>
   </el-table>
-  <el-empty v-else description="暂无模型配置。" />
+  <el-empty v-else description="暂无模型配置。"/>
 </template>
 
 <script setup lang="ts">

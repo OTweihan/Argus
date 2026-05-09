@@ -1,13 +1,13 @@
 import {reactive, ref, type Ref} from "vue";
 import {ElMessageBox} from "element-plus";
-import {
-    listModels as apiListModels,
-    createModel as apiCreateModel,
-    updateModel as apiUpdateModel,
-    deleteModel as apiDeleteModel,
-    testModel as apiTestModel,
-} from "../api";
 import type {ModelConfigPayload, ModelConnectionPayload} from "../api";
+import {
+    createModel as apiCreateModel,
+    deleteModel as apiDeleteModel,
+    listModels as apiListModels,
+    testModel as apiTestModel,
+    updateModel as apiUpdateModel,
+} from "../api";
 import type {ModelConfig, ModelProvider, TaskType} from "../types";
 import {errorMessage, nullableText, upsertById} from "../utils";
 

@@ -1,12 +1,6 @@
-import {request, ApiError, reportUrl} from "../client";
+import {ApiError, reportUrl, request} from "../client";
 import type {TaskPayload} from "../types";
-import type {
-    ReportData,
-    Task,
-    TaskDisplayStatus,
-    TaskListResponse,
-    TaskStartResponse,
-} from "../../types";
+import type {ReportData, Task, TaskDisplayStatus, TaskListResponse, TaskStartResponse,} from "../../types";
 
 export function listTasks(
     filters: {
@@ -35,6 +29,17 @@ export function createTask(payload: TaskPayload): Promise<Task> {
     return request<Task>("/tasks", {method: "POST", body: JSON.stringify(payload)});
 }
 
+export function updateTask(taskId: string, payload: TaskPayload): Promise<Task> {
+    return request<Task>(`/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+    });
+}
+
+export function deleteTask(taskId: string): Promise<void> {
+    return request<void>(`/tasks/${encodeURIComponent(taskId)}`, {method: "DELETE"});
+}
+
 export function startTask(taskId: string): Promise<TaskStartResponse> {
     return request<TaskStartResponse>(`/tasks/${encodeURIComponent(taskId)}/start`, {
         method: "POST",
@@ -43,6 +48,12 @@ export function startTask(taskId: string): Promise<TaskStartResponse> {
 
 export function getTaskReportJson(taskId: string): Promise<ReportData> {
     return fetchReportJson(taskId);
+}
+
+export function inferTaskLimits(goal: string, startUrl?: string): Promise<{maxSteps: number; timeoutSeconds: number}> {
+    const params = new URLSearchParams({goal});
+    if (startUrl) params.set("startUrl", startUrl);
+    return request(`/tasks/infer-limits?${params.toString()}`);
 }
 
 async function fetchReportJson(taskId: string): Promise<ReportData> {

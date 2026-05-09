@@ -1,12 +1,12 @@
 import {reactive, ref, type Ref} from "vue";
 import {ElMessageBox} from "element-plus";
-import {
-    listProjects as apiListProjects,
-    createProject as apiCreateProject,
-    updateProject as apiUpdateProject,
-    deleteProject as apiDeleteProject,
-} from "../api";
 import type {ProjectPayload} from "../api";
+import {
+    createProject as apiCreateProject,
+    deleteProject as apiDeleteProject,
+    listProjects as apiListProjects,
+    updateProject as apiUpdateProject,
+} from "../api";
 import type {Project} from "../types";
 import {errorMessage, nullableText, upsertById} from "../utils";
 

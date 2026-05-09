@@ -19,72 +19,73 @@
         </el-input>
       </div>
       <ModelTable
-        :models="filteredModels"
-        height="100%"
-        @edit="editModel"
-        @test="testModel"
-        @delete="deleteModel"
+          :models="filteredModels"
+          height="100%"
+          @edit="editModel"
+          @test="testModel"
+          @delete="deleteModel"
       />
     </el-card>
   </div>
 
-  <el-dialog v-model="showModelDialog" :title="modelForm.editingId ? '编辑模型' : '新增模型'" width="580px" append-to-body>
+  <el-dialog v-model="showModelDialog" :title="modelForm.editingId ? '编辑模型' : '新增模型'" width="580px"
+             append-to-body>
     <el-form :model="modelForm" label-position="top" @submit.prevent="saveModel">
       <el-form-item label="名称" :error="formErrors.modelName" required>
-        <el-input v-model="modelForm.name" @input="delete formErrors.modelName" />
+        <el-input v-model="modelForm.name" @input="delete formErrors.modelName"/>
       </el-form-item>
       <el-row :gutter="12">
         <el-col :span="12">
           <el-form-item label="供应商" required>
             <el-select v-model="modelForm.provider" style="width:100%">
-              <el-option v-for="provider in providers" :key="provider" :label="provider" :value="provider" />
+              <el-option v-for="provider in providers" :key="provider" :label="provider" :value="provider"/>
             </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="模型" :error="formErrors.modelModel" required>
-            <el-input v-model="modelForm.model" @input="delete formErrors.modelModel" />
+            <el-input v-model="modelForm.model" @input="delete formErrors.modelModel"/>
           </el-form-item>
         </el-col>
       </el-row>
       <el-form-item label="API Key">
-        <el-input v-model="modelForm.apiKey" type="password" show-password autocomplete="new-password" />
+        <el-input v-model="modelForm.apiKey" type="password" show-password autocomplete="new-password"/>
       </el-form-item>
       <el-form-item label="Base URL">
-        <el-input v-model="modelForm.baseUrl" />
+        <el-input v-model="modelForm.baseUrl"/>
       </el-form-item>
       <el-form-item label="Completions Path">
-        <el-input v-model="modelForm.completionsPath" />
+        <el-input v-model="modelForm.completionsPath"/>
       </el-form-item>
       <el-row :gutter="12">
         <el-col :span="12">
           <el-form-item label="最大 Token">
-            <el-input-number v-model="modelForm.maxTokens" :min="1" :step="1" :precision="0" style="width:100%" />
+            <el-input-number v-model="modelForm.maxTokens" :min="1" :step="1" :precision="0" style="width:100%"/>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="温度">
-            <el-input-number v-model="modelForm.temperature" :min="0" :step="0.01" :precision="2" style="width:100%" />
+            <el-input-number v-model="modelForm.temperature" :min="0" :step="0.01" :precision="2" style="width:100%"/>
           </el-form-item>
         </el-col>
       </el-row>
       <el-row :gutter="12">
         <el-col :span="12">
           <el-form-item label="重试次数">
-            <el-input-number v-model="modelForm.maxRetries" :min="0" :step="1" :precision="0" style="width:100%" />
+            <el-input-number v-model="modelForm.maxRetries" :min="0" :step="1" :precision="0" style="width:100%"/>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="超时秒数">
-            <el-input-number v-model="modelForm.timeoutSeconds" :min="1" :step="1" :precision="0" style="width:100%" />
+            <el-input-number v-model="modelForm.timeoutSeconds" :min="1" :step="1" :precision="0" style="width:100%"/>
           </el-form-item>
         </el-col>
       </el-row>
       <el-form-item label="任务类型默认">
         <el-select v-model="modelForm.taskType" clearable style="width:100%">
-          <el-option label="全局默认" value="" />
-          <el-option label="blackbox" value="blackbox" />
-          <el-option label="whitebox" value="whitebox" />
+          <el-option label="全局默认" value=""/>
+          <el-option label="blackbox" value="blackbox"/>
+          <el-option label="whitebox" value="whitebox"/>
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -103,7 +104,7 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
 import ModelTable from "../components/model/ModelTable.vue";
-import { useConsoleApp } from "../composables/useConsoleApp";
+import {useConsoleApp} from "../composables/useConsoleApp";
 
 type AppContext = ReturnType<typeof useConsoleApp>;
 
@@ -120,15 +121,15 @@ const filteredModels = computed(() => {
   const list = models.value;
   if (!keyword) return list;
   return list.filter((model) =>
-    [
-      model.name,
-      model.provider,
-      model.model,
-      model.baseUrl,
-      model.completionsPath,
-      model.taskType ?? "",
-      model.modelConfigId,
-    ].some((value) => value.toLowerCase().includes(keyword)),
+      [
+        model.name,
+        model.provider,
+        model.model,
+        model.baseUrl,
+        model.completionsPath,
+        model.taskType ?? "",
+        model.modelConfigId,
+      ].some((value) => value.toLowerCase().includes(keyword)),
   );
 });
 </script>
@@ -156,8 +157,24 @@ const filteredModels = computed(() => {
   padding: 0 20px 20px;
 }
 
-.card-header { display: flex; align-items: center; justify-content: space-between; }
-.filter-bar { flex-shrink: 0; padding: 16px 0; }
-.search-input { max-width: 360px; }
-.search-icon { width: 16px; height: 16px; color: #909399; }
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.filter-bar {
+  flex-shrink: 0;
+  padding: 16px 0;
+}
+
+.search-input {
+  max-width: 360px;
+}
+
+.search-icon {
+  width: 16px;
+  height: 16px;
+  color: #909399;
+}
 </style>

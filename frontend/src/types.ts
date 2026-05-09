@@ -91,6 +91,7 @@ export interface Task {
   taskId: string;
   projectId: string | null;
   goal: string;
+  name: string | null;
   startUrl: string | null;
   taskType: TaskType;
   status: TaskStatus;

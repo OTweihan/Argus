@@ -59,6 +59,7 @@ TASKS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
   task_id TEXT PRIMARY KEY,
   goal TEXT NOT NULL,
+  name TEXT,
   start_url TEXT,
   task_type TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -137,6 +138,7 @@ def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
 
 _REQUIRED_TASK_COLUMNS: dict[str, str] = {
     "current_step": "INTEGER NOT NULL DEFAULT 0",
+    "name": "TEXT",
 }
 
 

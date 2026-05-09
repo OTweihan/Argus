@@ -92,6 +92,7 @@ class TaskCreateRequest(ApiModel):
     """创建任务请求。"""
 
     goal: str = Field(min_length=1, max_length=2000)
+    name: str | None = Field(default=None, max_length=200)
     start_url: str | None = Field(default=None, alias="startUrl", min_length=1, max_length=2048)
     task_type: TaskType = Field(default=TaskType.BLACKBOX, alias="taskType")
     project_id: str = Field(alias="projectId", min_length=1, max_length=64)
@@ -107,7 +108,7 @@ class TaskCreateRequest(ApiModel):
         """必填文本去掉两端空白后再校验。"""
         return strip_text(value)
 
-    @field_validator("start_url", "model_config_id", mode="before")
+    @field_validator("name", "start_url", "model_config_id", mode="before")
     @classmethod
     def blank_optional_text_to_none(cls, value: object) -> object:
         """空白可选文本统一视为未填写。"""
@@ -127,12 +128,17 @@ class TaskCreateRequest(ApiModel):
         return value
 
 
+class TaskUpdateRequest(TaskCreateRequest):
+    """更新任务基础信息请求。"""
+
+
 class TaskResponse(ApiModel):
     """任务响应。"""
 
     task_id: str = Field(alias="taskId")
     project_id: str | None = Field(default=None, alias="projectId")
     goal: str
+    name: str | None = None
     start_url: str | None = Field(default=None, alias="startUrl")
     task_type: TaskType = Field(alias="taskType")
     status: TaskStatus
@@ -158,6 +164,7 @@ class TaskResponse(ApiModel):
             task_id=task.task_id,
             project_id=task.project_id,
             goal=redact_sensitive_text(task.goal),
+            name=task.name,
             start_url=redact_href(task.start_url) if task.start_url else None,
             task_type=task.task_type,
             status=task.status,
@@ -195,6 +202,7 @@ class TaskSummaryResponse(ApiModel):
     task_id: str = Field(alias="taskId")
     project_id: str | None = Field(default=None, alias="projectId")
     goal: str
+    name: str | None = None
     start_url: str | None = Field(default=None, alias="startUrl")
     task_type: TaskType = Field(alias="taskType")
     status: TaskStatus
@@ -219,6 +227,7 @@ class TaskSummaryResponse(ApiModel):
             task_id=task.task_id,
             project_id=task.project_id,
             goal=redact_sensitive_text(task.goal),
+            name=task.name,
             start_url=redact_href(task.start_url) if task.start_url else None,
             task_type=task.task_type,
             status=task.status,
@@ -254,3 +263,10 @@ class TaskStartResponse(ApiModel):
 
     scheduler_status: str = Field(alias="schedulerStatus")
     task: TaskResponse
+
+
+class InferredLimitsResponse(ApiModel):
+    """推断的任务执行限制响应。"""
+
+    max_steps: int = Field(alias="maxSteps")
+    timeout_seconds: int = Field(alias="timeoutSeconds")

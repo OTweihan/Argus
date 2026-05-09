@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from argus_py.api.dependencies import (
     get_model_config_service,
@@ -11,11 +11,13 @@ from argus_py.api.dependencies import (
     get_task_service,
 )
 from argus_py.api.schemas import (
+    InferredLimitsResponse,
     TaskCreateRequest,
     TaskResponse,
     TaskStartResponse,
     TaskSummaryListResponse,
     TaskSummaryResponse,
+    TaskUpdateRequest,
 )
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
@@ -23,7 +25,7 @@ from argus_py.infra.queue import TaskQueue
 from argus_py.config.service import ModelConfigService
 from argus_py.project.service import ProjectService
 from argus_py.task.service import TaskService
-from argus_py.task.strategy import resolve_execution_limits
+from argus_py.task.strategy import infer_execution_limits, resolve_execution_limits
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -61,6 +63,7 @@ async def create_task(
     )
     task = service.create_task(
         goal=request.goal,
+        name=request.name,
         start_url=start_url,
         task_type=request.task_type,
         project_id=project.project_id,
@@ -70,6 +73,99 @@ async def create_task(
         parameters=parameters,
     )
     return TaskResponse.from_task(task)
+
+
+@router.put("/{task_id}", response_model=TaskResponse)
+async def update_task(
+    task_id: str,
+    request: TaskUpdateRequest,
+    service: TaskService = Depends(get_task_service),
+    project_service: ProjectService = Depends(get_project_service),
+    model_config_service: ModelConfigService = Depends(get_model_config_service),
+    queue: TaskQueue = Depends(get_task_queue),
+) -> TaskResponse:
+    """更新待执行任务的基础信息。"""
+    task = service.get_task(task_id)
+    scheduler_status = await queue.scheduler_status(task_id)
+    if task.status is not TaskStatus.PENDING or scheduler_status is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TASK_NOT_EDITABLE",
+                "message": f"只有 pending 且未入队的任务可以编辑，当前状态：{task.status.value}。",
+                "details": {
+                    "taskId": task_id,
+                    "status": task.status.value,
+                    "schedulerStatus": scheduler_status,
+                },
+            },
+        )
+
+    project = project_service.get_project(request.project_id)
+    start_url = request.start_url or project.base_url
+    if not start_url:
+        raise TaskError("更新任务需要 startUrl，或项目需要配置 baseUrl。")
+
+    max_steps = request.max_steps or project.default_max_steps
+    timeout_seconds = request.timeout_seconds or project.default_timeout_seconds
+    capture_screenshots = (
+        request.capture_screenshots
+        if request.capture_screenshots is not None
+        else project.default_capture_screenshots
+    )
+    parameters = {**project.parameters, **request.parameters}
+    if request.model_config_id:
+        model_config_service.get_model_config(request.model_config_id)
+        parameters["modelConfigId"] = request.model_config_id
+
+    limits = resolve_execution_limits(
+        request.goal,
+        start_url,
+        max_steps,
+        timeout_seconds,
+    )
+    updated = service.update_task_info(
+        task,
+        goal=request.goal,
+        name=request.name,
+        start_url=start_url,
+        task_type=request.task_type,
+        project_id=project.project_id,
+        max_steps=limits.max_steps,
+        timeout_seconds=limits.timeout_seconds,
+        capture_screenshots=capture_screenshots,
+        parameters=parameters,
+    )
+    return TaskResponse.from_task(
+        updated,
+        scheduler_status=await queue.scheduler_status(updated.task_id),
+    )
+
+
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task(
+    task_id: str,
+    service: TaskService = Depends(get_task_service),
+    queue: TaskQueue = Depends(get_task_queue),
+) -> Response:
+    """删除未启动的 pending 任务。"""
+    task = service.get_task(task_id)
+    scheduler_status = await queue.scheduler_status(task_id)
+    if task.status is not TaskStatus.PENDING or scheduler_status is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TASK_NOT_DELETABLE",
+                "message": f"只有 pending 且未入队的任务可以删除，当前状态：{task.status.value}。",
+                "details": {
+                    "taskId": task_id,
+                    "status": task.status.value,
+                    "schedulerStatus": scheduler_status,
+                },
+            },
+        )
+    service.delete_pending_task(task)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("", response_model=TaskSummaryListResponse)
@@ -94,6 +190,19 @@ async def list_tasks(
             )
         )
     return TaskSummaryListResponse(total=total, tasks=responses)
+
+
+@router.get("/infer-limits", response_model=InferredLimitsResponse)
+async def infer_limits(
+    goal: str = Query(..., min_length=1),
+    start_url: str | None = Query(default=None),
+) -> InferredLimitsResponse:
+    """根据任务目标和起始 URL 推断推荐的最大步数和超时时间。"""
+    limits = infer_execution_limits(goal, start_url or "")
+    return InferredLimitsResponse(
+        max_steps=limits.max_steps,
+        timeout_seconds=limits.timeout_seconds,
+    )
 
 
 @router.get("/{task_id}", response_model=TaskResponse)

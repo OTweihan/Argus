@@ -19,6 +19,7 @@ from argus_py.api.schemas.projects import (
 )
 from argus_py.api.schemas.tasks import (
     FindingResponse,
+    InferredLimitsResponse,
     TaskCreateRequest,
     TaskListResponse,
     TaskLogResponse,
@@ -26,6 +27,7 @@ from argus_py.api.schemas.tasks import (
     TaskStartResponse,
     TaskSummaryListResponse,
     TaskSummaryResponse,
+    TaskUpdateRequest,
 )
 
 __all__ = [
@@ -50,4 +52,5 @@ __all__ = [
     "TaskStartResponse",
     "TaskSummaryListResponse",
     "TaskSummaryResponse",
+    "TaskUpdateRequest",
 ]

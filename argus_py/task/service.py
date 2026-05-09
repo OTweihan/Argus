@@ -33,6 +33,7 @@ class TaskService:
     def create_task(
         self,
         goal: str,
+        name: str | None = None,
         start_url: str | None = None,
         task_type: TaskType = TaskType.BLACKBOX,
         project_id: str | None = None,
@@ -44,6 +45,7 @@ class TaskService:
         """创建任务并保存初始快照。"""
         task = Task(
             goal=goal,
+            name=name,
             start_url=start_url,
             task_type=task_type,
             project_id=project_id,
@@ -119,7 +121,8 @@ class TaskService:
             tasks = [
                 t
                 for t in tasks
-                if kw in (t.goal or "").lower()
+                if kw in (t.name or "").lower()
+                or kw in (t.goal or "").lower()
                 or kw in (t.task_id or "").lower()
                 or kw in (t.start_url or "").lower()
                 or kw in (t.result_summary or "").lower()
@@ -150,7 +153,8 @@ class TaskService:
             tasks = [
                 t
                 for t in tasks
-                if kw in (t.goal or "").lower()
+                if kw in (t.name or "").lower()
+                or kw in (t.goal or "").lower()
                 or kw in (t.task_id or "").lower()
                 or kw in (t.start_url or "").lower()
                 or kw in (t.result_summary or "").lower()
@@ -166,6 +170,47 @@ class TaskService:
         """保存任务当前快照。"""
         self.storage.save(task)
         return task
+
+    def update_task_info(
+        self,
+        task: Task | str,
+        *,
+        goal: str,
+        name: str | None,
+        start_url: str | None,
+        task_type: TaskType,
+        project_id: str | None,
+        max_steps: int,
+        timeout_seconds: int,
+        capture_screenshots: bool,
+        parameters: dict[str, Any],
+    ) -> Task:
+        """更新待执行任务的基础信息。"""
+        resolved = self._resolve_task(task)
+        if resolved.status is not TaskStatus.PENDING:
+            raise TaskError(f"只有 pending 任务可以编辑，当前状态：{resolved.status.value}。")
+
+        resolved.goal = goal
+        resolved.name = name
+        resolved.start_url = start_url
+        resolved.task_type = task_type
+        resolved.project_id = project_id
+        resolved.max_steps = max_steps
+        resolved.timeout_seconds = timeout_seconds
+        resolved.capture_screenshots = capture_screenshots
+        resolved.parameters = parameters
+        self.storage.save(resolved)
+        self._publish("task.updated", resolved, {"task": _task_summary(resolved)})
+        return resolved
+
+    def delete_pending_task(self, task: Task | str) -> None:
+        """删除未启动的 pending 任务。"""
+        resolved = self._resolve_task(task)
+        if resolved.status is not TaskStatus.PENDING:
+            raise TaskError(f"只有 pending 任务可以删除，当前状态：{resolved.status.value}。")
+        self.storage.delete(resolved.task_id)
+        self.remove_cancellation_token(resolved.task_id)
+        self._publish("task.deleted", resolved, {"taskId": resolved.task_id})
 
     def _resolve_task(self, task: Task | str) -> Task:
         """接受任务对象或任务 ID，统一还原为任务对象。"""
@@ -367,6 +412,7 @@ def _task_summary(task: Task) -> dict[str, Any]:
     return {
         "taskId": task.task_id,
         "projectId": task.project_id,
+        "name": task.name,
         "goal": redact_sensitive_text(task.goal),
         "startUrl": redact_href(task.start_url) if task.start_url else None,
         "taskType": task.task_type.value,

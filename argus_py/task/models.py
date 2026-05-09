@@ -108,6 +108,7 @@ class Task:
     """测试任务实体。"""
 
     goal: str
+    name: str | None = None
     start_url: str | None = None
     task_type: TaskType = TaskType.BLACKBOX
     status: TaskStatus = TaskStatus.PENDING
@@ -160,6 +161,7 @@ class Task:
         """从 JSON 字典还原任务实体。"""
         return cls(
             goal=str(data["goal"]),
+            name=data.get("name"),
             start_url=data.get("start_url"),
             task_type=_parse_enum(TaskType, data.get("task_type", TaskType.BLACKBOX.value)),
             status=_parse_enum(TaskStatus, data.get("status", TaskStatus.PENDING.value)),

@@ -14,6 +14,7 @@ export interface ProjectPayload {
 
 export interface TaskPayload {
     goal: string;
+    name?: string | null;
     projectId: string;
     startUrl?: string | null;
     taskType?: TaskType;
