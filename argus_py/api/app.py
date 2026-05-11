@@ -8,9 +8,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from argus_py.api.dependencies import get_task_service, get_task_worker, load_server_settings
+from argus_py.api.dependencies import get_task_service, get_task_worker
 from argus_py.api.middleware import configure_middleware
 from argus_py.api.routes import config, health, projects, reports, tasks, ws
+from argus_py.config.server_settings import load_server_settings
 from argus_py.config.settings import load_settings
 from argus_py.core.constants import PROJECT_NAME, PROJECT_TAGLINE, PROJECT_VERSION
 from argus_py.core.crypto import ensure_fernet_key

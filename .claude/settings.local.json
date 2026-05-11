@@ -14,7 +14,10 @@
       "Bash(python -m py_compile argus_py/core/enums.py)",
       "Bash(python -m py_compile argus_py/task/status.py)",
       "Bash(python -m py_compile argus_py/task/service.py)",
-      "Bash(python -m py_compile argus_py/task/runner.py)"
+      "Bash(python -m py_compile argus_py/task/runner.py)",
+      "Bash(python *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

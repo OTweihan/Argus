@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from argus_py.api.dependencies import get_model_config_service, load_server_settings
+from argus_py.api.dependencies import get_model_config_service
 from argus_py.api.schemas import (
     ConfigSummaryResponse,
     ModelConfigCreateRequest,
@@ -18,6 +18,7 @@ from argus_py.api.schemas import (
     ModelConnectionTestResponse,
 )
 from argus_py.config.models import ModelConfig
+from argus_py.config.server_settings import load_server_settings
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.llm.providers import get_provider_spec

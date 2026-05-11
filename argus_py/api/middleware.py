@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from argus_py.api.dependencies import ServerSettings
+from argus_py.config.server_settings import ServerSettings
 from argus_py.core.exceptions import ArgusError, ModelConfigError, ProjectError, TaskError
 from argus_py.utils.logger import get_logger
 
@@ -75,7 +77,7 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
         if isinstance(detail, dict):
             code = str(detail.get("code") or "HTTP_ERROR")
             message = str(detail.get("message") or detail)
-            details = dict(detail.get("details") or {})
+            details: dict[str, Any] = dict(detail.get("details") or {})
         else:
             code = "HTTP_ERROR"
             message = str(detail)

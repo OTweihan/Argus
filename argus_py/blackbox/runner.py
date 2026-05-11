@@ -8,22 +8,22 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
-from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
+from argus_py.blackbox.action_executor import ActionExecutor
+from argus_py.blackbox.evaluator import BlackboxEvaluator
+from argus_py.blackbox.evidence import EvidenceCollector
+from argus_py.blackbox.finalizer import Finalizer
+from argus_py.blackbox.models import ActionSequence, BlackboxTaskInput
 from argus_py.blackbox.planner import BlackboxPlanner
-from argus_py.browser import BrowserSession, PageSnapshot
-from argus_py.browser.errors import BrowserTimeoutError, ElementNotFoundError
-from argus_py.browser.snapshot import redact_href, redact_step_params
-from argus_py.browser.url_validator import validate_url
-from argus_py.config.service import resolve_llm_client_for_task
+from argus_py.browser import BrowserSession
+from argus_py.browser.snapshot import redact_href
 from argus_py.core.cancellation import CancellationToken
-from argus_py.core.enums import ActionType, FindingSeverity, FindingType, StepResult, TaskStatus
+from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
-from argus_py.report.generator import ReportGenerator, generate_report_safely
+from argus_py.llm.resolver import resolve_llm_client_for_task
+from argus_py.report.generator import ReportGenerator
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
-from argus_py.utils.jsonx import to_jsonable
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,11 @@ class BlackboxRunner:
         self._uses_default_planner = planner is None
         self._uses_default_evaluator = evaluator is None
         self.browser_session_factory = browser_session_factory or self._default_browser_session
-        self.report_generator = report_generator or ReportGenerator()
         self.max_plan_steps = max_plan_steps
         self.max_recovery_attempts = max_recovery_attempts
+        self.evidence = EvidenceCollector()
+        self.action_executor = ActionExecutor(self.service, self.evidence)
+        self.finalizer = Finalizer(self.service, report_generator)
         self._last_error: dict[str, Any] | None = None
 
     async def run(self, task: Task | BlackboxTaskInput) -> Task:
@@ -76,7 +78,7 @@ class BlackboxRunner:
                 while executed_steps < task_input.max_steps:
                     if await self._check_cancelled(resolved):
                         resolved = self.service.get_latest_task(resolved)
-                        return self._finalize(resolved, owns_status)
+                        return self.finalizer.finalize(resolved, owns_status)
                     if not sequence.steps:
                         sequence = await self._plan_next(resolved, latest_observation, planner)
                         if not sequence.steps:
@@ -88,8 +90,10 @@ class BlackboxRunner:
                         executed_steps += 1
 
                         try:
-                            resolved, latest_observation = await self._execute_action(
-                                resolved, session, action_step
+                            resolved, latest_observation = (
+                                await self.action_executor.execute_action(
+                                    resolved, session, action_step
+                                )
                             )
                             recovery_attempts = 0
                             self._last_error = None
@@ -101,7 +105,6 @@ class BlackboxRunner:
                                 "error_message": str(exc),
                                 "step_number": executed_steps,
                             }
-                            # URL/参数格式错误 → 不计恢复次数，直接重规划
                             if exc.error_code in (
                                 "empty_url",
                                 "invalid_scheme",
@@ -110,16 +113,15 @@ class BlackboxRunner:
                                 "plain_text",
                                 "param_invalid",
                             ):
-                                latest_observation = await self._safe_observation(session)
+                                latest_observation = await self.evidence.safe_observation(session)
                                 sequence = ActionSequence(
                                     steps=[], summary=f"参数校验失败：{exc}，重新规划。"
                                 )
                                 break
-                            # 其他错误（element_not_found、timeout、未知）→ 计入恢复次数
                             if recovery_attempts >= self.max_recovery_attempts:
                                 raise
                             recovery_attempts += 1
-                            latest_observation = await self._safe_observation(session)
+                            latest_observation = await self.evidence.safe_observation(session)
                             sequence = ActionSequence(
                                 steps=[],
                                 summary="动作失败后重新观察页面并规划。",
@@ -132,13 +134,13 @@ class BlackboxRunner:
                     evaluation = await evaluator.evaluate(
                         resolved.goal,
                         latest_observation,
-                        history=self._history(resolved),
+                        history=self.finalizer.history(resolved),
                     )
-                    resolved = self._append_evaluation(resolved, evaluation)
+                    resolved = self.finalizer.append_evaluation(resolved, evaluation)
                     if evaluation.completed:
                         resolved.result_summary = evaluation.reason
                         if evaluation.success:
-                            return self._finish_success(resolved, owns_status)
+                            return self.finalizer.finish_success(resolved, owns_status)
                         raise TaskError(evaluation.reason or "黑盒任务已完成，但评估结果为失败。")
 
                     if executed_steps >= task_input.max_steps:
@@ -151,14 +153,14 @@ class BlackboxRunner:
             latest = self.service.get_latest_task(resolved)
             if owns_status and latest.status is TaskStatus.RUNNING:
                 failed = self.service.fail_task(latest, str(exc))
-                self._generate_report(failed)
+                self.finalizer.generate_report(failed)
             raise
 
         message = f"达到最大步骤 {task_input.max_steps} 后仍未完成目标。"
         latest = self.service.get_latest_task(resolved)
         if owns_status and latest.status is TaskStatus.RUNNING:
             failed = self.service.fail_task(latest, message)
-            self._generate_report(failed)
+            self.finalizer.generate_report(failed)
         raise TaskError(message)
 
     def _resolve_task(self, task: Task | BlackboxTaskInput) -> Task:
@@ -202,7 +204,7 @@ class BlackboxRunner:
             goal=task.goal,
             current_url=current_url,
             page_snapshot=latest_observation,
-            history=self._history(task),
+            history=self.finalizer.history(task),
             max_steps=self.max_plan_steps,
             last_error=last_error,
         )
@@ -224,184 +226,6 @@ class BlackboxRunner:
         )
         return planner, evaluator
 
-    async def _execute_action(
-        self,
-        task: Task,
-        session: BrowserSession,
-        step: ActionStep,
-    ) -> tuple[Task, str]:
-        """执行单个浏览器动作并记录步骤日志。"""
-        try:
-            result = await self._dispatch_action(task, session, step)
-        except Exception as exc:
-            screenshot_path, _ = await self._capture_step_evidence(task, session)
-            error_code = _resolve_error_code(exc)
-            self.service.append_log(
-                task,
-                action=step.action.value,
-                result=StepResult.FAILED,
-                params=self._step_params(step),
-                screenshot_path=screenshot_path,
-                message=step.reason,
-                error=str(exc),
-                error_code=error_code,
-            )
-            raise TaskError(
-                f"黑盒动作执行失败：{step.action.value}，原因：{exc}", error_code=error_code
-            ) from exc
-
-        screenshot_path = result.get("screenshot_path")
-        screenshot_path, snapshot = await self._capture_step_evidence(
-            task, session, screenshot_path=screenshot_path
-        )
-        observation = snapshot.to_prompt_text() if snapshot is not None else ""
-
-        return (
-            self.service.append_log(
-                task,
-                action=step.action.value,
-                result=StepResult.SUCCESS,
-                params=self._step_params(step),
-                url_before=result.get("url_before"),
-                url_after=result.get("url_after"),
-                screenshot_path=screenshot_path,
-                message=self._step_message(step, result),
-            ),
-            observation,
-        )
-
-    async def _dispatch_action(
-        self,
-        task: Task,
-        session: BrowserSession,
-        step: ActionStep,
-    ) -> dict[str, Any]:
-        """分发浏览器动作。"""
-        if step.action is ActionType.GOTO:
-            if not step.url:
-                raise TaskError("goto 动作缺少 url。", error_code="empty_url")
-            validation = validate_url(step.url)
-            if not validation.is_ok():
-                raise TaskError(
-                    f"URL 校验失败：{validation.error_message}",
-                    error_code=validation.code,
-                )
-            return await session.goto(step.url)
-
-        if step.action is ActionType.CLICK:
-            if not step.selector:
-                raise TaskError("click 动作缺少 selector。", error_code="param_invalid")
-            return await session.click(step.selector)
-
-        if step.action is ActionType.FILL:
-            if not step.selector:
-                raise TaskError("fill 动作缺少 selector。", error_code="param_invalid")
-            return await session.fill(step.selector, step.text or "")
-
-        if step.action is ActionType.PRESS:
-            if not step.selector or not step.key:
-                raise TaskError("press 动作缺少 selector 或 key。", error_code="param_invalid")
-            return await session.require_actions().press(step.selector, step.key)
-
-        if step.action is ActionType.SELECT:
-            if not step.selector:
-                raise TaskError("select 动作缺少 selector。", error_code="param_invalid")
-            value = step.text or str(step.params.get("value") or "")
-            if not value:
-                raise TaskError("select 动作缺少选项值。", error_code="param_invalid")
-            return await session.require_actions().select_option(step.selector, value)
-
-        if step.action is ActionType.WAIT:
-            return await session.require_actions().wait(step.wait_ms or 1000)
-
-        if step.action is ActionType.SCREENSHOT:
-            if not task.capture_screenshots:
-                return {"message": "截图已按任务配置跳过。"}
-            screenshot_path = await session.screenshot(self._screenshot_name(task), full_page=True)
-            return {"screenshot_path": str(screenshot_path), "message": "截图已保存。"}
-
-        if step.action is ActionType.SNAPSHOT:
-            snapshot = await session.snapshot()
-            return {
-                "url_after": snapshot.url,
-                "message": f"页面快照已获取，可交互元素 {len(snapshot.interactive_elements)} 个。",
-            }
-
-        if step.action is ActionType.ASSERT:
-            return {"message": step.reason or "断言交由评估器判断。"}
-
-        raise TaskError(f"不支持的动作类型：{step.action.value}")
-
-    async def _safe_observation(self, session: BrowserSession) -> str:
-        """动作失败后尽量获取页面观察，失败时返回可读说明。"""
-        try:
-            snapshot = await session.snapshot()
-            return snapshot.to_prompt_text()
-        except Exception as exc:
-            return f"页面观察失败：{exc}"
-
-    async def _capture_step_evidence(
-        self,
-        task: Task,
-        session: BrowserSession,
-        screenshot_path: str | None = None,
-    ) -> tuple[str | None, PageSnapshot | None]:
-        """为当前步骤采集截图和页面快照，失败不阻断动作结果。"""
-        captured_path = screenshot_path
-        if task.capture_screenshots and not captured_path:
-            try:
-                captured = await session.screenshot(self._screenshot_name(task), full_page=True)
-                captured_path = str(captured)
-            except Exception:
-                logger.debug("步骤截图采集失败：%s step %d", task.task_id, task.current_step + 1)
-                captured_path = None
-
-        try:
-            return captured_path, await session.snapshot()
-        except Exception:
-            logger.debug("页面快照采集失败：%s step %d", task.task_id, task.current_step + 1)
-            return captured_path, None
-
-    def _append_evaluation(self, task: Task, evaluation: EvaluationResult) -> Task:
-        """把评估器发现的问题写回任务。"""
-        resolved = task
-        for finding in evaluation.findings:
-            resolved = self.service.append_finding(
-                resolved,
-                title=finding.title,
-                description=finding.description,
-                severity=finding.severity,
-                finding_type=finding.finding_type,
-                url=finding.url,
-                location=finding.location,
-                screenshot_path=finding.screenshot_path,
-            )
-        if evaluation.completed and not evaluation.success and not evaluation.findings:
-            resolved = self.service.append_finding(
-                resolved,
-                title="黑盒任务失败",
-                description=evaluation.reason or "评估器判定目标未成功。",
-                severity=FindingSeverity.MEDIUM,
-                finding_type=FindingType.FUNCTIONAL,
-            )
-        return resolved
-
-    def _finish_success(self, task: Task, owns_status: bool) -> Task:
-        """按调用方式完成任务。从存储重载避免覆盖外部状态变更（cancel/pause）。"""
-        latest = self.service.get_latest_task(task)
-        if latest.status is not TaskStatus.RUNNING:
-            return self._generate_report(latest)
-        if owns_status:
-            completed = self.service.complete_task(latest, result_summary=task.result_summary)
-            return self._generate_report(completed)
-        return self.service.save_task(latest)
-
-    def _finalize(self, task: Task, owns_status: bool) -> Task:
-        """外部终止（cancel/pause）后的收尾，需要时生成报告。"""
-        if owns_status and task.status in (TaskStatus.CANCELLED, TaskStatus.PAUSED):
-            return self._generate_report(task)
-        return task
-
     async def _check_cancelled(self, task: Task) -> bool:
         """检查任务是否被外部取消或暂停。返回 True 表示应停止执行。"""
         token: CancellationToken = self.service.get_cancellation_token(task.task_id)
@@ -413,67 +237,7 @@ class BlackboxRunner:
             return latest.status is not TaskStatus.RUNNING
         return False
 
-    def _generate_report(self, task: Task) -> Task:
-        """生成任务报告并回写 HTML 报告路径。"""
-        return generate_report_safely(task, self.report_generator, self.service.save_task)
-
-    def _history(self, task: Task) -> list[dict[str, Any]]:
-        """生成给 LLM 使用的紧凑历史，对 URL 和文本参数进行脱敏。"""
-        return [
-            {
-                "step_number": log.step_number,
-                "action": log.action,
-                "result": log.result.value,
-                "params": self._redact_params(log.params),
-                "url_before": redact_href(log.url_before) if log.url_before else None,
-                "url_after": redact_href(log.url_after) if log.url_after else None,
-                "screenshot_path": Path(log.screenshot_path).name if log.screenshot_path else None,
-                "message": log.message,
-                "error": log.error,
-                "error_code": log.error_code,
-            }
-            for log in task.logs
-        ]
-
-    def _redact_params(self, params: dict[str, Any]) -> dict[str, Any]:
-        """对动作参数中的 URL 和文本进行脱敏，委托给公开工具函数。"""
-        return redact_step_params(params)
-
-    def _step_params(self, step: ActionStep) -> dict[str, Any]:
-        """提取动作参数用于日志。"""
-        return to_jsonable(
-            {
-                "selector": step.selector,
-                "url": step.url,
-                "text": step.text,
-                "key": step.key,
-                "wait_ms": step.wait_ms,
-                **step.params,
-            }
-        )
-
-    def _step_message(self, step: ActionStep, result: dict[str, Any]) -> str | None:
-        """生成步骤日志说明。"""
-        if step.action is ActionType.SCREENSHOT and result.get("message"):
-            return str(result["message"])
-        return step.reason or result.get("message")
-
-    def _screenshot_name(self, task: Task) -> str:
-        """生成步骤截图文件名。"""
-        return f"{task.task_id}-step-{task.current_step + 1:03d}.png"
-
     def _default_browser_session(self, task: Task) -> BrowserSession:
         """创建默认浏览器会话。"""
         screenshot_dir: Path = SCREENSHOTS_DIR / task.task_id
         return BrowserSession(screenshot_dir=screenshot_dir)
-
-
-def _resolve_error_code(exc: Exception) -> str | None:
-    """根据异常类型推断错误码。"""
-    if isinstance(exc, TaskError):
-        return exc.error_code
-    if isinstance(exc, BrowserTimeoutError):
-        return "timeout"
-    if isinstance(exc, ElementNotFoundError):
-        return "element_not_found"
-    return None

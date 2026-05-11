@@ -9,11 +9,8 @@ import {
 } from "../api";
 import type {Project} from "../types";
 import {errorMessage, nullableText, upsertById} from "../utils";
-
-export interface ParamEntry {
-    key: string;
-    value: string;
-}
+import {dictToParamEntries, parseParamEntries} from "../params";
+import type {ParamEntry} from "../params";
 
 export interface ProjectForm {
     editingId: string | null;
@@ -171,24 +168,4 @@ function defaultProjectForm(): ProjectForm {
         defaultCaptureScreenshots: true,
         parameters: [],
     };
-}
-
-function parseParamEntries(entries: ParamEntry[]): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-    for (const entry of entries) {
-        const key = entry.key.trim();
-        if (!key) continue;
-        if (key in result) {
-            throw new Error(`参数键重复：${key}`);
-        }
-        result[key] = entry.value;
-    }
-    return result;
-}
-
-function dictToParamEntries(dict: Record<string, unknown>): ParamEntry[] {
-    return Object.entries(dict).map(([key, value]) => ({
-        key,
-        value: typeof value === "string" ? value : JSON.stringify(value),
-    }));
 }

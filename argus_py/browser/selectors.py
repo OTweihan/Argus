@@ -128,7 +128,7 @@ def resolve_locator(page: Page, query: str | SelectorQuery) -> Locator:
         return page.get_by_text(parsed.value, exact=parsed.exact).first
     if parsed.strategy == "role":
         options: dict[str, bool | str | None] = {"exact": parsed.exact, "name": parsed.name}
-        return page.get_by_role(parsed.value, **options).first
+        return page.get_by_role(parsed.value, **options).first  # type: ignore[arg-type]
     if parsed.strategy == "label":
         return page.get_by_label(parsed.value, exact=parsed.exact).first
     if parsed.strategy == "placeholder":

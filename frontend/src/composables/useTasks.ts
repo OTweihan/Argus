@@ -13,11 +13,8 @@ import {
 import type {TaskPayload} from "../api";
 import type {ModelConfig, Project, ReportData, Task, TaskDisplayStatus} from "../types";
 import {errorMessage, nullableBoolean, nullableText, upsertById} from "../utils";
-
-interface ParamEntry {
-    key: string;
-    value: string;
-}
+import type {ParamEntry} from "../params";
+import {parseParamEntries} from "../params";
 
 interface TaskForm {
     editingId: string | null;
@@ -330,19 +327,6 @@ export function useTasks(opts: {
         openEditTaskDialog,
         resetTaskForm,
     };
-}
-
-function parseParamEntries(entries: ParamEntry[]): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-    for (const entry of entries) {
-        const key = entry.key.trim();
-        if (!key) continue;
-        if (key in result) {
-            throw new Error(`参数键重复：${key}`);
-        }
-        result[key] = entry.value;
-    }
-    return result;
 }
 
 function defaultTaskForm(projectId = ""): TaskForm {

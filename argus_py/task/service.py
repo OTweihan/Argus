@@ -1,34 +1,34 @@
-"""任务服务。"""
+"""TaskService 兼容外观层，委托给职责单一的子服务。"""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 
-from argus_py.browser.snapshot import redact_href, redact_sensitive_text, redact_step_params
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
-from argus_py.core.exceptions import TaskError
-from argus_py.task.models import Finding, Task, TaskLog
-from argus_py.task.status import assert_transition
+from argus_py.task.lifecycle import TaskLifecycleService
+from argus_py.task.log import TaskLogService
+from argus_py.task.models import Task
+from argus_py.task.query import TaskQueryService
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
-from argus_py.utils.jsonx import to_jsonable
 
 TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
 
 
 class TaskService:
-    """任务创建和状态更新服务。"""
+    """兼容外观：保持原有全部公开方法签名，内部委托给单一职责子服务。"""
 
     def __init__(
         self,
         storage: TaskFileStorage | TaskSQLiteStorage | None = None,
         event_publisher: TaskEventPublisher | None = None,
     ) -> None:
-        self.storage = storage or TaskSQLiteStorage()
-        self.event_publisher = event_publisher
-        self._cancellation_tokens: dict[str, CancellationToken] = {}
+        resolved = storage or TaskSQLiteStorage()
+        self.lifecycle = TaskLifecycleService(resolved, event_publisher)
+        self.query = TaskQueryService(resolved)
+        self.log = TaskLogService(resolved, event_publisher)
+
+    # ── 生命周期 ──
 
     def create_task(
         self,
@@ -42,8 +42,7 @@ class TaskService:
         capture_screenshots: bool = True,
         parameters: dict[str, Any] | None = None,
     ) -> Task:
-        """创建任务并保存初始快照。"""
-        task = Task(
+        return self.lifecycle.create_task(
             goal=goal,
             name=name,
             start_url=start_url,
@@ -52,124 +51,11 @@ class TaskService:
             max_steps=max_steps,
             timeout_seconds=timeout_seconds,
             capture_screenshots=capture_screenshots,
-            parameters=parameters or {},
+            parameters=parameters,
         )
-        self.storage.save(task)
-        self._publish("task.created", task, {"task": _task_summary(task)})
-        return task
-
-    def get_task(self, task_id: str) -> Task:
-        """按 ID 获取任务。"""
-        if not self.storage.exists(task_id):
-            raise TaskError(f"Task not found: {task_id}")
-        return self.storage.load(task_id)
-
-    def get_latest_task(self, task: Task) -> Task:
-        """从存储中读取最新任务快照，失败时返回原对象。"""
-        try:
-            return self.get_task(task.task_id)
-        except Exception:
-            return task
-
-    def list_tasks(
-        self,
-        status: TaskStatus | None = None,
-        project_id: str | None = None,
-        offset: int = 0,
-        limit: int | None = None,
-    ) -> list[Task]:
-        """列出任务，可按状态和项目过滤，支持分页。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.list_tasks(
-                offset=offset,
-                limit=limit,
-                status=status.value if status else None,
-                project_id=project_id,
-            )
-        has_filter = status is not None or project_id is not None
-        if has_filter:
-            tasks = self.storage.list_tasks()
-            if status is not None:
-                tasks = [task for task in tasks if task.status is status]
-            if project_id is not None:
-                tasks = [task for task in tasks if task.project_id == project_id]
-            if offset:
-                tasks = tasks[offset:]
-            if limit is not None:
-                tasks = tasks[:limit]
-            return tasks
-        return self.storage.list_tasks(offset=offset, limit=limit)
-
-    def count_tasks(
-        self,
-        status: TaskStatus | None = None,
-        project_id: str | None = None,
-        q: str | None = None,
-    ) -> int:
-        """返回任务总数，支持按状态、项目和关键词过滤。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.count_tasks(
-                status=status.value if status else None,
-                project_id=project_id,
-                q=q,
-            )
-        if status is None and project_id is None and q is None:
-            return self.storage.count_tasks()
-        tasks = self.list_tasks(status=status, project_id=project_id)
-        if q:
-            kw = q.lower()
-            tasks = [
-                t
-                for t in tasks
-                if kw in (t.name or "").lower()
-                or kw in (t.goal or "").lower()
-                or kw in (t.task_id or "").lower()
-                or kw in (t.start_url or "").lower()
-                or kw in (t.result_summary or "").lower()
-                or kw in (t.error_message or "").lower()
-            ]
-        return len(tasks)
-
-    def list_task_summaries(
-        self,
-        status: TaskStatus | None = None,
-        project_id: str | None = None,
-        offset: int = 0,
-        limit: int | None = None,
-        q: str | None = None,
-    ) -> list[Task]:
-        """轻量列表查询（不含日志和发现项），供列表页使用。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.list_task_summaries(
-                offset=offset,
-                limit=limit,
-                status=status.value if status else None,
-                project_id=project_id,
-                q=q,
-            )
-        tasks = self.list_tasks(status=status, project_id=project_id)
-        if q:
-            kw = q.lower()
-            tasks = [
-                t
-                for t in tasks
-                if kw in (t.name or "").lower()
-                or kw in (t.goal or "").lower()
-                or kw in (t.task_id or "").lower()
-                or kw in (t.start_url or "").lower()
-                or kw in (t.result_summary or "").lower()
-                or kw in (t.error_message or "").lower()
-            ]
-        if offset:
-            tasks = tasks[offset:]
-        if limit is not None:
-            tasks = tasks[:limit]
-        return tasks
 
     def save_task(self, task: Task) -> Task:
-        """保存任务当前快照。"""
-        self.storage.save(task)
-        return task
+        return self.lifecycle.save_task(task)
 
     def update_task_info(
         self,
@@ -185,111 +71,24 @@ class TaskService:
         capture_screenshots: bool,
         parameters: dict[str, Any],
     ) -> Task:
-        """更新待执行任务的基础信息。"""
-        resolved = self._resolve_task(task)
-        if resolved.status is not TaskStatus.PENDING:
-            raise TaskError(f"只有 pending 任务可以编辑，当前状态：{resolved.status.value}。")
-
-        resolved.goal = goal
-        resolved.name = name
-        resolved.start_url = start_url
-        resolved.task_type = task_type
-        resolved.project_id = project_id
-        resolved.max_steps = max_steps
-        resolved.timeout_seconds = timeout_seconds
-        resolved.capture_screenshots = capture_screenshots
-        resolved.parameters = parameters
-        self.storage.save(resolved)
-        self._publish("task.updated", resolved, {"task": _task_summary(resolved)})
-        return resolved
+        return self.lifecycle.update_task_info(
+            task,
+            goal=goal,
+            name=name,
+            start_url=start_url,
+            task_type=task_type,
+            project_id=project_id,
+            max_steps=max_steps,
+            timeout_seconds=timeout_seconds,
+            capture_screenshots=capture_screenshots,
+            parameters=parameters,
+        )
 
     def delete_pending_task(self, task: Task | str) -> None:
-        """删除未启动的 pending 任务。"""
-        resolved = self._resolve_task(task)
-        if resolved.status is not TaskStatus.PENDING:
-            raise TaskError(f"只有 pending 任务可以删除，当前状态：{resolved.status.value}。")
-        self.storage.delete(resolved.task_id)
-        self.remove_cancellation_token(resolved.task_id)
-        self._publish("task.deleted", resolved, {"taskId": resolved.task_id})
-
-    def _resolve_task(self, task: Task | str) -> Task:
-        """接受任务对象或任务 ID，统一还原为任务对象。"""
-        if isinstance(task, Task):
-            return task
-        return self.get_task(task)
-
-    def get_cancellation_token(self, task_id: str) -> CancellationToken:
-        """获取任务的取消/暂停信号量，懒创建。"""
-        if task_id not in self._cancellation_tokens:
-            self._cancellation_tokens[task_id] = CancellationToken()
-        return self._cancellation_tokens[task_id]
-
-    def remove_cancellation_token(self, task_id: str) -> None:
-        """移除任务的取消/暂停信号量。"""
-        self._cancellation_tokens.pop(task_id, None)
-
-    def update_status(
-        self, task: Task, target: TaskStatus, error_message: str | None = None
-    ) -> Task:
-        """更新任务状态。"""
-        assert_transition(task.status, target)
-        previous_status = task.status
-        now = datetime.now(timezone.utc)
-        if target is TaskStatus.RUNNING and task.started_at is None:
-            task.started_at = now
-        if target in {
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-            TaskStatus.CANCELLED,
-        }:
-            task.completed_at = now
-        task.status = target
-        task.error_message = error_message
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.update_task(
-                task.task_id,
-                status=task.status.value,
-                started_at=task.started_at.isoformat() if task.started_at else None,
-                completed_at=task.completed_at.isoformat() if task.completed_at else None,
-                error_message=task.error_message,
-                result_summary=task.result_summary,
-                report_path=task.report_path,
-            )
-        else:
-            self.storage.save(task)
-        self._publish(
-            "task.status",
-            task,
-            {
-                "previousStatus": previous_status.value,
-                "status": target.value,
-                "errorMessage": error_message,
-                "task": _task_summary(task),
-            },
-        )
-        if target in {
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-            TaskStatus.CANCELLED,
-        }:
-            self._publish(
-                "task.complete",
-                task,
-                {
-                    "status": target.value,
-                    "resultSummary": _redact_optional_text(task.result_summary),
-                    "errorMessage": _redact_optional_text(task.error_message),
-                    "reportPath": _path_name(task.report_path),
-                    "task": _task_summary(task),
-                },
-            )
-        return task
+        return self.lifecycle.delete_pending_task(task)
 
     def start_task(self, task: Task | str) -> Task:
-        """将任务标记为运行中。"""
-        return self.update_status(self._resolve_task(task), TaskStatus.RUNNING)
+        return self.lifecycle.start_task(task)
 
     def complete_task(
         self,
@@ -297,42 +96,76 @@ class TaskService:
         result_summary: str | None = None,
         report_path: str | None = None,
     ) -> Task:
-        """将任务标记为完成。"""
-        resolved = self._resolve_task(task)
-        if result_summary is not None:
-            resolved.result_summary = result_summary
-        if report_path is not None:
-            resolved.report_path = report_path
-        return self.update_status(resolved, TaskStatus.COMPLETED)
+        return self.lifecycle.complete_task(
+            task, result_summary=result_summary, report_path=report_path
+        )
 
     def fail_task(self, task: Task | str, error_message: str) -> Task:
-        """将任务标记为失败。"""
-        return self.update_status(self._resolve_task(task), TaskStatus.FAILED, error_message)
+        return self.lifecycle.fail_task(task, error_message)
 
     def timeout_task(self, task: Task | str, error_message: str = "任务执行超时。") -> Task:
-        """将任务标记为超时。"""
-        return self.update_status(self._resolve_task(task), TaskStatus.TIMEOUT, error_message)
+        return self.lifecycle.timeout_task(task, error_message)
 
     def cancel_task(self, task: Task | str) -> Task:
-        """将任务标记为取消。"""
-        resolved = self._resolve_task(task)
-        token = self.get_cancellation_token(resolved.task_id)
-        token.cancel()
-        return self.update_status(resolved, TaskStatus.CANCELLED)
+        return self.lifecycle.cancel_task(task)
 
     def pause_task(self, task: Task | str) -> Task:
-        """将运行中的任务标记为暂停。"""
-        resolved = self._resolve_task(task)
-        token = self.get_cancellation_token(resolved.task_id)
-        token.pause()
-        return self.update_status(resolved, TaskStatus.PAUSED)
+        return self.lifecycle.pause_task(task)
 
     def resume_task(self, task: Task | str) -> Task:
-        """将暂停的任务恢复为运行中。"""
-        resolved = self._resolve_task(task)
-        token = self.get_cancellation_token(resolved.task_id)
-        token.resume()
-        return self.update_status(resolved, TaskStatus.RUNNING)
+        return self.lifecycle.resume_task(task)
+
+    def update_status(
+        self, task: Task, target: TaskStatus, error_message: str | None = None
+    ) -> Task:
+        return self.lifecycle.update_status(task, target, error_message=error_message)
+
+    def get_cancellation_token(self, task_id: str) -> CancellationToken:
+        return self.lifecycle.get_cancellation_token(task_id)
+
+    def remove_cancellation_token(self, task_id: str) -> None:
+        return self.lifecycle.remove_cancellation_token(task_id)
+
+    # ── 查询 ──
+
+    def get_task(self, task_id: str) -> Task:
+        return self.query.get_task(task_id)
+
+    def get_latest_task(self, task: Task) -> Task:
+        return self.query.get_latest_task(task)
+
+    def list_tasks(
+        self,
+        status: TaskStatus | None = None,
+        project_id: str | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> list[Task]:
+        return self.query.list_tasks(
+            status=status, project_id=project_id, offset=offset, limit=limit
+        )
+
+    def count_tasks(
+        self,
+        status: TaskStatus | None = None,
+        project_id: str | None = None,
+        q: str | None = None,
+    ) -> int:
+        return self.query.count_tasks(status=status, project_id=project_id, q=q)
+
+    def list_task_summaries(
+        self,
+        status: TaskStatus | None = None,
+        project_id: str | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+        q: str | None = None,
+    ) -> list[Task]:
+        return self.query.list_task_summaries(
+            status=status, project_id=project_id, offset=offset, limit=limit, q=q
+        )
+
+    # ── 日志与问题 ──
 
     def append_log(
         self,
@@ -348,36 +181,19 @@ class TaskService:
         error_code: str | None = None,
         step_number: int | None = None,
     ) -> Task:
-        """追加任务步骤日志并保存。"""
-        resolved = self._resolve_task(task)
-        next_step = step_number or resolved.current_step + 1
-        log = TaskLog(
-            step_number=next_step,
+        return self.log.append_log(
+            task,
             action=action,
             result=result,
-            params=params or {},
+            params=params,
             url_before=url_before,
             url_after=url_after,
             screenshot_path=screenshot_path,
             message=message,
             error=error,
             error_code=error_code,
+            step_number=step_number,
         )
-        resolved.logs.append(log)
-        resolved.current_step = max(resolved.current_step, next_step)
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.append_log(resolved.task_id, log)
-        else:
-            self.storage.save(resolved)
-        self._publish(
-            "task.log",
-            resolved,
-            {
-                "log": _redact_log_payload(log),
-                "currentStep": resolved.current_step,
-            },
-        )
-        return resolved
 
     def append_finding(
         self,
@@ -390,10 +206,8 @@ class TaskService:
         location: str | None = None,
         screenshot_path: str | None = None,
     ) -> Task:
-        """追加问题记录并保存。"""
-        resolved = self._resolve_task(task)
-        previous_count = resolved.finding_count
-        finding = Finding(
+        return self.log.append_finding(
+            task,
             title=title,
             description=description,
             severity=severity,
@@ -402,84 +216,3 @@ class TaskService:
             location=location,
             screenshot_path=screenshot_path,
         )
-        resolved.findings.append(finding)
-        resolved.finding_count = previous_count + 1
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.append_finding(resolved.task_id, finding)
-        else:
-            self.storage.save(resolved)
-        self._publish(
-            "task.finding",
-            resolved,
-            {
-                "finding": _redact_finding_payload(finding),
-                "findingCount": resolved.finding_count,
-            },
-        )
-        return resolved
-
-    def _publish(self, event_type: str, task: Task, data: dict[str, Any]) -> None:
-        """发布任务事件。"""
-        if self.event_publisher is None:
-            return
-        self.event_publisher(event_type, task.task_id, to_jsonable(data))
-
-
-def _task_summary(task: Task) -> dict[str, Any]:
-    """生成轻量任务摘要，避免每个事件重复携带完整日志。"""
-    return {
-        "taskId": task.task_id,
-        "projectId": task.project_id,
-        "name": task.name,
-        "goal": redact_sensitive_text(task.goal),
-        "startUrl": redact_href(task.start_url) if task.start_url else None,
-        "taskType": task.task_type.value,
-        "status": task.status.value,
-        "currentStep": task.current_step,
-        "findingCount": task.finding_count,
-        "reportPath": _path_name(task.report_path),
-        "resultSummary": _redact_optional_text(task.result_summary),
-        "errorMessage": _redact_optional_text(task.error_message),
-    }
-
-
-def _path_name(path: str | None) -> str | None:
-    """对外事件只暴露文件名，不暴露本机路径。"""
-    return Path(path).name if path else None
-
-
-def _redact_optional_text(text: str | None) -> str | None:
-    """脱敏可选文本。"""
-    return redact_sensitive_text(text) if text else None
-
-
-def _redact_log_payload(log: TaskLog) -> dict[str, Any]:
-    """生成用于事件推送的脱敏日志。"""
-    data = to_jsonable(log)
-    params = data.get("params")
-    if isinstance(params, dict):
-        data["params"] = redact_step_params(params)
-    for url_key in ("url_before", "url_after"):
-        value = data.get(url_key)
-        if isinstance(value, str):
-            data[url_key] = redact_href(value)
-    data["screenshot_path"] = _path_name(data.get("screenshot_path"))
-    for text_key in ("message", "error"):
-        value = data.get(text_key)
-        if isinstance(value, str):
-            data[text_key] = redact_sensitive_text(value)
-    return data
-
-
-def _redact_finding_payload(finding: Finding) -> dict[str, Any]:
-    """生成用于事件推送的脱敏问题记录。"""
-    data = to_jsonable(finding)
-    url = data.get("url")
-    if isinstance(url, str):
-        data["url"] = redact_href(url)
-    data["screenshot_path"] = _path_name(data.get("screenshot_path"))
-    for text_key in ("title", "description", "location"):
-        value = data.get(text_key)
-        if isinstance(value, str):
-            data[text_key] = redact_sensitive_text(value)
-    return data

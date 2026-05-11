@@ -10,6 +10,7 @@ from argus_py.llm.providers import (
     default_base_url,
     get_provider_spec,
 )
+from argus_py.llm.resolver import resolve_llm_client_for_task
 from argus_py.llm.retry import RetryConfig, retry_async, with_retry
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "create_llm_client",
     "default_base_url",
     "get_provider_spec",
+    "resolve_llm_client_for_task",
     "RetryConfig",
     "retry_async",
     "with_retry",

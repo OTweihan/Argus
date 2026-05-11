@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -72,7 +72,13 @@ class BrowserActions:
             await asyncio.sleep(self.page_settle_ms / 1000)
         return {"url_after": self.page.url, "title": await self.page.title()}
 
-    async def navigate(self, url: str, wait_until: str = "domcontentloaded") -> dict[str, Any]:
+    async def navigate(
+        self,
+        url: str,
+        wait_until: Literal[
+            "commit", "domcontentloaded", "load", "networkidle"
+        ] = "domcontentloaded",
+    ) -> dict[str, Any]:
         """打开页面并返回跳转前后状态。"""
         before = self.page.url
         try:
@@ -169,7 +175,9 @@ class BrowserActions:
         await asyncio.sleep(milliseconds / 1000)
         return {"url_after": self.page.url, "title": await self.page.title()}
 
-    async def wait_for_load_state(self, state: str = "networkidle") -> dict[str, Any]:
+    async def wait_for_load_state(
+        self, state: Literal["domcontentloaded", "load", "networkidle"] = "networkidle"
+    ) -> dict[str, Any]:
         """等待页面加载状态。"""
         try:
             await self.page.wait_for_load_state(state, timeout=self.navigation_timeout_ms)
