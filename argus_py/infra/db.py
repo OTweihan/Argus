@@ -10,6 +10,19 @@ from argus_py.core.paths import DATA_DIR
 
 DEFAULT_DB_PATH = DATA_DIR / "argus.db"
 
+_MIN_SQLITE_VERSION = (3, 35, 0)
+"""ALTER TABLE DROP COLUMN 需要 SQLite 3.35.0+。"""
+
+
+def _check_sqlite_version() -> None:
+    version = sqlite3.sqlite_version_info
+    if version < _MIN_SQLITE_VERSION:
+        raise RuntimeError(
+            f"SQLite 版本过低：{sqlite3.sqlite_version}（需要 {'.'.join(map(str, _MIN_SQLITE_VERSION))}+）。"
+            f"请升级系统 SQLite 或使用更高版本的 Python。"
+        )
+
+
 PROJECTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
   project_id TEXT PRIMARY KEY,
@@ -148,8 +161,22 @@ def _migrate_tasks_table(connection: sqlite3.Connection) -> None:
             connection.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_def}")
 
 
+_OBSOLETE_MODEL_CONFIG_COLUMNS = {"max_tokens", "temperature"}
+
+
+def _migrate_model_configs_table(connection: sqlite3.Connection) -> None:
+    """删除旧版 model_configs 表中已废弃的列（兼容旧库迁移）。"""
+    existing = {
+        row["name"] for row in connection.execute("PRAGMA table_info(model_configs)").fetchall()
+    }
+    for col in _OBSOLETE_MODEL_CONFIG_COLUMNS:
+        if col in existing:
+            connection.execute(f"ALTER TABLE model_configs DROP COLUMN {col}")
+
+
 def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     """初始化数据库表结构。"""
+    _check_sqlite_version()
     with closing(connect(db_path)) as connection:
         with connection:
             connection.executescript(PROJECTS_SCHEMA)
@@ -158,3 +185,4 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             connection.executescript(TASK_LOGS_SCHEMA)
             connection.executescript(FINDINGS_SCHEMA)
             _migrate_tasks_table(connection)
+            _migrate_model_configs_table(connection)

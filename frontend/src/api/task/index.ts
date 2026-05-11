@@ -46,6 +46,12 @@ export function startTask(taskId: string): Promise<TaskStartResponse> {
     });
 }
 
+export function restartTask(taskId: string): Promise<TaskStartResponse> {
+    return request<TaskStartResponse>(`/tasks/${encodeURIComponent(taskId)}/restart`, {
+        method: "POST",
+    });
+}
+
 export function getTaskReportJson(taskId: string): Promise<ReportData> {
     return request<ReportData>(`/tasks/${encodeURIComponent(taskId)}/report.json`);
 }

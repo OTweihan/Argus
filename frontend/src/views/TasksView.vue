@@ -53,6 +53,7 @@
               @edit="editTask"
               @delete="deleteTask"
               @start="startTask"
+              @restart="retryTask"
           />
         </div>
         <div class="pagination-bar">
@@ -121,7 +122,7 @@ const {
   taskSearchQuery, taskStatuses, selectedTask, reportData, reportLoading, taskForm,
   showTaskDialog, formErrors, error, enabledModels,
   page, pageSize, total, taskLoading,
-  startTask, deleteTask, goBackToTasks, saveTask, openNewTaskDialog, openEditTaskDialog,
+  startTask, retryTask, deleteTask, goBackToTasks, saveTask, openNewTaskDialog, openEditTaskDialog,
   addParam, removeParam, onPageChange, onPageSizeChange,
 } = props.app;
 

@@ -11,8 +11,8 @@ from argus_py.cli.utils import print_cli_cancelled, print_cli_error, resolve_aut
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
+from argus_py.execution.runner import TaskRunner
 from argus_py.task.models import Task
-from argus_py.task.runner import TaskRunner
 from argus_py.task.service import TaskService
 from argus_py.task.strategy import resolve_execution_limits
 

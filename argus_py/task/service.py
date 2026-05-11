@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
+from argus_py.observability.aspect import log_operation
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
@@ -30,6 +31,7 @@ class TaskService:
 
     # ── 生命周期 ──
 
+    @log_operation("task.create")
     def create_task(
         self,
         goal: str,
@@ -54,9 +56,14 @@ class TaskService:
             parameters=parameters,
         )
 
+    @log_operation("task.restart", task_arg="task")
+    def restart_task(self, task: Task | str) -> Task:
+        return self.lifecycle.restart_task(task)
+
     def save_task(self, task: Task) -> Task:
         return self.lifecycle.save_task(task)
 
+    @log_operation("task.update", task_arg="task")
     def update_task_info(
         self,
         task: Task | str,
@@ -84,12 +91,15 @@ class TaskService:
             parameters=parameters,
         )
 
+    @log_operation("task.delete", task_arg="task")
     def delete_pending_task(self, task: Task | str) -> None:
         return self.lifecycle.delete_pending_task(task)
 
+    @log_operation("task.start", task_arg="task")
     def start_task(self, task: Task | str) -> Task:
         return self.lifecycle.start_task(task)
 
+    @log_operation("task.complete", task_arg="task")
     def complete_task(
         self,
         task: Task | str,
@@ -100,12 +110,15 @@ class TaskService:
             task, result_summary=result_summary, report_path=report_path
         )
 
+    @log_operation("task.fail", task_arg="task")
     def fail_task(self, task: Task | str, error_message: str) -> Task:
         return self.lifecycle.fail_task(task, error_message)
 
+    @log_operation("task.timeout", task_arg="task")
     def timeout_task(self, task: Task | str, error_message: str = "任务执行超时。") -> Task:
         return self.lifecycle.timeout_task(task, error_message)
 
+    @log_operation("task.cancel", task_arg="task")
     def cancel_task(self, task: Task | str) -> Task:
         return self.lifecycle.cancel_task(task)
 

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from argus_py.config.server_settings import ServerSettings
 from argus_py.core.exceptions import ArgusError, ModelConfigError, ProjectError, TaskError
+from argus_py.observability.middleware import RequestLoggingMiddleware
 from argus_py.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -19,6 +20,9 @@ logger = get_logger(__name__)
 
 def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
     """注册跨域配置和统一异常响应。"""
+    if settings.observability_request_logging:
+        app.add_middleware(RequestLoggingMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,

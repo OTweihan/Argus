@@ -9,7 +9,7 @@ import {
     updateModel as apiUpdateModel,
 } from "../api";
 import type {ModelConfig} from "../types";
-import {errorMessage, nullableText, upsertById} from "../utils";
+import {errorMessage, nullableText, sortBy} from "../utils";
 
 interface ModelForm {
     editingId: string | null;
@@ -43,7 +43,7 @@ export function useModels(opts: {
 
     async function loadModels(): Promise<void> {
         const res = await apiListModels(true);
-        models.value = res.models;
+        models.value = sortBy(res.models, (m) => (m.isDefault ? 0 : 1));
     }
 
     async function saveModel(): Promise<void> {
@@ -70,10 +70,10 @@ export function useModels(opts: {
         }
         try {
             const payload = readModelPayload();
-            const model = modelForm.editingId
-                ? await apiUpdateModel(modelForm.editingId, payload)
-                : await apiCreateModel(payload);
-            models.value = upsertById(models.value, model, "modelConfigId");
+            await (modelForm.editingId
+                ? apiUpdateModel(modelForm.editingId, payload)
+                : apiCreateModel(payload));
+            await loadModels();
             const wasEditing = Boolean(modelForm.editingId);
             showModelDialog.value = false;
             resetModelForm();

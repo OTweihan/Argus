@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from argus_py.blackbox.evaluator import EvaluationResult
-from argus_py.browser.snapshot import redact_href, redact_step_params
 from argus_py.core.enums import FindingSeverity, FindingType, TaskStatus
+from argus_py.redaction import redact_href, redact_step_params
 from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService

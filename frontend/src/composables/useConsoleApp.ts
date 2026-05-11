@@ -1,14 +1,15 @@
-import { computed, onMounted, onUnmounted, reactive, ref, watch, type Ref } from "vue";
+import { computed, onMounted, reactive, ref, watch, type Ref } from "vue";
 
 import { ElMessage } from "element-plus";
-import { getTask as apiGetTask, summary as apiSummary } from "../api";
-import type { ConfigSummary, ModelConfig, Project, Task, TaskEvent } from "../types";
-import { compact, errorMessage, upsertById } from "../utils";
+import { summary as apiSummary } from "../api";
+import type { ConfigSummary, ModelConfig, Project, Task } from "../types";
+import { compact, errorMessage } from "../utils";
 import { useDialog } from "./useDialog";
 import { useModels } from "./useModels";
 import { useNavigation } from "./useNavigation";
 import { useProjects } from "./useProjects";
 import { useRuntimeEvents } from "./useRuntimeEvents";
+import { useTaskEvents } from "./useTaskEvents";
 import { useTasks } from "./useTasks";
 
 import type { ViewKey } from "./useNavigation";
@@ -50,9 +51,14 @@ export function useConsoleApp() {
 
     /* ── 事件订阅 ── */
 
-    events.onTaskEvent((event) => applyEvent(event));
-
-    let refreshTimer: number | null = null;
+    const taskEvents = useTaskEvents(
+        allTasks,
+        taskDomain.loadTasks,
+        selectedTaskIdRef,
+        (msg) => { error.value = msg; },
+        (s) => { summary.value = s; },
+    );
+    events.onTaskEvent((event) => taskEvents.applyEvent(event));
 
     /* ── 视图切换（恢复旧逻辑中丢失的 side effect） ── */
 
@@ -127,10 +133,6 @@ export function useConsoleApp() {
         connectEventStream();
     });
 
-    onUnmounted(() => {
-        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-    });
-
     /* ── 数据加载 ── */
 
     async function loadAll(): Promise<void> {
@@ -150,90 +152,6 @@ export function useConsoleApp() {
         } finally {
             loading.value = false;
         }
-    }
-
-    async function refreshRuntimeData(): Promise<void> {
-        try {
-            const [summaryResponse] = await Promise.all([
-                apiSummary(),
-                taskDomain.loadTasks(),
-            ]);
-            let selectedTaskSnapshot: Task | null = null;
-            if (taskDomain.selectedTaskId.value) {
-                selectedTaskSnapshot = await apiGetTask(taskDomain.selectedTaskId.value);
-            }
-            if (selectedTaskSnapshot) {
-                allTasks.value = upsertById(allTasks.value, selectedTaskSnapshot, "taskId");
-            }
-            summary.value = summaryResponse;
-            error.value = "";
-        } catch (caught) {
-            error.value = errorMessage(caught);
-        }
-    }
-
-    function scheduleRefresh(): void {
-        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-        refreshTimer = window.setTimeout(() => {
-            refreshTimer = null;
-            void refreshRuntimeData();
-        }, 350);
-    }
-
-    /* ── 事件处理 ── */
-
-    function applyEvent(event: TaskEvent): void {
-        const data = event.data ?? {};
-        const eventSummary = data.task as Record<string, unknown> | undefined;
-        const taskId = (eventSummary?.taskId as string | undefined) ?? (data.taskId as string | undefined);
-        if (!taskId) {
-            scheduleRefresh();
-            return;
-        }
-
-        const eventType = event.eventType ?? event.type ?? "";
-        if (eventType === "task.deleted") {
-            const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
-            if (idx !== -1) {
-                allTasks.value = [...allTasks.value.slice(0, idx), ...allTasks.value.slice(idx + 1)];
-            }
-            return;
-        }
-
-        const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
-        if (idx === -1 && eventType === "task.created" && eventSummary) {
-            allTasks.value = [eventSummary as unknown as Task, ...allTasks.value];
-            return;
-        }
-
-        if (idx === -1 || !eventSummary) {
-            scheduleRefresh();
-            return;
-        }
-
-        const existing = allTasks.value[idx];
-        const patch: Partial<Task> = {};
-        if (eventSummary.status !== undefined) patch.status = eventSummary.status as Task["status"];
-        if (eventSummary.currentStep !== undefined) patch.currentStep = eventSummary.currentStep as number;
-        if (eventSummary.findingCount !== undefined) patch.findingCount = eventSummary.findingCount as number;
-        if (eventSummary.name !== undefined) patch.name = eventSummary.name as string | null;
-        if (eventSummary.goal !== undefined) patch.goal = eventSummary.goal as string;
-        if (eventSummary.projectId !== undefined) patch.projectId = eventSummary.projectId as string | null;
-        if (eventSummary.reportPath !== undefined) patch.reportPath = eventSummary.reportPath as string | null;
-        if (eventSummary.resultSummary !== undefined) patch.resultSummary = eventSummary.resultSummary as string | null;
-        if (eventSummary.errorMessage !== undefined) patch.errorMessage = eventSummary.errorMessage as string | null;
-
-        if (eventType === "task.complete") {
-            patch.status = "completed";
-            if (data.reportPath) patch.reportPath = data.reportPath as string;
-            if (data.resultSummary) patch.resultSummary = data.resultSummary as string;
-        }
-
-        allTasks.value = [
-            ...allTasks.value.slice(0, idx),
-            { ...existing, ...patch },
-            ...allTasks.value.slice(idx + 1),
-        ];
     }
 
     return {
@@ -286,6 +204,7 @@ export function useConsoleApp() {
         showProjectDialog: projectDomain.showProjectDialog,
         showTaskDialog: taskDomain.showTaskDialog,
         startTask: taskDomain.startTask,
+        retryTask: taskDomain.retryTask,
         taskForm: taskDomain.taskForm,
         taskLoading: taskDomain.taskLoading,
         taskProjectFilter: taskDomain.taskProjectFilter,

@@ -34,8 +34,8 @@
         <el-button v-if="props.showDelete" type="danger" :disabled="!canDeleteTask(row)" @click="$emit('delete', row)">
           删除
         </el-button>
-        <el-button type="primary" :disabled="!canStartTask(row)" @click="$emit('start', row.taskId)">启动
-        </el-button>
+        <el-button v-if="canStartTask(row)" type="primary" @click="$emit('start', row.taskId)">启动</el-button>
+        <el-button v-else-if="canRestartTask(row)" type="primary" @click="$emit('restart', row.taskId)">重试</el-button>
       </template>
     </el-table-column>
   </el-table>
@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
 import type {Project, Task} from "../../types";
-import {canStartTask, compact, formatDate, taskDisplayStatus} from "../../utils";
+import {canRestartTask, canStartTask, compact, formatDate, taskDisplayStatus} from "../../utils";
 
 const props = withDefaults(
     defineProps<{
@@ -63,6 +63,7 @@ defineEmits<{
   edit: [task: Task];
   delete: [task: Task];
   start: [taskId: string];
+  restart: [taskId: string];
 }>();
 
 function projectName(projectId: string | null): string {

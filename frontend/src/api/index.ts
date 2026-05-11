@@ -19,6 +19,7 @@ export {
     updateTask,
     deleteTask,
     startTask,
+    restartTask,
     getTaskReportJson,
 } from "./task";
 export {

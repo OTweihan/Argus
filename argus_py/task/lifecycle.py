@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from argus_py.browser.snapshot import redact_href, redact_sensitive_text
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
+from argus_py.redaction import redact_href, redact_sensitive_text
 from argus_py.task.models import Task
 from argus_py.task.status import assert_transition
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
@@ -172,6 +172,37 @@ class TaskLifecycleService:
                 },
             )
         return task
+
+    def restart_task(self, task: Task | str) -> Task:
+        """复制已结束的任务为新 pending 任务（重试）。"""
+        resolved = self._resolve_task(task)
+        if resolved.status not in (
+            TaskStatus.FAILED,
+            TaskStatus.TIMEOUT,
+            TaskStatus.CANCELLED,
+        ):
+            raise TaskError(
+                f"只有失败/超时/取消的任务可以重试，当前状态：{resolved.status.value}。"
+            )
+
+        name = resolved.name
+        if name:
+            name = f"{name} - 重试"
+
+        new_task = Task(
+            goal=resolved.goal,
+            name=name,
+            start_url=resolved.start_url,
+            task_type=resolved.task_type,
+            project_id=resolved.project_id,
+            max_steps=resolved.max_steps,
+            timeout_seconds=resolved.timeout_seconds,
+            capture_screenshots=resolved.capture_screenshots,
+            parameters=dict(resolved.parameters),
+        )
+        self.storage.save(new_task)
+        self._publish("task.created", new_task, {"task": _task_summary(new_task)})
+        return new_task
 
     def start_task(self, task: Task | str) -> Task:
         """将任务标记为运行中。"""

@@ -15,12 +15,12 @@ from argus_py.blackbox.finalizer import Finalizer
 from argus_py.blackbox.models import ActionSequence, BlackboxTaskInput
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.browser import BrowserSession
-from argus_py.browser.snapshot import redact_href
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
 from argus_py.llm.resolver import resolve_llm_client_for_task
+from argus_py.redaction import redact_href
 from argus_py.report.generator import ReportGenerator
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService

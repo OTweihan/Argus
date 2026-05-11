@@ -93,6 +93,7 @@
           :show-delete="false"
           @select="showTaskDetail"
           @start="startTask"
+          @restart="retryTask"
       />
     </el-card>
 
@@ -118,7 +119,7 @@ import type {Task} from "../types";
 type AppContext = ReturnType<typeof useConsoleApp>;
 
 const props = defineProps<{ app: AppContext }>();
-const {projects, allTasks, recentTasks, runningCount, findingCount, startTask, enabledModels, error} = props.app;
+const {projects, allTasks, recentTasks, runningCount, findingCount, startTask, retryTask, enabledModels, error} = props.app;
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);

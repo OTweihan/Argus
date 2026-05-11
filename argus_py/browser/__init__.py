@@ -24,10 +24,8 @@ from argus_py.browser.snapshot import (
     InteractiveElement,
     PageSnapshot,
     capture_snapshot,
-    redact_href,
-    redact_sensitive_text,
-    redact_step_params,
 )
+from argus_py.redaction import redact_href, redact_sensitive_text, redact_step_params
 
 __all__ = [
     "BrowserActions",

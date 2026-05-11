@@ -7,7 +7,13 @@
       </template>
     </el-table-column>
     <el-table-column prop="provider" label="供应商" min-width="110"/>
-    <el-table-column prop="model" label="模型" min-width="180"/>
+    <el-table-column prop="model" label="模型" min-width="100"/>
+    <el-table-column label="是否默认" width="180" align="center">
+      <template #default="{ row }">
+        <el-tag v-if="row.isDefault" type="warning" size="small" effect="plain">默认</el-tag>
+        <span v-else style="color:#909399;font-size:13px">-</span>
+      </template>
+    </el-table-column>
     <el-table-column label="状态" width="200">
       <template #default="{ row }">{{ row.enabled ? "启用" : "停用" }} / Key {{
           row.apiKeySet ? "已配置" : "未配置"

@@ -32,6 +32,9 @@ class ServerSettings:
     scheduler_shutdown_timeout_seconds: float = 5.0
     events_history_limit: int = 200
     events_subscriber_queue_size: int = 100
+    observability_request_logging: bool = True
+    observability_operation_logging: bool = True
+    observability_audit_logging: bool = True
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -42,6 +45,7 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
     cors = data.get("cors") or {}
     scheduler = data.get("scheduler") or {}
     events = data.get("events") or {}
+    observability = data.get("observability") or {}
     return ServerSettings(
         host=str(server.get("host", "127.0.0.1")),
         port=_as_int(server.get("port"), 8000, minimum=1),
@@ -59,6 +63,18 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         ),
         events_history_limit=_as_int(events.get("history_limit"), 200, minimum=0),
         events_subscriber_queue_size=_as_int(events.get("subscriber_queue_size"), 100, minimum=1),
+        observability_request_logging=_as_bool(
+            observability.get("request_logging"),
+            True,
+        ),
+        observability_operation_logging=_as_bool(
+            observability.get("operation_logging"),
+            True,
+        ),
+        observability_audit_logging=_as_bool(
+            observability.get("audit_logging"),
+            True,
+        ),
     )
 
 

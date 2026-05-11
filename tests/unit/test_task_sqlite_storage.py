@@ -38,21 +38,23 @@ class TestCRUD:
         assert loaded.start_url == "https://example.com"
         assert loaded.status is TaskStatus.PENDING
         assert loaded.task_type is TaskType.BLACKBOX
+        assert loaded.current_step == 0
+        assert loaded.capture_screenshots is True
+        assert loaded.parameters == {}
+        assert loaded.logs == []
+        assert loaded.findings == []
+
+        # 存在性检查
+        assert store.exists("t1")
+        assert not store.exists("no-such")
+
+        # 覆盖保存
+        store.save(Task(task_id="t1", goal="更新后的目标"))
+        assert store.load("t1").goal == "更新后的目标"
 
     def test_load_nonexistent_raises(self, store: TaskSQLiteStorage) -> None:
         with pytest.raises(TaskError, match="Task not found"):
             store.load("no-such-task")
-
-    def test_exists(self, store: TaskSQLiteStorage) -> None:
-        assert not store.exists("t1")
-        store.save(Task(task_id="t1", goal="g"))
-        assert store.exists("t1")
-
-    def test_overwrite(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="原始目标"))
-        store.save(Task(task_id="t1", goal="更新后的目标"))
-        loaded = store.load("t1")
-        assert loaded.goal == "更新后的目标"
 
     def test_enum_round_trip(self, store: TaskSQLiteStorage) -> None:
         task = Task(
@@ -205,47 +207,48 @@ class TestListAndCount:
     def test_list_all(self, multi_store: TaskSQLiteStorage) -> None:
         tasks = multi_store.list_tasks()
         assert len(tasks) == 5
+        assert multi_store.count_tasks() == 5
 
     def test_list_ordering(self, multi_store: TaskSQLiteStorage) -> None:
         tasks = multi_store.list_tasks()
         times = [t.created_at for t in tasks]
         assert times == sorted(times, reverse=True)
 
-    def test_list_limit(self, multi_store: TaskSQLiteStorage) -> None:
-        tasks = multi_store.list_tasks(limit=2)
-        assert len(tasks) == 2
+    @pytest.mark.parametrize(
+        ("limit", "offset", "expected"),
+        [
+            (2, 0, 2),
+            (None, 2, 3),
+            (None, 5, 0),
+            (None, 3, 2),
+            (2, 1, 2),
+        ],
+        ids=["limit", "offset", "offset_beyond", "offset_partial", "offset_and_limit"],
+    )
+    def test_list_pagination(
+        self, multi_store: TaskSQLiteStorage, limit: int | None, offset: int, expected: int
+    ) -> None:
+        tasks = multi_store.list_tasks(limit=limit, offset=offset)
+        assert len(tasks) == expected
 
-    def test_list_offset(self, multi_store: TaskSQLiteStorage) -> None:
-        tasks = multi_store.list_tasks(offset=2)
-        assert len(tasks) == 3
-
-    def test_list_offset_without_limit(self, multi_store: TaskSQLiteStorage) -> None:
-        tasks = multi_store.list_tasks(offset=5)
-        assert len(tasks) == 0
-        tasks = multi_store.list_tasks(offset=3)
-        assert len(tasks) == 2
-
-    def test_list_offset_and_limit(self, multi_store: TaskSQLiteStorage) -> None:
-        tasks = multi_store.list_tasks(offset=1, limit=2)
-        assert len(tasks) == 2
-
-    def test_count_all(self, multi_store: TaskSQLiteStorage) -> None:
-        assert multi_store.count_tasks() == 5
-
-    def test_filter_by_status(self, multi_store: TaskSQLiteStorage) -> None:
-        tasks = multi_store.list_tasks(status="completed")
-        assert len(tasks) == 3
-        assert all(t.status is TaskStatus.COMPLETED for t in tasks)
-
-    def test_filter_by_project_id(self, multi_store: TaskSQLiteStorage) -> None:
-        tasks = multi_store.list_tasks(project_id="proj-a")
-        assert len(tasks) == 3
-        assert all(t.project_id == "proj-a" for t in tasks)
-
-    def test_filter_combined(self, multi_store: TaskSQLiteStorage) -> None:
-        tasks = multi_store.list_tasks(status="pending", project_id="proj-b")
-        assert len(tasks) == 1
-        assert tasks[0].task_id == "t3"
+    @pytest.mark.parametrize(
+        ("status", "project_id", "expected_ids"),
+        [
+            ("completed", None, ["t2", "t1", "t0"]),
+            (None, "proj-a", ["t4", "t2", "t0"]),
+            ("pending", "proj-b", ["t3"]),
+        ],
+        ids=["by_status", "by_project", "combined"],
+    )
+    def test_list_filters(
+        self,
+        multi_store: TaskSQLiteStorage,
+        status: str | None,
+        project_id: str | None,
+        expected_ids: list[str],
+    ) -> None:
+        tasks = multi_store.list_tasks(status=status, project_id=project_id)
+        assert [t.task_id for t in tasks] == expected_ids
 
     def test_filter_and_paginate(self, multi_store: TaskSQLiteStorage) -> None:
         tasks = multi_store.list_tasks(status="completed", offset=1, limit=1)
@@ -276,48 +279,38 @@ class TestSummaries:
         assert summaries[0].logs == []
         assert summaries[0].findings == []
 
-    def test_summary_current_step_from_db(self, tmp_path: Path) -> None:
-        store = TaskSQLiteStorage(tmp_path / "step.db")
-        store.save(Task(task_id="t1", goal="步骤测试"))
-        store.append_log("t1", TaskLog(step_number=1, action="goto"))
-        store.append_log("t1", TaskLog(step_number=2, action="click"))
+    @pytest.mark.parametrize(
+        ("append_logs", "append_findings", "expected_step", "expected_count"),
+        [
+            (2, 0, 2, 0),
+            (0, 3, 0, 3),
+            (3, 2, 3, 2),
+        ],
+        ids=["current_step", "finding_count", "mixed"],
+    )
+    def test_summary_step_and_count(
+        self,
+        tmp_path: Path,
+        append_logs: int,
+        append_findings: int,
+        expected_step: int,
+        expected_count: int,
+    ) -> None:
+        store = TaskSQLiteStorage(tmp_path / "summary.db")
+        store.save(Task(task_id="t1", goal="摘要"))
+        for i in range(append_logs):
+            store.append_log("t1", TaskLog(step_number=i + 1, action="goto"))
+        for _ in range(append_findings):
+            store.append_finding(
+                "t1", Finding(title="x", description="x", severity=FindingSeverity.INFO)
+            )
         summaries = store.list_task_summaries()
-        assert summaries[0].current_step == 2
-
-    def test_summary_finding_count_from_db(self, tmp_path: Path) -> None:
-        store = TaskSQLiteStorage(tmp_path / "finding.db")
-        store.save(Task(task_id="t1", goal="问题测试"))
-        store.append_finding(
-            "t1", Finding(title="a", description="x", severity=FindingSeverity.HIGH)
-        )
-        store.append_finding(
-            "t1", Finding(title="b", description="y", severity=FindingSeverity.LOW)
-        )
-        store.append_finding(
-            "t1", Finding(title="c", description="z", severity=FindingSeverity.MEDIUM)
-        )
-        summaries = store.list_task_summaries()
-        assert summaries[0].finding_count == 3
-
-    def test_summary_step_and_count_after_mixed_updates(self, tmp_path: Path) -> None:
-        store = TaskSQLiteStorage(tmp_path / "mixed.db")
-        store.save(Task(task_id="t1", goal="混合"))
-        # 3 logs + 2 findings
-        for i in range(3):
-            store.append_log("t1", TaskLog(step_number=i + 1, action=f"step_{i}"))
-        store.append_finding(
-            "t1", Finding(title="a", description="x", severity=FindingSeverity.HIGH)
-        )
-        store.append_finding(
-            "t1", Finding(title="b", description="y", severity=FindingSeverity.LOW)
-        )
-        summaries = store.list_task_summaries()
-        assert summaries[0].current_step == 3
-        assert summaries[0].finding_count == 2
-        # Full load should also match
+        assert summaries[0].current_step == expected_step
+        assert summaries[0].finding_count == expected_count
+        # Full load 应与 summary 一致
         full = store.load("t1")
-        assert full.current_step == 3
-        assert full.finding_count == 2
+        assert full.current_step == expected_step
+        assert full.finding_count == expected_count
 
     def test_summary_multiple_tasks(self, tmp_path: Path) -> None:
         store = TaskSQLiteStorage(tmp_path / "multi_summary.db")
@@ -344,55 +337,41 @@ class TestSummaries:
 class TestCrossInstance:
     """跨实例一致性。"""
 
-    def test_reload_from_different_instance(self, tmp_path: Path) -> None:
+    def test_cross_instance(self, tmp_path: Path) -> None:
         db_path = tmp_path / "shared.db"
         s1 = TaskSQLiteStorage(db_path)
         s1.save(Task(task_id="t1", goal="跨实例"))
         s1.append_log("t1", TaskLog(step_number=1, action="goto"))
 
+        # 另一实例可读取
         s2 = TaskSQLiteStorage(db_path)
         loaded = s2.load("t1")
         assert loaded.goal == "跨实例"
         assert len(loaded.logs) == 1
 
-    def test_concurrent_append(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "shared.db"
-        s1 = TaskSQLiteStorage(db_path)
-        s2 = TaskSQLiteStorage(db_path)
-        s1.save(Task(task_id="t1", goal="并发"))
-        s1.append_log("t1", TaskLog(step_number=1, action="goto"))
+        # 两实例先后追加互不冲突
         s2.append_log("t1", TaskLog(step_number=2, action="click"))
-        loaded = s1.load("t1")
-        assert len(loaded.logs) == 2
+        final = s1.load("t1")
+        assert len(final.logs) == 2
 
 
 class TestEdgeCases:
     """边界情况。"""
 
-    def test_save_empty_logs_and_findings(self, store: TaskSQLiteStorage) -> None:
-        task = Task(task_id="t1", goal="空列表")
-        task.logs = []
-        task.findings = []
+    @pytest.mark.parametrize(
+        "preset_logs",
+        [True, False],
+        ids=["explicit_empty", "implicit_empty"],
+    )
+    def test_empty_logs_and_findings(self, store: TaskSQLiteStorage, preset_logs: bool) -> None:
+        task = Task(task_id="t1", goal="空列表测试")
+        if preset_logs:
+            task.logs = []
+            task.findings = []
         store.save(task)
         loaded = store.load("t1")
         assert loaded.logs == []
         assert loaded.findings == []
-
-    def test_load_without_logs_or_findings(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="仅有任务"))
-        loaded = store.load("t1")
-        assert loaded.logs == []
-        assert loaded.findings == []
-
-    def test_capture_screenshots_default(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="截图默认值"))
-        loaded = store.load("t1")
-        assert loaded.capture_screenshots is True
-
-    def test_parameters_default_empty_dict(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="参数默认值"))
-        loaded = store.load("t1")
-        assert loaded.parameters == {}
 
 
 class TestMigration:
@@ -417,26 +396,18 @@ class TestMigration:
       error_message TEXT
     """
 
-    def test_migrate_tasks_adds_missing_current_step(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "add_current_step",
+        [False, True],
+        ids=["add_missing_column", "keep_existing_column"],
+    )
+    def test_migrate_tasks(self, tmp_path: Path, add_current_step: bool) -> None:
         db_path = tmp_path / "migrate.db"
         conn = _connect(db_path)
-        conn.execute(f"CREATE TABLE tasks ({self._OLD_TASK_COLS})")
-        conn.close()
-
-        init_database(db_path)
-
-        conn2 = _connect(db_path)
-        cols = {row["name"] for row in conn2.execute("PRAGMA table_info(tasks)").fetchall()}
-        conn2.close()
-        assert "current_step" in cols
-
-    def test_migrate_tasks_does_not_break_existing_current_step(self, tmp_path: Path) -> None:
-        """已有 current_step 的表，init_database 不应报错也不应重复添加。"""
-        db_path = tmp_path / "noop_migrate.db"
-        conn = _connect(db_path)
-        conn.execute(
-            f"CREATE TABLE tasks ({self._OLD_TASK_COLS}, current_step INTEGER NOT NULL DEFAULT 0)"
-        )
+        schema = self._OLD_TASK_COLS
+        if add_current_step:
+            schema += ", current_step INTEGER NOT NULL DEFAULT 0"
+        conn.execute(f"CREATE TABLE tasks ({schema})")
         conn.close()
 
         init_database(db_path)
@@ -444,10 +415,11 @@ class TestMigration:
         conn2 = _connect(db_path)
         cols = {row["name"] for row in conn2.execute("PRAGMA table_info(tasks)").fetchall()}
         assert "current_step" in cols
-        current_step_cols = [
-            row
-            for row in conn2.execute("PRAGMA table_info(tasks)")
-            if row["name"] == "current_step"
-        ]
-        assert len(current_step_cols) == 1
+        if add_current_step:
+            matches = [
+                row
+                for row in conn2.execute("PRAGMA table_info(tasks)")
+                if row["name"] == "current_step"
+            ]
+            assert len(matches) == 1
         conn2.close()

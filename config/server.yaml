@@ -22,3 +22,8 @@ scheduler:
 events:
   history_limit: 200
   subscriber_queue_size: 100
+
+observability:
+  request_logging: true
+  operation_logging: true
+  audit_logging: true

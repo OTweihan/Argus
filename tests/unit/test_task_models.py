@@ -2,9 +2,9 @@ import pytest
 
 from argus_py.core.enums import StepResult, TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
+from argus_py.execution.runner import TaskRunner
 from argus_py.report.generator import ReportGenerator
 from argus_py.task.models import Task, TaskLog
-from argus_py.task.runner import TaskRunner
 from argus_py.task.service import TaskService
 from argus_py.task.status import can_transition
 from argus_py.task.storage import TaskFileStorage
@@ -49,38 +49,39 @@ def test_task_service_can_save_and_query_history(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_task_runner_completes_registered_handler(tmp_path):
-    service = TaskService(TaskFileStorage(tmp_path))
-    task = service.create_task(goal="打开页面", start_url="https://example.com")
-
-    async def handler(running_task: Task) -> Task:
-        return service.append_log(running_task, action="noop")
-
-    runner = TaskRunner(
-        service=service,
-        handlers={TaskType.BLACKBOX: handler},
-        report_generator=ReportGenerator(tmp_path / "reports"),
-    )
-    completed = await runner.run(task)
-
-    assert completed.status is TaskStatus.COMPLETED
-    assert completed.current_step == 1
-    assert completed.report_path is not None
-
-
-@pytest.mark.asyncio
-async def test_task_runner_generates_report_when_handler_missing(tmp_path):
+@pytest.mark.parametrize(
+    "has_handler",
+    [True, False],
+    ids=["with_handler", "without_handler"],
+)
+async def test_task_runner(tmp_path, has_handler):
     service = TaskService(TaskFileStorage(tmp_path / "tasks"))
-    task = service.create_task(goal="白盒任务占位", task_type=TaskType.WHITEBOX)
+    task = service.create_task(
+        goal="测试运行器",
+        task_type=TaskType.BLACKBOX if has_handler else TaskType.WHITEBOX,
+    )
+    handlers = {}
+    if has_handler:
+
+        async def handler(running_task: Task) -> Task:
+            return service.append_log(running_task, action="noop")
+
+        handlers[TaskType.BLACKBOX] = handler
+
     runner = TaskRunner(
         service=service,
-        handlers={},
+        handlers=handlers,
         report_generator=ReportGenerator(tmp_path / "reports"),
     )
 
-    with pytest.raises(TaskError):
-        await runner.run(task)
-
-    loaded = service.get_task(task.task_id)
-    assert loaded.status is TaskStatus.FAILED
-    assert loaded.report_path is not None
+    if has_handler:
+        completed = await runner.run(task)
+        assert completed.status is TaskStatus.COMPLETED
+        assert completed.current_step == 1
+        assert completed.report_path is not None
+    else:
+        with pytest.raises(TaskError):
+            await runner.run(task)
+        loaded = service.get_task(task.task_id)
+        assert loaded.status is TaskStatus.FAILED
+        assert loaded.report_path is not None

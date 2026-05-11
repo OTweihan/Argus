@@ -12,10 +12,20 @@ formatters:
   # 标准日志格式：包含时间、日志级别、logger 名称和日志内容
   standard:
     format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt: "%Y-%m-%dT%H:%M:%S"
 
-  # 简洁日志格式：只包含日志级别和日志内容，适合控制台输出
+  # 简洁日志格式：包含时间、日志级别和日志内容，适合控制台输出
   simple:
-    format: "[%(levelname)s] %(message)s"
+    format: "%(asctime)s [%(levelname)s] %(message)s"
+    datefmt: "%Y-%m-%dT%H:%M:%S"
+
+  # 结构化 JSON 日志：适合文件采集和后续接入 ELK/OpenTelemetry
+  json:
+    (): argus_py.observability.logger.JsonLogFormatter
+
+filters:
+  context:
+    (): argus_py.observability.logger.ContextLogFilter
 
 # =========================
 # 日志输出处理器
@@ -34,15 +44,18 @@ handlers:
     # 输出到标准输出
     stream: ext://sys.stdout
 
+    filters:
+      - context
+
   # 文件日志输出
   file:
-    class: logging.FileHandler
+    class: logging.handlers.RotatingFileHandler
 
     # 文件记录 DEBUG 及以上级别日志，便于排查问题
     level: DEBUG
 
-    # 使用标准格式
-    formatter: standard
+    # 使用结构化 JSON 格式
+    formatter: json
 
     # 日志文件保存路径
     # 注意：需要确保 outputs/logs 目录存在，否则可能启动失败
@@ -50,6 +63,13 @@ handlers:
 
     # 日志文件编码，避免中文乱码
     encoding: utf-8
+
+    # 单文件 10MB，保留 5 个滚动文件
+    maxBytes: 10485760
+    backupCount: 5
+
+    filters:
+      - context
 
 # =========================
 # 根 logger 配置

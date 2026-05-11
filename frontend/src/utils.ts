@@ -21,6 +21,10 @@ export function canStartTask(task: Task): boolean {
   return task.status === "pending" && !task.schedulerStatus;
 }
 
+export function canRestartTask(task: Task): boolean {
+  return ["failed", "timeout", "cancelled"].includes(task.status);
+}
+
 export function nullableText(value: string): string | null {
   const trimmed = String(value ?? "").trim();
   return trimmed || null;
@@ -75,4 +79,8 @@ export function upsertById<T extends Record<K, string>, K extends keyof T>(
   const index = items.findIndex((current) => current[key] === item[key]);
   if (index < 0) return [item, ...items];
   return items.map((current, currentIndex) => (currentIndex === index ? item : current));
+}
+
+export function sortBy<T>(items: T[], pick: (item: T) => number): T[] {
+  return [...items].sort((a, b) => pick(a) - pick(b));
 }

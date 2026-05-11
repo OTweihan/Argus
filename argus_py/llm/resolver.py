@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from argus_py.config.llm_settings import load_llm_settings
-from argus_py.config.service import ModelConfigService
 from argus_py.llm.client import LLMClient
 from argus_py.llm.providers import create_llm_client
 from argus_py.task.models import Task
@@ -11,6 +10,8 @@ from argus_py.task.models import Task
 
 def resolve_llm_client_for_task(task: Task) -> LLMClient:
     """按任务参数或默认配置解析 LLM 客户端，未配置时回退到旧 llm.env。"""
+    from argus_py.config.service import ModelConfigService  # noqa: PLC0415
+
     service = ModelConfigService()
     model_config_id = _task_model_config_id(task)
     if model_config_id:

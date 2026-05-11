@@ -9,8 +9,14 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from argus_py.api.schemas.base import ApiModel, blank_to_none, strip_text
-from argus_py.browser.snapshot import redact_href, redact_sensitive_text, redact_step_params
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
+from argus_py.redaction import (
+    redact_finding_entry,
+    redact_href,
+    redact_log_entry,
+    redact_sensitive_text,
+    redact_step_params,
+)
 from argus_py.task.models import Finding, Task, TaskLog
 
 
@@ -33,24 +39,7 @@ class TaskLogResponse(ApiModel):
     @classmethod
     def from_task_log(cls, log: TaskLog) -> "TaskLogResponse":
         """从任务日志实体转换响应模型。"""
-        data = dict(log.__dict__)
-        params = data.get("params")
-        if isinstance(params, dict):
-            data["params"] = redact_step_params(params)
-        for url_key in ("url_before", "url_after"):
-            value = data.get(url_key)
-            if isinstance(value, str):
-                data[url_key] = redact_href(value)
-        screenshot_path = data.get("screenshot_path")
-        if isinstance(screenshot_path, str):
-            data["screenshot_path"] = Path(screenshot_path).name
-        for text_key in ("message", "error"):
-            value = data.get(text_key)
-            if isinstance(value, str):
-                data[text_key] = redact_sensitive_text(value)
-        # error_code 是结构化失败编码，不做脱敏
-        data["error_code"] = data.get("error_code")
-        return cls.model_validate(data)
+        return cls.model_validate(redact_log_entry(dict(log.__dict__)))
 
 
 class FindingResponse(ApiModel):
@@ -69,18 +58,7 @@ class FindingResponse(ApiModel):
     @classmethod
     def from_finding(cls, finding: Finding) -> "FindingResponse":
         """从问题实体转换响应模型。"""
-        data = dict(finding.__dict__)
-        url = data.get("url")
-        if isinstance(url, str):
-            data["url"] = redact_href(url)
-        screenshot_path = data.get("screenshot_path")
-        if isinstance(screenshot_path, str):
-            data["screenshot_path"] = Path(screenshot_path).name
-        for text_key in ("title", "description", "location"):
-            value = data.get(text_key)
-            if isinstance(value, str):
-                data[text_key] = redact_sensitive_text(value)
-        return cls.model_validate(data)
+        return cls.model_validate(redact_finding_entry(dict(finding.__dict__)))
 
 
 _PARAMS_MAX_KEYS = 100

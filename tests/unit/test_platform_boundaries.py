@@ -19,45 +19,36 @@ from argus_py.task.service import TaskService
 from argus_py.task.storage import TaskFileStorage
 
 
-def test_model_provider_change_resets_previous_default_base_url(tmp_path):
+@pytest.mark.parametrize(
+    ("custom_url", "expected_url"),
+    [
+        pytest.param(None, None, id="reset_to_provider_default"),
+        pytest.param(
+            "https://llm.example.test/v1", "https://llm.example.test/v1", id="keep_custom"
+        ),
+    ],
+)
+def test_model_provider_change_base_url(tmp_path, custom_url, expected_url):
     service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "argus.db"))
     config = service.create_model_config(
-        name="默认模型",
+        name="测试模型",
         provider=ModelProvider.DASHSCOPE,
         model="qwen-plus",
+        base_url=custom_url,
     )
 
+    orig_default = default_base_url(ModelProvider.DASHSCOPE)
+    update_url = custom_url or orig_default
     updated = service.update_model_config(
         config.model_config_id,
-        {
-            "provider": ModelProvider.OPENAI,
-            "base_url": default_base_url(ModelProvider.DASHSCOPE),
-        },
+        {"provider": ModelProvider.OPENAI, "base_url": update_url},
     )
 
     assert updated.provider is ModelProvider.OPENAI
-    assert updated.base_url == default_base_url(ModelProvider.OPENAI)
-
-
-def test_model_provider_change_keeps_custom_base_url(tmp_path):
-    service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "argus.db"))
-    config = service.create_model_config(
-        name="自定义模型",
-        provider=ModelProvider.DASHSCOPE,
-        model="qwen-plus",
-        base_url="https://llm.example.test/v1",
-    )
-
-    updated = service.update_model_config(
-        config.model_config_id,
-        {
-            "provider": ModelProvider.OPENAI,
-            "base_url": "https://llm.example.test/v1",
-        },
-    )
-
-    assert updated.provider is ModelProvider.OPENAI
-    assert updated.base_url == "https://llm.example.test/v1"
+    if expected_url is not None:
+        assert updated.base_url == expected_url
+    else:
+        assert updated.base_url == default_base_url(ModelProvider.OPENAI)
 
 
 def test_server_settings_normalize_string_values(tmp_path):
@@ -176,25 +167,25 @@ async def test_web_task_creation_inherits_project_screenshot_default(tmp_path):
     assert task.capture_screenshots is False
 
 
-def test_report_path_must_stay_under_reports_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(report_routes, "REPORTS_DIR", tmp_path / "reports")
-    task = Task(goal="报告路径越界")
-    task.report_path = str(tmp_path / "index.html")
-
-    with pytest.raises(HTTPException) as exc_info:
-        report_routes._resolve_html_report_path(task)
-
-    assert exc_info.value.status_code == 404
-
-
-def test_report_path_under_reports_dir_is_allowed(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "outside_reports",
+    [True, False],
+    ids=["outside_reports_dir", "under_reports_dir"],
+)
+def test_report_path_validation(tmp_path, monkeypatch, outside_reports):
     reports_dir = tmp_path / "reports"
     monkeypatch.setattr(report_routes, "REPORTS_DIR", reports_dir)
-    task = Task(goal="合法报告路径")
-    report_dir = reports_dir / task.task_id
-    report_dir.mkdir(parents=True, exist_ok=True)
-    report_path = report_dir / "index.html"
-    report_path.write_text("<html></html>", encoding="utf-8")
-    task.report_path = str(report_path)
+    task = Task(goal="报告路径测试")
 
-    assert report_routes._resolve_html_report_path(task) == report_path.resolve()
+    if outside_reports:
+        task.report_path = str(tmp_path / "index.html")
+        with pytest.raises(HTTPException) as exc_info:
+            report_routes._resolve_html_report_path(task)
+        assert exc_info.value.status_code == 404
+    else:
+        report_dir = reports_dir / task.task_id
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / "index.html"
+        report_path.write_text("<html></html>", encoding="utf-8")
+        task.report_path = str(report_path)
+        assert report_routes._resolve_html_report_path(task) == report_path.resolve()

@@ -7,9 +7,10 @@ import logging
 
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
+from argus_py.execution.runner import TaskRunner
 from argus_py.infra.queue import TaskQueue
+from argus_py.observability.aspect import log_operation
 from argus_py.task.models import Task
-from argus_py.task.runner import TaskRunner
 from argus_py.task.service import TaskService
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class TaskWorker:
             finally:
                 await self.queue.complete(task_id)
 
+    @log_operation("task.worker.run", task_arg="task_id")
     async def _run_task(self, task_id: str) -> None:
         """执行单个任务。"""
         try:

@@ -255,6 +255,49 @@ async def cancel_task(
     )
 
 
+@router.post("/{task_id}/restart", response_model=TaskStartResponse)
+async def restart_task(
+    task_id: str,
+    service: TaskService = Depends(get_task_service),
+    queue: TaskQueue = Depends(get_task_queue),
+) -> TaskStartResponse:
+    """重试失败/超时/取消的任务，创建新任务并立即入队。"""
+    task = service.get_task(task_id)
+    if task.status not in (
+        TaskStatus.FAILED,
+        TaskStatus.TIMEOUT,
+        TaskStatus.CANCELLED,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TASK_NOT_RETRYABLE",
+                "message": f"只有失败/超时/取消的任务可以重试，当前状态：{task.status.value}。",
+                "details": {"taskId": task.task_id, "status": task.status.value},
+            },
+        )
+    new_task = service.restart_task(task)
+    try:
+        result = await queue.enqueue(new_task.task_id)
+    except Exception:
+        service.delete_pending_task(new_task)
+        raise
+    if result.already_known:
+        service.delete_pending_task(new_task)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TASK_ALREADY_SCHEDULED",
+                "message": f"新创建的任务意外处于已调度状态：{result.scheduler_status}。",
+                "details": {"taskId": new_task.task_id, "schedulerStatus": result.scheduler_status},
+            },
+        )
+    return TaskStartResponse(
+        scheduler_status=result.scheduler_status,
+        task=TaskResponse.from_task(new_task, scheduler_status=result.scheduler_status),
+    )
+
+
 @router.post("/{task_id}/start", response_model=TaskStartResponse)
 async def start_task(
     task_id: str,

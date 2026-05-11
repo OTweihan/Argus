@@ -45,6 +45,7 @@ def run(args: argparse.Namespace) -> int:
             host=host,
             port=port,
             reload=reload_enabled,
+            access_log=False,
         )
     except KeyboardInterrupt:
         print_cli_cancelled("Web 服务")

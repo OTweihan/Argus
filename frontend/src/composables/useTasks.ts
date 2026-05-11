@@ -7,6 +7,7 @@ import {
     getTaskReportJson as apiGetTaskReportJson,
     inferTaskLimits,
     listTasks as apiListTasks,
+    restartTask as apiRestartTask,
     startTask as apiStartTask,
     updateTask as apiUpdateTask,
 } from "../api";
@@ -173,6 +174,19 @@ export function useTasks(opts: {
         }
     }
 
+    async function retryTask(taskId: string): Promise<void> {
+        try {
+            const result = await apiRestartTask(taskId);
+            await loadTasks();
+            await selectTask(result.task.taskId);
+            message.value = "任务已重新入队。";
+            error.value = "";
+        } catch (caught) {
+            error.value = errorMessage(caught);
+            message.value = "";
+        }
+    }
+
     async function deleteTask(task: Task): Promise<void> {
         if (task.status !== "pending" || task.schedulerStatus) return;
         try {
@@ -319,6 +333,7 @@ export function useTasks(opts: {
         selectTask,
         goBackToTasks,
         startTask,
+        retryTask,
         deleteTask,
         saveTask,
         addParam,

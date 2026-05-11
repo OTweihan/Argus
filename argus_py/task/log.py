@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable
 
-from argus_py.browser.snapshot import redact_href, redact_sensitive_text, redact_step_params
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult
+from argus_py.redaction import redact_finding_entry, redact_log_entry
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
@@ -122,38 +121,11 @@ class TaskLogService:
         self.event_publisher(event_type, task.task_id, to_jsonable(data))
 
 
-def _path_name(path: str | None) -> str | None:
-    """对外事件只暴露文件名，不暴露本机路径。"""
-    return Path(path).name if path else None
-
-
 def _redact_log_payload(log: TaskLog) -> dict[str, Any]:
     """生成用于事件推送的脱敏日志。"""
-    data = to_jsonable(log)
-    params = data.get("params")
-    if isinstance(params, dict):
-        data["params"] = redact_step_params(params)
-    for url_key in ("url_before", "url_after"):
-        value = data.get(url_key)
-        if isinstance(value, str):
-            data[url_key] = redact_href(value)
-    data["screenshot_path"] = _path_name(data.get("screenshot_path"))
-    for text_key in ("message", "error"):
-        value = data.get(text_key)
-        if isinstance(value, str):
-            data[text_key] = redact_sensitive_text(value)
-    return data
+    return redact_log_entry(to_jsonable(log))
 
 
 def _redact_finding_payload(finding: Finding) -> dict[str, Any]:
     """生成用于事件推送的脱敏问题记录。"""
-    data = to_jsonable(finding)
-    url = data.get("url")
-    if isinstance(url, str):
-        data["url"] = redact_href(url)
-    data["screenshot_path"] = _path_name(data.get("screenshot_path"))
-    for text_key in ("title", "description", "location"):
-        value = data.get(text_key)
-        if isinstance(value, str):
-            data[text_key] = redact_sensitive_text(value)
-    return data
+    return redact_finding_entry(to_jsonable(finding))
