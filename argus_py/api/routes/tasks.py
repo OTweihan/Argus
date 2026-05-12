@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, TypedDict
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from argus_py.api.dependencies import (
@@ -20,7 +22,7 @@ from argus_py.api.schemas import (
     TaskUpdateRequest,
 )
 from argus_py.config.service import ModelConfigService
-from argus_py.core.enums import TaskStatus
+from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
 from argus_py.project.service import ProjectService
@@ -30,18 +32,30 @@ from argus_py.task.strategy import infer_execution_limits, resolve_execution_lim
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
-@router.post("", response_model=TaskResponse, status_code=201)
-async def create_task(
+class _TaskResolvedParams(TypedDict):
+    """_resolve_task_params 返回的结构化参数。"""
+
+    goal: str
+    name: str | None
+    start_url: str | None
+    task_type: TaskType
+    project_id: str | None
+    max_steps: int
+    timeout_seconds: int
+    capture_screenshots: bool
+    parameters: dict[str, Any]
+
+
+def _resolve_task_params(
     request: TaskCreateRequest,
-    service: TaskService = Depends(get_task_service),
-    project_service: ProjectService = Depends(get_project_service),
-    model_config_service: ModelConfigService = Depends(get_model_config_service),
-) -> TaskResponse:
-    """创建任务快照，不立即启动执行。"""
+    project_service: ProjectService,
+    model_config_service: ModelConfigService,
+) -> _TaskResolvedParams:
+    """解析任务参数，合并项目默认值。"""
     project = project_service.get_project(request.project_id)
     start_url = request.start_url or project.base_url
     if not start_url:
-        raise TaskError("创建任务需要 startUrl，或项目需要配置 baseUrl。")
+        raise TaskError("任务需要 startUrl，或项目需要配置 baseUrl。")
 
     max_steps = request.max_steps or project.default_max_steps
     timeout_seconds = request.timeout_seconds or project.default_timeout_seconds
@@ -61,17 +75,30 @@ async def create_task(
         max_steps,
         timeout_seconds,
     )
-    task = service.create_task(
-        goal=request.goal,
-        name=request.name,
-        start_url=start_url,
-        task_type=request.task_type,
-        project_id=project.project_id,
-        max_steps=limits.max_steps,
-        timeout_seconds=limits.timeout_seconds,
-        capture_screenshots=capture_screenshots,
-        parameters=parameters,
-    )
+
+    return {
+        "goal": request.goal,
+        "name": request.name,
+        "start_url": start_url,
+        "task_type": request.task_type,
+        "project_id": project.project_id,
+        "max_steps": limits.max_steps,
+        "timeout_seconds": limits.timeout_seconds,
+        "capture_screenshots": capture_screenshots,
+        "parameters": parameters,
+    }
+
+
+@router.post("", response_model=TaskResponse, status_code=201)
+async def create_task(
+    request: TaskCreateRequest,
+    service: TaskService = Depends(get_task_service),
+    project_service: ProjectService = Depends(get_project_service),
+    model_config_service: ModelConfigService = Depends(get_model_config_service),
+) -> TaskResponse:
+    """创建任务快照，不立即启动执行。"""
+    params = _resolve_task_params(request, project_service, model_config_service)
+    task = service.create_task(**params)
     return TaskResponse.from_task(task)
 
 
@@ -101,41 +128,8 @@ async def update_task(
             },
         )
 
-    project = project_service.get_project(request.project_id)
-    start_url = request.start_url or project.base_url
-    if not start_url:
-        raise TaskError("更新任务需要 startUrl，或项目需要配置 baseUrl。")
-
-    max_steps = request.max_steps or project.default_max_steps
-    timeout_seconds = request.timeout_seconds or project.default_timeout_seconds
-    capture_screenshots = (
-        request.capture_screenshots
-        if request.capture_screenshots is not None
-        else project.default_capture_screenshots
-    )
-    parameters = {**project.parameters, **request.parameters}
-    if request.model_config_id:
-        model_config_service.get_model_config(request.model_config_id)
-        parameters["modelConfigId"] = request.model_config_id
-
-    limits = resolve_execution_limits(
-        request.goal,
-        start_url,
-        max_steps,
-        timeout_seconds,
-    )
-    updated = service.update_task_info(
-        task,
-        goal=request.goal,
-        name=request.name,
-        start_url=start_url,
-        task_type=request.task_type,
-        project_id=project.project_id,
-        max_steps=limits.max_steps,
-        timeout_seconds=limits.timeout_seconds,
-        capture_screenshots=capture_screenshots,
-        parameters=parameters,
-    )
+    params = _resolve_task_params(request, project_service, model_config_service)
+    updated = service.update_task_info(task, **params)
     return TaskResponse.from_task(
         updated,
         scheduler_status=await queue.scheduler_status(updated.task_id),

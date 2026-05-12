@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,6 +19,27 @@ from argus_py.infra.db import connect as _connect
 from argus_py.infra.db import init_database
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.storage import TaskSQLiteStorage
+
+
+def _make_task(store: TaskSQLiteStorage, task_id: str, goal: str, **overrides: Any) -> Task:
+    """创建并保存任务。"""
+    task = Task(task_id=task_id, goal=goal, **overrides)
+    store.save(task)
+    return task
+
+
+def _append_logs(store: TaskSQLiteStorage, task_id: str, count: int) -> None:
+    """追加多条步骤日志。"""
+    for i in range(count):
+        store.append_log(task_id, TaskLog(step_number=i + 1, action="goto"))
+
+
+def _append_findings(store: TaskSQLiteStorage, task_id: str, count: int) -> None:
+    """追加多条发现项。"""
+    for _ in range(count):
+        store.append_finding(
+            task_id, Finding(title="x", description="x", severity=FindingSeverity.INFO)
+        )
 
 
 @pytest.fixture
@@ -112,7 +134,7 @@ class TestLogsAndFindings:
     """步骤日志和发现项。"""
 
     def test_append_log(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="日志测试"))
+        _make_task(store, "t1", "日志测试")
         store.append_log("t1", TaskLog(step_number=1, action="goto", result=StepResult.SUCCESS))
         loaded = store.load("t1")
         assert len(loaded.logs) == 1
@@ -122,7 +144,7 @@ class TestLogsAndFindings:
         assert log.result is StepResult.SUCCESS
 
     def test_append_finding(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="发现项测试"))
+        _make_task(store, "t1", "发现项测试")
         store.append_finding(
             "t1",
             Finding(
@@ -139,20 +161,18 @@ class TestLogsAndFindings:
         assert finding.severity is FindingSeverity.HIGH
         assert finding.finding_type is FindingType.PERFORMANCE
 
-    def test_full_save_with_logs_and_findings(self, store: TaskSQLiteStorage) -> None:
-        task = Task(task_id="t1", goal="全量保存")
-        task.logs.append(TaskLog(step_number=1, action="goto", result=StepResult.SUCCESS))
-        task.logs.append(TaskLog(step_number=2, action="click", result=StepResult.SUCCESS))
-        task.findings.append(
-            Finding(title="观察项", description="正常", severity=FindingSeverity.INFO)
+    def test_appended_logs_and_findings_load(self, store: TaskSQLiteStorage) -> None:
+        _make_task(store, "t1", "全量保存")
+        _append_logs(store, "t1", 2)
+        store.append_finding(
+            "t1", Finding(title="观察项", description="正常", severity=FindingSeverity.INFO)
         )
-        store.save(task)
         loaded = store.load("t1")
         assert len(loaded.logs) == 2
         assert len(loaded.findings) == 1
 
     def test_append_then_full_save_consistency(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="一致性"))
+        _make_task(store, "t1", "一致性")
         store.append_log("t1", TaskLog(step_number=1, action="goto", result=StepResult.SUCCESS))
         store.append_finding(
             "t1", Finding(title="问题", description="bug", severity=FindingSeverity.HIGH)
@@ -166,15 +186,14 @@ class TestLogsAndFindings:
         assert len(loaded.findings) == 1
 
     def test_many_logs(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="大量日志"))
-        for i in range(50):
-            store.append_log("t1", TaskLog(step_number=i + 1, action=f"step_{i}"))
+        _make_task(store, "t1", "大量日志")
+        _append_logs(store, "t1", 50)
         loaded = store.load("t1")
         assert len(loaded.logs) == 50
         assert loaded.logs[-1].step_number == 50
 
     def test_log_params_round_trip(self, store: TaskSQLiteStorage) -> None:
-        store.save(Task(task_id="t1", goal="参数测试"))
+        _make_task(store, "t1", "参数测试")
         store.append_log(
             "t1",
             TaskLog(
@@ -267,20 +286,21 @@ class TestListAndCount:
 class TestSummaries:
     """摘要查询（list_task_summaries）。"""
 
-    def test_summary_has_no_logs_or_findings(self, tmp_path: Path) -> None:
-        store = TaskSQLiteStorage(tmp_path / "summary.db")
-        store.save(Task(task_id="t1", goal="摘要测试"))
-        store.append_log("t1", TaskLog(step_number=1, action="goto"))
-        store.append_finding(
-            "t1", Finding(title="x", description="x", severity=FindingSeverity.INFO)
-        )
-        summaries = store.list_task_summaries()
+    @pytest.fixture
+    def summary_store(self, tmp_path: Path) -> TaskSQLiteStorage:
+        return TaskSQLiteStorage(tmp_path / "summary.db")
+
+    def test_summary_has_no_logs_or_findings(self, summary_store: TaskSQLiteStorage) -> None:
+        _make_task(summary_store, "t1", "摘要测试")
+        _append_logs(summary_store, "t1", 1)
+        _append_findings(summary_store, "t1", 1)
+        summaries = summary_store.list_task_summaries()
         assert len(summaries) == 1
         assert summaries[0].logs == []
         assert summaries[0].findings == []
 
     @pytest.mark.parametrize(
-        ("append_logs", "append_findings", "expected_step", "expected_count"),
+        ("n_logs", "n_findings", "expected_step", "expected_count"),
         [
             (2, 0, 2, 0),
             (0, 3, 0, 3),
@@ -290,38 +310,28 @@ class TestSummaries:
     )
     def test_summary_step_and_count(
         self,
-        tmp_path: Path,
-        append_logs: int,
-        append_findings: int,
+        summary_store: TaskSQLiteStorage,
+        n_logs: int,
+        n_findings: int,
         expected_step: int,
         expected_count: int,
     ) -> None:
-        store = TaskSQLiteStorage(tmp_path / "summary.db")
-        store.save(Task(task_id="t1", goal="摘要"))
-        for i in range(append_logs):
-            store.append_log("t1", TaskLog(step_number=i + 1, action="goto"))
-        for _ in range(append_findings):
-            store.append_finding(
-                "t1", Finding(title="x", description="x", severity=FindingSeverity.INFO)
-            )
-        summaries = store.list_task_summaries()
+        _make_task(summary_store, "t1", "摘要")
+        _append_logs(summary_store, "t1", n_logs)
+        _append_findings(summary_store, "t1", n_findings)
+        summaries = summary_store.list_task_summaries()
         assert summaries[0].current_step == expected_step
         assert summaries[0].finding_count == expected_count
-        # Full load 应与 summary 一致
-        full = store.load("t1")
+        full = summary_store.load("t1")
         assert full.current_step == expected_step
         assert full.finding_count == expected_count
 
     def test_summary_multiple_tasks(self, tmp_path: Path) -> None:
         store = TaskSQLiteStorage(tmp_path / "multi_summary.db")
         for i in range(3):
-            store.save(Task(task_id=f"t{i}", goal=f"任务{i}"))
-            for j in range(i + 1):
-                store.append_log(f"t{i}", TaskLog(step_number=j + 1, action="goto"))
-                store.append_finding(
-                    f"t{i}",
-                    Finding(title=f"f_{j}", description="x", severity=FindingSeverity.INFO),
-                )
+            _make_task(store, f"t{i}", f"任务{i}")
+            _append_logs(store, f"t{i}", i + 1)
+            _append_findings(store, f"t{i}", i + 1)
         summaries = store.list_task_summaries()
         assert len(summaries) == 3
         step_map = {s.task_id: s.current_step for s in summaries}

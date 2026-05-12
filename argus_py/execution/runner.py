@@ -45,10 +45,8 @@ class TaskRunner:
         running_task = self.service.start_task(task)
         handler = self.handlers.get(running_task.task_type)
         if handler is None:
-            message = f"任务类型 {running_task.task_type.value} 尚未注册执行器。"
-            failed_task = self.service.fail_task(running_task, message)
-            self._generate_report(failed_task)
-            raise TaskError(message)
+            self._handle_no_handler(running_task)
+        assert handler is not None
 
         try:
             result = await asyncio.wait_for(
@@ -56,28 +54,11 @@ class TaskRunner:
                 timeout=running_task.timeout_seconds,
             )
         except TimeoutError as exc:
-            latest = self._latest_task(running_task)
-            if latest.status is not TaskStatus.RUNNING:
-                return self._generate_report(latest)
-            logger.warning(
-                "任务超时：%s（%ds）", running_task.task_id, running_task.timeout_seconds
-            )
-            timeout_task = self.service.timeout_task(latest)
-            timeout_task = self._generate_report(timeout_task)
-            raise TaskError(timeout_task.error_message or "任务执行超时。") from exc
+            return self._handle_timeout(running_task, exc)
         except Exception as exc:
-            latest = self._latest_task(running_task)
-            if latest.status is not TaskStatus.RUNNING:
-                return self._generate_report(latest)
-            logger.exception("任务执行异常：%s", running_task.task_id)
-            failed_task = self.service.fail_task(latest, str(exc))
-            failed_task = self._generate_report(failed_task)
-            raise TaskError(failed_task.error_message or "任务执行失败。") from exc
+            return self._handle_exception(running_task, exc)
 
-        completed_task = result or running_task
-        if completed_task.status is TaskStatus.RUNNING:
-            completed_task = self.service.complete_task(completed_task)
-        return self._generate_report(completed_task)
+        return self._finalize_run(running_task, result)
 
     async def _run_handler(self, handler: TaskHandler, task: Task) -> Task | None:
         """执行同步或异步任务 handler。"""
@@ -103,3 +84,35 @@ class TaskRunner:
     def _generate_report(self, task: Task) -> Task:
         """生成任务报告并回写 HTML 报告路径。"""
         return generate_report_safely(task, self.report_generator, self.service.save_task)
+
+    def _handle_no_handler(self, task: Task) -> None:
+        """无 handler 时标记失败并生成报告。"""
+        message = f"任务类型 {task.task_type.value} 尚未注册执行器。"
+        failed_task = self.service.fail_task(task, message)
+        self._generate_report(failed_task)
+        raise TaskError(message)
+
+    def _handle_timeout(self, task: Task, exc: TimeoutError) -> Task:
+        """超时处理：已终态则直接报告，否则标记超时。"""
+        latest = self._latest_task(task)
+        if latest.status is not TaskStatus.RUNNING:
+            return self._generate_report(latest)
+        logger.warning("任务超时：%s（%ds）", task.task_id, task.timeout_seconds)
+        timeout_task = self._generate_report(self.service.timeout_task(latest))
+        raise TaskError(timeout_task.error_message or "任务执行超时。") from exc
+
+    def _handle_exception(self, task: Task, exc: Exception) -> Task:
+        """异常处理：已终态则直接报告，否则标记失败。"""
+        latest = self._latest_task(task)
+        if latest.status is not TaskStatus.RUNNING:
+            return self._generate_report(latest)
+        logger.exception("任务执行异常：%s", task.task_id)
+        failed_task = self._generate_report(self.service.fail_task(latest, str(exc)))
+        raise TaskError(failed_task.error_message or "任务执行失败。") from exc
+
+    def _finalize_run(self, task: Task, result: Task | None) -> Task:
+        """最终报告生成：完成未终态的任务并生成报告。"""
+        completed = result or task
+        if completed.status is TaskStatus.RUNNING:
+            completed = self.service.complete_task(completed)
+        return self._generate_report(completed)

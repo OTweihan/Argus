@@ -17,7 +17,9 @@
       "Bash(python -m py_compile argus_py/task/runner.py)",
       "Bash(python *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "mcp__gitnexus__impact",
+      "mcp__gitnexus__detect_changes"
     ]
   }
 }

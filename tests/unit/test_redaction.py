@@ -14,77 +14,100 @@ from argus_py.redaction import (
 
 
 class TestRedactHref:
-    def test_removes_query_string_and_fragment(self) -> None:
-        assert redact_href("http://example.com/path?token=secret") == "http://example.com/path"
-        assert redact_href("http://example.com/path#section") == "http://example.com/path"
-        assert redact_href("http://example.com/path?q=1#s") == "http://example.com/path"
-
-    def test_preserves_scheme_host_and_port(self) -> None:
-        assert redact_href("https://example.com:8080/path") == "https://example.com:8080/path"
-
-    def test_masks_javascript_and_data_uri(self) -> None:
-        assert redact_href("javascript:alert(1)") == "javascript:[REDACTED]"
-        assert "data:" in redact_href("data:text/html,<script>")
-        assert "[REDACTED]" in redact_href("data:text/html,<script>")
-
-    def test_handles_empty_and_fragment_only(self) -> None:
-        assert redact_href("") == ""
-        assert redact_href("#top") == "#top"
-
-    def test_handles_non_http_schemes(self) -> None:
-        result = redact_href("ftp://files.example.com/doc.pdf")
-        assert result.startswith("ftp:")
-        assert "[REDACTED]" in result
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("http://example.com/path?token=secret", "http://example.com/path"),
+            ("http://example.com/path#section", "http://example.com/path"),
+            ("http://example.com/path?q=1#s", "http://example.com/path"),
+            ("https://example.com:8080/path", "https://example.com:8080/path"),
+            ("", ""),
+            ("#top", "#top"),
+            ("javascript:alert(1)", "javascript:[REDACTED]"),
+            ("data:text/html,<script>", "data:[REDACTED]"),
+            ("ftp://files.example.com/doc.pdf", "ftp:[REDACTED]"),
+        ],
+        ids=[
+            "query",
+            "fragment",
+            "both",
+            "preserve_host_port",
+            "empty",
+            "fragment_only",
+            "javascript",
+            "data",
+            "ftp",
+        ],
+    )
+    def test_redact_href(self, url: str, expected: str) -> None:
+        assert redact_href(url) == expected
 
 
 class TestRedactSensitiveText:
-    def test_redacts_key_value_patterns(self) -> None:
-        assert redact_sensitive_text("token=abc123") == "token=[REDACTED]"
-        assert redact_sensitive_text("api_key=secret") == "api_key=[REDACTED]"
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("token=abc123", "token=[REDACTED]"),
+            ("api_key=secret", "api_key=[REDACTED]"),
+            (
+                "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9",
+                "Authorization: Bearer [REDACTED]",
+            ),
+            ('"token":"my-secret-token"', '"token":"[REDACTED]"'),
+        ],
+        ids=["key_value_token", "key_value_api_key", "bearer", "json"],
+    )
+    def test_redacts_sensitive_patterns(self, text: str, expected: str) -> None:
+        assert redact_sensitive_text(text) == expected
 
-    def test_redacts_bearer_token(self) -> None:
-        result = redact_sensitive_text("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9")
-        assert "Bearer [REDACTED]" in result
-
-    def test_redacts_json_patterns(self) -> None:
-        result = redact_sensitive_text('"token":"my-secret-token"')
-        assert '"token":"[REDACTED]"' in result
-
-    def test_leaves_plain_text_unchanged(self) -> None:
-        assert redact_sensitive_text("hello world") == "hello world"
-
-    def test_leaves_non_sensitive_key_values(self) -> None:
-        assert redact_sensitive_text("username=admin&action=login") == "username=admin&action=login"
+    @pytest.mark.parametrize(
+        ("text",),
+        [
+            ("hello world",),
+            ("username=admin&action=login",),
+        ],
+        ids=["plain", "non_sensitive_key_value"],
+    )
+    def test_leaves_plain_text(self, text: str) -> None:
+        assert redact_sensitive_text(text) == text
 
 
 class TestRedactStepParams:
-    def test_redacts_url_params(self) -> None:
-        result = redact_step_params({"url": "http://example.com?t=1"})
-        assert result["url"] == "http://example.com"
-
-    def test_redacts_sensitive_keys(self) -> None:
-        result = redact_step_params({"password": "secret123"})
-        assert result["password"] == "[REDACTED]"
-
-    def test_redacts_value_when_selector_points_to_sensitive(self) -> None:
-        result = redact_step_params({"selector": "input[name=password]", "value": "mypassword"})
-        assert result["value"] == "[REDACTED]"
-
-    def test_recursive_dict(self) -> None:
-        result = redact_step_params({"nested": {"password": "secret"}})
-        assert result["nested"]["password"] == "[REDACTED]"
-
-    def test_recursive_list(self) -> None:
-        result = redact_step_params({"items": [{"password": "secret"}]})
-        assert result["items"][0]["password"] == "[REDACTED]"
-
-    def test_list_of_urls(self) -> None:
-        result = redact_step_params({"redirect_url": ["http://example.com?t=1"]})
-        assert result["redirect_url"][0] == "http://example.com"
-
-    def test_unchanged_for_plain_params(self) -> None:
-        result = redact_step_params({"action": "click", "selector": "#btn"})
-        assert result == {"action": "click", "selector": "#btn"}
+    @pytest.mark.parametrize(
+        ("params", "expected"),
+        [
+            ({"url": "http://example.com?t=1"}, {"url": "http://example.com"}),
+            ({"password": "secret123"}, {"password": "[REDACTED]"}),
+            (
+                {"selector": "input[name=password]", "value": "mypassword"},
+                {"selector": "input[name=password]", "value": "[REDACTED]"},
+            ),
+            ({"nested": {"password": "secret"}}, {"nested": {"password": "[REDACTED]"}}),
+            (
+                {"items": [{"password": "secret"}]},
+                {"items": [{"password": "[REDACTED]"}]},
+            ),
+            (
+                {"redirect_url": ["http://example.com?t=1"]},
+                {"redirect_url": ["http://example.com"]},
+            ),
+            (
+                {"action": "click", "selector": "#btn"},
+                {"action": "click", "selector": "#btn"},
+            ),
+        ],
+        ids=[
+            "url",
+            "sensitive_key",
+            "selector_value",
+            "recursive_dict",
+            "recursive_list",
+            "list_urls",
+            "plain",
+        ],
+    )
+    def test_redact_step_params(self, params: dict, expected: dict) -> None:
+        assert redact_step_params(params) == expected
 
 
 class TestRedactLogEntry:

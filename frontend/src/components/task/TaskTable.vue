@@ -25,7 +25,7 @@
     <el-table-column label="创建时间" width="200">
       <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
     </el-table-column>
-    <el-table-column label="操作" width="430" fixed="right">
+    <el-table-column v-if="props.compactActions" label="操作" width="220" fixed="right">
       <template #default="{ row }">
         <el-button @click="$emit('select', row.taskId)">任务详情</el-button>
         <el-button v-if="props.showReport" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">报告详情
@@ -34,8 +34,29 @@
         <el-button v-if="props.showDelete" type="danger" :disabled="!canDeleteTask(row)" @click="$emit('delete', row)">
           删除
         </el-button>
-        <el-button v-if="canStartTask(row)" type="primary" @click="$emit('start', row.taskId)">启动</el-button>
-        <el-button v-else-if="canRestartTask(row)" type="primary" @click="$emit('restart', row.taskId)">重试</el-button>
+        <el-button v-if="props.showRunActions && canStartTask(row)" type="primary" @click="$emit('start', row.taskId)">
+          启动
+        </el-button>
+        <el-button v-else-if="props.showRunActions && canRestartTask(row)" type="primary"
+                   @click="$emit('restart', row.taskId)">重试
+        </el-button>
+      </template>
+    </el-table-column>
+    <el-table-column v-else label="操作" width="430" fixed="right">
+      <template #default="{ row }">
+        <el-button @click="$emit('select', row.taskId)">任务详情</el-button>
+        <el-button v-if="props.showReport" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">报告详情
+        </el-button>
+        <el-button v-if="props.showEdit" :disabled="!canEditTask(row)" @click="$emit('edit', row)">编辑</el-button>
+        <el-button v-if="props.showDelete" type="danger" :disabled="!canDeleteTask(row)" @click="$emit('delete', row)">
+          删除
+        </el-button>
+        <el-button v-if="props.showRunActions && canStartTask(row)" type="primary" @click="$emit('start', row.taskId)">
+          启动
+        </el-button>
+        <el-button v-else-if="props.showRunActions && canRestartTask(row)" type="primary"
+                   @click="$emit('restart', row.taskId)">重试
+        </el-button>
       </template>
     </el-table-column>
   </el-table>
@@ -54,8 +75,10 @@ const props = withDefaults(
       showEdit?: boolean;
       showReport?: boolean;
       showDelete?: boolean;
+      showRunActions?: boolean;
+      compactActions?: boolean;
     }>(),
-    {showEdit: true, showReport: true, showDelete: true},
+    {showEdit: true, showReport: true, showDelete: true, showRunActions: true, compactActions: false},
 );
 defineEmits<{
   select: [taskId: string];

@@ -50,10 +50,6 @@
               height="100%"
               @select="showTaskDetail"
               @report="showReportDetail"
-              @edit="editTask"
-              @delete="deleteTask"
-              @start="startTask"
-              @restart="retryTask"
           />
         </div>
         <div class="pagination-bar">

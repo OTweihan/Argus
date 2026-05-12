@@ -132,6 +132,22 @@ class TaskLifecycleService:
             task.completed_at = now
         task.status = target
         task.error_message = error_message
+
+        self._persist_status(task)
+        self._publish(
+            "task.status", task, self._status_event_payload(task, previous_status, error_message)
+        )
+        if target in {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.TIMEOUT,
+            TaskStatus.CANCELLED,
+        }:
+            self._publish("task.complete", task, self._completion_event_payload(task))
+        return task
+
+    def _persist_status(self, task: Task) -> None:
+        """持久化状态变更。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             self.storage.update_task(
                 task.task_id,
@@ -144,34 +160,27 @@ class TaskLifecycleService:
             )
         else:
             self.storage.save(task)
-        self._publish(
-            "task.status",
-            task,
-            {
-                "previousStatus": previous_status.value,
-                "status": target.value,
-                "errorMessage": error_message,
-                "task": _task_summary(task),
-            },
-        )
-        if target in {
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-            TaskStatus.CANCELLED,
-        }:
-            self._publish(
-                "task.complete",
-                task,
-                {
-                    "status": target.value,
-                    "resultSummary": _redact_optional_text(task.result_summary),
-                    "errorMessage": _redact_optional_text(task.error_message),
-                    "reportPath": _path_name(task.report_path),
-                    "task": _task_summary(task),
-                },
-            )
-        return task
+
+    def _status_event_payload(
+        self, task: Task, previous_status: TaskStatus, error_message: str | None
+    ) -> dict[str, Any]:
+        """生成 task.status 事件负载。"""
+        return {
+            "previousStatus": previous_status.value,
+            "status": task.status.value,
+            "errorMessage": error_message,
+            "task": _task_summary(task),
+        }
+
+    def _completion_event_payload(self, task: Task) -> dict[str, Any]:
+        """生成 task.complete 事件负载。"""
+        return {
+            "status": task.status.value,
+            "resultSummary": _redact_optional_text(task.result_summary),
+            "errorMessage": _redact_optional_text(task.error_message),
+            "reportPath": _path_name(task.report_path),
+            "task": _task_summary(task),
+        }
 
     def restart_task(self, task: Task | str) -> Task:
         """复制已结束的任务为新 pending 任务（重试）。"""

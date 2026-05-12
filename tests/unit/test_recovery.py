@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from argus_py.core.enums import TaskStatus
 from argus_py.infra.recovery import INTERRUPTED_MESSAGE, recover_interrupted_tasks
 from argus_py.task.service import TaskService
@@ -28,38 +30,39 @@ def test_recover_sets_running_to_failed(tmp_path):
     assert updated.status is TaskStatus.FAILED
     assert updated.error_message == INTERRUPTED_MESSAGE
     assert updated.completed_at is not None
+    assert updated.completed_at > updated.started_at
 
 
-def test_recover_skips_pending(tmp_path):
-    service = _make_service(tmp_path)
-    t = service.create_task("pending task", start_url="https://example.com")
-
-    count = recover_interrupted_tasks(service)
-
-    assert count == 0
-    assert service.get_task(t.task_id).status is TaskStatus.PENDING
-
-
-def test_recover_skips_terminal_states(tmp_path):
-    service = _make_service(tmp_path)
-
-    tasks = {}
-    for status in (
+@pytest.mark.parametrize(
+    ("setup_status"),
+    [
+        None,
+        TaskStatus.PENDING,
         TaskStatus.COMPLETED,
         TaskStatus.FAILED,
         TaskStatus.TIMEOUT,
         TaskStatus.CANCELLED,
-    ):
-        t = service.create_task(f"{status.value} task", start_url="https://example.com")
+    ],
+    ids=["empty", "pending", "completed", "failed", "timeout", "cancelled"],
+)
+def test_recover_skips_non_running(tmp_path, setup_status: TaskStatus | None) -> None:
+    service = _make_service(tmp_path)
+    task_id: str | None = None
+    if setup_status is None:
+        pass
+    elif setup_status is TaskStatus.PENDING:
+        t = service.create_task("task", start_url="https://example.com")
+        task_id = t.task_id
+    else:
+        t = service.create_task("task", start_url="https://example.com")
         service.start_task(t)
-        service.update_status(t, status)
-        tasks[status] = t.task_id
+        service.update_status(t, setup_status)
+        task_id = t.task_id
 
-    count = recover_interrupted_tasks(service)
+    assert recover_interrupted_tasks(service) == 0
 
-    assert count == 0
-    for status, task_id in tasks.items():
-        assert service.get_task(task_id).status is status
+    if task_id is not None:
+        assert service.get_task(task_id).status is setup_status
 
 
 def test_recover_handles_mixed_states(tmp_path):
@@ -80,21 +83,3 @@ def test_recover_handles_mixed_states(tmp_path):
     assert service.get_task(running.task_id).status is TaskStatus.FAILED
     assert service.get_task(pending.task_id).status is TaskStatus.PENDING
     assert service.get_task(completed.task_id).status is TaskStatus.COMPLETED
-
-
-def test_recover_returns_zero_when_none_running(tmp_path):
-    service = _make_service(tmp_path)
-    assert recover_interrupted_tasks(service) == 0
-
-
-def test_recover_writes_completed_at(tmp_path):
-    service = _make_service(tmp_path)
-    t = service.create_task("running", start_url="https://example.com")
-    service.start_task(t)
-
-    recover_interrupted_tasks(service)
-
-    recovered = service.get_task(t.task_id)
-    assert recovered.completed_at is not None
-    # completed_at > started_at
-    assert recovered.completed_at > recovered.started_at

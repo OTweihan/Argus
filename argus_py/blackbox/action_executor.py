@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from argus_py.blackbox.evidence import EvidenceCollector
@@ -36,6 +37,17 @@ class ActionExecutor:
     def __init__(self, service: TaskService, evidence_collector: EvidenceCollector) -> None:
         self.service = service
         self.evidence = evidence_collector
+        self._action_handlers: dict[ActionType, Callable] = {
+            ActionType.GOTO: self._goto,
+            ActionType.CLICK: self._click,
+            ActionType.FILL: self._fill,
+            ActionType.PRESS: self._press,
+            ActionType.SELECT: self._select,
+            ActionType.WAIT: self._wait,
+            ActionType.SCREENSHOT: self._screenshot,
+            ActionType.SNAPSHOT: self._snapshot,
+            ActionType.ASSERT: self._assert_action,
+        }
 
     async def execute_action(
         self,
@@ -90,62 +102,82 @@ class ActionExecutor:
         step: ActionStep,
     ) -> dict[str, Any]:
         """分发浏览器动作。"""
-        if step.action is ActionType.GOTO:
-            if not step.url:
-                raise TaskError("goto 动作缺少 url。", error_code="empty_url")
-            validation = validate_url(step.url)
-            if not validation.is_ok():
-                raise TaskError(
-                    f"URL 校验失败：{validation.error_message}",
-                    error_code=validation.code,
-                )
-            return await session.goto(step.url)
+        handler = self._action_handlers.get(step.action)
+        if handler is None:
+            raise TaskError(f"不支持的动作类型：{step.action.value}")
+        return await handler(task, session, step)
 
-        if step.action is ActionType.CLICK:
-            if not step.selector:
-                raise TaskError("click 动作缺少 selector。", error_code="param_invalid")
-            return await session.click(step.selector)
-
-        if step.action is ActionType.FILL:
-            if not step.selector:
-                raise TaskError("fill 动作缺少 selector。", error_code="param_invalid")
-            return await session.fill(step.selector, step.text or "")
-
-        if step.action is ActionType.PRESS:
-            if not step.selector or not step.key:
-                raise TaskError("press 动作缺少 selector 或 key。", error_code="param_invalid")
-            return await session.require_actions().press(step.selector, step.key)
-
-        if step.action is ActionType.SELECT:
-            if not step.selector:
-                raise TaskError("select 动作缺少 selector。", error_code="param_invalid")
-            value = step.text or str(step.params.get("value") or "")
-            if not value:
-                raise TaskError("select 动作缺少选项值。", error_code="param_invalid")
-            return await session.require_actions().select_option(step.selector, value)
-
-        if step.action is ActionType.WAIT:
-            return await session.require_actions().wait(step.wait_ms or 1000)
-
-        if step.action is ActionType.SCREENSHOT:
-            if not task.capture_screenshots:
-                return {"message": "截图已按任务配置跳过。"}
-            screenshot_path = await session.screenshot(
-                self.evidence.screenshot_name(task), full_page=True
+    async def _goto(self, task: Task, session: BrowserSession, step: ActionStep) -> dict[str, Any]:
+        """执行 goto 跳转。"""
+        if not step.url:
+            raise TaskError("goto 动作缺少 url。", error_code="empty_url")
+        validation = validate_url(step.url)
+        if not validation.is_ok():
+            raise TaskError(
+                f"URL 校验失败：{validation.error_message}",
+                error_code=validation.code,
             )
-            return {"screenshot_path": str(screenshot_path), "message": "截图已保存。"}
+        return await session.goto(step.url)
 
-        if step.action is ActionType.SNAPSHOT:
-            snapshot = await session.snapshot()
-            return {
-                "url_after": snapshot.url,
-                "message": f"页面快照已获取，可交互元素 {len(snapshot.interactive_elements)} 个。",
-            }
+    async def _click(self, task: Task, session: BrowserSession, step: ActionStep) -> dict[str, Any]:
+        """执行 click 点击。"""
+        if not step.selector:
+            raise TaskError("click 动作缺少 selector。", error_code="param_invalid")
+        return await session.click(step.selector)
 
-        if step.action is ActionType.ASSERT:
-            return {"message": step.reason or "断言交由评估器判断。"}
+    async def _fill(self, task: Task, session: BrowserSession, step: ActionStep) -> dict[str, Any]:
+        """执行 fill 填充。"""
+        if not step.selector:
+            raise TaskError("fill 动作缺少 selector。", error_code="param_invalid")
+        return await session.fill(step.selector, step.text or "")
 
-        raise TaskError(f"不支持的动作类型：{step.action.value}")
+    async def _press(self, task: Task, session: BrowserSession, step: ActionStep) -> dict[str, Any]:
+        """执行 press 按键。"""
+        if not step.selector or not step.key:
+            raise TaskError("press 动作缺少 selector 或 key。", error_code="param_invalid")
+        return await session.require_actions().press(step.selector, step.key)
+
+    async def _select(
+        self, task: Task, session: BrowserSession, step: ActionStep
+    ) -> dict[str, Any]:
+        """执行 select 选择。"""
+        if not step.selector:
+            raise TaskError("select 动作缺少 selector。", error_code="param_invalid")
+        value = step.text or str(step.params.get("value") or "")
+        if not value:
+            raise TaskError("select 动作缺少选项值。", error_code="param_invalid")
+        return await session.require_actions().select_option(step.selector, value)
+
+    async def _wait(self, task: Task, session: BrowserSession, step: ActionStep) -> dict[str, Any]:
+        """执行 wait 等待。"""
+        return await session.require_actions().wait(step.wait_ms or 1000)
+
+    async def _screenshot(
+        self, task: Task, session: BrowserSession, step: ActionStep
+    ) -> dict[str, Any]:
+        """执行 screenshot 截图。"""
+        if not task.capture_screenshots:
+            return {"message": "截图已按任务配置跳过。"}
+        screenshot_path = await session.screenshot(
+            self.evidence.screenshot_name(task), full_page=True
+        )
+        return {"screenshot_path": str(screenshot_path), "message": "截图已保存。"}
+
+    async def _snapshot(
+        self, task: Task, session: BrowserSession, step: ActionStep
+    ) -> dict[str, Any]:
+        """执行 snapshot 快照。"""
+        snapshot = await session.snapshot()
+        return {
+            "url_after": snapshot.url,
+            "message": f"页面快照已获取，可交互元素 {len(snapshot.interactive_elements)} 个。",
+        }
+
+    async def _assert_action(
+        self, task: Task, session: BrowserSession, step: ActionStep
+    ) -> dict[str, Any]:
+        """执行 assert 断言。"""
+        return {"message": step.reason or "断言交由评估器判断。"}
 
     def _step_params(self, step: ActionStep) -> dict[str, Any]:
         """提取动作参数用于日志。"""

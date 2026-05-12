@@ -89,11 +89,11 @@
           :tasks="recentTasks"
           :projects="projects"
           :show-edit="false"
-          :show-report="false"
           :show-delete="false"
+          :show-run-actions="false"
+          compact-actions
           @select="showTaskDetail"
-          @start="startTask"
-          @restart="retryTask"
+          @report="showReportDetail"
       />
     </el-card>
 
@@ -105,6 +105,14 @@
         :enabled-models="enabledModels"
         @close="detailVisible = false"
     />
+
+    <TaskReportDialog
+        :visible="reportDetailVisible"
+        :task="reportDetailTask"
+        :report="reportDetailData"
+        :loading="reportDetailLoading"
+        @close="reportDetailVisible = false"
+    />
   </div>
 </template>
 
@@ -112,18 +120,31 @@
 import {ref} from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
-import {getTask} from "../api";
+import TaskReportDialog from "../components/task/TaskReportDialog.vue";
+import {getTask, getTaskReportJson} from "../api";
 import {useConsoleApp} from "../composables/useConsoleApp";
-import type {Task} from "../types";
+import type {ReportData, Task} from "../types";
 
 type AppContext = ReturnType<typeof useConsoleApp>;
 
 const props = defineProps<{ app: AppContext }>();
-const {projects, allTasks, recentTasks, runningCount, findingCount, startTask, retryTask, enabledModels, error} = props.app;
+const {
+  projects,
+  allTasks,
+  recentTasks,
+  runningCount,
+  findingCount,
+  enabledModels,
+  error
+} = props.app;
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailTask = ref<Task | null>(null);
+const reportDetailVisible = ref(false);
+const reportDetailLoading = ref(false);
+const reportDetailTask = ref<Task | null>(null);
+const reportDetailData = ref<ReportData | null>(null);
 
 async function showTaskDetail(taskId: string): Promise<void> {
   detailVisible.value = true;
@@ -136,6 +157,25 @@ async function showTaskDetail(taskId: string): Promise<void> {
     detailVisible.value = false;
   } finally {
     detailLoading.value = false;
+  }
+}
+
+async function showReportDetail(taskId: string): Promise<void> {
+  reportDetailVisible.value = true;
+  reportDetailLoading.value = true;
+  reportDetailTask.value = null;
+  reportDetailData.value = null;
+  try {
+    const task = await getTask(taskId);
+    reportDetailTask.value = task;
+    if (task.reportPath) {
+      reportDetailData.value = await getTaskReportJson(taskId);
+    }
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : "获取报告详情失败";
+    reportDetailVisible.value = false;
+  } finally {
+    reportDetailLoading.value = false;
   }
 }
 </script>

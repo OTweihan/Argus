@@ -87,7 +87,7 @@ class TaskSQLiteStorage:
         return row is not None
 
     def save(self, task: Task) -> Task:
-        """保存任务及关联的日志和发现项（全量写入）。"""
+        """保存任务（仅写入 tasks 表；日志和发现项通过 append_log / append_finding 独立写入）。"""
         with closing(self._connect()) as connection:
             with connection:
                 connection.execute(
@@ -118,18 +118,6 @@ class TaskSQLiteStorage:
                     """,
                     self._task_to_row(task),
                 )
-                connection.execute("DELETE FROM task_logs WHERE task_id = ?", (task.task_id,))
-                for log in task.logs:
-                    connection.execute(
-                        "INSERT INTO task_logs (task_log_id, task_id, step_number, action, result, params_json, url_before, url_after, screenshot_path, message, error, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        self._log_to_row(task.task_id, log),
-                    )
-                connection.execute("DELETE FROM findings WHERE task_id = ?", (task.task_id,))
-                for finding in task.findings:
-                    connection.execute(
-                        "INSERT INTO findings (finding_id, task_id, title, description, severity, finding_type, url, location, screenshot_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        self._finding_to_row(task.task_id, finding),
-                    )
         return task
 
     def update_task(self, task_id: str, **fields: Any) -> None:

@@ -61,51 +61,20 @@ class FakeBlackboxRunner:
         return task
 
 
-def test_run_parser_rejects_non_positive_limits():
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["run", "--goal", "打开页面", "--url", "https://example.com", "--max-steps", "0"],
+        ["run", "--goal", "打开页面", "--url", "https://example.com", "--timeout", "-1"],
+        ["run", "--goal", "打开页面", "--url", "https://example.com", "--browser", "unknown"],
+        ["browser", "check", "--url", "https://example.com", "--browser", "unknown"],
+    ],
+    ids=["max_steps_zero", "timeout_negative", "run_unknown_browser", "browser_unknown_browser"],
+)
+def test_parser_rejects_invalid_args(args: list[str]) -> None:
     parser = cli_main.build_parser()
-
     with pytest.raises(SystemExit):
-        parser.parse_args(
-            [
-                "run",
-                "--goal",
-                "打开页面",
-                "--url",
-                "https://example.com",
-                "--max-steps",
-                "0",
-            ]
-        )
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            [
-                "run",
-                "--goal",
-                "打开页面",
-                "--url",
-                "https://example.com",
-                "--timeout",
-                "-1",
-            ]
-        )
-
-
-def test_run_parser_rejects_unknown_browser():
-    parser = cli_main.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            [
-                "run",
-                "--goal",
-                "打开页面",
-                "--url",
-                "https://example.com",
-                "--browser",
-                "unknown",
-            ]
-        )
+        parser.parse_args(args)
 
 
 def test_run_parser_accepts_auth_state():
@@ -168,22 +137,6 @@ def test_read_auth_state_sites(tmp_path):
     assert auth_cmd._read_auth_state_sites(state_file) == "app.example.com、example.com"
 
 
-def test_browser_parser_rejects_unknown_browser():
-    parser = cli_main.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            [
-                "browser",
-                "check",
-                "--url",
-                "https://example.com",
-                "--browser",
-                "unknown",
-            ]
-        )
-
-
 @pytest.mark.asyncio
 async def test_run_task_create_only(monkeypatch, capsys):
     monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
@@ -232,34 +185,19 @@ async def test_run_task_executes_runner(monkeypatch, capsys):
     assert "HTML 报告：outputs/reports/fake/index.html" in output
 
 
-def test_resolve_run_limits_uses_user_values():
-    assert resolve_execution_limits(
-        "打开页面", "https://example.com", 9, 120
-    ) == TaskExecutionLimits(
-        max_steps=9,
-        timeout_seconds=120,
-    )
-
-
-def test_resolve_run_limits_allows_partial_user_values():
-    assert resolve_execution_limits(
-        "打开页面", "https://example.com", 9, None
-    ) == TaskExecutionLimits(
-        max_steps=9,
-        timeout_seconds=180,
-    )
-
-
-def test_resolve_run_limits_infers_complex_task():
-    assert resolve_execution_limits(
-        "登录后提交订单表单",
-        "https://example.com",
-        None,
-        None,
-    ) == TaskExecutionLimits(
-        max_steps=20,
-        timeout_seconds=600,
-    )
+@pytest.mark.parametrize(
+    ("goal", "url", "max_steps", "timeout", "expected"),
+    [
+        ("打开页面", "https://example.com", 9, 120, TaskExecutionLimits(9, 120)),
+        ("打开页面", "https://example.com", 9, None, TaskExecutionLimits(9, 180)),
+        ("登录后提交订单表单", "https://example.com", None, None, TaskExecutionLimits(20, 600)),
+    ],
+    ids=["all_user", "partial_user", "inferred"],
+)
+def test_resolve_run_limits(
+    goal: str, url: str, max_steps: int | None, timeout: int | None, expected: TaskExecutionLimits
+) -> None:
+    assert resolve_execution_limits(goal, url, max_steps, timeout) == expected
 
 
 def test_main_run_handles_keyboard_interrupt(monkeypatch, capsys):
