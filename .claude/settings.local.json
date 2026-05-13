@@ -21,7 +21,8 @@
       "mcp__gitnexus__impact",
       "mcp__gitnexus__detect_changes",
       "Bash(py *)",
-      "Bash(.venv/Scripts/python.exe *)"
+      "Bash(.venv/Scripts/python.exe *)",
+      "Bash(git rm *)"
     ]
   }
 }

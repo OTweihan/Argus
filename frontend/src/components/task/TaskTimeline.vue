@@ -146,7 +146,9 @@ onMounted(async () => {
       if (wsEvent.taskId !== props.taskId) return;
       const timelineEvent = wsEvent.data as unknown;
       if (!isTimelineEvent(timelineEvent)) return;
-      events.value.push(timelineEvent);
+      if (!events.value.some(e => e.eventId === timelineEvent.eventId)) {
+        events.value.push(timelineEvent);
+      }
     });
   }
 });

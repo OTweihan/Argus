@@ -1,21 +1,20 @@
-import {computed, reactive, ref, type Ref, watch} from "vue";
-import {ElMessageBox} from "element-plus";
+import { reactive, ref, watch, type Ref } from "vue";
+import { ElMessageBox } from "element-plus";
 import {
     createTask as apiCreateTask,
     deleteTask as apiDeleteTask,
-    getTask as apiGetTask,
-    getTaskReportJson as apiGetTaskReportJson,
     inferTaskLimits,
-    listTasks as apiListTasks,
     restartTask as apiRestartTask,
     startTask as apiStartTask,
     updateTask as apiUpdateTask,
 } from "../api";
-import type {TaskPayload} from "../api";
-import type {ModelConfig, Project, ReportData, Task, TaskDisplayStatus} from "../types";
-import {errorMessage, nullableBoolean, nullableText, upsertById} from "../utils";
-import type {ParamEntry} from "../params";
-import {parseParamEntries} from "../params";
+import type { TaskPayload } from "../api";
+import type { ModelConfig, Project, Task } from "../types";
+import { errorMessage, nullableBoolean, nullableText, upsertById } from "../utils";
+import type { ParamEntry } from "../params";
+import { parseParamEntries } from "../params";
+import { useTaskList } from "./useTaskList";
+import { useTaskSelection } from "./useTaskSelection";
 
 interface TaskForm {
     editingId: string | null;
@@ -40,71 +39,18 @@ export function useTasks(opts: {
     view: Ref<string>;
     connectEventStream: () => void;
 }) {
-    const {allTasks, projects, models, error, message, formErrors, view, connectEventStream} = opts;
+    const { allTasks, projects, models, error, message, formErrors, view, connectEventStream } = opts;
+
+    const taskList = useTaskList({ allTasks });
+    const taskSelection = useTaskSelection({ allTasks, view, error, connectEventStream });
+
+    /* ── 任务表单 ── */
+
     const taskForm = reactive<TaskForm>(defaultTaskForm(projects.value[0]?.projectId ?? ""));
     const showTaskDialog = ref(false);
-    const taskStatusFilter = ref<TaskDisplayStatus | "">("");
-    const taskProjectFilter = ref("");
-    const taskSearchQuery = ref("");
-    const selectedTaskId = ref<string | null>(null);
-    const reportData = ref<ReportData | null>(null);
-    const reportLoading = ref(false);
-    const page = ref(1);
-    const pageSize = ref(20);
-    const total = ref(0);
-    const taskLoading = ref(false);
-
-    const selectedTask = computed(() => {
-        if (!selectedTaskId.value) return null;
-        return allTasks.value.find((task) => task.taskId === selectedTaskId.value) ?? null;
-    });
-
     const taskStatuses: TaskDisplayStatus[] = [
         "pending", "queued", "running", "completed", "failed", "timeout", "cancelled",
     ];
-
-    async function loadTasks(): Promise<void> {
-        taskLoading.value = true;
-        try {
-            const status = taskStatusFilter.value || undefined;
-            const res = await apiListTasks({
-                status,
-                projectId: taskProjectFilter.value || undefined,
-                q: taskSearchQuery.value.trim() || undefined,
-                offset: (page.value - 1) * pageSize.value,
-                limit: pageSize.value,
-            });
-            allTasks.value = res.tasks;
-            total.value = res.total;
-        } finally {
-            taskLoading.value = false;
-        }
-    }
-
-    function onPageChange(newPage: number): void {
-        page.value = newPage;
-        loadTasks();
-    }
-
-    function onPageSizeChange(newSize: number): void {
-        pageSize.value = newSize;
-        page.value = 1;
-        loadTasks();
-    }
-
-    let searchTimer: number | null = null;
-    watch(taskSearchQuery, () => {
-        if (searchTimer !== null) clearTimeout(searchTimer);
-        searchTimer = window.setTimeout(() => {
-            page.value = 1;
-            loadTasks();
-        }, 300);
-    });
-
-    watch([taskStatusFilter, taskProjectFilter], () => {
-        page.value = 1;
-        loadTasks();
-    });
 
     let goalTimer: number | null = null;
     async function autoFillLimits(): Promise<void> {
@@ -136,31 +82,7 @@ export function useTasks(opts: {
         },
     );
 
-    async function selectTask(taskId: string): Promise<void> {
-        try {
-            selectedTaskId.value = taskId;
-            view.value = "task-detail";
-            reportData.value = null;
-            reportLoading.value = true;
-            const task = await apiGetTask(taskId);
-            allTasks.value = upsertById(allTasks.value, task, "taskId");
-            if (task.reportPath) {
-                const data = await apiGetTaskReportJson(taskId);
-                reportData.value = data;
-            }
-            connectEventStream();
-        } catch (caught) {
-            error.value = errorMessage(caught);
-        } finally {
-            reportLoading.value = false;
-        }
-    }
-
-    function goBackToTasks(): void {
-        selectedTaskId.value = null;
-        view.value = "tasks";
-        connectEventStream();
-    }
+    /* ── 任务操作 ── */
 
     async function startTask(taskId: string): Promise<void> {
         try {
@@ -177,8 +99,8 @@ export function useTasks(opts: {
     async function retryTask(taskId: string): Promise<void> {
         try {
             const result = await apiRestartTask(taskId);
-            await loadTasks();
-            await selectTask(result.task.taskId);
+            await taskList.loadTasks();
+            await taskSelection.selectTask(result.task.taskId);
             message.value = "任务已重新入队。";
             error.value = "";
         } catch (caught) {
@@ -197,16 +119,16 @@ export function useTasks(opts: {
             });
             await apiDeleteTask(task.taskId);
             allTasks.value = allTasks.value.filter((item) => item.taskId !== task.taskId);
-            total.value = Math.max(0, total.value - 1);
-            if (selectedTaskId.value === task.taskId) {
-                selectedTaskId.value = null;
+            taskList.total.value = Math.max(0, taskList.total.value - 1);
+            if (taskSelection.selectedTaskId.value === task.taskId) {
+                taskSelection.selectedTaskId.value = null;
             }
             message.value = "任务已删除。";
             error.value = "";
-            if (allTasks.value.length === 0 && total.value > 0 && page.value > 1) {
-                page.value -= 1;
+            if (allTasks.value.length === 0 && taskList.total.value > 0 && taskList.page.value > 1) {
+                taskList.page.value -= 1;
             }
-            await loadTasks();
+            await taskList.loadTasks();
         } catch (caught) {
             if (caught === "cancel") return;
             error.value = errorMessage(caught);
@@ -252,7 +174,7 @@ export function useTasks(opts: {
                 ? await apiUpdateTask(taskForm.editingId, payload)
                 : await apiCreateTask(payload);
             allTasks.value = upsertById(allTasks.value, task, "taskId");
-            selectedTaskId.value = task.taskId;
+            taskSelection.selectedTaskId.value = task.taskId;
             showTaskDialog.value = false;
             resetTaskForm();
             connectEventStream();
@@ -263,6 +185,8 @@ export function useTasks(opts: {
             message.value = "";
         }
     }
+
+    /* ── 表单辅助 ── */
 
     function addParam(): void {
         taskForm.parameters.push({key: "", value: ""});
@@ -280,7 +204,7 @@ export function useTasks(opts: {
     }
 
     function openEditTaskDialog(targetTask?: Task): void {
-        const task = targetTask ?? selectedTask.value;
+        const task = targetTask ?? taskSelection.selectedTask.value;
         if (!task) return;
         const projectId = task.projectId ?? projects.value[0]?.projectId ?? "";
         Object.assign(taskForm, {
@@ -313,25 +237,15 @@ export function useTasks(opts: {
     }
 
     return {
+        /* task list */
+        ...taskList,
+        /* task selection */
+        ...taskSelection,
+        /* form */
         taskForm,
         showTaskDialog,
-        taskStatusFilter,
-        taskProjectFilter,
-        taskSearchQuery,
-        selectedTaskId,
-        reportData,
-        reportLoading,
-        selectedTask,
-        page,
-        pageSize,
-        total,
-        taskLoading,
         taskStatuses,
-        loadTasks,
-        onPageChange,
-        onPageSizeChange,
-        selectTask,
-        goBackToTasks,
+        /* actions */
         startTask,
         retryTask,
         deleteTask,
@@ -358,3 +272,5 @@ function defaultTaskForm(projectId = ""): TaskForm {
         parameters: [],
     };
 }
+
+type TaskDisplayStatus = "pending" | "queued" | "running" | "completed" | "failed" | "timeout" | "cancelled";

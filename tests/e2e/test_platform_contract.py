@@ -16,6 +16,7 @@ from argus_py.infra.worker import TaskWorker
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.report.generator import ReportGenerator, generate_report_safely
+from argus_py.task.application import TaskApplicationService
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 from argus_py.task.storage import TaskFileStorage
@@ -76,14 +77,27 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
                 goal="验证 Web 平台端到端契约",
                 capture_screenshots=False,
             ),
-            service=task_service,
-            project_service=project_service,
-            model_config_service=ModelConfigService(
-                ModelConfigSQLiteStorage(tmp_path / "models.db")
+            app=TaskApplicationService(
+                task_service=task_service,
+                queue=queue,
+                project_service=project_service,
+                model_config_service=ModelConfigService(
+                    ModelConfigSQLiteStorage(tmp_path / "models.db")
+                ),
             ),
         )
 
-        start_result = await task_routes.start_task(task.task_id, service=task_service, queue=queue)
+        start_result = await task_routes.start_task(
+            task.task_id,
+            app=TaskApplicationService(
+                task_service=task_service,
+                queue=queue,
+                project_service=project_service,
+                model_config_service=ModelConfigService(
+                    ModelConfigSQLiteStorage(tmp_path / "models.db")
+                ),
+            ),
+        )
 
         assert start_result.scheduler_status == "queued"
         completed = await _wait_for_task_status(task_service, task.task_id, TaskStatus.COMPLETED)

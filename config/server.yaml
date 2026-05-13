@@ -27,3 +27,7 @@ observability:
   request_logging: true
   operation_logging: true
   audit_logging: true
+  llm_trace:
+    enabled: true
+    max_size_mb: 50
+    content_redact: true

@@ -1,6 +1,7 @@
 """FastAPI 依赖注入 — 仅做框架适配，组合逻辑在 runtime.container。"""
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from argus_py.config.server_settings import load_server_settings  # noqa: F401
 from argus_py.config.service import ModelConfigService
@@ -11,6 +12,9 @@ from argus_py.observability.audit import AuditService
 from argus_py.project.service import ProjectService
 from argus_py.runtime.container import create_container
 from argus_py.task.service import TaskService
+
+if TYPE_CHECKING:
+    from argus_py.task.application import TaskApplicationService
 
 
 @lru_cache
@@ -46,3 +50,16 @@ def get_task_queue() -> TaskQueue:
 @lru_cache
 def get_task_worker() -> TaskWorker:
     return create_container().task_worker
+
+
+@lru_cache
+def get_task_app_service() -> "TaskApplicationService":
+    from argus_py.task.application import TaskApplicationService
+
+    c = create_container()
+    return TaskApplicationService(
+        task_service=c.task_service,
+        queue=c.task_queue,
+        project_service=c.project_service,
+        model_config_service=c.model_config_service,
+    )

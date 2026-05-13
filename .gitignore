@@ -36,6 +36,9 @@ outputs/temp/*
 !outputs/temp/.gitkeep
 outputs/data/*
 !outputs/data/.gitkeep
+outputs/traces/*
+!outputs/traces/.gitkeep
+outputs/_pytest_*
 
 frontend/node_modules/
 frontend/dist/

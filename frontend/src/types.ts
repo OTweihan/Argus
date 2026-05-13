@@ -29,29 +29,19 @@ export interface TimelineEvent {
 }
 
 export interface LLMTraceRecord {
-    traceId?: string;
-    trace_id?: string;
-    taskId?: string;
-    task_id?: string;
+    traceId: string;
+    taskId: string;
     phase: string;
     event: string;
     systemPrompt?: string;
-    system_prompt?: string;
     inputPayload?: Record<string, unknown>;
-    input_payload?: Record<string, unknown>;
     model: string;
     baseUrlHost?: string;
-    base_url_host?: string;
     latencyMs?: number;
-    latency_ms?: number;
     tokenUsage?: Record<string, number>;
-    token_usage?: Record<string, number>;
     rawResponse?: string;
-    raw_response?: string;
     parsedResult?: unknown;
-    parsed_result?: unknown;
     parseError?: string;
-    parse_error?: string;
     error?: string;
     timestamp: string;
 }

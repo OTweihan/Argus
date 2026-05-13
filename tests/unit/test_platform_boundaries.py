@@ -13,6 +13,7 @@ from argus_py.infra.queue import TaskQueue
 from argus_py.llm.providers import default_base_url
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
+from argus_py.task.application import TaskApplicationService
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
@@ -129,7 +130,20 @@ async def test_stop_queued_task_clears_scheduler_status(tmp_path):
     task = task_service.create_task(goal="等待执行", start_url="https://example.com")
     await queue.enqueue(task.task_id)
 
-    response = await task_routes.stop_task(task.task_id, service=task_service, queue=queue)
+    response = await task_routes.stop_task(
+        task.task_id,
+        app=TaskApplicationService(
+            task_service=task_service,
+            queue=queue,
+            project_service=ProjectService(
+                ProjectSQLiteStorage(tmp_path / "stop.db"),
+                task_service=task_service,
+            ),
+            model_config_service=ModelConfigService(
+                ModelConfigSQLiteStorage(tmp_path / "models.db")
+            ),
+        ),
+    )
 
     assert response.status.value == "cancelled"
     assert response.scheduler_status is None
@@ -158,9 +172,14 @@ async def test_web_task_creation_inherits_project_screenshot_default(tmp_path):
             goal="继承项目默认截图配置",
             capture_screenshots=None,
         ),
-        service=task_service,
-        project_service=project_service,
-        model_config_service=ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db")),
+        app=TaskApplicationService(
+            task_service=task_service,
+            queue=TaskQueue(),
+            project_service=project_service,
+            model_config_service=ModelConfigService(
+                ModelConfigSQLiteStorage(tmp_path / "models.db")
+            ),
+        ),
     )
 
     assert task.capture_screenshots is False
@@ -281,7 +300,7 @@ async def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
     )
 
     result = await event_routes.get_trace_detail(task.task_id, "trc-001", service=task_service)
-    assert result["trace_id"] == "trc-001"
+    assert result["traceId"] == "trc-001"
     assert result["phase"] == "planner"
 
     with pytest.raises(HTTPException) as exc_info:
@@ -319,7 +338,13 @@ async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert "application/zip" in response.media_type
 
-    body = b"".join([chunk async for chunk in response.body_iterator])
+    import io
+    import zipfile
+
+    # FileResponse 暴露 path 属性，直接从临时文件读取
+    assert hasattr(response, "path")
+    with open(response.path, "rb") as f:
+        body = f.read()
     zf = zipfile.ZipFile(io.BytesIO(body))
     names = zf.namelist()
     assert "task.json" in names

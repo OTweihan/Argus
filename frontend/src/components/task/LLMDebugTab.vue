@@ -22,7 +22,7 @@
       <div class="dbg-list">
         <div
           v-for="trace in filteredTraces"
-          :key="trace.trace_id ?? trace.timestamp"
+          :key="trace.traceId"
           :class="['dbg-item', { selected: selectedTrace === trace }]"
           @click="selectedTrace = trace"
         >
@@ -34,8 +34,8 @@
           </div>
           <div class="dbg-item-body">
             <span class="dbg-model">{{ trace.model || '-' }}</span>
-            <span class="dbg-latency" v-if="trace.latency_ms != null && trace.latency_ms > 0">
-              {{ (trace.latency_ms / 1000).toFixed(1) }}s
+            <span class="dbg-latency" v-if="trace.latencyMs != null && trace.latencyMs > 0">
+              {{ (trace.latencyMs / 1000).toFixed(1) }}s
             </span>
           </div>
           <div class="dbg-item-time">{{ formatTime(trace.timestamp) }}</div>
@@ -59,9 +59,9 @@
             <el-descriptions-item label="阶段">{{ selectedTrace.phase }}</el-descriptions-item>
             <el-descriptions-item label="事件">{{ eventLabel(selectedTrace.event) }}</el-descriptions-item>
             <el-descriptions-item label="模型">{{ selectedTrace.model || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="Host">{{ selectedTrace.base_url_host || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="耗时" v-if="selectedTrace.latency_ms != null">
-              {{ (selectedTrace.latency_ms / 1000).toFixed(2) }}s
+            <el-descriptions-item label="Host">{{ selectedTrace.baseUrlHost || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="耗时" v-if="selectedTrace.latencyMs != null">
+              {{ (selectedTrace.latencyMs / 1000).toFixed(2) }}s
             </el-descriptions-item>
             <el-descriptions-item label="时间">{{ formatTime(selectedTrace.timestamp) }}</el-descriptions-item>
             <el-descriptions-item label="Prompt Tokens" v-if="tokenUsage?.prompt_tokens != null">
@@ -82,8 +82,8 @@
             class="dbg-error"
           />
           <el-alert
-            v-if="selectedTrace.parse_error"
-            :title="'解析失败：' + selectedTrace.parse_error"
+            v-if="selectedTrace.parseError"
+            :title="'解析失败：' + selectedTrace.parseError"
             type="warning"
             show-icon
             :closable="false"
@@ -109,16 +109,16 @@
           </div>
 
           <!-- Raw Response -->
-          <div v-if="selectedTrace.raw_response" class="dbg-section">
+          <div v-if="selectedTrace.rawResponse" class="dbg-section">
             <div class="dbg-section-head">
               <span class="dbg-section-title">Raw Response</span>
-              <el-button size="small" link @click="copyText(selectedTrace.raw_response!)">复制</el-button>
+              <el-button size="small" link @click="copyText(selectedTrace.rawResponse!)">复制</el-button>
             </div>
-            <pre class="dbg-code">{{ selectedTrace.raw_response }}</pre>
+            <pre class="dbg-code">{{ selectedTrace.rawResponse }}</pre>
           </div>
 
           <!-- Parsed Result -->
-          <div v-if="selectedTrace.parsed_result" class="dbg-section">
+          <div v-if="selectedTrace.parsedResult" class="dbg-section">
             <div class="dbg-section-head">
               <span class="dbg-section-title">Parsed Result</span>
               <el-button size="small" link @click="copyText(parsedResultStr)">复制</el-button>
@@ -158,21 +158,21 @@ const filteredTraces = computed(() => {
 });
 
 const systemPrompt = computed(() => {
-  return selectedTrace.value?.system_prompt || selectedTrace.value?.systemPrompt || "";
+  return selectedTrace.value?.systemPrompt || "";
 });
 
 const tokenUsage = computed(() => {
-  return selectedTrace.value?.token_usage || selectedTrace.value?.tokenUsage || null;
+  return selectedTrace.value?.tokenUsage || null;
 });
 
 const inputPayloadStr = computed(() => {
-  const payload = selectedTrace.value?.input_payload || selectedTrace.value?.inputPayload;
+  const payload = selectedTrace.value?.inputPayload;
   if (!payload) return "";
   return JSON.stringify(payload, null, 2);
 });
 
 const parsedResultStr = computed(() => {
-  const result = selectedTrace.value?.parsed_result;
+  const result = selectedTrace.value?.parsedResult;
   if (result == null) return "";
   return JSON.stringify(result, null, 2);
 });
@@ -232,8 +232,8 @@ function copyPrompt() {
 }
 
 function copyRawResponse() {
-  if (!selectedTrace.value?.raw_response) return;
-  copyText(selectedTrace.value.raw_response);
+  if (!selectedTrace.value?.rawResponse) return;
+  copyText(selectedTrace.value.rawResponse);
 }
 
 function downloadDebugBundle() {

@@ -1,1 +1,0 @@
-{"task_id": "phase1-check-task", "phase": "planner", "event": "task.llm.started", "system_prompt": "s", "input_payload": {"api_key": "***", "token_usage": {"total_tokens": 1}}, "model": "", "base_url_host": "", "latency_ms": 0.0, "token_usage": {}, "raw_response": "", "parsed_result": null, "parse_error": "", "error": "", "timestamp": "2026-05-12T06:32:27.641821+00:00"}

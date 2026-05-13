@@ -35,6 +35,9 @@ class ServerSettings:
     observability_request_logging: bool = True
     observability_operation_logging: bool = True
     observability_audit_logging: bool = True
+    llm_trace_enabled: bool = True
+    llm_trace_max_size_mb: int = 50
+    llm_trace_content_redact: bool = True
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -46,6 +49,7 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
     scheduler = data.get("scheduler") or {}
     events = data.get("events") or {}
     observability = data.get("observability") or {}
+    llm_trace = observability.get("llm_trace") or {}
     return ServerSettings(
         host=str(server.get("host", "127.0.0.1")),
         port=_as_int(server.get("port"), 8000, minimum=1),
@@ -75,6 +79,9 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
             observability.get("audit_logging"),
             True,
         ),
+        llm_trace_enabled=_as_bool(llm_trace.get("enabled"), True),
+        llm_trace_max_size_mb=_as_int(llm_trace.get("max_size_mb"), 50, minimum=0),
+        llm_trace_content_redact=_as_bool(llm_trace.get("content_redact"), True),
     )
 
 
