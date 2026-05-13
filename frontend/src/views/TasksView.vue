@@ -11,7 +11,7 @@
       </div>
       <div v-if="!selectedTask" class="empty">未选择任务</div>
       <template v-else>
-        <el-tabs v-model="activeTab" type="border-card" class="detail-tabs">
+        <el-tabs v-model="selectedTaskTab" type="border-card" class="detail-tabs">
           <el-tab-pane label="报告" name="report">
             <ReportView
                 :key="selectedTask.taskId"
@@ -61,7 +61,11 @@
               :projects="projects"
               height="100%"
               @select="showTaskDetail"
-              @report="showReportDetail"
+              @report="showTaskReport"
+              @edit="editTask"
+              @start="startTask"
+              @restart="retryTask"
+              @delete="deleteTask"
           />
         </div>
         <div class="pagination-bar">
@@ -102,13 +106,6 @@
       @close="detailVisible = false"
   />
 
-  <TaskReportDialog
-      :visible="reportDetailVisible"
-      :task="reportDetailTask"
-      :report="reportDetailData"
-      :loading="reportDetailLoading"
-      @close="reportDetailVisible = false"
-  />
 </template>
 
 <script setup lang="ts">
@@ -116,34 +113,28 @@ import {ref} from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
-import TaskReportDialog from "../components/task/TaskReportDialog.vue";
 import LLMDebugTab from "../components/task/LLMDebugTab.vue";
 import TaskTimeline from "../components/task/TaskTimeline.vue";
 import ReportView from "./ReportView.vue";
-import {getTask, getTaskReportJson, reportUrl} from "../api";
+import {getTask, reportUrl} from "../api";
 import {useConsoleApp} from "../composables/useConsoleApp";
-import type {ReportData, Task} from "../types";
+import type {Task} from "../types";
 
 type AppContext = ReturnType<typeof useConsoleApp>;
 
 const props = defineProps<{ app: AppContext }>();
 const {
   view, projects, allTasks, taskStatusFilter, taskProjectFilter,
-  taskSearchQuery, taskStatuses, selectedTask, reportData, reportLoading, taskForm,
+  taskSearchQuery, taskStatuses, selectedTask, selectedTaskTab, reportData, reportLoading, taskForm,
   showTaskDialog, formErrors, error, enabledModels,
   page, pageSize, total, taskLoading,
   startTask, retryTask, deleteTask, goBackToTasks, saveTask, openNewTaskDialog, openEditTaskDialog,
-  addParam, removeParam, onPageChange, onPageSizeChange, onTaskEvent,
+  addParam, removeParam, onPageChange, onPageSizeChange, onTaskEvent, selectTask,
 } = props.app;
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailTask = ref<Task | null>(null);
-const activeTab = ref("report");
-const reportDetailVisible = ref(false);
-const reportDetailLoading = ref(false);
-const reportDetailTask = ref<Task | null>(null);
-const reportDetailData = ref<ReportData | null>(null);
 
 async function showTaskDetail(taskId: string): Promise<void> {
   detailVisible.value = true;
@@ -159,23 +150,8 @@ async function showTaskDetail(taskId: string): Promise<void> {
   }
 }
 
-async function showReportDetail(taskId: string): Promise<void> {
-  reportDetailVisible.value = true;
-  reportDetailLoading.value = true;
-  reportDetailTask.value = null;
-  reportDetailData.value = null;
-  try {
-    const task = await getTask(taskId);
-    reportDetailTask.value = task;
-    if (task.reportPath) {
-      reportDetailData.value = await getTaskReportJson(taskId);
-    }
-  } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "获取报告详情失败";
-    reportDetailVisible.value = false;
-  } finally {
-    reportDetailLoading.value = false;
-  }
+async function showTaskReport(taskId: string): Promise<void> {
+  await selectTask(taskId, "report");
 }
 
 function editTask(task: Task): void {
@@ -290,6 +266,9 @@ function downloadJsonReport(): void {
 
 .detail-tabs :deep(.el-tab-pane) {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 </style>

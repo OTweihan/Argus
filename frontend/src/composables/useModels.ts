@@ -124,7 +124,9 @@ export function useModels(opts: {
                 showDialog("模型连接检查失败", "请先填写模型名称。", "error");
                 return;
             }
-            const payload: ModelConnectionPayload = modelConfigId ? {modelConfigId} : readModelPayload();
+            const payload: ModelConnectionPayload = modelConfigId
+                ? {modelConfigId, ...readModelPayload()}
+                : readModelPayload();
             showDialog("模型连接检查", "正在测试模型连接...", "info");
             const result = await apiTestModel(payload);
             const detail = [

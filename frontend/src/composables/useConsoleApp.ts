@@ -200,6 +200,7 @@ export function useConsoleApp() {
         saveProject: projectDomain.saveProject,
         saveTask: taskDomain.saveTask,
         selectTask: taskDomain.selectTask,
+        selectedTaskTab: taskDomain.selectedTaskTab,
         selectedTask: taskDomain.selectedTask,
         showModelDialog: modelDomain.showModelDialog,
         showProjectDialog: projectDomain.showProjectDialog,

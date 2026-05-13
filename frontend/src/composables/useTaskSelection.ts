@@ -3,6 +3,8 @@ import { getTask as apiGetTask, getTaskReportJson as apiGetTaskReportJson } from
 import type { ReportData, Task } from "../types";
 import { errorMessage, upsertById } from "../utils";
 
+export type TaskDetailTab = "report" | "timeline" | "llm-debug";
+
 export function useTaskSelection(opts: {
     allTasks: Ref<Task[]>;
     view: Ref<string>;
@@ -11,6 +13,7 @@ export function useTaskSelection(opts: {
 }) {
     const { allTasks, view, error, connectEventStream } = opts;
     const selectedTaskId = ref<string | null>(null);
+    const selectedTaskTab = ref<TaskDetailTab>("report");
     const reportData = ref<ReportData | null>(null);
     const reportLoading = ref(false);
 
@@ -19,9 +22,10 @@ export function useTaskSelection(opts: {
         return allTasks.value.find((task) => task.taskId === selectedTaskId.value) ?? null;
     });
 
-    async function selectTask(taskId: string): Promise<void> {
+    async function selectTask(taskId: string, tab: TaskDetailTab = "report"): Promise<void> {
         try {
             selectedTaskId.value = taskId;
+            selectedTaskTab.value = tab;
             view.value = "task-detail";
             reportData.value = null;
             reportLoading.value = true;
@@ -41,12 +45,14 @@ export function useTaskSelection(opts: {
 
     function goBackToTasks(): void {
         selectedTaskId.value = null;
+        selectedTaskTab.value = "report";
         view.value = "tasks";
         connectEventStream();
     }
 
     return {
         selectedTaskId,
+        selectedTaskTab,
         selectedTask,
         reportData,
         reportLoading,
