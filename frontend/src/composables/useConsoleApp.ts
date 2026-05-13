@@ -170,6 +170,7 @@ export function useConsoleApp() {
         error,
         eventStatus: events.eventStatus,
         eventStatusText: events.eventStatusText,
+        onTaskEvent: events.onTaskEvent,
         findingCount,
         formErrors,
         goBackToTasks: taskDomain.goBackToTasks,

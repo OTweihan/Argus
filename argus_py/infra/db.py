@@ -134,6 +134,22 @@ CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
 CREATE INDEX IF NOT EXISTS idx_findings_type ON findings(finding_type);
 """
 
+TASK_EVENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_events (
+  event_id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  step_number INTEGER NOT NULL DEFAULT 0,
+  summary TEXT NOT NULL DEFAULT '',
+  data_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_events_task_created ON task_events(task_id, created_at);
+"""
+
 
 def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     """创建 SQLite 连接并设置运行参数。"""
@@ -184,5 +200,6 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             connection.executescript(TASKS_SCHEMA)
             connection.executescript(TASK_LOGS_SCHEMA)
             connection.executescript(FINDINGS_SCHEMA)
+            connection.executescript(TASK_EVENTS_SCHEMA)
             _migrate_tasks_table(connection)
             _migrate_model_configs_table(connection)

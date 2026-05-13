@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_ARGUS_API_BASE ?? "/api/v1").replace(/\/$/, "");
+export const API_BASE = (import.meta.env.VITE_ARGUS_API_BASE ?? "/api/v1").replace(/\/$/, "");
 const DEFAULT_REQUEST_TIMEOUT_MS = Number(
     import.meta.env.VITE_ARGUS_API_TIMEOUT_MS ?? 180000,
 );
@@ -113,7 +113,7 @@ export async function request<T>(
     init: RequestInit = {},
 ): Promise<T> {
     let response: Response;
-    const requestSignal = createRequestSignal(init.signal);
+    const requestSignal = createRequestSignal(init.signal ?? undefined);
     try {
         response = await fetch(`${API_BASE}${path}`, {
             ...init,
@@ -171,4 +171,8 @@ export function reportUrl(taskId: string, json = false, download = false): strin
 export function screenshotUrl(taskId: string, screenshotPath: string): string {
     const filename = screenshotPath.replace(/\\/g, "/").split("/").pop() ?? "";
     return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/screenshots/${encodeURIComponent(filename)}`;
+}
+
+export function debugBundleUrl(taskId: string): string {
+    return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/debug-bundle`;
 }

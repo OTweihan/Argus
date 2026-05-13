@@ -8,7 +8,6 @@ from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
 from argus_py.api.schemas.config import ModelConfigUpdateRequest
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
-from argus_py.config.models import ModelProvider
 from argus_py.config.service import ModelConfigService
 from argus_py.infra.queue import TaskQueue
 from argus_py.llm.providers import default_base_url
@@ -16,7 +15,7 @@ from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
-from argus_py.task.storage import TaskFileStorage
+from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
 
 @pytest.mark.parametrize(
@@ -32,23 +31,23 @@ def test_model_provider_change_base_url(tmp_path, custom_url, expected_url):
     service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "argus.db"))
     config = service.create_model_config(
         name="测试模型",
-        provider=ModelProvider.DASHSCOPE,
+        provider="dashscope",
         model="qwen-plus",
         base_url=custom_url,
     )
 
-    orig_default = default_base_url(ModelProvider.DASHSCOPE)
+    orig_default = default_base_url("dashscope")
     update_url = custom_url or orig_default
     updated = service.update_model_config(
         config.model_config_id,
-        {"provider": ModelProvider.OPENAI, "base_url": update_url},
+        {"provider": "openai", "base_url": update_url},
     )
 
-    assert updated.provider is ModelProvider.OPENAI
+    assert updated.provider == "openai"
     if expected_url is not None:
         assert updated.base_url == expected_url
     else:
-        assert updated.base_url == default_base_url(ModelProvider.OPENAI)
+        assert updated.base_url == default_base_url("openai")
 
 
 def test_server_settings_normalize_string_values(tmp_path):
@@ -189,3 +188,148 @@ def test_report_path_validation(tmp_path, monkeypatch, outside_reports):
         report_path.write_text("<html></html>", encoding="utf-8")
         task.report_path = str(report_path)
         assert report_routes._resolve_html_report_path(task) == report_path.resolve()
+
+
+from argus_py.api.routes import events as event_routes
+
+
+@pytest.mark.asyncio
+async def test_list_task_events_returns_timeline(tmp_path):
+    """GET /tasks/{id}/events 返回已持久化的时间线事件。"""
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "events.db"))
+    task = task_service.create_task(goal="事件测试", start_url="https://example.com")
+    task_service.emit_timeline(task.task_id, "start", "task", summary="开始")
+    task_service.emit_timeline(task.task_id, "complete", "task", summary="完成")
+
+    result = await event_routes.list_task_events(task.task_id, service=task_service)
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert result[0]["eventType"] == "start"
+    assert result[1]["eventType"] == "complete"
+    assert result[0]["taskId"] == task.task_id
+
+
+@pytest.mark.asyncio
+async def test_list_task_events_404_for_missing_task(tmp_path):
+    """不存在的 task_id 返回 404。"""
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "events404.db"))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await event_routes.list_task_events("no-such", service=task_service)
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
+    """读取 JSONL 追踪文件。"""
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm.db"))
+    task = task_service.create_task(goal="LLM追踪测试")
+
+    traces_dir = tmp_path / "traces"
+    traces_dir.mkdir()
+    monkeypatch.setattr("argus_py.api.routes.events.OUTPUT_DIR", tmp_path)
+
+    trace_file = traces_dir / f"{task.task_id}.jsonl"
+    trace_file.write_text(
+        '{"model":"qwen","latencyMs":1500}\n{"model":"gpt4","latencyMs":800}\n',
+        encoding="utf-8",
+    )
+
+    result = await event_routes.list_llm_traces(task.task_id, service=task_service)
+    assert len(result) == 2
+    assert result[0]["model"] == "qwen"
+    assert result[1]["latencyMs"] == 800
+
+
+@pytest.mark.asyncio
+async def test_list_llm_traces_404_for_missing_task(tmp_path):
+    """不存在的 task_id 返回 404。"""
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm404.db"))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await event_routes.list_llm_traces("no-such", service=task_service)
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_llm_traces_empty_when_no_file(tmp_path):
+    """无 JSONL 文件时返回空列表。"""
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm_empty.db"))
+    task = task_service.create_task(goal="无追踪")
+
+    result = await event_routes.list_llm_traces(task.task_id, service=task_service)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
+    """GET /tasks/{id}/llm-traces/{trace_id} 返回匹配的追踪记录。"""
+    from argus_py.core.paths import OUTPUT_DIR
+
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_detail.db"))
+    task = task_service.create_task(goal="追踪详情")
+
+    traces_dir = tmp_path / "traces"
+    traces_dir.mkdir()
+    monkeypatch.setattr("argus_py.api.routes.events.OUTPUT_DIR", tmp_path)
+
+    trace_file = traces_dir / f"{task.task_id}.jsonl"
+    trace_file.write_text(
+        '{"trace_id":"trc-001","phase":"planner","event":"task.llm.succeeded","model":"qwen"}\n'
+        '{"trace_id":"trc-002","phase":"evaluator","event":"task.llm.succeeded","model":"gpt4"}\n',
+        encoding="utf-8",
+    )
+
+    result = await event_routes.get_trace_detail(task.task_id, "trc-001", service=task_service)
+    assert result["trace_id"] == "trc-001"
+    assert result["phase"] == "planner"
+
+    with pytest.raises(HTTPException) as exc_info:
+        await event_routes.get_trace_detail(task.task_id, "no-such", service=task_service)
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_trace_detail_404_for_missing_task(tmp_path):
+    """不存在的 task_id 返回 404。"""
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_404.db"))
+    with pytest.raises(HTTPException) as exc_info:
+        await event_routes.get_trace_detail("no-such", "trc-001", service=task_service)
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
+    """调试包包含 task.json 和 traces。"""
+    import io
+    import zipfile
+
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "debug.db"))
+    task = task_service.create_task(goal="调试包测试")
+
+    traces_dir = tmp_path / "traces"
+    traces_dir.mkdir()
+    monkeypatch.setattr("argus_py.api.routes.events.OUTPUT_DIR", tmp_path)
+
+    (traces_dir / f"{task.task_id}.jsonl").write_text(
+        '{"trace_id":"trc-001","phase":"planner"}\n', encoding="utf-8"
+    )
+
+    response = await event_routes.download_debug_bundle(task.task_id, service=task_service)
+    assert response.status_code == 200
+    assert "application/zip" in response.media_type
+
+    body = b"".join([chunk async for chunk in response.body_iterator])
+    zf = zipfile.ZipFile(io.BytesIO(body))
+    names = zf.namelist()
+    assert "task.json" in names
+    assert "traces/llm.jsonl" in names
+
+
+@pytest.mark.asyncio
+async def test_debug_bundle_404_for_missing_task(tmp_path):
+    """不存在的 task_id 返回 404。"""
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "debug_404.db"))
+    with pytest.raises(HTTPException) as exc_info:
+        await event_routes.download_debug_bundle("no-such", service=task_service)
+    assert exc_info.value.status_code == 404

@@ -10,7 +10,16 @@ from argus_py.blackbox.prompts import load_evaluator_prompt
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.core.enums import FindingSeverity, FindingType
 from argus_py.core.exceptions import LLMError
+from argus_py.core.ids import generate_id
 from argus_py.llm import LLMClient, extract_json, validate_required_keys
+from argus_py.observability.llm_trace import (
+    EVENT_LLM_FAILED,
+    EVENT_LLM_PARSE_FAILED,
+    EVENT_LLM_STARTED,
+    EVENT_LLM_SUCCEEDED,
+    LLMTraceRecord,
+    write_trace,
+)
 from argus_py.task.models import Finding
 from argus_py.utils.jsonx import to_jsonable
 
@@ -72,23 +81,46 @@ class BlackboxEvaluator:
         history: list[dict[str, Any]] | None = None,
     ) -> EvaluationResult:
         """调用 LLM 判断目标是否完成。"""
+        sys_prompt = load_evaluator_prompt()
         payload = {
             "goal": goal,
             "observation": observation,
             "history": history or [],
         }
         prompt = "\n\n输入：\n" + json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2)
-        response = await self._client().complete(
-            prompt=prompt,
-            system_prompt=load_evaluator_prompt(),
-            response_format={"type": "json_object"},
-        )
+
+        trace_ctx: dict[str, Any] = {
+            "trace_id": generate_id("trc"),
+            "phase": "evaluator",
+            "system_prompt": sys_prompt,
+            "input_payload": payload,
+        }
+
+        write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_STARTED))
+
+        try:
+            response = await self._client().complete(
+                prompt=prompt,
+                system_prompt=sys_prompt,
+                response_format={"type": "json_object"},
+                _trace_ctx=trace_ctx,
+            )
+        except Exception as exc:
+            trace_ctx.setdefault("error", str(exc))
+            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_FAILED))
+            raise
+
+        trace_ctx["raw_response"] = response.content
 
         try:
             data = extract_json(response.content)
             validate_required_keys(data, ["completed", "success", "reason"])
+            trace_ctx["parsed_result"] = data
+            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_SUCCEEDED))
             return EvaluationResult.from_dict(data)
         except Exception as exc:
+            trace_ctx["parse_error"] = str(exc)
+            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_PARSE_FAILED))
             raise LLMError(f"黑盒评估器响应解析失败：{exc}") from exc
 
     def _client(self) -> LLMClient:

@@ -10,7 +10,16 @@ from argus_py.blackbox.prompts import load_planner_prompt
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.core.enums import ActionType
 from argus_py.core.exceptions import LLMError
+from argus_py.core.ids import generate_id
 from argus_py.llm import LLMClient, extract_json, validate_required_keys
+from argus_py.observability.llm_trace import (
+    EVENT_LLM_FAILED,
+    EVENT_LLM_PARSE_FAILED,
+    EVENT_LLM_STARTED,
+    EVENT_LLM_SUCCEEDED,
+    LLMTraceRecord,
+    write_trace,
+)
 from argus_py.utils.jsonx import to_jsonable
 
 
@@ -37,6 +46,7 @@ class BlackboxPlanner:
         last_error: dict[str, Any] | None = None,
     ) -> ActionSequence:
         """基于最新页面观察和上一轮失败信息生成下一批动作。"""
+        sys_prompt = load_planner_prompt()
         payload = {
             "goal": goal,
             "current_url": current_url,
@@ -47,17 +57,39 @@ class BlackboxPlanner:
         if last_error:
             payload["last_error"] = last_error
         prompt = "\n\n输入：\n" + json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2)
-        response = await self._client().complete(
-            prompt=prompt,
-            system_prompt=load_planner_prompt(),
-            response_format={"type": "json_object"},
-        )
+
+        trace_ctx: dict[str, Any] = {
+            "trace_id": generate_id("trc"),
+            "phase": "planner",
+            "system_prompt": sys_prompt,
+            "input_payload": payload,
+        }
+
+        write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_STARTED))
+
+        try:
+            response = await self._client().complete(
+                prompt=prompt,
+                system_prompt=sys_prompt,
+                response_format={"type": "json_object"},
+                _trace_ctx=trace_ctx,
+            )
+        except Exception as exc:
+            trace_ctx.setdefault("error", str(exc))
+            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_FAILED))
+            raise
+
+        trace_ctx["raw_response"] = response.content
 
         try:
             data = extract_json(response.content)
             validate_required_keys(data, ["summary", "steps"])
+            trace_ctx["parsed_result"] = data
+            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_SUCCEEDED))
             return ActionSequence.from_dict(data)
         except Exception as exc:
+            trace_ctx["parse_error"] = str(exc)
+            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_PARSE_FAILED))
             raise LLMError(f"黑盒规划器响应解析失败：{exc}") from exc
 
     def _client(self) -> LLMClient:

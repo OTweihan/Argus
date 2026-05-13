@@ -1,4 +1,4 @@
-export {ApiError, reportUrl, screenshotUrl} from "./client";
+export {ApiError, debugBundleUrl, reportUrl, screenshotUrl} from "./client";
 export type {
     ProjectPayload,
     TaskPayload,
@@ -21,6 +21,9 @@ export {
     startTask,
     restartTask,
     getTaskReportJson,
+    getTaskEvents,
+    getTaskTrace,
+    getTaskTraces,
 } from "./task";
 export {
     listModels,

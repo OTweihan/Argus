@@ -20,6 +20,7 @@ from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
 from argus_py.llm.resolver import resolve_llm_client_for_task
+from argus_py.observability.context import bind_context
 from argus_py.redaction import redact_href
 from argus_py.report.generator import ReportGenerator
 from argus_py.task.models import Task
@@ -65,103 +66,179 @@ class BlackboxRunner:
         if owns_status:
             resolved = self.service.start_task(resolved)
 
+        _tid = resolved.task_id
+
+        self.service.emit_timeline(
+            _tid,
+            "start",
+            "task",
+            summary="任务启动",
+            data={"goal": resolved.goal, "startUrl": resolved.start_url},
+        )
+
         planner, evaluator = self._resolve_llm_boundaries(resolved)
         task_input = self._to_task_input(resolved)
         sequence = await planner.plan_initial(task_input)
 
-        try:
-            async with self.browser_session_factory(resolved) as session:
-                latest_observation = ""
-                executed_steps = 0
-                recovery_attempts = 0
+        with bind_context(task_id=resolved.task_id):
+            try:
+                async with self.browser_session_factory(resolved) as session:
+                    latest_observation = ""
+                    executed_steps = 0
+                    recovery_attempts = 0
 
-                while executed_steps < task_input.max_steps:
-                    if await self._check_cancelled(resolved):
-                        resolved = self.service.get_latest_task(resolved)
-                        return self.finalizer.finalize(resolved, owns_status)
-                    if not sequence.steps:
-                        sequence = await self._plan_next(resolved, latest_observation, planner)
-                        if not sequence.steps:
-                            raise TaskError("规划器未返回可执行动作。")
-
-                    for action_step in sequence.steps:
-                        if executed_steps >= task_input.max_steps:
-                            break
-                        executed_steps += 1
-
-                        try:
-                            resolved, latest_observation = (
-                                await self.action_executor.execute_action(
-                                    resolved, session, action_step
-                                )
-                            )
-                            recovery_attempts = 0
-                            self._last_error = None
-                        except TaskError as exc:
+                    while executed_steps < task_input.max_steps:
+                        if await self._check_cancelled(resolved):
                             resolved = self.service.get_latest_task(resolved)
-                            self._last_error = {
-                                "action": action_step.action.value,
-                                "error_code": exc.error_code,
-                                "error_message": str(exc),
-                                "step_number": executed_steps,
-                            }
-                            if exc.error_code in (
-                                "empty_url",
-                                "invalid_scheme",
-                                "malformed_url",
-                                "markdown_link_text",
-                                "plain_text",
-                                "param_invalid",
-                            ):
+                            return self.finalizer.finalize(resolved, owns_status)
+                        if not sequence.steps:
+                            sequence = await self._plan_next(resolved, latest_observation, planner)
+                            if not sequence.steps:
+                                raise TaskError("规划器未返回可执行动作。")
+
+                        for action_step in sequence.steps:
+                            if executed_steps >= task_input.max_steps:
+                                break
+                            executed_steps += 1
+
+                            self.service.emit_timeline(
+                                _tid,
+                                "action",
+                                "executor",
+                                step_number=executed_steps,
+                                summary=f"执行 {action_step.action.value}",
+                                data={
+                                    "action": action_step.action.value,
+                                    "selector": action_step.selector,
+                                    "url": action_step.url,
+                                },
+                            )
+
+                            try:
+                                resolved, latest_observation = (
+                                    await self.action_executor.execute_action(
+                                        resolved, session, action_step
+                                    )
+                                )
+                                recovery_attempts = 0
+                                self._last_error = None
+                            except TaskError as exc:
+                                resolved = self.service.get_latest_task(resolved)
+                                self._last_error = {
+                                    "action": action_step.action.value,
+                                    "error_code": exc.error_code,
+                                    "error_message": str(exc),
+                                    "step_number": executed_steps,
+                                }
+                                if exc.error_code in (
+                                    "empty_url",
+                                    "invalid_scheme",
+                                    "malformed_url",
+                                    "markdown_link_text",
+                                    "plain_text",
+                                    "param_invalid",
+                                ):
+                                    latest_observation = await self.evidence.safe_observation(
+                                        session
+                                    )
+                                    sequence = ActionSequence(
+                                        steps=[], summary=f"参数校验失败：{exc}，重新规划。"
+                                    )
+                                    break
+                                if recovery_attempts >= self.max_recovery_attempts:
+                                    raise
+                                recovery_attempts += 1
                                 latest_observation = await self.evidence.safe_observation(session)
                                 sequence = ActionSequence(
-                                    steps=[], summary=f"参数校验失败：{exc}，重新规划。"
+                                    steps=[],
+                                    summary="动作失败后重新观察页面并规划。",
                                 )
                                 break
-                            if recovery_attempts >= self.max_recovery_attempts:
-                                raise
-                            recovery_attempts += 1
-                            latest_observation = await self.evidence.safe_observation(session)
-                            sequence = ActionSequence(
-                                steps=[],
-                                summary="动作失败后重新观察页面并规划。",
+
+                        if not sequence.steps:
+                            continue
+
+                        self.service.emit_timeline(
+                            _tid,
+                            "evaluator_start",
+                            "evaluator",
+                            step_number=executed_steps,
+                            summary="Evaluator 开始判断",
+                            data={"goal": resolved.goal},
+                        )
+
+                        evaluation = await evaluator.evaluate(
+                            resolved.goal,
+                            latest_observation,
+                            history=self.finalizer.history(resolved),
+                        )
+
+                        self.service.emit_timeline(
+                            _tid,
+                            "evaluator_result",
+                            "evaluator",
+                            step_number=executed_steps,
+                            summary="成功" if evaluation.success else "失败",
+                            data={
+                                "completed": evaluation.completed,
+                                "success": evaluation.success,
+                                "reason": evaluation.reason,
+                                "findingCount": len(evaluation.findings),
+                            },
+                        )
+
+                        resolved = self.finalizer.append_evaluation(resolved, evaluation)
+                        if evaluation.completed:
+                            resolved.result_summary = evaluation.reason
+                            if evaluation.success:
+                                self.service.emit_timeline(
+                                    _tid, "complete", "task", summary="任务完成"
+                                )
+                                return self.finalizer.finish_success(resolved, owns_status)
+                            self.service.emit_timeline(
+                                _tid,
+                                "fail",
+                                "task",
+                                summary="评估判定失败",
+                                data={"errorMessage": evaluation.reason},
                             )
+                            raise TaskError(
+                                evaluation.reason or "黑盒任务已完成，但评估结果为失败。"
+                            )
+
+                        if executed_steps >= task_input.max_steps:
                             break
-
-                    if not sequence.steps:
-                        continue
-
-                    evaluation = await evaluator.evaluate(
-                        resolved.goal,
-                        latest_observation,
-                        history=self.finalizer.history(resolved),
+                        sequence = await self._plan_next(resolved, latest_observation, planner)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as exc:
+                logger.exception("黑盒任务异常：%s", resolved.task_id)
+                latest = self.service.get_latest_task(resolved)
+                if owns_status and latest.status is TaskStatus.RUNNING:
+                    self.service.emit_timeline(
+                        _tid,
+                        "fail",
+                        "task",
+                        summary="任务异常",
+                        data={"errorMessage": str(exc)},
                     )
-                    resolved = self.finalizer.append_evaluation(resolved, evaluation)
-                    if evaluation.completed:
-                        resolved.result_summary = evaluation.reason
-                        if evaluation.success:
-                            return self.finalizer.finish_success(resolved, owns_status)
-                        raise TaskError(evaluation.reason or "黑盒任务已完成，但评估结果为失败。")
+                    failed = self.service.fail_task(latest, str(exc))
+                    self.finalizer.generate_report(failed)
+                raise
 
-                    if executed_steps >= task_input.max_steps:
-                        break
-                    sequence = await self._plan_next(resolved, latest_observation, planner)
-        except (asyncio.CancelledError, KeyboardInterrupt):
-            raise
-        except Exception as exc:
-            logger.exception("黑盒任务异常：%s", resolved.task_id)
+            message = f"达到最大步骤 {task_input.max_steps} 后仍未完成目标。"
             latest = self.service.get_latest_task(resolved)
             if owns_status and latest.status is TaskStatus.RUNNING:
-                failed = self.service.fail_task(latest, str(exc))
+                self.service.emit_timeline(
+                    _tid,
+                    "fail",
+                    "task",
+                    summary="达到最大步骤",
+                    data={"errorMessage": message},
+                )
+                failed = self.service.fail_task(latest, message)
                 self.finalizer.generate_report(failed)
-            raise
-
-        message = f"达到最大步骤 {task_input.max_steps} 后仍未完成目标。"
-        latest = self.service.get_latest_task(resolved)
-        if owns_status and latest.status is TaskStatus.RUNNING:
-            failed = self.service.fail_task(latest, message)
-            self.finalizer.generate_report(failed)
-        raise TaskError(message)
+            raise TaskError(message)
 
     def _resolve_task(self, task: Task | BlackboxTaskInput) -> Task:
         """统一任务输入。"""
@@ -200,7 +277,18 @@ class BlackboxRunner:
             current_url = redact_href(task.start_url or "")
         last_error = self._last_error
         self._last_error = None
-        return await planner.plan_next(
+
+        step = task.current_step + 1
+        self.service.emit_timeline(
+            task.task_id,
+            "planner_start",
+            "planner",
+            step_number=step,
+            summary="Planner 开始规划",
+            data={"goal": task.goal, "currentUrl": current_url},
+        )
+
+        result = await planner.plan_next(
             goal=task.goal,
             current_url=current_url,
             page_snapshot=latest_observation,
@@ -208,6 +296,16 @@ class BlackboxRunner:
             max_steps=self.max_plan_steps,
             last_error=last_error,
         )
+
+        self.service.emit_timeline(
+            task.task_id,
+            "planner_result",
+            "planner",
+            step_number=step,
+            summary=f"Planner 输出 {len(result.steps)} 个动作",
+            data={"stepCount": len(result.steps), "planSummary": result.summary},
+        )
+        return result
 
     def _resolve_llm_boundaries(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:
         """为当前任务解析 LLM 边界，默认实现按模型配置创建独立客户端。"""

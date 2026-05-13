@@ -17,6 +17,45 @@ export type StepResult = "success" | "failed" | "skipped";
 
 export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
 
+export interface TimelineEvent {
+    eventId: string;
+    taskId: string;
+    eventType: string;
+    phase: string;
+    stepNumber: number;
+    summary: string;
+    data: Record<string, unknown>;
+    createdAt: string;
+}
+
+export interface LLMTraceRecord {
+    traceId?: string;
+    trace_id?: string;
+    taskId?: string;
+    task_id?: string;
+    phase: string;
+    event: string;
+    systemPrompt?: string;
+    system_prompt?: string;
+    inputPayload?: Record<string, unknown>;
+    input_payload?: Record<string, unknown>;
+    model: string;
+    baseUrlHost?: string;
+    base_url_host?: string;
+    latencyMs?: number;
+    latency_ms?: number;
+    tokenUsage?: Record<string, number>;
+    token_usage?: Record<string, number>;
+    rawResponse?: string;
+    raw_response?: string;
+    parsedResult?: unknown;
+    parsed_result?: unknown;
+    parseError?: string;
+    parse_error?: string;
+    error?: string;
+    timestamp: string;
+}
+
 export interface ConfigSummary {
     serverHost: string;
     serverPort: number;

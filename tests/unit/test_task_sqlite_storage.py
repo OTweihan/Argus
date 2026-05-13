@@ -17,6 +17,7 @@ from argus_py.core.enums import (
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.db import connect as _connect
 from argus_py.infra.db import init_database
+from argus_py.task.event import TimelineEvent
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.storage import TaskSQLiteStorage
 
@@ -433,3 +434,101 @@ class TestMigration:
             ]
             assert len(matches) == 1
         conn2.close()
+
+
+class TestTimelineEvents:
+    """时间线事件存储。"""
+
+    def _make_event(
+        self,
+        task_id: str = "t1",
+        event_type: str = "start",
+        phase: str = "task",
+        **overrides: Any,
+    ) -> TimelineEvent:
+        from argus_py.core.ids import generate_id
+
+        return TimelineEvent(
+            event_id=generate_id("evt"),
+            task_id=task_id,
+            event_type=event_type,
+            phase=phase,
+            **overrides,
+        )
+
+    def test_append_and_load(self, store: TaskSQLiteStorage) -> None:
+        _make_task(store, "t1", "时间线测试")
+        store.append_event(self._make_event())
+        store.append_event(self._make_event(event_type="complete", phase="task"))
+        events = store.load_events("t1")
+        assert len(events) == 2
+        assert events[0].event_type == "start"
+        assert events[1].event_type == "complete"
+
+    def test_load_order(self, store: TaskSQLiteStorage) -> None:
+        _make_task(store, "t1", "排序测试")
+        from datetime import datetime, timedelta, timezone
+
+        base = datetime.now(timezone.utc)
+        store.append_event(self._make_event(event_type="start", created_at=base))
+        store.append_event(
+            self._make_event(event_type="action", created_at=base + timedelta(seconds=1))
+        )
+        store.append_event(
+            self._make_event(event_type="complete", created_at=base + timedelta(seconds=2))
+        )
+        events = store.load_events("t1")
+        assert [e.event_type for e in events] == ["start", "action", "complete"]
+
+    def test_load_empty(self, store: TaskSQLiteStorage) -> None:
+        assert store.load_events("no-such") == []
+
+    def test_delete(self, store: TaskSQLiteStorage) -> None:
+        _make_task(store, "t1", "删除测试")
+        store.append_event(self._make_event())
+        store.delete_events("t1")
+        assert store.load_events("t1") == []
+
+    def test_delete_other_task_unaffected(self, store: TaskSQLiteStorage) -> None:
+        _make_task(store, "t1", "任务A")
+        _make_task(store, "t2", "任务B")
+        store.append_event(self._make_event(task_id="t1"))
+        store.append_event(self._make_event(task_id="t2"))
+        store.delete_events("t1")
+        assert len(store.load_events("t1")) == 0
+        assert len(store.load_events("t2")) == 1
+
+    def test_event_data_round_trip(self, store: TaskSQLiteStorage) -> None:
+        _make_task(store, "t1", "数据测试")
+        store.append_event(
+            self._make_event(
+                event_type="planner_result",
+                phase="planner",
+                step_number=3,
+                summary="规划完成",
+                data={"stepCount": 5, "planSummary": "测试计划"},
+            )
+        )
+        events = store.load_events("t1")
+        assert len(events) == 1
+        e = events[0]
+        assert e.event_type == "planner_result"
+        assert e.phase == "planner"
+        assert e.step_number == 3
+        assert e.summary == "规划完成"
+        assert e.data == {"stepCount": 5, "planSummary": "测试计划"}
+
+    def test_event_with_non_existent_task(self, store: TaskSQLiteStorage) -> None:
+        """events 通过 FK 引用 tasks，不存在的 task_id 会触发 IntegrityError。"""
+        import sqlite3
+
+        with pytest.raises(sqlite3.IntegrityError):
+            store.append_event(self._make_event(task_id="no-such"))
+
+    def test_cross_instance(self, tmp_path: Path) -> None:
+        _make_task(TaskSQLiteStorage(tmp_path / "cross.db"), "t1", "跨实例")
+        s1 = TaskSQLiteStorage(tmp_path / "cross.db")
+        s1.append_event(self._make_event(task_id="t1"))
+        s2 = TaskSQLiteStorage(tmp_path / "cross.db")
+        events = s2.load_events("t1")
+        assert len(events) == 1

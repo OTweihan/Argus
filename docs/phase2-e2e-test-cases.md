@@ -2,7 +2,7 @@
 
 ## 范围
 
-覆盖 T009-T016 的平台化主链路：FastAPI、项目管理、任务管理、异步调度、WebSocket 实时事件、模型配置、Web 控制台和 CLI/Web 并存。
+覆盖 T009-T016 及后续平台可观测性增强的主链路：FastAPI、项目管理、任务管理、异步调度、WebSocket 实时事件、模型配置、Web 控制台、任务执行时间线、LLM 调试追踪、调试包和 CLI/Web 并存。
 
 ## 前置条件
 
@@ -27,11 +27,13 @@ argus serve --host 127.0.0.1 --port 8000
 | E2E-AUTO-001 | 平台核心链路契约 | `pytest tests/e2e/test_platform_contract.py` | 项目创建、任务创建、入队、后台执行、事件发布、报告回写全部通过 |
 | E2E-AUTO-002 | 持久化契约 | `pytest tests/e2e/test_platform_contract.py` | 重建服务对象后项目和任务仍可读取 |
 | E2E-AUTO-003 | CLI/Web 命令并存 | `pytest tests/e2e/test_platform_contract.py` | `argus serve` 与 `argus run` 参数解析互不冲突 |
+| E2E-AUTO-004 | 任务时间线与 LLM trace 边界 | `pytest tests/unit/test_task_timeline.py tests/unit/test_llm_trace.py tests/unit/test_platform_boundaries.py` | 时间线持久化、trace API、调试包和敏感字段脱敏全部通过 |
 
 验证记录：
 
 - 2026-05-02：用户执行 `pytest tests/e2e/test_platform_contract.py`，结果 `3 passed`。
-- 首次执行出现 FastAPI `on_event` deprecation warning，已将应用生命周期改为 `lifespan` 写法；该警告修复未再次复测。
+- 2026-05-12：阶段三可观测性验收执行相关单元测试，结果 `35 passed`；随后执行完整 `tests/unit`，结果 `162 passed`。
+- 2026-05-12：执行 `pnpm -C frontend build`，结果通过；Vite 提示单个 chunk 超过 500 kB。
 
 ## 手工验收用例
 
@@ -47,6 +49,7 @@ argus serve --host 127.0.0.1 --port 8000
 
 - 能打开 Argus 控制台。
 - 仪表盘、项目、任务、模型四个视图可切换。
+- 任务详情页包含“报告”“执行时间线”“LLM 调试”三个页签。
 - `/docs` 仍可打开 OpenAPI 文档。
 
 ### E2E-MANUAL-002 项目创建
@@ -125,7 +128,55 @@ argus serve --host 127.0.0.1 --port 8000
 - JSON 报告可读取。
 - 报告包含任务基本信息、步骤、问题和结果摘要。
 
-### E2E-MANUAL-007 多任务并发
+### E2E-MANUAL-007 执行时间线
+
+步骤：
+
+1. 创建并启动一个任务。
+2. 打开任务详情。
+3. 切换到“执行时间线”页签。
+4. 任务运行时保持页面打开，观察事件追加。
+
+预期：
+
+- 时间线能展示任务生命周期、浏览器、Planner、Executor、Evaluator 和报告生成等阶段事件。
+- 新事件能通过 WebSocket 实时追加。
+- 刷新页面后仍能通过 `GET /api/v1/tasks/{task_id}/events` 读取已持久化事件。
+
+### E2E-MANUAL-008 LLM 调试页
+
+步骤：
+
+1. 使用可用模型配置启动一个真实黑盒任务。
+2. 任务产生 Planner / Evaluator 调用后，打开任务详情。
+3. 切换到“LLM 调试”页签。
+4. 尝试按阶段过滤、隐藏/显示 started 事件、选择一条 succeeded 或 failed trace。
+5. 点击“复制 Prompt”和“复制 Raw Response”。
+
+预期：
+
+- 能看到 Planner / Evaluator 的 trace 列表。
+- trace 详情包含阶段、事件、模型、Host、耗时、token 用量、System Prompt、Input Payload、Raw Response、Parsed Result 或错误信息。
+- `password`、`token`、`api_key` 等敏感 key 已打码；`token_usage` 统计字段正常展示。
+- 复制按钮可用；无 Raw Response 的记录不会产生误导性内容。
+
+### E2E-MANUAL-009 调试包下载
+
+步骤：
+
+1. 在任务详情的“LLM 调试”页签点击“下载调试包”。
+2. 解压下载的 ZIP 文件。
+
+预期：
+
+- ZIP 文件名形如 `debug-<task_id>.zip`。
+- 至少包含 `task.json`。
+- 如果任务产生 LLM trace，应包含 `traces/llm.jsonl`。
+- 如果任务产生时间线事件，应包含 `traces/events.jsonl`。
+- 如果任务产生截图，应包含 `screenshots/` 下的图片。
+- 调试包中的 trace 不包含按敏感 key 存储的明文 API Key、密码或 token。
+
+### E2E-MANUAL-010 多任务并发
 
 步骤：
 
@@ -140,7 +191,7 @@ argus serve --host 127.0.0.1 --port 8000
 - 同一个任务不能重复入队。
 - 每个任务详情只展示自己的事件。
 
-### E2E-MANUAL-008 服务重启后数据不丢失
+### E2E-MANUAL-011 服务重启后数据不丢失
 
 步骤：
 
@@ -152,11 +203,13 @@ argus serve --host 127.0.0.1 --port 8000
 预期：
 
 - SQLite 中的项目仍存在。
-- 文件系统中的任务快照仍存在。
+- SQLite 中的任务仍存在。
 - 已完成任务的报告路径仍可查询。
+- 已持久化的任务时间线仍可查询。
 - 进程内队列和进程内 WebSocket 历史不会恢复，这是当前设计限制。
+- 如果服务重启前存在 running 任务，重启后会被标记为 failed，并提示服务重启导致任务中断。
 
-### E2E-MANUAL-009 CLI/Web 并存
+### E2E-MANUAL-012 CLI/Web 并存
 
 步骤：
 
@@ -176,3 +229,5 @@ argus serve --host 127.0.0.1 --port 8000
 - 进程内队列不会在服务重启后恢复。
 - 进程内 WebSocket 历史不会在服务重启后恢复。
 - T015 前端需要先执行 `npm install` 和 `npm run build` 才会由 FastAPI 托管。
+- LLM trace 和调试包会包含 Prompt、输入 Payload 和 Raw Response；已按敏感 key 脱敏，但仍应仅用于企业内部调试。
+- 当前 LLM trace 脱敏基于字段名，不扫描普通字符串内容。

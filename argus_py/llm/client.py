@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import httpx
@@ -56,8 +57,13 @@ class LLMClient:
         messages: list[ChatMessage],
         response_format: dict[str, Any] | None = None,
         extra_body: dict[str, Any] | None = None,
+        _trace_ctx: dict[str, Any] | None = None,
     ) -> ChatResponse:
-        """发送 OpenAI Chat Completions 请求。"""
+        """发送 OpenAI Chat Completions 请求。
+
+        _trace_ctx — 若传入，会在调用完成后补充底层信息
+        （model、base_url_host、latency_ms、token_usage、error）。
+        """
         request = ChatCompletionRequest(
             model=self.model or DEFAULT_LLM_MODEL,
             messages=messages,
@@ -66,11 +72,33 @@ class LLMClient:
             response_format=response_format,
             extra_body=extra_body or {},
         )
-        return await retry_async(
-            lambda: self._post_completion(request),
-            retry_config=self.retry_config,
-            retryable_errors=(LLMRateLimitError, LLMError),
-        )
+        start = time.monotonic()
+        try:
+            response = await retry_async(
+                lambda: self._post_completion(request),
+                retry_config=self.retry_config,
+                retryable_errors=(LLMRateLimitError, LLMError),
+            )
+        except Exception as exc:
+            if _trace_ctx is not None:
+                _trace_ctx.setdefault("latency_ms", (time.monotonic() - start) * 1000)
+                _trace_ctx.setdefault("error", str(exc))
+                _trace_ctx.setdefault("base_url_host", self._parse_host())
+            raise
+
+        if _trace_ctx is not None:
+            _trace_ctx.setdefault("latency_ms", (time.monotonic() - start) * 1000)
+            _trace_ctx.setdefault("model", response.model)
+            _trace_ctx.setdefault(
+                "token_usage",
+                {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                },
+            )
+            _trace_ctx.setdefault("base_url_host", self._parse_host())
+        return response
 
     async def complete(
         self,
@@ -78,13 +106,24 @@ class LLMClient:
         system_prompt: str | None = None,
         response_format: dict[str, Any] | None = None,
         extra_body: dict[str, Any] | None = None,
+        _trace_ctx: dict[str, Any] | None = None,
     ) -> ChatResponse:
         """使用单条 Prompt 发起补全。"""
         messages: list[ChatMessage] = []
         if system_prompt:
             messages.append(ChatMessage(role="system", content=system_prompt))
         messages.append(ChatMessage(role="user", content=prompt))
-        return await self.chat(messages, response_format=response_format, extra_body=extra_body)
+        return await self.chat(
+            messages,
+            response_format=response_format,
+            extra_body=extra_body,
+            _trace_ctx=_trace_ctx,
+        )
+
+    def _parse_host(self) -> str:
+        """从 base_url 中提取 host。"""
+        stripped = self.base_url.split("://")[-1]
+        return stripped.split("/")[0] if "/" in stripped else stripped
 
     async def _post_completion(self, request: ChatCompletionRequest) -> ChatResponse:
         """提交请求并解析 OpenAI 兼容响应。"""

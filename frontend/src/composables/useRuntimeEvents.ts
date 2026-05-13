@@ -30,8 +30,12 @@ export function useRuntimeEvents() {
         for (const cb of taskEventCallbacks) cb(event);
     });
 
-    function onTaskEvent(callback: (event: TaskEvent) => void): void {
+    function onTaskEvent(callback: (event: TaskEvent) => void): () => void {
         taskEventCallbacks.push(callback);
+        return () => {
+            const idx = taskEventCallbacks.indexOf(callback);
+            if (idx !== -1) taskEventCallbacks.splice(idx, 1);
+        };
     }
 
     function connectEventStream(view: Ref<ViewKey>, selectedTaskId: Ref<string | null>): void {

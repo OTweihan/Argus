@@ -1,6 +1,6 @@
 import {request} from "../client";
 import type {TaskPayload} from "../types";
-import type {ReportData, Task, TaskDisplayStatus, TaskListResponse, TaskStartResponse,} from "../../types";
+import type {LLMTraceRecord, ReportData, Task, TaskDisplayStatus, TaskListResponse, TaskStartResponse, TimelineEvent,} from "../../types";
 
 export function listTasks(
     filters: {
@@ -54,6 +54,18 @@ export function restartTask(taskId: string): Promise<TaskStartResponse> {
 
 export function getTaskReportJson(taskId: string): Promise<ReportData> {
     return request<ReportData>(`/tasks/${encodeURIComponent(taskId)}/report.json`);
+}
+
+export function getTaskEvents(taskId: string): Promise<TimelineEvent[]> {
+    return request<TimelineEvent[]>(`/tasks/${encodeURIComponent(taskId)}/events`);
+}
+
+export function getTaskTrace(taskId: string, traceId: string): Promise<LLMTraceRecord> {
+    return request<LLMTraceRecord>(`/tasks/${encodeURIComponent(taskId)}/llm-traces/${encodeURIComponent(traceId)}`);
+}
+
+export function getTaskTraces(taskId: string): Promise<LLMTraceRecord[]> {
+    return request<LLMTraceRecord[]>(`/tasks/${encodeURIComponent(taskId)}/llm-traces`);
 }
 
 export function inferTaskLimits(goal: string, startUrl?: string): Promise<{maxSteps: number; timeoutSeconds: number}> {

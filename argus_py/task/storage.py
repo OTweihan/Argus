@@ -165,6 +165,61 @@ class TaskSQLiteStorage:
                     self._finding_to_row(task_id, finding),
                 )
 
+    # ── 时间线事件 ─────────────────────────────────────────
+
+    def append_event(self, event: Any) -> None:
+        """追加单条时间线事件。"""
+        from argus_py.task.event import TimelineEvent
+
+        if not isinstance(event, TimelineEvent):
+            return
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute(
+                    "INSERT OR IGNORE INTO task_events (event_id, task_id, event_type, phase, step_number, summary, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event.event_id,
+                        event.task_id,
+                        event.event_type,
+                        event.phase,
+                        event.step_number,
+                        event.summary,
+                        json.dumps(event.data, ensure_ascii=False),
+                        event.created_at.isoformat(),
+                    ),
+                )
+
+    def load_events(self, task_id: str) -> list[Any]:
+        """按创建时间升序返回任务的时间线事件。"""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM task_events WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+        return [self._row_to_event(r) for r in rows]
+
+    def delete_events(self, task_id: str) -> None:
+        """删除任务的所有时间线事件。"""
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+
+    def _row_to_event(self, row: Any) -> Any:
+        """将 SQLite 行还原为 TimelineEvent。"""
+        from argus_py.task.event import TimelineEvent as TE
+        from argus_py.task.models import _parse_datetime, utc_now
+
+        return TE(
+            event_id=row["event_id"],
+            task_id=row["task_id"],
+            event_type=row["event_type"],
+            phase=row["phase"],
+            step_number=row["step_number"],
+            summary=row["summary"],
+            data=json.loads(row["data_json"] or "{}"),
+            created_at=_parse_datetime(row["created_at"]) or utc_now(),
+        )
+
     def load(self, task_id: str) -> Task:
         """按 ID 读取任务，包含关联的日志和发现项。"""
         with closing(self._connect()) as connection:

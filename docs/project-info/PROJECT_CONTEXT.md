@@ -1,12 +1,12 @@
 # Argus 项目信息上下文
 
-更新时间：2026-05-02
+更新时间：2026-05-12
 
 本文件用于后续接手 Argus 项目时快速恢复上下文。下次修改本项目之前，先阅读本文件，再阅读 `README.md` 和相关源码。
 
 ## 项目概览
 
-Argus 是一个面向 Web 应用质量保障场景的 AI Native 测试平台。第一阶段目标是黑盒 MVP：通过 CLI 输入自然语言任务，调用大模型规划动作，驱动浏览器执行，并输出结构化报告。
+Argus 是一个面向 Web 应用质量保障场景的 AI Native 测试平台。当前目标是企业自用测试平台：通过 CLI 或 Web 控制台输入自然语言任务，调用大模型规划浏览器动作，驱动 Playwright 执行，输出结构化报告，并让任务执行过程、Prompt、LLM 原始响应和调试资料可观测、可追溯。
 
 当前项目路径：
 
@@ -20,12 +20,13 @@ D:\PythonProjects\Argus
 - Playwright Python
 - OpenAI Chat Completions 兼容大模型接口
 - Jinja2 HTML 报告
-- FastAPI Web API 骨架
-- Project 使用 SQLite 存储；Task 仍使用 JSON / 文件系统作为 MVP 阶段存储边界
+- FastAPI Web API
+- Vue 3 + TypeScript + Vite + Element Plus Web 控制台
+- Project / Task / 时间线事件使用 SQLite 存储；报告、截图、LLM trace 和调试包相关资料使用文件系统产物
 
 ## 当前阶段
 
-当前已推进到 T016：
+当前已推进到 T016 之后的平台可观测性增强：
 
 - T001 项目骨架：已完成基础目录、模型、CLI、配置、报告、占位模块。
 - T002 浏览器封装：已完成 Playwright 生命周期、浏览器动作、页面快照、CLI 调试入口。
@@ -40,14 +41,15 @@ D:\PythonProjects\Argus
 - T012 异步任务调度：已完成进程内 `asyncio.Queue`、后台 Worker、FastAPI 生命周期接入和 `/tasks/{task_id}/start` 入队执行。
 - T013 WebSocket 实时日志：已完成进程内事件总线、任务事件发布和 WebSocket 事件订阅。
 - T014 模型配置管理：已完成模型配置 SQLite 存储、REST API、连接检查和任务 `modelConfigId` 解析。
-- T015 Web 控制台：已迁移为 Vue 3 + TypeScript + Vite 控制台，FastAPI 静态托管接入、项目/任务/模型/仪表盘基础视图已完成。
+- T015 Web 控制台：已迁移为 Vue 3 + TypeScript + Vite 控制台，FastAPI 静态托管接入、项目/任务/模型/仪表盘基础视图、报告页、执行时间线页和 LLM 调试页已完成。
 - T016 平台契约测试：已完成 T009-T016 平台主链路自动化契约测试和手工验收用例文档。
+- 平台可观测性增强：已完成 SQLite 任务存储、任务时间线事件、WebSocket 实时刷新、LLM trace JSONL、trace API、调试包下载、敏感字段脱敏和相关单元测试。
 
 `argus run` 当前会真实执行黑盒闭环。需要只创建任务时使用 `--create-only`。
-`argus serve` 当前提供 Web API 骨架、项目管理、任务 REST 能力、进程内后台调度、WebSocket 实时事件、
-模型配置管理和静态 Web 控制台托管；T015 Web 控制台采用 Vue 3 + TypeScript + Vite，
+`argus serve` 当前提供 Web API、项目管理、任务 REST 能力、进程内后台调度、WebSocket 实时事件、
+模型配置管理、任务时间线、LLM 调试数据和静态 Web 控制台托管；T015 Web 控制台采用 Vue 3 + TypeScript + Vite，
 构建产物输出到 `argus_py/api/static` 后由 FastAPI 挂载；T016 已补齐自动化契约测试和手工验收用例；
-运行中任务可靠中断和服务重启队列恢复留到后续任务。
+运行中任务可靠中断和服务重启队列恢复留到后续任务。服务启动时会把重启前残留的 running 任务标记为 failed，避免一直卡在运行中状态。
 
 ## 关键命令
 
@@ -136,6 +138,12 @@ outputs/reports/<task_id>/report.json
 outputs/screenshots/<task_id>/
 ```
 
+LLM 调试追踪默认输出到：
+
+```text
+outputs/traces/<task_id>.jsonl
+```
+
 ## 近期重要变更
 
 ### CLI
@@ -174,12 +182,14 @@ outputs/screenshots/<task_id>/
 - `argus_py/api/routes/health.py`
 - `argus_py/api/routes/tasks.py`
 - `argus_py/api/routes/reports.py`
+- `argus_py/api/routes/events.py`
 - `argus_py/api/routes/projects.py`
 - `argus_py/api/routes/config.py`
 - `argus_py/api/routes/ws.py`
 - `argus_py/infra/events.py`
 - `argus_py/infra/queue.py`
 - `argus_py/infra/worker.py`
+- `argus_py/infra/recovery.py`
 - `config/server.yaml`
 
 当前行为：
@@ -191,11 +201,41 @@ outputs/screenshots/<task_id>/
 - `/api/v1/tasks/{task_id}/pause` 当前返回未实现，暂停语义需要后续执行中断点和事件总线。
 - `/api/v1/tasks/{task_id}/stop` 对 pending/queued 任务执行取消；running 任务可靠中断留到后续实现。
 - `/api/v1/tasks/{task_id}/report` 支持 HTML 报告；可用 `format=json` 或 `/report.json` 读取结构化报告。
+- `/api/v1/tasks/{task_id}/events` 返回该任务已持久化的执行时间线事件。
+- `/api/v1/tasks/{task_id}/llm-traces` 返回该任务的 LLM 调用追踪列表。
+- `/api/v1/tasks/{task_id}/llm-traces/{trace_id}` 返回单条 LLM 调用追踪详情。
+- `/api/v1/tasks/{task_id}/debug-bundle` 下载 ZIP 调试包，包含 `task.json`、`traces/llm.jsonl`、`traces/events.jsonl` 和任务截图。
 - `/api/v1/projects` 已支持 SQLite 项目 CRUD；`/api/v1/config/summary` 返回非敏感服务、调度和事件配置摘要。
 - `/api/v1/config/models` 已支持模型配置 CRUD；`/api/v1/config/models/test` 可测试已保存或临时模型配置。
 - `/api/v1/ws/tasks/{task_id}` 支持订阅单个任务事件，`/api/v1/ws/tasks` 支持订阅全局任务事件。
 - API 请求/响应模型支持 camelCase 别名，同时内部仍复用现有 snake_case 任务模型。
 - Web API 创建任务必须传 `projectId`；任务未显式传 `startUrl`、`maxSteps`、`timeoutSeconds`、`captureScreenshots` 时会继承项目默认配置；可通过 `modelConfigId` 指定模型配置。
+- FastAPI lifespan 启动时会校验 Fernet key、恢复中断任务并启动后台 Worker；shutdown 时尽量停止 Worker。
+
+### 任务存储与可观测性
+
+主要文件：
+
+- `argus_py/task/storage.py`
+- `argus_py/task/event.py`
+- `argus_py/task/service.py`
+- `argus_py/observability/llm_trace.py`
+- `argus_py/observability/redaction.py`
+- `argus_py/observability/audit.py`
+- `argus_py/api/routes/events.py`
+- `frontend/src/components/task/TaskTimeline.vue`
+- `frontend/src/components/task/LLMDebugTab.vue`
+
+当前行为：
+
+- Task 默认使用 `TaskSQLiteStorage` 写入 `outputs/data/argus.db`，旧 `TaskFileStorage` 仅作为兼容边界保留。
+- `task_events` 表持久化任务执行时间线，事件包括任务生命周期、打开 URL、页面快照、Planner 调用、动作执行、Evaluator 调用、报告生成、完成和失败。
+- `TaskTimelineService` 在写入 SQLite 后同步发布 `task.timeline.<phase>` WebSocket 事件，控制台任务详情页可实时追加事件。
+- Planner 和 Evaluator 每次 LLM 调用会写入 `task.llm.started`、`task.llm.succeeded`、`task.llm.failed` 或 `task.llm.parse_failed`。
+- LLM trace 写入 `outputs/traces/<task_id>.jsonl`，包含阶段、模型、Host、耗时、token 用量、System Prompt、Input Payload、Raw Response、Parsed Result、错误和解析错误。
+- LLM trace 写入前会按敏感 key 递归脱敏，支持嵌套 dict 和 list；`token_usage` 属于统计白名单，普通字符串内容不会被模式扫描。
+- 调试包 API 会打包任务快照、LLM trace、时间线事件和截图，便于企业内部排查 Prompt、模型输出和执行过程。
+- `AuditService` 可记录业务审计日志，并在有 task_id 时发布 `audit.log` 事件；日志内容会先经过脱敏。
 
 ### 项目管理
 
@@ -246,6 +286,7 @@ outputs/screenshots/<task_id>/
 - 使用进程内事件总线，不依赖外部消息中间件。
 - `TaskService` 在任务创建、状态变化、步骤日志追加、问题追加和任务终态时发布事件。
 - 事件类型包括 `task.created`、`task.status`、`task.log`、`task.finding`、`task.complete`。
+- 时间线事件通过 `task.timeline.<phase>` 发布，例如 `task.timeline.planner`、`task.timeline.executor`、`task.timeline.evaluator`。
 - WebSocket 支持最近事件回放，回放数量由 `events.history_limit` 控制。
 - WebSocket 空闲时会发送 `system.keepalive` 保活事件。
 - 服务重启后历史事件缓存会丢失；持久化事件流留到后续扩展。
@@ -258,10 +299,12 @@ outputs/screenshots/<task_id>/
 - `frontend/tsconfig.json`
 - `frontend/vite.config.ts`
 - `frontend/src/App.vue`
-- `frontend/src/api.ts`
+- `frontend/src/api/`
 - `frontend/src/composables/`
 - `frontend/src/components/`
+- `frontend/src/views/`
 - `frontend/src/main.ts`
+- `frontend/src/types.ts`
 - `frontend/src/utils.ts`
 - `frontend/src/ws.ts`
 - `frontend/src/styles.css`
@@ -272,21 +315,26 @@ outputs/screenshots/<task_id>/
 - 前端采用 Vue 3 + TypeScript + Vite；当前定位是后续可扩展的控制台，不是一次性临时页面。
 - Vite 构建输出目录为 `argus_py/api/static`；只有该目录存在 `index.html` 时，FastAPI 才会把 `/` 挂载为控制台静态站点。
 - `argus_py/api/static` 是随 Python 包分发的 Web 控制台构建产物，当前策略是纳入版本控制；修改 `frontend/src` 后如影响控制台运行效果，需要重新构建并提交该目录。不要手工修改静态产物。
-- 控制台包含仪表盘、项目、任务、模型四个视图。
+- 控制台包含仪表盘、项目、任务、模型四个视图；任务详情内包含报告、执行时间线、LLM 调试三个页签。
 - `main.ts` 只负责 Vue 应用挂载；`App.vue` 负责布局和组合视图；
   `composables/useConsoleApp.ts` 负责页面状态、接口调用和 WebSocket 事件流；
-  `components/` 放项目、任务、模型表格和任务详情组件；
+  `api/` 按 config / model / project / task 拆分接口；`components/` 放项目、任务、模型表格、报告、任务时间线和 LLM 调试组件；
+  `views/` 放仪表盘、项目、任务、模型和报告视图；
   `utils.ts` 放日期、状态、表单值归一化和错误信息工具。
 - 任务状态拆为 `allTasks` 和 `visibleTasks`：仪表盘统计使用完整任务集合，任务页筛选只影响可见任务列表，避免筛选条件污染全局统计。
 - 任务页通过 WebSocket 订阅任务事件，收到任务事件后触发运行态数据刷新。
 - 模型配置页的“测试”按钮会弹窗展示检查中、成功或失败结果；测试临时表单配置时不会清空当前表单。
 - 弹窗的关闭按钮、确定按钮和背景点击都应能关闭弹窗；后续如继续改弹窗，需要注意它挂载在 `document.body`，不是 `#app` 内部。
+- 任务详情 LLM 调试页支持按阶段过滤、隐藏 started 事件、查看 Prompt / 输入 / 原始响应 / 解析结果、复制 Prompt 或 Raw Response、下载调试包。
+- 前端 API 客户端默认请求超时为 180 秒，可通过 `VITE_ARGUS_API_TIMEOUT_MS` 覆盖；超时、取消、网络错误和非 JSON 响应会转换为统一 `ApiError`。
 
 ### 平台测试与验收
 
 主要文件：
 
 - `tests/e2e/test_platform_contract.py`
+- `tests/unit/test_llm_trace.py`
+- `tests/unit/test_task_timeline.py`
 - `docs/phase2-e2e-test-cases.md`
 
 当前行为：
@@ -294,7 +342,8 @@ outputs/screenshots/<task_id>/
 - `tests/e2e/test_platform_contract.py` 覆盖平台核心链路、持久化契约和 CLI/Web 命令并存。
 - `docs/phase2-e2e-test-cases.md` 记录 T009-T016 的自动化契约测试、手工验收用例和验证记录。
 - 2026-05-02 用户执行 `pytest tests/e2e/test_platform_contract.py`，结果为 `3 passed`。
-- 首次执行契约测试时出现 FastAPI `on_event` deprecation warning，已将应用生命周期改为 `lifespan` 写法；该 warning 修复尚未由用户再次复测。
+- 2026-05-12 阶段三可观测性验收中已执行相关后端单元测试和完整 `tests/unit`，结果 `162 passed`。
+- 2026-05-12 已执行 `pnpm -C frontend build`，构建通过；Vite 仍提示单个 chunk 超过 500 kB。
 
 ### 任务执行策略
 
@@ -330,6 +379,7 @@ outputs/screenshots/<task_id>/
 - 评估器根据目标、历史和最新观察判断是否完成。对登录页、表单页、流程类任务，不允许只因元素存在就判定完成，必须看到实际交互证据。
 - 对新增、创建、添加、录入类任务，不能只因打开表单或观察到必填校验就判定完成；需要尽量覆盖新增入口、关键字段、必填校验、无效格式或边界数据、取消/关闭等低风险场景，且避免创建真实业务数据。
 - 完成时 `reason` 应说明已覆盖的测试场景，例如页面打开、空表单提交、无效账号提交、错误提示或状态变化。
+- Planner / Evaluator 调用 LLM 前后会写 trace；如果 LLM client 构造或调用失败，也会写入带 `error` 的 `task.llm.failed` 记录。
 
 ### 选择器与页面快照
 
@@ -418,6 +468,7 @@ outputs/screenshots/<task_id>/
 - `argus_py/llm/prompts/blackbox_evaluator.md`
 - `argus_py/llm/parser.py`
 - `argus_py/llm/retry.py`
+- `argus_py/observability/llm_trace.py`
 
 已完成：
 
@@ -429,6 +480,7 @@ outputs/screenshots/<task_id>/
 - API Key 缺失提示已改为面向用户：提示执行 `argus config llm`。
 - Prompt 模板已区分内置模板和用户覆盖模板：显式路径 > `config/prompts` 用户模板 > `argus_py/llm/prompts` 内置模板。
 - 内置 Prompt 已加入包数据，后续安装包运行时不依赖源码目录下的 `config/prompts`。
+- `LLMClient.complete()` / `chat()` 支持内部 `_trace_ctx`，用于补充 latency、model、token_usage、base_url_host 和 error。
 
 ### T007 文档与示例
 
@@ -470,13 +522,16 @@ outputs/screenshots/<task_id>/
 - `config/llm.env` 包含敏感信息，排查问题时不要输出或复制其中内容。
 - `config/browser-states/*.json` 包含登录会话信息，排查问题时不要输出或复制其中内容。
 - `outputs/data/argus.db` 是本地 SQLite 数据库，不纳入版本控制；删除后项目数据会丢失。
-- Project 和模型配置已进入 SQLite；Task 仍使用 JSON / 文件系统存储，跨数据源一致性、查询能力和迁移策略还没有完整收口。
+- Project、模型配置、Task 和时间线事件已进入 SQLite；报告、截图、LLM trace 仍是文件系统产物，需要继续保持数据库记录与文件产物的一致性。
 - Web 控制台依赖前端构建产物；如果没有执行 `npm run build` 生成 `argus_py/api/static/index.html`，`argus serve` 只提供 API，不会挂载控制台首页。
-- 2026-05-02 最新一次前端模块拆分和任务筛选状态拆分后，尚未执行 `npm run lint`、`npm run build` 或浏览器手工回归；需要用户后续验证。
+- 2026-05-12 已执行 `pnpm -C frontend build` 并通过；仍未执行浏览器手工回归。
 - 模型配置“测试”会真实调用对应模型服务；排查时注意网络、代理、TLS、额度和 token 消耗。
 - T012 使用进程内队列，不具备服务重启恢复能力；不要用多个 uvicorn worker 进程共享同一个内存队列。
 - T013 使用进程内事件总线，不具备服务重启历史事件恢复能力。
 - `/api/v1/tasks/{task_id}/pause` 当前仍是未实现语义；`stop` 对 running 任务还不能可靠中断底层浏览器执行。
+- 服务重启时会把遗留 running 任务标记为 failed，但不会恢复 queued/running 队列。
+- LLM 调试页和调试包会保留 Prompt、输入 Payload 和 Raw Response；虽然敏感 key 会脱敏，仍应按企业内部调试资料管理，不要外发含业务数据的调试包。
+- LLM trace 脱敏当前基于字段名，不扫描普通字符串内容；如果后续需要更严格外发安全，需要增加文本内容级脱敏策略。
 - `argus browser check` 是浏览器能力调试入口；完整黑盒测试仍以 `argus run` 为准。
 - LLM 调用失败时仍需区分代码问题、接口配置问题、代理 / TLS / 网络问题和模型服务问题。
 - `config/prompts` 只作为用户覆盖目录；修改用户模板前注意和包内内置模板的差异。
@@ -487,20 +542,19 @@ outputs/screenshots/<task_id>/
 
 ### 高优先级
 
-- 执行前端静态检查和构建验证：`cd D:\PythonProjects\Argus\frontend` 后运行 `npm run lint`，确认通过后再运行 `npm run build`。
-- 手工回归 Web 控制台模型配置页：测试按钮不清空表单、检查结果弹窗足够明显、确定按钮/关闭按钮/背景点击均可关闭。
-- 按 `docs/phase2-e2e-test-cases.md` 完整执行 T016 手工验收，重点覆盖控制台首页、项目创建、模型配置、任务创建/启动、实时日志和报告链接。
-- 重新执行 `pytest tests/e2e/test_platform_contract.py`，确认 FastAPI `lifespan` 改造后不再出现 `on_event` deprecation warning。
+- 按 `docs/phase2-e2e-test-cases.md` 完整执行手工验收，重点覆盖控制台首页、项目创建、模型配置、任务创建/启动、实时日志、报告链接、执行时间线、LLM 调试页和调试包下载。
+- 重新执行 `pytest tests/e2e/test_platform_contract.py`，确认当前 SQLite Task 存储、lifespan、事件和调试 API 不破坏平台契约。
+- 运行浏览器手工回归：确认任务详情三个页签可切换，LLM 调试页能展示 trace、复制 Prompt/Raw Response、下载调试包。
 - 为黑盒端到端闭环补充更多轻量单元测试，重点覆盖失败恢复、截图开关、报告路径回写和选择器解析。
 
 ### 中优先级
 
-- 任务存储从临时 JSON 文件逐步演进到 SQLite + 文件系统。
 - 设计 running 任务可靠停止 / 暂停机制，明确浏览器执行、Worker、任务状态和事件发布之间的取消边界。
 - 设计服务重启恢复策略：包括 queued/running 任务恢复、内存队列重建和异常退出后的状态修正。
 - 梳理 SQLite 后续扩展方案：表迁移、索引、备份、数据版本和 Task 存储迁移路径。
 - 继续拆分 Web 控制台前端模块，后续优先按领域拆出 `projects`、`tasks`、`models` 的 controller 或 store，避免 `main.ts` 再次膨胀。
 - 为 Web 控制台补充前端测试或轻量交互回归脚本，覆盖表单提交、筛选、弹窗和 WebSocket 刷新。
+- 对 LLM trace 增加更细粒度的开关、保留周期和清理策略，避免长期积累过多 Prompt / 响应调试资料。
 
 ### 低优先级
 
@@ -543,6 +597,7 @@ argus_py/api/schemas/config.py
 argus_py/api/routes/health.py
 argus_py/api/routes/tasks.py
 argus_py/api/routes/reports.py
+argus_py/api/routes/events.py
 argus_py/api/routes/projects.py
 argus_py/api/routes/config.py
 argus_py/api/routes/ws.py
@@ -550,6 +605,7 @@ argus_py/api/static/
 argus_py/infra/events.py
 argus_py/infra/queue.py
 argus_py/infra/worker.py
+argus_py/infra/recovery.py
 argus_py/project/models.py
 argus_py/project/storage.py
 argus_py/project/service.py
@@ -566,6 +622,9 @@ argus_py/llm/prompts/blackbox_planner.md
 argus_py/llm/prompts/blackbox_evaluator.md
 argus_py/llm/parser.py
 argus_py/llm/retry.py
+argus_py/observability/audit.py
+argus_py/observability/llm_trace.py
+argus_py/observability/redaction.py
 argus_py/browser/playwright_client.py
 argus_py/browser/base.py
 argus_py/browser/actions.py
@@ -576,6 +635,7 @@ argus_py/blackbox/evaluator.py
 argus_py/blackbox/runner.py
 argus_py/task/service.py
 argus_py/task/storage.py
+argus_py/task/event.py
 argus_py/task/strategy.py
 argus_py/report/html_report.py
 argus_py/report/templates/base.html.j2
@@ -584,18 +644,24 @@ frontend/package.json
 frontend/tsconfig.json
 frontend/vite.config.ts
 frontend/src/App.vue
-frontend/src/api.ts
+frontend/src/api/
 frontend/src/composables/
 frontend/src/composables/useConsoleApp.ts
 frontend/src/components/
-frontend/src/components/ModelTable.vue
-frontend/src/components/ProjectTable.vue
-frontend/src/components/TaskDetail.vue
-frontend/src/components/TaskTable.vue
+frontend/src/components/task/LLMDebugTab.vue
+frontend/src/components/task/TaskDetail.vue
+frontend/src/components/task/TaskTimeline.vue
+frontend/src/components/model/ModelTable.vue
+frontend/src/components/project/ProjectTable.vue
+frontend/src/components/task/TaskTable.vue
 frontend/src/main.ts
+frontend/src/types.ts
 frontend/src/utils.ts
+frontend/src/views/
 frontend/src/ws.ts
 frontend/src/styles.css
+tests/unit/test_llm_trace.py
+tests/unit/test_task_timeline.py
 tests/e2e/test_platform_contract.py
 docs/phase2-e2e-test-cases.md
 config/prompts/llm_connection_check.md

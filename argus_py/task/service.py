@@ -7,6 +7,7 @@ from typing import Any, Callable
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.observability.aspect import log_operation
+from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
@@ -28,6 +29,37 @@ class TaskService:
         self.lifecycle = TaskLifecycleService(resolved, event_publisher)
         self.query = TaskQueryService(resolved)
         self.log = TaskLogService(resolved, event_publisher)
+        self.timeline = (
+            TaskTimelineService(resolved, event_publisher)
+            if isinstance(resolved, TaskSQLiteStorage)
+            else None
+        )
+
+    def emit_timeline(
+        self,
+        task_id: str,
+        event_type: str,
+        phase: str,
+        step_number: int = 0,
+        summary: str = "",
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        """发射时间线事件（存储 + WebSocket 广播）。"""
+        if self.timeline is not None:
+            self.timeline.emit(
+                task_id=task_id,
+                event_type=event_type,
+                phase=phase,
+                step_number=step_number,
+                summary=summary,
+                data=data,
+            )
+
+    def list_timeline_events(self, task_id: str) -> list[dict[str, Any]]:
+        """返回任务的时间线事件列表（API 输出格式）。"""
+        if self.timeline is None:
+            return []
+        return [e.to_dict() for e in self.timeline.list_by_task(task_id)]
 
     # ── 生命周期 ──
 

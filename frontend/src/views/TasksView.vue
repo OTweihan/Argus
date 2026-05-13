@@ -10,12 +10,24 @@
         </template>
       </div>
       <div v-if="!selectedTask" class="empty">未选择任务</div>
-      <ReportView
-          v-else
-          :report="reportData"
-          :loading="reportLoading"
-          :task-id="selectedTask.taskId"
-      />
+      <template v-else>
+        <el-tabs v-model="activeTab" type="border-card" class="detail-tabs">
+          <el-tab-pane label="报告" name="report">
+            <ReportView
+                :key="selectedTask.taskId"
+                :report="reportData"
+                :loading="reportLoading"
+                :task-id="selectedTask.taskId"
+            />
+          </el-tab-pane>
+          <el-tab-pane label="执行时间线" name="timeline">
+            <TaskTimeline :key="selectedTask.taskId" :task-id="selectedTask.taskId" :on-task-event="onTaskEvent" />
+          </el-tab-pane>
+          <el-tab-pane label="LLM 调试" name="llm-debug">
+            <LLMDebugTab :key="selectedTask.taskId" :task-id="selectedTask.taskId" />
+          </el-tab-pane>
+        </el-tabs>
+      </template>
     </template>
     <template v-else>
       <el-card class="tasks-card">
@@ -105,6 +117,8 @@ import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
 import TaskReportDialog from "../components/task/TaskReportDialog.vue";
+import LLMDebugTab from "../components/task/LLMDebugTab.vue";
+import TaskTimeline from "../components/task/TaskTimeline.vue";
 import ReportView from "./ReportView.vue";
 import {getTask, getTaskReportJson, reportUrl} from "../api";
 import {useConsoleApp} from "../composables/useConsoleApp";
@@ -119,12 +133,13 @@ const {
   showTaskDialog, formErrors, error, enabledModels,
   page, pageSize, total, taskLoading,
   startTask, retryTask, deleteTask, goBackToTasks, saveTask, openNewTaskDialog, openEditTaskDialog,
-  addParam, removeParam, onPageChange, onPageSizeChange,
+  addParam, removeParam, onPageChange, onPageSizeChange, onTaskEvent,
 } = props.app;
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailTask = ref<Task | null>(null);
+const activeTab = ref("report");
 const reportDetailVisible = ref(false);
 const reportDetailLoading = ref(false);
 const reportDetailTask = ref<Task | null>(null);
@@ -258,6 +273,23 @@ function downloadJsonReport(): void {
   padding: 40px;
   text-align: center;
   color: #909399;
+}
+
+.detail-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.detail-tabs :deep(.el-tab-pane) {
+  height: 100%;
 }
 
 </style>
