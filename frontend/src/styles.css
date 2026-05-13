@@ -96,7 +96,7 @@ body {
 /* ===== Report container ===== */
 .main-area:has(.report-container) .content-area {
     padding: 0;
-    background: #f8fafb;
+    background: #ffffff;
 }
 
 .main-area:has(.report-container) .topbar {
