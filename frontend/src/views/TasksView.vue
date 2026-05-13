@@ -1,12 +1,25 @@
 <template>
   <div class="tasks-wrapper">
-    <template v-if="view === 'task-detail'">
+    <div v-if="view === 'task-detail'" class="task-detail-panel">
       <div class="report-bar">
-        <el-button @click="goBackToTasks">返回任务列表</el-button>
+        <button class="tb-btn tb-back" @click="goBackToTasks">
+          <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><path d="M10 4L6 8l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          返回任务列表
+        </button>
         <template v-if="selectedTask?.reportPath">
-          <el-button @click="openHtmlReport">查看 HTML 报告</el-button>
-          <el-button @click="downloadHtmlReport">下载 HTML 报告</el-button>
-          <el-button @click="downloadJsonReport">下载 JSON 报告</el-button>
+          <div class="tb-divider"/>
+          <button class="tb-btn tb-action" @click="openHtmlReport">
+            <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><path d="M2 4l6 4-6 4M8 12h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            查看 HTML 报告
+          </button>
+          <button class="tb-btn tb-action" @click="downloadHtmlReport">
+            <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><path d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            下载 HTML 报告
+          </button>
+          <button class="tb-btn tb-action" @click="downloadJsonReport">
+            <svg viewBox="0 0 16 16" fill="none" width="20" height="20"><path d="M5 7l-3 3 3 3M11 7l3 3-3 3M8.5 4l-1 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            下载 JSON 报告
+          </button>
         </template>
       </div>
       <div v-if="!selectedTask" class="empty">未选择任务</div>
@@ -28,8 +41,8 @@
           </el-tab-pane>
         </el-tabs>
       </template>
-    </template>
-    <template v-else>
+    </div>
+    <div v-show="view !== 'task-detail'" class="tasks-list-panel">
       <el-card class="tasks-card">
         <template #header>
           <div class="card-header">
@@ -81,7 +94,7 @@
           />
         </div>
       </el-card>
-    </template>
+    </div>
   </div>
 
   <TaskFormDialog
@@ -192,6 +205,15 @@ function downloadJsonReport(): void {
   flex-direction: column;
 }
 
+.task-detail-panel,
+.tasks-list-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 :deep(.tasks-card .el-card__body) {
   flex: 1;
   display: flex;
@@ -239,10 +261,64 @@ function downloadJsonReport(): void {
 
 .report-bar {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
   flex-shrink: 0;
   flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #e6edf0;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.05);
+}
+
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 540;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.tb-back {
+  background: #f8fafc;
+  color: #374e5a;
+  border-color: #e6edf0;
+}
+.tb-back:hover {
+  background: #eef4f7;
+  color: #1a2a32;
+  border-color: #d0dbdf;
+  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.06);
+}
+
+.tb-action {
+  background: #f0f6ff;
+  color: #2563eb;
+  border-color: #dbe8fe;
+}
+.tb-action:hover {
+  background: #dbe8fe;
+  color: #1d4ed8;
+  border-color: #b8d2fb;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.1);
+}
+
+.tb-divider {
+  width: 1px;
+  height: 20px;
+  background: #e6edf0;
+  flex-shrink: 0;
+  margin: 0 2px;
 }
 
 .empty {

@@ -1,4 +1,4 @@
-import { computed, onMounted, reactive, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch, type Ref } from "vue";
 
 import { ElMessage } from "element-plus";
 import { summary as apiSummary } from "../api";
@@ -63,7 +63,9 @@ export function useConsoleApp() {
     /* ── 视图切换（恢复旧逻辑中丢失的 side effect） ── */
 
     watch(nav.view, () => {
-        connectEventStream();
+        // nextTick 确保视图切换渲染完成后再重连 WebSocket，
+        // 避免 event replay 触发 allTasks 更新导致 el-table 闪烁
+        nextTick(() => connectEventStream());
     });
 
     function changeView(nextView: ViewKey): void {
@@ -131,6 +133,10 @@ export function useConsoleApp() {
     onMounted(async () => {
         await loadAll();
         connectEventStream();
+        // 刷新后自动恢复任务详情视图
+        if (nav.initialDetailTaskId.value && taskDomain.selectTask) {
+            taskDomain.selectTask(nav.initialDetailTaskId.value);
+        }
     });
 
     /* ── 数据加载 ── */

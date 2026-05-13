@@ -1,5 +1,5 @@
 <template>
-  <el-table v-if="tasks.length" :data="tasks" stripe style="width:100%" :height="height">
+  <el-table v-if="tasks.length" :data="tasks" row-key="taskId" stripe style="width:100%" :height="height">
     <el-table-column label="任务名称" min-width="240">
       <template #default="{ row }">
         <strong>{{ row.name || "-" }}</strong>

@@ -1,10 +1,10 @@
 <template>
-  <div class="timeline-wrapper">
+  <div class="tl-wrapper">
     <div v-if="loading" class="tl-loading" v-loading="true" />
-    <div v-else-if="error" class="tl-error">
+    <div v-else-if="error" class="tl-status">
       <el-empty :description="error" />
     </div>
-    <div v-else-if="!events.length" class="tl-empty">
+    <div v-else-if="!events.length" class="tl-status">
       <el-empty description="暂无时间线事件" />
     </div>
     <div v-else class="tl-scroll">
@@ -16,25 +16,32 @@
         >
           <div class="tl-dot" :style="{ background: phaseColor(event.phase) }" />
           <div class="tl-line" />
-          <div class="tl-card">
+          <div class="tl-card" :style="{ borderLeftColor: phaseColor(event.phase) }">
             <div class="tl-card-header">
               <div class="tl-left">
-                <el-tag size="small" :color="phaseColor(event.phase)" class="tl-phase-tag">
-                  {{ phaseLabel(event.phase) }}
-                </el-tag>
+                <span class="tl-phase-dot" :style="{ background: phaseColor(event.phase) }" />
+                <span class="tl-phase-label">{{ phaseLabel(event.phase) }}</span>
                 <span class="tl-event-type">{{ eventTypeLabel(event.eventType) }}</span>
               </div>
               <div class="tl-right">
-                <span class="tl-step" v-if="event.stepNumber > 0">步骤 {{ event.stepNumber }}</span>
+                <span class="tl-step" v-if="event.stepNumber > 0">
+                  <svg viewBox="0 0 16 16" fill="none" width="11" height="11"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                  步骤 {{ event.stepNumber }}
+                </span>
                 <span class="tl-time">{{ formatTime(event.createdAt) }}</span>
               </div>
             </div>
             <div class="tl-body">
               <p class="tl-summary">{{ event.summary }}</p>
-              <details v-if="hasData(event.data)" class="tl-details">
-                <summary>查看详情</summary>
-                <pre class="tl-json">{{ prettyJson(event.data) }}</pre>
-              </details>
+              <div v-if="hasData(event.data)" class="tl-extras">
+                <button class="tl-toggle" @click="toggleEvent(event.eventId)">
+                  <svg :class="['tl-chevron', { open: eventOpen(event.eventId) }]" viewBox="0 0 16 16" fill="none" width="12" height="12"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                  查看详情
+                </button>
+                <div v-if="eventOpen(event.eventId)" class="tl-extras-body">
+                  <pre class="tl-code">{{ prettyJson(event.data) }}</pre>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -56,14 +63,15 @@ const props = defineProps<{
 const events = ref<TimelineEvent[]>([]);
 const loading = ref(true);
 const error = ref("");
+const eventOpenMap = ref<Record<string, boolean>>({});
 
 const PHASE_COLORS: Record<string, string> = {
-  task: "#409EFF",
-  browser: "#67C23A",
-  planner: "#E6A23C",
-  executor: "#909399",
-  evaluator: "#F56C6C",
-  report: "#9B59B6",
+  task: "#3b82f6",
+  browser: "#10b981",
+  planner: "#f59e0b",
+  executor: "#6b8a9e",
+  evaluator: "#ef4444",
+  report: "#8b5cf6",
 };
 
 const PHASE_LABELS: Record<string, string> = {
@@ -121,6 +129,14 @@ function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function toggleEvent(id: string): void {
+  eventOpenMap.value[id] = !eventOpenMap.value[id];
+}
+
+function eventOpen(id: string): boolean {
+  return !!eventOpenMap.value[id];
+}
+
 function isTimelineEvent(raw: unknown): raw is TimelineEvent {
   if (!raw || typeof raw !== "object") return false;
   const r = raw as Record<string, unknown>;
@@ -138,7 +154,6 @@ onMounted(async () => {
     loading.value = false;
   }
 
-  /* ── 实时追加 WebSocket 时间线事件 ── */
   if (props.onTaskEvent) {
     unregisterWs = props.onTaskEvent((wsEvent: TaskEvent) => {
       const eventType = wsEvent.eventType ?? wsEvent.type ?? "";
@@ -161,7 +176,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.timeline-wrapper {
+.tl-wrapper {
   flex: 1;
   min-height: 200px;
   display: flex;
@@ -176,8 +191,7 @@ onUnmounted(() => {
   min-height: 200px;
 }
 
-.tl-error,
-.tl-empty {
+.tl-status {
   padding: 48px 0;
 }
 
@@ -186,11 +200,13 @@ onUnmounted(() => {
   overflow: auto;
 }
 
+/* ===== Timeline List ===== */
 .tl-list {
   position: relative;
-  padding: 8px 0 8px 20px;
+  padding: 12px 0 12px 24px;
 }
 
+/* ===== Item ===== */
 .tl-item {
   position: relative;
   padding-left: 28px;
@@ -205,47 +221,53 @@ onUnmounted(() => {
   display: none;
 }
 
+/* Dot */
 .tl-dot {
   position: absolute;
   left: 0;
-  top: 6px;
-  width: 12px;
-  height: 12px;
+  top: 14px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  z-index: 1;
+  z-index: 2;
   border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 0 3px #f4f6f9, 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
+/* Line */
 .tl-line {
   position: absolute;
-  left: 5px;
-  top: 20px;
+  left: 6px;
+  top: 28px;
   bottom: 0;
   width: 2px;
-  background: #e4e7ed;
+  background: #dfe7ec;
 }
 
+/* ===== Card ===== */
 .tl-card {
   background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
+  border: 1px solid #e6edf0;
+  border-left: 3px solid #909399;
+  border-radius: 10px;
   overflow: hidden;
-  transition: box-shadow 0.15s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.05);
 }
 
 .tl-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 12px rgba(24, 40, 50, 0.08);
 }
 
+/* Card Header */
 .tl-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  background: #fafbfc;
-  border-bottom: 1px solid #f0f2f5;
+  background: #fafcfc;
+  border-bottom: 1px solid #f0f4f7;
   flex-wrap: wrap;
 }
 
@@ -256,6 +278,26 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
+.tl-phase-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tl-phase-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4b6572;
+  letter-spacing: 0.2px;
+}
+
+.tl-event-type {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a2a32;
+}
+
 .tl-right {
   display: flex;
   align-items: center;
@@ -263,79 +305,95 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.tl-phase-tag {
-  --el-tag-text-color: #fff !important;
-  border: none !important;
-  font-weight: 600;
-}
-
-.tl-event-type {
-  font-size: 12px;
-  font-weight: 600;
-  color: #303133;
-}
-
 .tl-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
-  color: #909399;
-  background: #f0f2f5;
-  padding: 1px 8px;
-  border-radius: 4px;
+  color: #687a85;
+  background: #f0f4f7;
+  padding: 2px 9px;
+  border-radius: 999px;
   white-space: nowrap;
 }
 
 .tl-time {
   font-size: 11px;
-  color: #909399;
+  color: #94a6b0;
   white-space: nowrap;
 }
 
+/* Card Body */
 .tl-body {
-  padding: 10px 14px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
 }
 
 .tl-summary {
   margin: 0;
   font-size: 13px;
-  color: #606266;
-  line-height: 1.5;
+  color: #374e5a;
+  line-height: 1.55;
 }
 
-.tl-details {
-  margin-top: 8px;
-  border: 1px solid #eef3f5;
+/* Extras toggle */
+.tl-extras {
+  display: grid;
+  gap: 6px;
+}
+
+.tl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid #e6edf0;
   border-radius: 6px;
-  padding: 8px 12px;
-}
-
-.tl-details[open] {
-  padding-bottom: 12px;
-}
-
-.tl-details summary {
-  cursor: pointer;
-  color: #909399;
+  background: #fafcfd;
+  color: #687a85;
   font-size: 12px;
-  font-weight: 600;
-  user-select: none;
+  font-weight: 550;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
 }
 
-.tl-details summary:hover {
-  color: #606266;
+.tl-toggle:hover {
+  background: #f0f4f7;
+  color: #1a2a32;
+  border-color: #d0dbdf;
 }
 
-.tl-json {
-  margin: 8px 0 0;
-  padding: 10px;
+.tl-chevron {
+  transition: transform 0.2s ease;
+}
+
+.tl-chevron.open {
+  transform: rotate(90deg);
+}
+
+.tl-extras-body {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tl-code {
+  margin: 0;
+  padding: 14px;
   border-radius: 6px;
-  background: #272d32;
+  background: #1a2a32;
   color: #dce8eb;
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 11px;
-  line-height: 1.6;
+  line-height: 1.65;
   overflow-x: auto;
   white-space: pre;
-  max-height: 300px;
+  max-height: 320px;
   overflow: auto;
 }
 </style>

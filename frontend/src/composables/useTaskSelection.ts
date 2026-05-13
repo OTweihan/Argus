@@ -27,6 +27,7 @@ export function useTaskSelection(opts: {
             selectedTaskId.value = taskId;
             selectedTaskTab.value = tab;
             view.value = "task-detail";
+            window.location.hash = "task-detail/" + taskId;
             reportData.value = null;
             reportLoading.value = true;
             const task = await apiGetTask(taskId);
@@ -47,7 +48,7 @@ export function useTaskSelection(opts: {
         selectedTaskId.value = null;
         selectedTaskTab.value = "report";
         view.value = "tasks";
-        connectEventStream();
+        history.replaceState(null, "", "#tasks");
     }
 
     return {

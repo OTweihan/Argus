@@ -4,6 +4,18 @@ export type ViewKey = "dashboard" | "projects" | "tasks" | "models" | "task-deta
 
 export function useNavigation() {
     const view = ref<ViewKey>("dashboard");
+    const initialDetailTaskId = ref<string | null>(null);
+
+    function parseHash(hash: string): { view: ViewKey; taskId: string | null } {
+        const cleaned = hash.replace(/^#/, "");
+        const parts = cleaned.split("/");
+        const viewName = parts[0] as ViewKey;
+        const validViews: ViewKey[] = ["dashboard", "projects", "tasks", "models", "task-detail"];
+        if (validViews.includes(viewName)) {
+            return { view: viewName, taskId: parts[1] || null };
+        }
+        return { view: "dashboard", taskId: null };
+    }
 
     function changeView(nextView: ViewKey): void {
         view.value = nextView;
@@ -11,16 +23,15 @@ export function useNavigation() {
     }
 
     function onHashChange(): void {
-        const hash = window.location.hash.replace(/^#/, "");
-        if ((["dashboard", "projects", "tasks", "models", "task-detail"] as ViewKey[]).includes(hash as ViewKey)) {
-            view.value = hash as ViewKey;
-        }
+        const { view: parsedView } = parseHash(window.location.hash);
+        view.value = parsedView;
     }
 
     onMounted(() => {
-        const hash = window.location.hash.replace(/^#/, "");
-        if ((["dashboard", "projects", "tasks", "models", "task-detail"] as ViewKey[]).includes(hash as ViewKey)) {
-            view.value = hash as ViewKey;
+        const { view: parsedView, taskId } = parseHash(window.location.hash);
+        view.value = parsedView;
+        if (parsedView === "task-detail" && taskId) {
+            initialDetailTaskId.value = taskId;
         }
         window.addEventListener("hashchange", onHashChange);
     });
@@ -29,5 +40,5 @@ export function useNavigation() {
         window.removeEventListener("hashchange", onHashChange);
     });
 
-    return { view, changeView };
+    return { view, changeView, initialDetailTaskId };
 }
