@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Any
@@ -19,9 +20,16 @@ from argus_py.core.exceptions import ConfigError, LLMError, LLMRateLimitError
 from argus_py.llm.models import ChatCompletionRequest, ChatMessage, ChatResponse
 from argus_py.llm.retry import RetryConfig, retry_async
 
+logger = logging.getLogger(__name__)
+
 
 class LLMClient:
-    """OpenAI Chat Completions 兼容客户端。"""
+    """OpenAI Chat Completions 兼容客户端。
+
+    单实例内部复用同一个 ``httpx.AsyncClient``：保持 keep-alive 连接池，
+    避免每次 ``chat`` / ``complete`` 都重做 TCP / TLS 握手。
+    生命周期由调用方负责 —— 用完请调用 ``aclose()``，或使用 ``async with``。
+    """
 
     def __init__(
         self,
@@ -46,11 +54,34 @@ class LLMClient:
         self.completions_path = (
             completions_path if completions_path.startswith("/") else f"/{completions_path}"
         )
+        # httpx.AsyncClient 必须在 async 上下文中关闭；首次请求时懒创建。
+        self._http: httpx.AsyncClient | None = None
 
     @property
     def completions_url(self) -> str:
         """OpenAI 兼容 completions URL。"""
         return f"{self.base_url}{self.completions_path}"
+
+    def _ensure_http(self) -> httpx.AsyncClient:
+        """懒创建并复用 httpx.AsyncClient（保持连接池 keep-alive）。"""
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient(timeout=self.timeout_seconds)
+        return self._http
+
+    async def aclose(self) -> None:
+        """显式关闭底层 httpx 连接池。可重复调用。"""
+        if self._http is not None and not self._http.is_closed:
+            try:
+                await self._http.aclose()
+            except Exception:  # noqa: BLE001 - 释放阶段不应再抛错
+                logger.debug("关闭 LLM httpx 客户端时忽略异常", exc_info=True)
+        self._http = None
+
+    async def __aenter__(self) -> "LLMClient":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.aclose()
 
     async def chat(
         self,
@@ -131,13 +162,13 @@ class LLMClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        client = self._ensure_http()
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.post(
-                    self.completions_url,
-                    headers=headers,
-                    json=request.to_payload(),
-                )
+            response = await client.post(
+                self.completions_url,
+                headers=headers,
+                json=request.to_payload(),
+            )
         except httpx.TimeoutException as exc:
             raise LLMError(f"LLM 请求超时：{exc}") from exc
         except httpx.HTTPError as exc:

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
 import tempfile
 import zipfile
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -26,12 +28,40 @@ router = APIRouter(prefix="/tasks", tags=["events"])
 _BUNDLE_MAX_SIZE_BYTES = 100 * 1024 * 1024
 
 
+def _iter_filtered_trace_records(
+    lines: Iterable[str],
+    trace_id_filter: str | None,
+) -> Iterator[dict[str, Any]]:
+    """流式解析 JSONL 行，按 trace_id 过滤并跳过空 / 损坏行。
+
+    由调用方负责文件句柄生命周期（必须在 ``with open`` 块内消化迭代器，
+    否则文件会被关闭）。损坏的 JSON 行只警告并跳过，不抛 500。
+    """
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            logger.warning("跳过 JSONL 中的非法行：%s", line[:120])
+            continue
+        if trace_id_filter and record.get("trace_id") != trace_id_filter:
+            continue
+        yield record
+
+
+def _serialize_trace(record: dict[str, Any]) -> dict[str, Any]:
+    """将原始 trace 记录通过 LLMTraceResponse 校验后转回 JSON 友好字典。"""
+    return LLMTraceResponse.model_validate(record).model_dump(by_alias=True, mode="json")
+
+
 @router.get("/{task_id}/events")
-async def list_task_events(
+def list_task_events(
     task_id: str,
     service: TaskService = Depends(get_task_service),
 ):
-    """返回任务的执行时间线事件。"""
+    """返回任务的执行时间线事件（同步 SQLite 查询，线程池执行）。"""
     try:
         service.get_task(task_id)
     except TaskError:
@@ -40,7 +70,7 @@ async def list_task_events(
 
 
 @router.get("/{task_id}/llm-traces")
-async def list_llm_traces(
+def list_llm_traces(
     task_id: str,
     skip: int = 0,
     limit: int = 50,
@@ -49,7 +79,9 @@ async def list_llm_traces(
 ):
     """返回任务的 LLM 调用追踪记录（从 JSONL 文件读取）。
 
-    支持分页（skip/limit）和按 trace_id 过滤。
+    支持分页（skip/limit）和按 trace_id 过滤；同步文件 IO 在线程池执行。
+    采用 ``itertools.islice`` 流式分页：仅对落入 [skip, skip+limit) 窗口的
+    记录做 Pydantic 验证 + dump，避免大 trace 文件全量解析。
     """
     try:
         service.get_task(task_id)
@@ -58,28 +90,24 @@ async def list_llm_traces(
     trace_path = OUTPUT_DIR / "traces" / f"{task_id}.jsonl"
     if not trace_path.exists():
         return []
-    records: list[dict[str, Any]] = []
+
+    skip = max(skip, 0)
+    stop: int | None = (skip + limit) if limit > 0 else None
     with open(trace_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            if trace_id and record.get("trace_id") != trace_id:
-                continue
-            records.append(
-                LLMTraceResponse.model_validate(record).model_dump(by_alias=True, mode="json")
-            )
-    return records[skip : skip + limit] if limit > 0 else records[skip:]
+        sliced = itertools.islice(_iter_filtered_trace_records(f, trace_id), skip, stop)
+        return [_serialize_trace(record) for record in sliced]
 
 
 @router.get("/{task_id}/llm-traces/{trace_id}")
-async def get_trace_detail(
+def get_trace_detail(
     task_id: str,
     trace_id: str,
     service: TaskService = Depends(get_task_service),
 ):
-    """返回单条 LLM 调用的完整追踪记录。"""
+    """返回单条 LLM 调用的完整追踪记录（同步文件 IO，线程池执行）。
+
+    复用 ``_iter_filtered_trace_records`` 流式扫描，命中即早退。
+    """
     try:
         service.get_task(task_id)
     except TaskError:
@@ -88,27 +116,21 @@ async def get_trace_detail(
     if not trace_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="追踪记录不存在")
     with open(trace_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            if record.get("trace_id") == trace_id:
-                return LLMTraceResponse.model_validate(record).model_dump(
-                    by_alias=True, mode="json"
-                )
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="追踪记录不存在")
+        record = next(_iter_filtered_trace_records(f, trace_id), None)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="追踪记录不存在")
+    return _serialize_trace(record)
 
 
 @router.get("/{task_id}/debug-bundle")
-async def download_debug_bundle(
+def download_debug_bundle(
     task_id: str,
     service: TaskService = Depends(get_task_service),
 ):
     """下载任务调试包（task.json + traces + 事件 + 截图）。
 
     使用临时文件构建，避免大截图撑爆内存；超过 _BUNDLE_MAX_SIZE_BYTES 时
-    跳过后续文件并记录警告。
+    跳过后续文件并记录警告。同步 IO 在线程池执行，避免阻塞事件循环。
     """
     try:
         task = service.get_task(task_id)

@@ -41,18 +41,22 @@ async def run_check(args: argparse.Namespace) -> int:
     )
     print(f"正在调用大模型接口，最多等待 {args.timeout:g} 秒...")
     try:
-        response = await asyncio.wait_for(client.complete(prompt=prompt), timeout=args.timeout)
-    except TimeoutError:
-        print_cli_error(
-            "LLM 检查超时",
-            f"超过 {args.timeout:g} 秒未完成。",
-            "请检查接口地址、代理或网络连接；也可以用 --timeout 临时调大等待时间。",
-        )
-        return 1
+        try:
+            response = await asyncio.wait_for(client.complete(prompt=prompt), timeout=args.timeout)
+        except TimeoutError:
+            print_cli_error(
+                "LLM 检查超时",
+                f"超过 {args.timeout:g} 秒未完成。",
+                "请检查接口地址、代理或网络连接；也可以用 --timeout 临时调大等待时间。",
+            )
+            return 1
 
-    print(f"模型：{response.model}")
-    print(f"结束原因：{response.finish_reason}")
-    print(f"Token：{response.usage.to_dict()}")
-    print("响应内容：")
-    print(response.content)
-    return 0
+        print(f"模型：{response.model}")
+        print(f"结束原因：{response.finish_reason}")
+        print(f"Token：{response.usage.to_dict()}")
+        print("响应内容：")
+        print(response.content)
+        return 0
+    finally:
+        # 显式关闭底层 httpx.AsyncClient，避免 CLI 退出时出现未关闭客户端警告。
+        await client.aclose()

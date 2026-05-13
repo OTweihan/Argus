@@ -123,17 +123,21 @@ class ModelConfigService:
         self.storage.delete(model_config_id)
 
     async def test_model_config(self, config: ModelConfig) -> dict[str, Any]:
-        """检查模型配置是否可以完成一次低成本调用。"""
+        """检查模型配置是否可以完成一次低成本调用。
+
+        使用 ``async with`` 确保底层 httpx 连接池被显式关闭，避免一次性
+        连通性检查后留下未关闭的 AsyncClient 触发资源警告。
+        """
         started = time.perf_counter()
-        client = create_llm_client(config)
-        response = await client.chat(
-            [
-                ChatMessage(
-                    role="user",
-                    content="请只回复 OK，用于连通性检查。",
-                )
-            ]
-        )
+        async with create_llm_client(config) as client:
+            response = await client.chat(
+                [
+                    ChatMessage(
+                        role="user",
+                        content="请只回复 OK，用于连通性检查。",
+                    )
+                ]
+            )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return {
             "success": True,

@@ -16,13 +16,17 @@ router = APIRouter(prefix="/tasks", tags=["reports"])
 
 
 @router.get("/{task_id}/report")
-async def get_task_report(
+def get_task_report(
     task_id: str,
     format: str = Query(default="html", pattern="^(html|json)$"),
     download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
-    """返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。"""
+    """返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。
+
+    内部使用同步 SQLite 与文件系统调用，保持 def 让 FastAPI 在线程池执行，
+    避免阻塞事件循环。
+    """
     task = service.get_task(task_id)
     if format == "json":
         return _json_report_response(task, download=download)
@@ -30,12 +34,12 @@ async def get_task_report(
 
 
 @router.get("/{task_id}/report.json")
-async def get_task_report_json(
+def get_task_report_json(
     task_id: str,
     download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
-    """返回任务 JSON 报告文件。"""
+    """返回任务 JSON 报告文件（同步 IO，线程池执行）。"""
     return _json_report_response(service.get_task(task_id), download=download)
 
 
@@ -84,12 +88,12 @@ def _report_not_found(task_id: str, message: str) -> HTTPException:
 
 
 @router.get("/{task_id}/screenshots/{filename:path}")
-async def get_task_screenshot(
+def get_task_screenshot(
     task_id: str,
     filename: str,
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
-    """返回任务截图文件。"""
+    """返回任务截图文件（同步 IO，线程池执行）。"""
     service.get_task(task_id)
     screenshot_dir = (SCREENSHOTS_DIR / task_id).resolve()
     screenshot_path = (screenshot_dir / filename).resolve()
