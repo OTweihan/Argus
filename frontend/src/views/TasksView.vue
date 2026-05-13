@@ -122,13 +122,14 @@
 </template>
 
 <script setup lang="ts">
-import {ref} from "vue";
+import {defineAsyncComponent, ref} from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
-import LLMDebugTab from "../components/task/LLMDebugTab.vue";
-import TaskTimeline from "../components/task/TaskTimeline.vue";
-import ReportView from "./ReportView.vue";
+// 任务详情页三个大体积 Tab 组件按需加载，避免拖慢任务列表首屏
+const ReportView = defineAsyncComponent(() => import("./ReportView.vue"));
+const TaskTimeline = defineAsyncComponent(() => import("../components/task/TaskTimeline.vue"));
+const LLMDebugTab = defineAsyncComponent(() => import("../components/task/LLMDebugTab.vue"));
 import {getTask, reportUrl} from "../api";
 import {useConsoleApp} from "../composables/useConsoleApp";
 import type {Task} from "../types";

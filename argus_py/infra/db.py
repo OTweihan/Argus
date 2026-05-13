@@ -152,14 +152,17 @@ CREATE INDEX IF NOT EXISTS idx_task_events_task_created ON task_events(task_id, 
 
 
 def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    """创建 SQLite 连接并设置运行参数。"""
+    """创建 SQLite 连接并设置连接级运行参数。
+
+    journal_mode 是数据库级永久设置，由 init_database 统一处理，
+    避免每次新建连接都执行一次 PRAGMA 写入而触发额外 IO。
+    """
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=5)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA busy_timeout = 5000")
-    connection.execute("PRAGMA journal_mode = WAL")
     return connection
 
 
@@ -191,9 +194,14 @@ def _migrate_model_configs_table(connection: sqlite3.Connection) -> None:
 
 
 def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
-    """初始化数据库表结构。"""
+    """初始化数据库表结构。
+
+    WAL 是数据库级永久设置，在此处一次性切换；后续 connect() 不再每次写 PRAGMA。
+    """
     _check_sqlite_version()
     with closing(connect(db_path)) as connection:
+        # journal_mode 是 SQLite 数据库级别的持久属性，设置一次即可永久生效
+        connection.execute("PRAGMA journal_mode = WAL")
         with connection:
             connection.executescript(PROJECTS_SCHEMA)
             connection.executescript(MODEL_CONFIGS_SCHEMA)
