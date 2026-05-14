@@ -40,6 +40,7 @@ class EvaluationResult:
     completed: bool
     success: bool
     reason: str = ""
+    next_action: str = ""
     findings: list[Finding] = field(default_factory=list)
 
     @classmethod
@@ -60,10 +61,14 @@ class EvaluationResult:
                     screenshot_path=item.get("screenshot_path"),
                 )
             )
+        # completed=true 时 next_action 必须为空，避免下一轮把已完成任务又当作新提示
+        completed_flag = _parse_bool(data.get("completed"))
+        next_action_raw = "" if completed_flag else str(data.get("next_action") or "").strip()
         return cls(
-            completed=_parse_bool(data.get("completed")),
+            completed=completed_flag,
             success=_parse_bool(data.get("success")),
             reason=str(data.get("reason") or ""),
+            next_action=next_action_raw,
             findings=findings,
         )
 

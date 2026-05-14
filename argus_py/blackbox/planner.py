@@ -44,6 +44,7 @@ class BlackboxPlanner:
         history: list[dict[str, Any]],
         max_steps: int = 3,
         last_error: dict[str, Any] | None = None,
+        evaluator_next_action: str = "",
     ) -> ActionSequence:
         """基于最新页面观察和上一轮失败信息生成下一批动作。"""
         sys_prompt = load_planner_prompt()
@@ -56,6 +57,8 @@ class BlackboxPlanner:
         }
         if last_error:
             payload["last_error"] = last_error
+        if evaluator_next_action:
+            payload["evaluator_next_action"] = evaluator_next_action
         prompt = "\n\n输入：\n" + json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2)
 
         trace_ctx: dict[str, Any] = {

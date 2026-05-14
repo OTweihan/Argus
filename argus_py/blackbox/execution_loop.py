@@ -61,6 +61,8 @@ class BlackboxExecutionLoop:
         recovery_attempts = 0
         sequence: ActionSequence = ActionSequence(steps=[])
         _last_error: dict | None = None
+        # 评估器上一轮的 next_action，仅在下一次 plan_next 时使用一次
+        _next_hint: str = ""
 
         first_plan = True
 
@@ -76,8 +78,9 @@ class BlackboxExecutionLoop:
                     first_plan = False
                 else:
                     sequence, _last_error = await self._plan_next(
-                        task, latest_observation, planner, _last_error
+                        task, latest_observation, planner, _last_error, _next_hint
                     )
+                    _next_hint = ""
                 if not sequence.steps:
                     raise TaskError("规划器未返回可执行动作。")
 
@@ -159,13 +162,17 @@ class BlackboxExecutionLoop:
                 self.events.fail(task.task_id, evaluation.reason or "评估判定失败")
                 raise TaskError(evaluation.reason or "黑盒任务已完成，但评估结果为失败。")
 
+            # 把评估器的 next_action 暂存为下一次 plan_next 的提示
+            _next_hint = evaluation.next_action or ""
+
             if executed_steps >= task_input.max_steps:
                 break
 
             # ── 重新规划 ──
             sequence, _last_error = await self._plan_next(
-                task, latest_observation, planner, _last_error
+                task, latest_observation, planner, _last_error, _next_hint
             )
+            _next_hint = ""
 
         # ── 达到最大步骤 ──
         return await self._handle_max_steps(task, task_input, owns_status)
@@ -176,6 +183,7 @@ class BlackboxExecutionLoop:
         latest_observation: str,
         planner: BlackboxPlanner,
         last_error: dict | None,
+        evaluator_next_action: str = "",
     ) -> tuple[ActionSequence, dict | None]:
         """请求规划器生成下一批动作。返回 (sequence, last_error_cleared)。"""
         if task.logs and task.logs[-1].url_after:
@@ -193,6 +201,7 @@ class BlackboxExecutionLoop:
             history=self.finalizer.history(task),
             max_steps=self.max_plan_steps,
             last_error=last_error,
+            evaluator_next_action=evaluator_next_action,
         )
 
         self.events.planner_result(task.task_id, step, len(result.steps), result.summary)

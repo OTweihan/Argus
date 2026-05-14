@@ -366,8 +366,7 @@ outputs/traces/<task_id>.jsonl
 - `argus_py/blackbox/runner.py`
 - `argus_py/llm/prompts/blackbox_planner.md`
 - `argus_py/llm/prompts/blackbox_evaluator.md`
-- `config/prompts/blackbox_planner.md`（用户覆盖模板）
-- `config/prompts/blackbox_evaluator.md`（用户覆盖模板）
+- `config/prompts/`（可选用户覆盖目录，默认空；按需新建同名 .md 即可生效）
 
 当前行为：
 
@@ -378,6 +377,7 @@ outputs/traces/<task_id>.jsonl
 - 动作失败会记录失败步骤，并尽量截图；随后重新观察页面，让规划器基于失败历史重新规划，默认最多恢复 2 次。
 - 评估器根据目标、历史和最新观察判断是否完成。对登录页、表单页、流程类任务，不允许只因元素存在就判定完成，必须看到实际交互证据。
 - 对新增、创建、添加、录入类任务，不能只因打开表单或观察到必填校验就判定完成；需要尽量覆盖新增入口、关键字段、必填校验、无效格式或边界数据、取消/关闭等低风险场景，且避免创建真实业务数据。
+- 评估器输出的 `next_action` 会作为 `evaluator_next_action` 透传给下一轮 Planner，作为下一步动作的优先建议（仍受规划器的安全边界约束）。
 - 完成时 `reason` 应说明已覆盖的测试场景，例如页面打开、空表单提交、无效账号提交、错误提示或状态变化。
 - Planner / Evaluator 调用 LLM 前后会写 trace；如果 LLM client 构造或调用失败，也会写入带 `error` 的 `task.llm.failed` 记录。
 
