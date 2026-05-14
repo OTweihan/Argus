@@ -156,7 +156,7 @@ outputs/traces/<task_id>.jsonl
 - 首次配置只提示 API Key、接口地址、模型名称；高级参数通过 `--advanced` 调整。
 - 交互提示文案抽到 `argus_py/cli/messages.py`。
 - `argus llm check` 改成固定低消耗连接检查，不再允许用户自由输入 Prompt。
-- `argus llm check` 内部固定使用 `llm_connection_check.md` 模板，最大输出 Token 数为 4，温度为 0。
+- `argus llm check` 内部固定使用代码内联的低消耗 Prompt（`Reply only: ok`），最大输出 Token 数为 4，温度为 0；不再走 Prompt 模板机制。
 - `argus llm check` 连接检查不走配置里的重试次数，当前为零重试，避免失败时长时间等待和重复消耗。
 - `argus run` 已接入 `TaskRunner` 和 `BlackboxRunner`，默认 headless 执行；可用 `--headed` 显示浏览器窗口。
 - `argus run --create-only` 保留只创建任务快照的旧行为。
@@ -463,7 +463,6 @@ outputs/traces/<task_id>.jsonl
 - `argus_py/llm/client.py`
 - `argus_py/llm/models.py`
 - `argus_py/llm/prompts.py`
-- `argus_py/llm/prompts/llm_connection_check.md`
 - `argus_py/llm/prompts/blackbox_planner.md`
 - `argus_py/llm/prompts/blackbox_evaluator.md`
 - `argus_py/llm/parser.py`
@@ -480,6 +479,7 @@ outputs/traces/<task_id>.jsonl
 - API Key 缺失提示已改为面向用户：提示执行 `argus config llm`。
 - Prompt 模板已区分内置模板和用户覆盖模板：显式路径 > `config/prompts` 用户模板 > `argus_py/llm/prompts` 内置模板。
 - 内置 Prompt 已加入包数据，后续安装包运行时不依赖源码目录下的 `config/prompts`。
+- 用户可覆盖范围已收敛到 `blackbox_planner.md` / `blackbox_evaluator.md`；`argus llm check` 用的连接检查 Prompt 改为代码内联常量，不再走模板加载。
 - `LLMClient.complete()` / `chat()` 支持内部 `_trace_ctx`，用于补充 latency、model、token_usage、base_url_host 和 error。
 
 ### T007 文档与示例
@@ -617,7 +617,6 @@ argus_py/config/llm_settings.py
 argus_py/llm/client.py
 argus_py/llm/models.py
 argus_py/llm/prompts.py
-argus_py/llm/prompts/llm_connection_check.md
 argus_py/llm/prompts/blackbox_planner.md
 argus_py/llm/prompts/blackbox_evaluator.md
 argus_py/llm/parser.py
@@ -664,7 +663,6 @@ tests/unit/test_llm_trace.py
 tests/unit/test_task_timeline.py
 tests/e2e/test_platform_contract.py
 docs/phase2-e2e-test-cases.md
-config/prompts/llm_connection_check.md
 config/server.yaml
 config/llm.env.example
 ```

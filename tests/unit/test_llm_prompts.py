@@ -7,18 +7,18 @@ from argus_py.llm.prompts import (
 
 
 def test_load_prompt_falls_back_to_builtin_when_user_template_missing(tmp_path):
-    content = load_prompt("llm_connection_check.md", prompts_dir=tmp_path / "missing")
+    content = load_prompt("blackbox_planner.md", prompts_dir=tmp_path / "missing")
 
-    assert content.strip() == "Reply only: ok"
+    assert content.startswith("你是 Argus 黑盒测试规划器")
 
 
 def test_user_prompt_overrides_builtin_prompt(tmp_path):
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
-    prompt_path = prompts_dir / "llm_connection_check.md"
+    prompt_path = prompts_dir / "blackbox_planner.md"
     prompt_path.write_text("用户覆盖模板", encoding="utf-8")
 
-    template = load_prompt_template("llm_connection_check.md", prompts_dir=prompts_dir)
+    template = load_prompt_template("blackbox_planner.md", prompts_dir=prompts_dir)
 
     assert template.content == "用户覆盖模板"
     assert template.source == str(prompt_path)

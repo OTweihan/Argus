@@ -8,9 +8,8 @@ import asyncio
 from argus_py.cli.io import cli_error, cli_info, cli_print
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.llm import LLMClient
-from argus_py.llm.prompts import load_prompt
 
-LLM_CONNECTION_CHECK_PROMPT = "llm_connection_check.md"
+LLM_CONNECTION_CHECK_PROMPT = "Reply only: ok"
 LLM_CONNECTION_CHECK_MAX_TOKENS = 4
 LLM_CONNECTION_CHECK_TEMPERATURE = 0.0
 
@@ -29,7 +28,7 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
 async def run_check(args: argparse.Namespace) -> int:
     """运行 LLM 连接检查。"""
     llm_settings = load_llm_settings()
-    prompt = load_prompt(LLM_CONNECTION_CHECK_PROMPT).strip()
+    prompt = LLM_CONNECTION_CHECK_PROMPT
 
     client = LLMClient(
         api_key=llm_settings.api_key,

@@ -368,10 +368,11 @@ Prompt 模板分为内置模板和用户覆盖模板：
 当前内置模板包括：
 
 ```text
-llm_connection_check.md
 blackbox_planner.md
 blackbox_evaluator.md
 ```
+
+> `argus llm check` 使用的连接检查 Prompt 已内联在 CLI 代码中，不属于可覆盖模板。
 
 ## 路径策略
 
