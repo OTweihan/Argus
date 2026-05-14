@@ -304,21 +304,27 @@ function downloadJsonReport(): void {
   color: var(--text-placeholder, #9ca3af);
 }
 
-/* 任务详情顶部工具条：玻璃面板 */
+/* 任务详情顶部工具条：玻璃面板，与 tabs 头条粘合形成统一固定头部 */
 .report-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
   flex-shrink: 0;
   flex-wrap: wrap;
   padding: 10px 14px;
   background: var(--surface-glass-strong);
   border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  border-bottom: 0;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: var(--shadow-xs);
   backdrop-filter: blur(var(--blur-soft));
   -webkit-backdrop-filter: blur(var(--blur-soft));
+  position: relative;
+  z-index: 3;
 }
 
 .tb-btn {
@@ -384,12 +390,26 @@ function downloadJsonReport(): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 与上方 report-bar 视觉粘合，形成连续顶部固定头部 */
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+/* tab 头条：固定不滚动 + 下沉阴影强化「悬浮在内容之上」感 */
+.detail-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  box-shadow: 0 6px 14px -10px rgba(15, 23, 42, 0.18);
 }
 
 .detail-tabs :deep(.el-tabs__content) {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .detail-tabs :deep(.el-tab-pane) {

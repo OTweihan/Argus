@@ -549,6 +549,11 @@ onMounted(async () => {
   background: transparent;
 }
 
+/* 关键：阻止 flex 容器压缩子项，否则 4 个 DebugCodeSection 会被压扁导致永远不溢出、滚不动 */
+.dbg-detail-scroll > * {
+  flex-shrink: 0;
+}
+
 /* ===== Meta Grid ===== */
 .dbg-meta-grid {
   display: grid;

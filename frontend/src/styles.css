@@ -185,8 +185,11 @@ body {
     }
 }
 
-/* ===== Content area ===== */
-.content-area {
+/* ===== Content area =====
+ * 选择器写成 .el-main.content-area 提高特异性 (0,2,0)，
+ * 强制压制 Element Plus 默认的 .el-main { overflow: auto; padding: 20px }，
+ * 避免外层 el-main 抢占滚动容器导致 report-bar 与 tabs 头条被一起滚走。 */
+.el-main.content-area {
     background: transparent;
     padding: 22px 26px 26px;
     overflow: hidden;
@@ -200,9 +203,10 @@ body {
 }
 
 /* 报告页接管整个布局，隐藏 topbar 并取消 padding */
-.main-area:has(.report-container) .content-area {
+.main-area:has(.report-container) .el-main.content-area {
     padding: 0;
     background: transparent;
+    overflow: hidden;
 }
 
 .main-area:has(.report-container) .topbar {
