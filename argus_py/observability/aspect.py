@@ -10,7 +10,9 @@ from time import perf_counter
 from typing import Any, TypeVar, cast
 
 from argus_py.observability.context import bind_context
+from argus_py.observability.events import STATUS_ERROR, STATUS_SUCCESS, log_event
 from argus_py.observability.redaction import redact
+from argus_py.utils.jsonx import to_jsonable
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -85,10 +87,14 @@ async def _run_async(
             result = await func(*args, **kwargs)
         except Exception:
             if _operation_logging_enabled():
-                _log_finish(logger, event, "error", started, include_args, signature, args, kwargs)
+                _log_finish(
+                    logger, event, STATUS_ERROR, started, include_args, signature, args, kwargs
+                )
             raise
         if _operation_logging_enabled():
-            _log_finish(logger, event, "success", started, include_args, signature, args, kwargs)
+            _log_finish(
+                logger, event, STATUS_SUCCESS, started, include_args, signature, args, kwargs
+            )
         return result
 
 
@@ -111,10 +117,14 @@ def _run_sync(
             result = func(*args, **kwargs)
         except Exception:
             if _operation_logging_enabled():
-                _log_finish(logger, event, "error", started, include_args, signature, args, kwargs)
+                _log_finish(
+                    logger, event, STATUS_ERROR, started, include_args, signature, args, kwargs
+                )
             raise
         if _operation_logging_enabled():
-            _log_finish(logger, event, "success", started, include_args, signature, args, kwargs)
+            _log_finish(
+                logger, event, STATUS_SUCCESS, started, include_args, signature, args, kwargs
+            )
         return result
 
 
@@ -128,20 +138,18 @@ def _log_finish(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> None:
-    details: dict[str, Any] = {}
+    details: dict[str, Any] | None = None
     if include_args:
-        details["args"] = _bound_arguments(signature, args, kwargs)
-    logger.info(
-        "%s %s",
+        bound = _bound_arguments(signature, args, kwargs)
+        if bound:
+            details = {"args": bound}
+    log_event(
+        logger,
         event,
-        "完成" if status == "success" else "失败",
-        extra={
-            "event": event,
-            "status": status,
-            "duration_ms": round((perf_counter() - started) * 1000, 2),
-            "details": details or None,
-        },
-        exc_info=status == "error",
+        status=status,
+        duration_ms=round((perf_counter() - started) * 1000, 2),
+        details=details,
+        exc_info=status == STATUS_ERROR,
     )
 
 
@@ -154,7 +162,10 @@ def _bound_arguments(
         bound = signature.bind_partial(*args, **kwargs)
     except TypeError:
         return {}
-    return redact({key: value for key, value in bound.arguments.items() if key != "self"})
+    raw = {key: value for key, value in bound.arguments.items() if key != "self"}
+    # 先 to_jsonable 把 dataclass/Pydantic/datetime/Path 等转成可序列化结构，
+    # 再脱敏，避免日志里只看到对象 repr 而丢失结构。
+    return redact(to_jsonable(raw))
 
 
 def _task_id_from_call(
@@ -175,8 +186,20 @@ def _task_id_from_call(
     return getattr(value, "task_id", None)
 
 
-@functools.lru_cache(maxsize=1)
-def _operation_logging_enabled() -> bool:
-    from argus_py.config.server_settings import load_server_settings  # noqa: PLC0415
+_OPERATION_LOGGING_CACHE: bool | None = None
 
-    return load_server_settings().observability_operation_logging
+
+def _operation_logging_enabled() -> bool:
+    """读取并缓存 operation_logging 配置；测试可通过 reset 清空缓存。"""
+    global _OPERATION_LOGGING_CACHE
+    if _OPERATION_LOGGING_CACHE is None:
+        from argus_py.config.server_settings import load_server_settings  # noqa: PLC0415
+
+        _OPERATION_LOGGING_CACHE = load_server_settings().observability_operation_logging
+    return _OPERATION_LOGGING_CACHE
+
+
+def reset_operation_logging_cache() -> None:
+    """清空 ``_operation_logging_enabled`` 的缓存；仅供测试或配置热重载使用。"""
+    global _OPERATION_LOGGING_CACHE
+    _OPERATION_LOGGING_CACHE = None

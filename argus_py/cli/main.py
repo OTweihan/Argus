@@ -8,6 +8,7 @@ import sys
 from argus_py.cli.commands import auth, browser, config
 from argus_py.cli.commands import llm as llm_cmd
 from argus_py.cli.commands import run, serve
+from argus_py.cli.io import setup_cli_logging
 from argus_py.core.constants import PROJECT_NAME, PROJECT_VERSION
 
 
@@ -15,6 +16,13 @@ def build_parser() -> argparse.ArgumentParser:
     """构建命令行解析器。"""
     parser = argparse.ArgumentParser(prog="argus", description="AI Native Test Platform")
     parser.add_argument("--version", action="version", version=f"{PROJECT_NAME} {PROJECT_VERSION}")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="提升 CLI 日志级别（-v=INFO，-vv=DEBUG）；默认仅显示 WARNING 及以上",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
     serve.build_parser(subparsers)
@@ -30,6 +38,11 @@ def main(argv: list[str] | None = None) -> int:
     """CLI 主函数。"""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # serve 命令由 FastAPI lifespan 调用 setup_logging 加载完整 YAML 配置；
+    # 其它一次性命令使用精简 console 配置，避免和 server 进程争抢日志文件。
+    if args.command != "serve":
+        setup_cli_logging(verbose=getattr(args, "verbose", 0))
 
     if args.command == "serve":
         return serve.run(args)

@@ -6,7 +6,8 @@ import argparse
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession, PlaywrightClient
-from argus_py.cli.utils import print_cli_cancelled, print_cli_error, resolve_auth_state_path
+from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_print, cli_success
+from argus_py.cli.utils import resolve_auth_state_path
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
@@ -46,7 +47,7 @@ async def run(args: argparse.Namespace) -> int:
     auth_state_arg = getattr(args, "auth_state", None)
     auth_state_path = resolve_auth_state_path(auth_state_arg) if auth_state_arg else None
     if auth_state_path is not None and not auth_state_path.exists():
-        print_cli_error(
+        cli_error(
             "任务执行失败",
             f"登录态文件不存在：{auth_state_path}",
             "请先执行 argus auth save --name <名称> --url <登录页>，或检查 --auth-state 路径。",
@@ -60,11 +61,11 @@ async def run(args: argparse.Namespace) -> int:
         timeout_seconds=limits.timeout_seconds,
         capture_screenshots=not args.no_screenshot,
     )
-    print(f"已创建任务：{task.task_id}")
-    print(f"执行限制：最大 {limits.max_steps} 步，超时 {limits.timeout_seconds} 秒")
+    cli_success(f"已创建任务：{task.task_id}")
+    cli_info(f"执行限制：最大 {limits.max_steps} 步，超时 {limits.timeout_seconds} 秒")
 
     if args.create_only:
-        print("任务已保存，未执行。")
+        cli_info("任务已保存，未执行。")
         return 0
 
     def browser_session_factory(current_task: Task) -> BrowserSession:
@@ -84,18 +85,18 @@ async def run(args: argparse.Namespace) -> int:
     )
     runner = TaskRunner(service=service, handlers={TaskType.BLACKBOX: blackbox_runner.run})
 
-    print("开始执行黑盒任务...")
+    cli_info("开始执行黑盒任务...")
     try:
         result = await runner.run(task)
     except TaskError as exc:
         latest = _load_latest_task(service, task)
         _print_task_result(latest)
-        print_cli_error("任务执行失败", exc)
+        cli_error("任务执行失败", exc)
         return 1
     except KeyboardInterrupt:
         latest = service.cancel_task(task.task_id)
         _print_task_result(latest)
-        print_cli_cancelled("任务执行")
+        cli_cancelled("任务执行")
         return 130
 
     _print_task_result(result)
@@ -112,13 +113,13 @@ def _load_latest_task(service: TaskService, task: Task) -> Task:
 
 def _print_task_result(task: Task) -> None:
     """输出任务执行结果。"""
-    print(f"任务 ID：{task.task_id}")
-    print(f"任务状态：{task.status.value}")
-    print(f"执行步骤：{task.current_step}")
-    print(f"问题数量：{len(task.findings)}")
+    cli_print(f"任务 ID：{task.task_id}")
+    cli_print(f"任务状态：{task.status.value}")
+    cli_print(f"执行步骤：{task.current_step}")
+    cli_print(f"问题数量：{len(task.findings)}")
     if task.result_summary:
-        print(f"结果摘要：{task.result_summary}")
+        cli_print(f"结果摘要：{task.result_summary}")
     if task.report_path:
-        print(f"HTML 报告：{task.report_path}")
+        cli_print(f"HTML 报告：{task.report_path}")
     if task.error_message:
-        print(f"错误信息：{task.error_message}")
+        cli_print(f"错误信息：{task.error_message}")

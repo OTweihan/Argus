@@ -8,8 +8,8 @@ import msvcrt
 import sys
 from pathlib import Path
 
+from argus_py.cli.io import cli_error, cli_info, cli_print
 from argus_py.cli.messages import llm_field_label, llm_message
-from argus_py.cli.utils import print_cli_error
 from argus_py.core.constants import (
     DEFAULT_LLM_BASE_URL,
     DEFAULT_LLM_MAX_RETRIES,
@@ -52,14 +52,14 @@ def run_llm(args: argparse.Namespace) -> int:
     env_path = resolve_project_path(args.env_file)
     current = _read_env_values(env_path)
 
-    print(llm_message("start"))
-    print(llm_message("target", path=env_path.resolve()))
+    cli_info(llm_message("start"))
+    cli_info(llm_message("target", path=env_path.resolve()))
 
     updates: dict[str, str] = {}
     api_key = _prompt_secret(llm_field_label("LLM_API_KEY"), bool(current.get("LLM_API_KEY")))
     if api_key is not None:
         if not api_key:
-            print_cli_error(
+            cli_error(
                 "大模型配置失败",
                 llm_message("api_key_required"),
                 "请重新执行 argus config llm 并输入 API Key。",
@@ -90,14 +90,14 @@ def run_llm(args: argparse.Namespace) -> int:
         updates["LLM_MAX_TOKENS"] = current.get("LLM_MAX_TOKENS", str(DEFAULT_LLM_MAX_TOKENS))
         updates["LLM_TEMPERATURE"] = current.get("LLM_TEMPERATURE", str(DEFAULT_LLM_TEMPERATURE))
         updates["LLM_MAX_RETRIES"] = current.get("LLM_MAX_RETRIES", str(DEFAULT_LLM_MAX_RETRIES))
-        print(llm_message("advanced_default"))
+        cli_info(llm_message("advanced_default"))
 
     try:
         int(updates["LLM_MAX_TOKENS"])
         float(updates["LLM_TEMPERATURE"])
         int(updates["LLM_MAX_RETRIES"])
     except ValueError as exc:
-        print_cli_error(
+        cli_error(
             "大模型配置失败",
             f"数值配置格式错误：{exc}",
             "请检查最大输出 Token 数、温度和最大重试次数。",
@@ -105,9 +105,9 @@ def run_llm(args: argparse.Namespace) -> int:
         return 1
 
     _write_env_values(env_path, updates)
-    print(llm_message("saved"))
-    print(llm_message("verify_hint"))
-    print("argus llm check")
+    cli_info(llm_message("saved"))
+    cli_info(llm_message("verify_hint"))
+    cli_print("argus llm check")
     return 0
 
 

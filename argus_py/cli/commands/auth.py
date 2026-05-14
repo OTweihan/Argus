@@ -10,12 +10,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from argus_py.browser import BrowserSession, PlaywrightClient
+from argus_py.cli.io import cli_error, cli_info, cli_print, cli_success
 from argus_py.cli.utils import (
     auth_state_name_from_url,
-    print_cli_error,
     resolve_auth_state_path,
 )
 from argus_py.core.paths import BROWSER_STATES_DIR
+from argus_py.observability import audit
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
@@ -43,7 +44,7 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
 async def run_save(args: argparse.Namespace) -> int:
     """打开登录页面，等待用户登录后保存 storage_state。"""
     if args.headed and args.headless:
-        print_cli_error("登录态保存失败", "--headed 和 --headless 不能同时使用。")
+        cli_error("登录态保存失败", "--headed 和 --headless 不能同时使用。")
         return 1
 
     auth_state_name = args.name or auth_state_name_from_url(args.url)
@@ -51,47 +52,48 @@ async def run_save(args: argparse.Namespace) -> int:
     auth_state_path.parent.mkdir(parents=True, exist_ok=True)
 
     if auth_state_path.exists():
-        print(f"将覆盖已有登录态：{auth_state_path}")
+        cli_info(f"将覆盖已有登录态：{auth_state_path}")
 
     client = PlaywrightClient(headless=args.headless, browser_type=args.browser)
     async with BrowserSession(client=client) as session:
-        print(f"打开登录页面：{args.url}")
+        cli_info(f"打开登录页面：{args.url}")
         await session.goto(args.url)
-        print("请在浏览器中完成登录。")
+        cli_info("请在浏览器中完成登录。")
         try:
             await asyncio.to_thread(input, "登录完成后回到终端，按 Enter 保存登录态：")
         except EOFError:
-            print_cli_error("登录态保存失败", "当前终端无法读取确认输入。")
+            cli_error("登录态保存失败", "当前终端无法读取确认输入。")
             return 1
         if session.context is None:
-            print_cli_error("登录态保存失败", "浏览器上下文未创建。")
+            cli_error("登录态保存失败", "浏览器上下文未创建。")
             return 1
         await session.context.storage_state(path=str(auth_state_path))
 
-    print(f"登录态已保存：{auth_state_path}")
-    print(f"登录态名称：{auth_state_name}")
-    print(f'运行任务时可使用：argus run --auth-state {auth_state_name} --goal "..." --url "..."')
+    cli_success(f"登录态已保存：{auth_state_path}")
+    cli_info(f"登录态名称：{auth_state_name}")
+    cli_info(f'运行任务时可使用：argus run --auth-state {auth_state_name} --goal "..." --url "..."')
+    audit("auth_state.save", name=auth_state_name, path=str(auth_state_path))
     return 0
 
 
 def run_list() -> int:
     """列出已保存的浏览器登录态文件。"""
     if not BROWSER_STATES_DIR.exists():
-        print("暂无已保存登录态。")
+        cli_info("暂无已保存登录态。")
         return 0
 
     state_files = sorted(BROWSER_STATES_DIR.glob("*.json"))
     if not state_files:
-        print("暂无已保存登录态。")
+        cli_info("暂无已保存登录态。")
         return 0
 
-    print("已保存登录态：")
+    cli_print("已保存登录态：")
     for state_file in state_files:
-        print(f"- 名称：{state_file.stem}")
-        print(f"  关联站点：{_read_auth_state_sites(state_file)}")
-        print(f"  修改时间：{_format_local_timestamp(state_file.stat().st_mtime)}")
-        print(f'  复用命令：argus run --auth-state {state_file.stem} --goal "..." --url "..."')
-        print(f"  文件路径：{state_file}")
+        cli_print(f"- 名称：{state_file.stem}")
+        cli_print(f"  关联站点：{_read_auth_state_sites(state_file)}")
+        cli_print(f"  修改时间：{_format_local_timestamp(state_file.stat().st_mtime)}")
+        cli_print(f'  复用命令：argus run --auth-state {state_file.stem} --goal "..." --url "..."')
+        cli_print(f"  文件路径：{state_file}")
     return 0
 
 

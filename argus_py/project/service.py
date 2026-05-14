@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from argus_py.core.exceptions import ProjectError
+from argus_py.observability import audit
 from argus_py.project.models import Project
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.service import TaskService
@@ -52,7 +53,9 @@ class ProjectService:
             default_capture_screenshots=default_capture_screenshots,
             parameters=parameters or {},
         )
-        return self.storage.save(project)
+        saved = self.storage.save(project)
+        audit("project.create", projectId=saved.project_id, name=saved.name)
+        return saved
 
     def get_project(self, project_id: str) -> Project:
         """查询项目。"""
@@ -88,7 +91,13 @@ class ProjectService:
                 raise ProjectError(f"不支持更新的项目字段：{field_name}")
             setattr(project, field_name, value)
         project.updated_at = datetime.now(timezone.utc)
-        return self.storage.save(project)
+        saved = self.storage.save(project)
+        audit(
+            "project.update",
+            projectId=saved.project_id,
+            fields=sorted(updates.keys()),
+        )
+        return saved
 
     def delete_project(self, project_id: str) -> None:
         """删除项目；存在关联任务时不允许删除。"""
@@ -97,6 +106,7 @@ class ProjectService:
         if tasks:
             raise ProjectError(f"项目已关联 {len(tasks)} 个任务，不能删除。")
         self.storage.delete(project.project_id)
+        audit("project.delete", projectId=project.project_id, name=project.name)
 
     def exists(self, project_id: str) -> bool:
         """判断项目是否存在。"""

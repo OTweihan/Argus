@@ -15,6 +15,7 @@ from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.llm.models import ChatMessage
 from argus_py.llm.providers import create_llm_client, default_base_url, get_provider_spec
+from argus_py.observability import audit
 
 
 class ModelConfigService:
@@ -59,7 +60,15 @@ class ModelConfigService:
             is_default=is_default,
             enabled=enabled,
         )
-        return self.storage.save(config)
+        saved = self.storage.save(config)
+        audit(
+            "model_config.create",
+            modelConfigId=saved.model_config_id,
+            name=saved.name,
+            provider=saved.provider,
+            model=saved.model,
+        )
+        return saved
 
     def get_model_config(self, model_config_id: str) -> ModelConfig:
         """查询模型配置。"""
@@ -114,11 +123,18 @@ class ModelConfigService:
             ):
                 config.completions_path = spec.completions_path
         config.updated_at = datetime.now(timezone.utc)
-        return self.storage.save(config)
+        saved = self.storage.save(config)
+        audit(
+            "model_config.update",
+            modelConfigId=saved.model_config_id,
+            fields=sorted(updates.keys()),
+        )
+        return saved
 
     def delete_model_config(self, model_config_id: str) -> None:
         """删除模型配置。"""
         self.storage.delete(model_config_id)
+        audit("model_config.delete", modelConfigId=model_config_id)
 
     async def test_model_config(self, config: ModelConfig) -> dict[str, Any]:
         """检查模型配置是否可以完成一次低成本调用。

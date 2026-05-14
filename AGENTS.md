@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Argus** (4109 symbols, 9110 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Argus** (4132 symbols, 9155 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -41,3 +41,7 @@ This project is indexed by GitNexus as **Argus** (4109 symbols, 9110 relationshi
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## Logging
+
+后端日志体系的约定、命名空间、handler 拆分、`audit()` / `log_event()` 用法、CLI 输出分层等说明，统一记录在 [docs/logging.md](docs/logging.md)。新增日志埋点或修改 [config/logging.yaml](config/logging.yaml) 前请先阅读。

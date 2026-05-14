@@ -9,6 +9,7 @@ from typing import Any
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
+from argus_py.observability import audit
 from argus_py.redaction import redact_href, redact_sensitive_text
 from argus_py.task._base import TaskEventPublisher, _StorageEventBase
 from argus_py.task.models import Task
@@ -55,6 +56,7 @@ class TaskLifecycleService(_StorageEventBase):
         )
         self.storage.save(task)
         self._publish("task.created", task, {"task": _task_summary(task)})
+        audit("task.create", task_id=task.task_id, task=_task_summary(task))
         return task
 
     def save_task(self, task: Task) -> Task:
@@ -92,6 +94,7 @@ class TaskLifecycleService(_StorageEventBase):
         resolved.parameters = parameters
         self.storage.save(resolved)
         self._publish("task.updated", resolved, {"task": _task_summary(resolved)})
+        audit("task.update", task_id=resolved.task_id, task=_task_summary(resolved))
         return resolved
 
     def delete_pending_task(self, task: Task | str) -> None:
@@ -102,6 +105,7 @@ class TaskLifecycleService(_StorageEventBase):
         self.storage.delete(resolved.task_id)
         self.remove_cancellation_token(resolved.task_id)
         self._publish("task.deleted", resolved, {"taskId": resolved.task_id})
+        audit("task.delete", task_id=resolved.task_id)
 
     def get_cancellation_token(self, task_id: str) -> CancellationToken:
         """获取任务的取消/暂停信号量，懒创建。"""
@@ -210,6 +214,12 @@ class TaskLifecycleService(_StorageEventBase):
         )
         self.storage.save(new_task)
         self._publish("task.created", new_task, {"task": _task_summary(new_task)})
+        audit(
+            "task.restart",
+            task_id=new_task.task_id,
+            sourceTaskId=resolved.task_id,
+            task=_task_summary(new_task),
+        )
         return new_task
 
     def start_task(self, task: Task | str) -> Task:
@@ -243,6 +253,12 @@ class TaskLifecycleService(_StorageEventBase):
         resolved = self._resolve_task(task)
         token = self.get_cancellation_token(resolved.task_id)
         token.cancel()
+        audit(
+            "task.cancel",
+            task_id=resolved.task_id,
+            status="cancelled",
+            previousStatus=resolved.status.value,
+        )
         return self.update_status(resolved, TaskStatus.CANCELLED)
 
     def pause_task(self, task: Task | str) -> Task:

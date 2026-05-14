@@ -1,102 +1,186 @@
-# 日志配置版本，固定为 1
+# Argus 日志配置
+# - 配置文件版本，固定为 1
 version: 1
 
-# 是否禁用已经存在的 logger
-# false 表示保留第三方库或已初始化的 logger
+# false 表示保留第三方库或已初始化的 logger，避免被本配置整体禁用
 disable_existing_loggers: false
 
 # =========================
-# 日志格式配置
+# 日志格式
 # =========================
 formatters:
-  # 标准日志格式：包含时间、日志级别、logger 名称和日志内容
+  # 标准格式：时间 [级别] logger 名称 消息（保留供脚本/调试使用）
   standard:
     format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     datefmt: "%Y-%m-%dT%H:%M:%S"
 
-  # 简洁日志格式：包含时间、日志级别和日志内容，适合控制台输出
+  # 控制台人类可读格式：附带常用链路上下文字段，配合 ContextLogFilter 注入
+  # 字段缺失时由 defaults 占位，避免抛 KeyError
+  human:
+    format: "%(asctime)s [%(levelname)s] %(name)s | req=%(request_id)s task=%(task_id)s op=%(operation)s event=%(event)s status=%(status)s | %(message)s"
+    datefmt: "%Y-%m-%dT%H:%M:%S"
+    defaults:
+      request_id: "-"
+      task_id: "-"
+      operation: "-"
+      event: "-"
+      status: "-"
+
+  # 旧的简洁格式，保留向后兼容，不再作为默认 console formatter
   simple:
     format: "%(asctime)s [%(levelname)s] %(message)s"
     datefmt: "%Y-%m-%dT%H:%M:%S"
 
-  # 结构化 JSON 日志：适合文件采集和后续接入 ELK/OpenTelemetry
+  # 结构化 JSON：写入文件供后续 ELK/OpenTelemetry 等采集
   json:
     (): argus_py.observability.logger.JsonLogFormatter
 
+# =========================
+# 过滤器
+# =========================
 filters:
+  # 把 contextvars 中的 request_id/task_id/operation/actor 注入 LogRecord
   context:
     (): argus_py.observability.logger.ContextLogFilter
 
 # =========================
-# 日志输出处理器
+# Handler
 # =========================
 handlers:
-  # 控制台日志输出
+  # 控制台输出（人类可读，带链路上下文）
   console:
     class: logging.StreamHandler
-
-    # 控制台只输出 INFO 及以上级别日志
     level: INFO
-
-    # 使用简洁格式
-    formatter: simple
-
-    # 输出到标准输出
+    formatter: human
     stream: ext://sys.stdout
-
     filters:
       - context
 
-  # 文件日志输出
-  file:
+  # 主业务日志文件（结构化 JSON，按大小滚动）
+  app_file:
     class: logging.handlers.RotatingFileHandler
-
-    # 文件记录 DEBUG 及以上级别日志，便于排查问题
     level: DEBUG
-
-    # 使用结构化 JSON 格式
     formatter: json
-
-    # 日志文件保存路径
-    # 注意：需要确保 outputs/logs 目录存在，否则可能启动失败
     filename: outputs/logs/argus.log
-
-    # 日志文件编码，避免中文乱码
     encoding: utf-8
-
-    # 单文件 10MB，保留 5 个滚动文件
     maxBytes: 10485760
     backupCount: 5
+    filters:
+      - context
 
+  # 错误专用文件：仅捕获 ERROR/CRITICAL，方便单独排查或对接告警
+  error_file:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: json
+    filename: outputs/logs/argus.error.log
+    encoding: utf-8
+    maxBytes: 10485760
+    backupCount: 5
+    filters:
+      - context
+
+  # 审计专用文件：argus.audit logger 独占
+  audit_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: json
+    filename: outputs/logs/argus.audit.log
+    encoding: utf-8
+    maxBytes: 10485760
+    backupCount: 10
+    filters:
+      - context
+
+  # 访问日志专用文件：argus.request logger 独占
+  access_file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: json
+    filename: outputs/logs/argus.access.log
+    encoding: utf-8
+    maxBytes: 10485760
+    backupCount: 5
     filters:
       - context
 
 # =========================
-# 根 logger 配置
+# 根 logger
 # =========================
 root:
-  # 根 logger 默认输出 INFO 及以上级别日志
   level: INFO
-
-  # 根 logger 同时输出到控制台和文件
   handlers:
     - console
-    - file
+    - app_file
+    - error_file
 
 # =========================
-# 项目 logger 配置
+# 项目 logger
 # =========================
 loggers:
-  # Argus 项目专用 logger
-  argus:
-    # Argus 内部记录 DEBUG 及以上级别日志
-    # 便于开发阶段查看详细执行过程
+  # 业务模块走 logging.getLogger(__name__) → "argus_py.xxx"，
+  # 必须显式挂在 "argus_py" 命名空间下才能享受 DEBUG 级别和专用 handler。
+  argus_py:
     level: DEBUG
-
-    # 同时输出到控制台和文件
     handlers:
       - console
-      - file
-
-    # 不向 root logger 继续传播，避免日志重复打印
+      - app_file
+      - error_file
     propagate: false
+
+  # 专有 logger 命名空间：argus.operation 等通用条目
+  argus:
+    level: DEBUG
+    handlers:
+      - console
+      - app_file
+      - error_file
+    propagate: false
+
+  # 审计 logger：仅写 audit_file（不与主业务日志重复）+ console
+  argus.audit:
+    level: INFO
+    handlers:
+      - console
+      - audit_file
+      - error_file
+    propagate: false
+
+  # 访问日志 logger：单独写 access_file，避免淹没主业务日志
+  argus.request:
+    level: DEBUG
+    handlers:
+      - console
+      - access_file
+      - error_file
+    propagate: false
+
+  # ── 第三方库降噪 ─────────────────────────────────────────
+  # uvicorn.access 与 RequestLoggingMiddleware 重复，降级为 WARNING
+  uvicorn.access:
+    level: WARNING
+    handlers:
+      - console
+    propagate: false
+  uvicorn.error:
+    level: INFO
+    handlers:
+      - console
+      - app_file
+      - error_file
+    propagate: false
+  uvicorn:
+    level: INFO
+    handlers:
+      - console
+      - app_file
+      - error_file
+    propagate: false
+  httpx:
+    level: WARNING
+  httpcore:
+    level: WARNING
+  asyncio:
+    level: WARNING
+  watchfiles:
+    level: WARNING

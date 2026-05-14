@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+from argus_py.cli.io import cli_cancelled, cli_error
 from argus_py.core.paths import BROWSER_STATES_DIR, resolve_project_path
 
 
@@ -23,17 +23,13 @@ def positive_int(value: str) -> int:
 
 
 def print_cli_error(context: str, detail: object | None = None, hint: str | None = None) -> None:
-    """统一输出 CLI 错误信息。"""
-    print(f"错误：{context}", file=sys.stderr)
-    if detail:
-        print(f"详情：{detail}", file=sys.stderr)
-    if hint:
-        print(f"提示：{hint}", file=sys.stderr)
+    """统一输出 CLI 错误信息（向后兼容别名，委托给 :func:`cli_error`）。"""
+    cli_error(context, detail, hint)
 
 
 def print_cli_cancelled(context: str) -> None:
-    """统一输出 CLI 取消信息。"""
-    print(f"已取消：{context}", file=sys.stderr)
+    """统一输出 CLI 取消信息（向后兼容别名，委托给 :func:`cli_cancelled`）。"""
+    cli_cancelled(context)
 
 
 def is_explicit_path(value: str) -> bool:

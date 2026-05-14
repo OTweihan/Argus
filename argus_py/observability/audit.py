@@ -40,3 +40,39 @@ class AuditService:
             task_id,
             {"action": action, "status": status, "details": payload},
         )
+
+
+_AUDIT_LOGGER = logging.getLogger("argus.audit")
+
+
+def audit(
+    action: str,
+    *,
+    task_id: str | None = None,
+    status: str = "success",
+    **details: Any,
+) -> None:
+    """记录一条审计事件到 ``argus.audit`` logger（不发布事件总线）。
+
+    用于"用户可感知的业务动作"埋点（任务/项目/模型配置 CRUD、登录态变更等），
+    与 ``@log_operation`` 的运维侧 trace 互补。``**details`` 中的字段会作为
+    审计 payload 的 ``details`` 子对象写入日志，并经过敏感字段脱敏。
+
+    本函数零运行时依赖，可在 CLI / 一次性脚本中安全调用——不会触发
+    RuntimeContainer 初始化。若需同时发布事件总线，请直接调用
+    ``AuditService.record``。
+
+    例：
+
+        audit("task.create", task_id=task.task_id, goal=task.goal)
+    """
+    payload = redact(to_jsonable(details)) if details else {}
+    extra: dict[str, Any] = {"event": action, "status": status}
+    if payload:
+        extra["details"] = payload
+    if task_id is not None:
+        extra["task_id"] = task_id
+    _AUDIT_LOGGER.info("审计事件：%s", action, extra=extra)
+
+
+__all__ = ["AuditEventPublisher", "AuditService", "audit"]

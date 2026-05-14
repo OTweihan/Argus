@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from argus_py.cli.utils import print_cli_error
+from argus_py.cli.io import cli_error, cli_info, cli_print
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.llm import LLMClient
 from argus_py.llm.prompts import load_prompt
@@ -39,24 +39,23 @@ async def run_check(args: argparse.Namespace) -> int:
         temperature=LLM_CONNECTION_CHECK_TEMPERATURE,
         max_retries=0,
     )
-    print(f"正在调用大模型接口，最多等待 {args.timeout:g} 秒...")
+    cli_info(f"正在调用大模型接口，最多等待 {args.timeout:g} 秒...")
     try:
         try:
             response = await asyncio.wait_for(client.complete(prompt=prompt), timeout=args.timeout)
         except TimeoutError:
-            print_cli_error(
+            cli_error(
                 "LLM 检查超时",
                 f"超过 {args.timeout:g} 秒未完成。",
                 "请检查接口地址、代理或网络连接；也可以用 --timeout 临时调大等待时间。",
             )
             return 1
 
-        print(f"模型：{response.model}")
-        print(f"结束原因：{response.finish_reason}")
-        print(f"Token：{response.usage.to_dict()}")
-        print("响应内容：")
-        print(response.content)
+        cli_print(f"模型：{response.model}")
+        cli_print(f"结束原因：{response.finish_reason}")
+        cli_print(f"Token：{response.usage.to_dict()}")
+        cli_print("响应内容：")
+        cli_print(response.content)
         return 0
     finally:
-        # 显式关闭底层 httpx.AsyncClient，避免 CLI 退出时出现未关闭客户端警告。
         await client.aclose()

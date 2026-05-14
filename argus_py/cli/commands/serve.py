@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from argus_py.cli.utils import print_cli_cancelled, print_cli_error
+from argus_py.cli.io import cli_cancelled, cli_error, cli_info
 from argus_py.config.server_settings import SERVER_CONFIG_ENV, load_server_settings
 from argus_py.core.paths import resolve_project_path
 
@@ -24,7 +24,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         import uvicorn
     except ImportError:
-        print_cli_error(
+        cli_error(
             "Web 服务启动失败",
             "缺少 uvicorn 依赖。",
             '请先安装项目依赖，例如：pip install -e ".[dev]"',
@@ -37,8 +37,8 @@ def run(args: argparse.Namespace) -> int:
     port = args.port or settings.port
     reload_enabled = args.reload if args.reload is not None else settings.reload
 
-    print(f"启动 Web 服务：http://{host}:{port}")
-    print("OpenAPI 文档：/docs")
+    cli_info(f"启动 Web 服务：http://{host}:{port}")
+    cli_info("OpenAPI 文档：/docs")
     try:
         uvicorn.run(
             "argus_py.api.app:app",
@@ -48,6 +48,6 @@ def run(args: argparse.Namespace) -> int:
             access_log=False,
         )
     except KeyboardInterrupt:
-        print_cli_cancelled("Web 服务")
+        cli_cancelled("Web 服务")
         return 130
     return 0
