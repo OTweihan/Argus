@@ -111,18 +111,23 @@ const screenshotOpen = ref(false);
   position: relative;
   border: 1px solid var(--rp-line);
   border-radius: var(--radius);
-  background: var(--rp-surface);
+  background: rgba(255, 255, 255, 0.78);
   box-shadow: var(--shadow-sm);
-  transition: all var(--transition);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: box-shadow var(--transition), transform var(--transition);
 }
 
 .step-failed {
   border-color: #fecdd3;
-  box-shadow: 0 10px 28px rgba(180, 35, 24, 0.08);
+  background:
+      linear-gradient(135deg, rgba(255, 241, 242, 0.85) 0%, rgba(255, 255, 255, 0.78) 55%);
+  box-shadow: 0 8px 24px rgba(180, 35, 24, 0.08);
 }
 
 .step-card:hover {
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .step-node {
@@ -143,19 +148,19 @@ const screenshotOpen = ref(false);
 }
 
 .node-success {
-  background: var(--accent);
+  background-image: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   color: #fff;
 }
 
 .node-failed {
-  background: var(--danger);
+  background-image: linear-gradient(135deg, #b42318 0%, #dc2626 100%);
   color: #fff;
-  box-shadow: 0 8px 20px rgba(180, 35, 24, 0.24);
+  box-shadow: 0 8px 20px rgba(180, 35, 24, 0.32);
 }
 
 .node-skipped {
-  background: #d1d9df;
-  color: var(--rp-muted);
+  background: linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%);
+  color: #ffffff;
 }
 
 .step-card-body {
@@ -238,7 +243,9 @@ const screenshotOpen = ref(false);
   overflow: hidden;
   border: 1px solid var(--rp-line);
   border-radius: var(--radius-md);
-  background: var(--rp-surface);
+  background: rgba(248, 250, 252, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .step-detail-item {
@@ -283,23 +290,26 @@ const screenshotOpen = ref(false);
 .extras-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 11px 13px;
+  gap: 8px;
+  padding: 10px 14px;
   border: 1px solid var(--rp-line);
   border-radius: var(--radius-md);
-  background: var(--rp-surface-soft);
-  color: var(--rp-text);
-  font-size: 14px;
-  font-weight: 700;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--rp-muted);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition);
   font-family: inherit;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .extras-toggle:hover {
   background: var(--accent-soft);
   color: var(--accent);
-  border-color: var(--rp-line);
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
 }
 
 .chevron {

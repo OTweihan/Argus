@@ -1,43 +1,141 @@
+/* ==========================================================================
+   Argus Console - 全局样式与 Element Plus 主题覆盖
+   设计风格：现代玻璃拟态（亮色） + 紫色品牌渐变
+   ========================================================================== */
+
+/* ===== Design Tokens ===== */
 :root {
+    /* Layout */
     --aside-width: 220px;
-    --header-height: 56px;
+    --header-height: 60px;
+
+    /* Brand */
+    --brand-50: #f4f3ff;
+    --brand-100: #e0e7ff;
+    --brand-200: #c7d2fe;
+    --brand-500: #6366f1;
+    --brand-600: #4f46e5;
+    --brand-700: #4338ca;
     --brand-accent: #4f46e5;
     --brand-accent-light: #eef2ff;
+    --brand-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    --brand-gradient-soft: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.10) 100%);
+
+    /* Surfaces */
+    --surface-glass: rgba(255, 255, 255, 0.72);
+    --surface-glass-strong: rgba(255, 255, 255, 0.88);
+    --surface-solid: #ffffff;
+    --surface-soft: #f8fafc;
+    --surface-muted: #f3f4f7;
+
+    /* Lines */
+    --line-soft: rgba(226, 232, 240, 0.7);
+    --line-base: #e4e7ed;
+    --line-strong: #d0d5dd;
+
+    /* Text */
+    --text-strong: #11181c;
+    --text-base: #182125;
+    --text-muted: #4b5563;
+    --text-faint: #6b7280;
+    --text-placeholder: #9ca3af;
+
+    /* Status */
+    --success: #15803d;
+    --success-soft: #ecfdf5;
+    --success-line: #a7f3d0;
+    --warning: #b54708;
+    --warning-soft: #fffaeb;
+    --warning-line: #fde68a;
+    --danger: #b42318;
+    --danger-soft: #fff1f2;
+    --danger-line: #fecdd3;
+    --info: #175cd3;
+    --info-soft: #eff6ff;
+    --info-line: #bfdbfe;
+
+    /* Radii */
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-pill: 999px;
+
+    /* Shadows */
+    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-sm: 0 4px 12px rgba(15, 23, 42, 0.05);
+    --shadow-md: 0 12px 28px rgba(15, 23, 42, 0.07);
+    --shadow-lg: 0 22px 48px rgba(15, 23, 42, 0.10);
+    --shadow-glow: 0 6px 20px rgba(99, 102, 241, 0.32);
+    --shadow-ring: 0 0 0 4px var(--brand-100);
+
+    /* Motion */
+    --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Blur */
+    --blur-soft: 16px;
+    --blur-strong: 28px;
 }
 
 * {
     box-sizing: border-box;
 }
 
-body {
+/* ===== Base ===== */
+html, body {
     margin: 0;
-    font-family: Inter, "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
-    background: #f0f2f4;
-    color: #182125;
-    overflow: hidden;
+    padding: 0;
 }
 
+body {
+    font-family: Inter, "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    color: var(--text-base);
+    overflow: hidden;
+    /* 玻璃拟态画布：暖灰底 + 双色光斑 */
+    background-color: #eef1f7;
+    background-image:
+        radial-gradient(1100px 720px at -10% -20%, rgba(139, 92, 246, 0.18), transparent 60%),
+        radial-gradient(900px 700px at 110% 110%, rgba(56, 189, 248, 0.16), transparent 60%),
+        radial-gradient(700px 540px at 50% 0%, rgba(99, 102, 241, 0.10), transparent 65%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+}
+
+/* ===== Shell layout ===== */
 .shell {
     height: 100vh;
 }
 
+.main-area {
+    height: 100%;
+    overflow: hidden;
+}
+
 /* ===== Topbar ===== */
 .topbar {
+    position: relative;
+    z-index: 5;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #ffffff;
-    border-bottom: 1px solid #e4e7ed;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     height: var(--header-height);
-    padding: 0 24px;
+    padding: 0 28px;
+    background: var(--surface-glass);
+    border-bottom: 1px solid var(--line-soft);
+    box-shadow: var(--shadow-xs);
+    backdrop-filter: blur(var(--blur-soft));
+    -webkit-backdrop-filter: blur(var(--blur-soft));
 }
 
 .topbar h1 {
     margin: 0;
     font-size: 20px;
     font-weight: 700;
-    color: #11181c;
+    letter-spacing: -0.01em;
+    color: var(--text-strong);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -46,14 +144,17 @@ body {
 .status {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: #909399;
+    gap: 10px;
     flex-shrink: 0;
-    padding: 4px 12px 4px 10px;
-    border-radius: 20px;
-    background: #f9fafb;
-    border: 1px solid #e4e7ed;
+    padding: 5px 12px 5px 12px;
+    border-radius: var(--radius-pill);
+    font-size: 13px;
+    color: var(--text-faint);
+    background: var(--surface-glass-strong);
+    border: 1px solid var(--line-soft);
+    box-shadow: var(--shadow-xs);
+    backdrop-filter: blur(var(--blur-soft));
+    -webkit-backdrop-filter: blur(var(--blur-soft));
 }
 
 .dot {
@@ -61,23 +162,33 @@ body {
     height: 8px;
     border-radius: 50%;
     background: #c0c4cc;
-    transition: background 0.3s, box-shadow 0.3s;
+    transition: background var(--transition-base), box-shadow var(--transition-base);
 }
 
 .dot.connected {
     background: #10b981;
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+    animation: argus-pulse 2.4s ease-in-out infinite;
 }
 
 .dot.error {
     background: #ef4444;
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22);
 }
 
-/* ===== Content Area ===== */
+@keyframes argus-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.10);
+    }
+}
+
+/* ===== Content area ===== */
 .content-area {
-    background: #f0f2f4;
-    padding: 20px 24px;
+    background: transparent;
+    padding: 22px 26px 26px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -85,28 +196,23 @@ body {
 
 .banner {
     margin-bottom: 16px;
+    border-radius: var(--radius-md);
 }
 
-/* ===== Main area layout ===== */
-.main-area {
-    height: 100%;
-    overflow: hidden;
-}
-
-/* ===== Report container ===== */
+/* 报告页接管整个布局，隐藏 topbar 并取消 padding */
 .main-area:has(.report-container) .content-area {
     padding: 0;
-    background: #ffffff;
+    background: transparent;
 }
 
 .main-area:has(.report-container) .topbar {
     display: none;
 }
 
-/* ===== Scrollbar ===== */
+/* ===== Scrollbars ===== */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -114,36 +220,361 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #d1d5db;
-    border-radius: 3px;
+    background: rgba(148, 163, 184, 0.45);
+    border-radius: var(--radius-pill);
+    transition: background var(--transition-base);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af;
+    background: rgba(99, 102, 241, 0.55);
 }
 
-/* ===== Element Plus overrides ===== */
-.el-table th.el-table__cell {
-    font-weight: 600;
-    color: #6b7280;
-}
+/* ============================================================
+   Element Plus 全局覆盖
+   ============================================================ */
 
-.el-table__header-wrapper {
-    background: #f9fafb;
-}
-
-.el-dialog__body {
-    white-space: pre-line;
-}
-
+/* ----- Card ----- */
 .el-card {
-    border-radius: 10px;
-    border: 1px solid #e5e7eb;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line-soft);
+    background: var(--surface-glass-strong);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(var(--blur-soft));
+    -webkit-backdrop-filter: blur(var(--blur-soft));
+    transition: box-shadow var(--transition-base), transform var(--transition-base);
+}
+
+.el-card.is-hover-shadow:hover,
+.el-card.is-always-shadow {
+    box-shadow: var(--shadow-md);
 }
 
 .el-card__header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #f3f4f6;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--line-soft);
     font-weight: 600;
     font-size: 15px;
+    color: var(--text-strong);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, transparent 100%);
+}
+
+/* ----- Table ----- */
+.el-table {
+    --el-table-border-color: var(--line-soft);
+    --el-table-row-hover-bg-color: var(--brand-50);
+    background: transparent;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.el-table::before,
+.el-table::after {
+    background-color: transparent;
+}
+
+.el-table th.el-table__cell {
+    background: linear-gradient(180deg, rgba(243, 244, 247, 0.85) 0%, rgba(243, 244, 247, 0.55) 100%);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.el-table__header-wrapper {
+    background: transparent;
+}
+
+.el-table tr {
+    background: transparent;
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+    background: rgba(248, 250, 252, 0.7);
+}
+
+.el-table .el-table__body tr:hover > td.el-table__cell {
+    background: var(--brand-50) !important;
+}
+
+/* ----- Button ----- */
+.el-button {
+    --el-button-border-radius: var(--radius-sm);
+    border-radius: var(--radius-sm);
+    font-weight: 540;
+    transition: all var(--transition-fast);
+}
+
+.el-button:not(.is-text):not(.is-link):hover {
+    transform: translateY(-1px);
+}
+
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
+    background-image: var(--brand-gradient);
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.22);
+}
+
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link):hover,
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link):focus {
+    background-image: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: var(--shadow-glow);
+}
+
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link):active {
+    background-image: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
+    box-shadow: 0 2px 6px rgba(67, 56, 202, 0.32);
+}
+
+.el-button--primary.is-plain {
+    color: var(--brand-600);
+    background: var(--brand-50);
+    border-color: var(--brand-100);
+}
+
+.el-button--primary.is-plain:hover {
+    color: #ffffff;
+    background-image: var(--brand-gradient);
+    border-color: transparent;
+}
+
+.el-button.is-text {
+    color: var(--brand-600);
+}
+
+.el-button.is-text:hover {
+    background: var(--brand-50);
+    color: var(--brand-700);
+}
+
+/* ----- Tag ----- */
+.el-tag {
+    border-radius: var(--radius-pill);
+    padding: 0 12px;
+    height: 24px;
+    line-height: 22px;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.01em;
+    border-width: 1px;
+}
+
+.el-tag--success {
+    background: var(--success-soft);
+    color: var(--success);
+    border-color: var(--success-line);
+}
+
+.el-tag--warning {
+    background: var(--warning-soft);
+    color: var(--warning);
+    border-color: var(--warning-line);
+}
+
+.el-tag--danger {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-color: var(--danger-line);
+}
+
+.el-tag--info {
+    background: var(--info-soft);
+    color: var(--info);
+    border-color: var(--info-line);
+}
+
+.el-tag--primary {
+    background: var(--brand-50);
+    color: var(--brand-600);
+    border-color: var(--brand-100);
+}
+
+/* ----- Inputs / Select / Textarea ----- */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+    border-radius: var(--radius-sm) !important;
+    box-shadow: 0 0 0 1px var(--line-base) inset !important;
+    transition: box-shadow var(--transition-fast);
+}
+
+.el-input__wrapper:hover,
+.el-textarea__inner:hover,
+.el-select__wrapper:hover {
+    box-shadow: 0 0 0 1px var(--line-strong) inset !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
+    box-shadow: 0 0 0 1px var(--brand-500) inset, 0 0 0 4px var(--brand-100) !important;
+}
+
+.el-input.is-disabled .el-input__wrapper {
+    background: var(--surface-muted);
+}
+
+/* ----- Dialog ----- */
+.el-overlay {
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.el-dialog {
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--line-soft);
+    overflow: hidden;
+    background: var(--surface-glass-strong);
+    backdrop-filter: blur(var(--blur-strong));
+    -webkit-backdrop-filter: blur(var(--blur-strong));
+}
+
+.el-dialog__header {
+    padding: 18px 22px 12px;
+    margin-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), transparent);
+}
+
+.el-dialog__title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: -0.005em;
+}
+
+.el-dialog__body {
+    padding: 20px 22px;
+    color: var(--text-base);
+    white-space: pre-line;
+}
+
+.el-dialog__footer {
+    padding: 12px 22px 18px;
+    border-top: 1px solid var(--line-soft);
+    background: rgba(248, 250, 252, 0.55);
+}
+
+/* ----- Form ----- */
+.el-form-item__label {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.el-form-item.is-error .el-input__wrapper,
+.el-form-item.is-error .el-textarea__inner,
+.el-form-item.is-error .el-select__wrapper {
+    box-shadow: 0 0 0 1px var(--danger) inset, 0 0 0 4px rgba(180, 35, 24, 0.10) !important;
+}
+
+/* ----- Tabs ----- */
+.el-tabs--border-card {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line-soft);
+    box-shadow: var(--shadow-xs);
+    background: var(--surface-glass-strong);
+    backdrop-filter: blur(var(--blur-soft));
+    -webkit-backdrop-filter: blur(var(--blur-soft));
+}
+
+.el-tabs--border-card > .el-tabs__header {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.3));
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.el-tabs--border-card > .el-tabs__header .el-tabs__item {
+    border: 0;
+    color: var(--text-faint);
+    font-weight: 540;
+    transition: color var(--transition-fast);
+}
+
+.el-tabs--border-card > .el-tabs__header .el-tabs__item:hover {
+    color: var(--brand-600);
+}
+
+.el-tabs--border-card > .el-tabs__header .el-tabs__item.is-active {
+    color: var(--brand-600);
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.el-tabs__active-bar {
+    background-image: var(--brand-gradient) !important;
+    background-color: transparent !important;
+    height: 3px !important;
+    border-radius: 3px;
+}
+
+/* ----- Pagination ----- */
+.el-pagination.is-background .el-pager li,
+.el-pagination.is-background .btn-prev,
+.el-pagination.is-background .btn-next {
+    border-radius: var(--radius-xs);
+    background: var(--surface-soft);
+    color: var(--text-muted);
+    transition: all var(--transition-fast);
+}
+
+.el-pagination.is-background .el-pager li:hover,
+.el-pagination.is-background .btn-prev:hover,
+.el-pagination.is-background .btn-next:hover {
+    background: var(--brand-50);
+    color: var(--brand-600);
+}
+
+.el-pagination.is-background .el-pager li.is-active {
+    background-image: var(--brand-gradient) !important;
+    background-color: transparent !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 10px rgba(99, 102, 241, 0.28);
+}
+
+/* ----- Empty ----- */
+.el-empty {
+    padding: 36px 0;
+}
+
+.el-empty__description {
+    color: var(--text-faint);
+    margin-top: 8px;
+}
+
+/* ----- Radio / Checkbox ----- */
+.el-radio__input.is-checked .el-radio__inner,
+.el-checkbox__input.is-checked .el-checkbox__inner {
+    background-color: var(--brand-600);
+    border-color: var(--brand-600);
+}
+
+.el-radio__input.is-checked + .el-radio__label,
+.el-checkbox__input.is-checked + .el-checkbox__label {
+    color: var(--brand-600);
+}
+
+/* ----- Loading ----- */
+.el-loading-mask {
+    background-color: rgba(255, 255, 255, 0.66);
+    backdrop-filter: blur(2px);
+}
+
+/* ----- Message / MessageBox ----- */
+.el-message {
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--line-soft);
+    backdrop-filter: blur(var(--blur-soft));
+    -webkit-backdrop-filter: blur(var(--blur-soft));
+}
+
+.el-message-box {
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--line-soft);
 }

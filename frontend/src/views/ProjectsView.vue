@@ -3,7 +3,7 @@
     <el-card class="projects-card">
       <template #header>
         <div class="card-header">
-          <span>项目列表</span>
+          <span class="card-title">项目列表</span>
           <el-button type="primary" @click="openNewProjectDialog">新增项目</el-button>
         </div>
       </template>
@@ -103,18 +103,41 @@ const filteredProjects = computed(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0 20px 20px;
+  padding: 0 22px 22px;
 }
 
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.card-title {
+  position: relative;
+  padding-left: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-strong);
+  letter-spacing: -0.005em;
+}
+
+.card-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 18px;
+  background-image: var(--brand-gradient);
+  border-radius: 2px;
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
 }
 
 .filter-bar {
   flex-shrink: 0;
-  padding: 16px 0;
+  padding: 18px 0 14px;
 }
 
 .search-input {
@@ -124,12 +147,14 @@ const filteredProjects = computed(() => {
 .search-icon {
   width: 16px;
   height: 16px;
-  color: #909399;
+  color: var(--text-placeholder, #9ca3af);
 }
 
 .table-wrap {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 4px;
 }
 </style>

@@ -103,13 +103,21 @@ function clearError(key: string): void {
 <style scoped>
 .param-list {
   width: 100%;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  border: 1px dashed var(--line-soft);
 }
 
 .param-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.param-row:last-of-type {
+  margin-bottom: 12px;
 }
 
 .param-key {
@@ -122,5 +130,17 @@ function clearError(key: string): void {
 
 .param-add-btn {
   margin-top: 4px;
+  width: 100%;
+  border-style: dashed !important;
+  color: var(--brand-600);
+  border-color: var(--brand-100) !important;
+  background: rgba(255, 255, 255, 0.6);
+  font-weight: 540;
+}
+
+.param-add-btn:hover {
+  color: #ffffff;
+  background-image: var(--brand-gradient);
+  border-color: transparent !important;
 }
 </style>

@@ -1,6 +1,9 @@
 <template>
   <el-aside width="220px" class="sidebar">
-    <h1 class="brand">Argus</h1>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">A</span>
+      <span class="brand-name">Argus</span>
+    </div>
     <el-menu :default-active="view" class="nav-menu" @select="onSelect">
       <el-menu-item index="dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -58,62 +61,119 @@ function onSelect(index: string): void {
 <style>
 .sidebar {
   height: 100vh;
-  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
-  border-right: 1px solid #e4e7ed;
+  background: rgba(255, 255, 255, 0.62);
+  border-right: 1px solid var(--line-soft);
   display: flex;
   flex-direction: column;
   padding-top: 0;
+  backdrop-filter: blur(var(--blur-strong));
+  -webkit-backdrop-filter: blur(var(--blur-strong));
+  position: relative;
+  z-index: 6;
+}
+
+.sidebar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: linear-gradient(180deg, transparent 0%, var(--line-soft) 16%, var(--line-soft) 84%, transparent 100%);
+  pointer-events: none;
 }
 
 .brand {
   margin: 0;
-  padding: 22px 18px;
-  font-size: 30px;
-  font-weight: 760;
-  letter-spacing: -0.3px;
-  color: #11181c;
-  border-bottom: 1px solid #ebeef5;
+  padding: 18px 20px;
   display: flex;
   align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, transparent 100%);
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background-image: var(--brand-gradient);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  box-shadow: 0 6px 14px rgba(99, 102, 241, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.brand-name {
+  font-size: 22px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
 }
 
 .nav-menu {
   border-right: none !important;
+  background: transparent !important;
   flex: 1;
-  padding: 8px 0;
+  padding: 10px 0;
 }
 
 .nav-menu .el-menu-item {
-  margin: 2px 8px;
-  border-radius: 8px;
+  position: relative;
+  margin: 3px 12px;
+  border-radius: var(--radius-sm);
   height: 42px;
   line-height: 42px;
   font-size: 14px;
-  transition: all 0.15s ease;
+  color: var(--text-muted);
+  transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
 }
 
 .nav-menu .el-menu-item svg {
   width: 18px;
   height: 18px;
-  margin-right: 8px;
-  opacity: 0.55;
-  transition: opacity 0.15s ease;
+  margin-right: 10px;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
 }
 
 .nav-menu .el-menu-item:hover {
-  background: #f3f4f6;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  transform: translateX(2px);
+}
+
+.nav-menu .el-menu-item:hover svg {
+  opacity: 0.95;
+  color: var(--brand-600);
 }
 
 .nav-menu .el-menu-item.is-active {
-  background: var(--brand-accent-light) !important;
-  color: var(--brand-accent) !important;
+  background: var(--brand-50) !important;
+  color: var(--brand-700) !important;
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.10);
+}
+
+.nav-menu .el-menu-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 22px;
+  border-radius: 0 3px 3px 0;
+  background-image: var(--brand-gradient);
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.45);
 }
 
 .nav-menu .el-menu-item.is-active svg {
   opacity: 1;
-  color: var(--brand-accent);
+  color: var(--brand-600);
 }
 </style>

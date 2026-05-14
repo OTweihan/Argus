@@ -3,7 +3,7 @@
     <el-card class="models-card">
       <template #header>
         <div class="card-header">
-          <span>模型列表</span>
+          <span class="card-title">模型列表</span>
           <el-button type="primary" @click="openNewModelDialog">新增模型</el-button>
         </div>
       </template>
@@ -92,18 +92,43 @@ const filteredModels = computed(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding: 0 20px 20px;
+  padding: 0 22px 22px;
 }
 
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.card-title {
+  position: relative;
+  padding-left: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-strong);
+  letter-spacing: -0.005em;
+}
+
+.card-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 18px;
+  background-image: var(--brand-gradient);
+  border-radius: 2px;
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
 }
 
 .filter-bar {
   flex-shrink: 0;
-  padding: 16px 0;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 6px;
 }
 
 .search-input {
@@ -113,6 +138,6 @@ const filteredModels = computed(() => {
 .search-icon {
   width: 16px;
   height: 16px;
-  color: #909399;
+  color: var(--text-placeholder, #9ca3af);
 }
 </style>

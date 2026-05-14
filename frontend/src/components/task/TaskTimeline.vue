@@ -231,7 +231,7 @@ onUnmounted(() => {
   border-radius: 50%;
   z-index: 2;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 3px #f4f6f9, 0 1px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7), 0 4px 10px rgba(99, 102, 241, 0.18);
 }
 
 /* Line */
@@ -241,22 +241,26 @@ onUnmounted(() => {
   top: 28px;
   bottom: 0;
   width: 2px;
-  background: #dfe7ec;
+  background: linear-gradient(180deg, var(--brand-100, #e0e7ff) 0%, var(--line-soft, rgba(226, 232, 240, 0.7)) 100%);
 }
 
 /* ===== Card ===== */
 .tl-card {
-  background: #fff;
-  border: 1px solid #e6edf0;
-  border-left: 3px solid #909399;
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--line-soft, #e4e7ed);
+  border-left: 3px solid var(--text-faint, #909399);
+  border-radius: var(--radius-md, 14px);
   overflow: hidden;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: box-shadow var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1)),
+              transform var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1));
+  box-shadow: var(--shadow-sm, 0 4px 12px rgba(15, 23, 42, 0.05));
 }
 
 .tl-card:hover {
-  box-shadow: 0 4px 12px rgba(24, 40, 50, 0.08);
+  box-shadow: var(--shadow-md, 0 12px 28px rgba(15, 23, 42, 0.07));
+  transform: translateY(-1px);
 }
 
 /* Card Header */
@@ -265,9 +269,9 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
-  background: #fafcfc;
-  border-bottom: 1px solid #f0f4f7;
+  padding: 11px 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.65) 0%, rgba(248, 250, 252, 0.45) 100%);
+  border-bottom: 1px solid var(--line-soft, #e4e7ed);
   flex-wrap: wrap;
 }
 
@@ -283,19 +287,20 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7);
 }
 
 .tl-phase-label {
   font-size: 11px;
-  font-weight: 600;
-  color: #4b6572;
+  font-weight: 700;
+  color: var(--text-muted, #4b5563);
   letter-spacing: 0.2px;
 }
 
 .tl-event-type {
   font-size: 12px;
-  font-weight: 600;
-  color: #1a2a32;
+  font-weight: 700;
+  color: var(--text-strong, #11181c);
 }
 
 .tl-right {
@@ -310,30 +315,32 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #687a85;
-  background: #f0f4f7;
+  color: var(--brand-600, #4f46e5);
+  background: var(--brand-50, #f4f3ff);
+  border: 1px solid var(--brand-100, #e0e7ff);
   padding: 2px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill, 999px);
   white-space: nowrap;
+  font-weight: 600;
 }
 
 .tl-time {
   font-size: 11px;
-  color: #94a6b0;
+  color: var(--text-placeholder, #9ca3af);
   white-space: nowrap;
 }
 
 /* Card Body */
 .tl-body {
-  padding: 12px 14px;
+  padding: 13px 14px;
   display: grid;
-  gap: 8px;
+  gap: 9px;
 }
 
 .tl-summary {
   margin: 0;
   font-size: 13px;
-  color: #374e5a;
+  color: var(--text-base, #182125);
   line-height: 1.55;
 }
 
@@ -347,26 +354,30 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
-  border: 1px solid #e6edf0;
-  border-radius: 6px;
-  background: #fafcfd;
-  color: #687a85;
+  padding: 6px 12px;
+  border: 1px solid var(--line-soft, #e4e7ed);
+  border-radius: var(--radius-xs, 6px);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-faint, #6b7280);
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
   font-family: inherit;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  width: max-content;
 }
 
 .tl-toggle:hover {
-  background: #f0f4f7;
-  color: #1a2a32;
-  border-color: #d0dbdf;
+  background: var(--brand-50, #f4f3ff);
+  color: var(--brand-600, #4f46e5);
+  border-color: var(--brand-100, #e0e7ff);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.12);
 }
 
 .tl-chevron {
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .tl-chevron.open {
@@ -385,15 +396,15 @@ onUnmounted(() => {
 .tl-code {
   margin: 0;
   padding: 14px;
-  border-radius: 6px;
-  background: #1a2a32;
-  color: #dce8eb;
+  border-radius: var(--radius-sm, 10px);
+  background: #0f172a;
+  color: #e2e8f0;
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 11px;
   line-height: 1.65;
-  overflow-x: auto;
   white-space: pre;
   max-height: 320px;
   overflow: auto;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 </style>

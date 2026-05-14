@@ -46,7 +46,7 @@
       <el-card class="tasks-card">
         <template #header>
           <div class="card-header">
-            <span>任务列表</span>
+            <span class="card-title">任务列表</span>
             <el-button type="primary" @click="openNewTaskDialog">新增任务</el-button>
           </div>
         </template>
@@ -219,7 +219,7 @@ function downloadJsonReport(): void {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0 20px 20px;
+  padding: 0 22px 22px;
 }
 
 .table-wrap {
@@ -233,7 +233,7 @@ function downloadJsonReport(): void {
 .pagination-bar {
   display: flex;
   justify-content: flex-end;
-  padding: 12px 0 0;
+  padding: 14px 0 0;
   flex-shrink: 0;
 }
 
@@ -241,13 +241,38 @@ function downloadJsonReport(): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.card-title {
+  position: relative;
+  padding-left: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-strong);
+  letter-spacing: -0.005em;
+}
+
+.card-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 18px;
+  background-image: var(--brand-gradient);
+  border-radius: 2px;
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
 }
 
 .filter-bar {
   display: flex;
   gap: 12px;
-  padding: 16px 0;
+  padding: 18px 0 14px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 4px;
 }
 
 .search-input {
@@ -257,75 +282,82 @@ function downloadJsonReport(): void {
 .search-icon {
   width: 16px;
   height: 16px;
-  color: #909399;
+  color: var(--text-placeholder, #9ca3af);
 }
 
+/* 任务详情顶部工具条：玻璃面板 */
 .report-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 16px;
   flex-shrink: 0;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  background: #ffffff;
-  border: 1px solid #e6edf0;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.05);
+  padding: 10px 14px;
+  background: var(--surface-glass-strong);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(var(--blur-soft));
+  -webkit-backdrop-filter: blur(var(--blur-soft));
 }
 
 .tb-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 14px;
+  padding: 8px 14px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 540;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-fast);
   white-space: nowrap;
   line-height: 1;
 }
 
 .tb-back {
-  background: #f8fafc;
-  color: #374e5a;
-  border-color: #e6edf0;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  border-color: var(--line-soft);
 }
+
 .tb-back:hover {
-  background: #eef4f7;
-  color: #1a2a32;
-  border-color: #d0dbdf;
-  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.06);
+  background: rgba(241, 245, 249, 0.9);
+  color: var(--text-strong);
+  border-color: var(--line-strong);
+  transform: translateX(-1px);
+  box-shadow: var(--shadow-xs);
 }
 
 .tb-action {
-  background: #f0f6ff;
-  color: #2563eb;
-  border-color: #dbe8fe;
+  background: var(--brand-50);
+  color: var(--brand-600);
+  border-color: var(--brand-100);
 }
+
 .tb-action:hover {
-  background: #dbe8fe;
-  color: #1d4ed8;
-  border-color: #b8d2fb;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.1);
+  background: var(--brand-100);
+  color: var(--brand-700);
+  border-color: var(--brand-200);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.18);
+  transform: translateY(-1px);
 }
 
 .tb-divider {
   width: 1px;
   height: 20px;
-  background: #e6edf0;
+  background: var(--line-soft);
   flex-shrink: 0;
-  margin: 0 2px;
+  margin: 0 4px;
 }
 
 .empty {
-  padding: 40px;
+  padding: 48px;
   text-align: center;
-  color: #909399;
+  color: var(--text-faint);
 }
 
 .detail-tabs {

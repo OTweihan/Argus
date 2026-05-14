@@ -36,39 +36,48 @@ const open = ref(props.defaultOpen);
 
 <style scoped>
 .dbg-section {
-  border: 1px solid #e6edf0;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.04);
+  border: 1px solid var(--line-soft, #e4e7ed);
+  border-radius: var(--radius-md, 14px);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--shadow-sm, 0 4px 12px rgba(15, 23, 42, 0.05));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  overflow: hidden;
+  transition: box-shadow var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.dbg-section:hover {
+  box-shadow: var(--shadow-md, 0 12px 28px rgba(15, 23, 42, 0.07));
 }
 
 .dbg-section-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 9px 14px;
-  background: #fafcfc;
-  border-bottom: 1px solid #e6edf0;
+  padding: 11px 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.65) 0%, rgba(248, 250, 252, 0.45) 100%);
+  border-bottom: 1px solid var(--line-soft, #e4e7ed);
   cursor: pointer;
   user-select: none;
-  transition: background 0.12s ease;
+  transition: background var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .dbg-section-head:hover {
-  background: #f0f4f7;
+  background: linear-gradient(180deg, rgba(244, 243, 255, 0.7) 0%, rgba(248, 250, 252, 0.5) 100%);
 }
 
 .dbg-section-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #1a2a32;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong, #11181c);
 }
 
 .dbg-sec-chevron {
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
+  color: var(--brand-600, #4f46e5);
 }
 
 .dbg-sec-chevron.open {
@@ -76,22 +85,25 @@ const open = ref(props.defaultOpen);
 }
 
 .dbg-section-copy {
-  padding: 3px 10px;
-  border: 1px solid #e6edf0;
-  border-radius: 5px;
-  background: #fff;
-  color: #687a85;
+  padding: 4px 12px;
+  border: 1px solid var(--line-soft, #e4e7ed);
+  border-radius: var(--radius-xs, 6px);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text-faint, #6b7280);
   font-size: 11px;
-  font-weight: 540;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: all var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .dbg-section-copy:hover {
-  background: #f0f4f7;
-  color: #1a2a32;
-  border-color: #d0dbdf;
+  background: var(--brand-50, #f4f3ff);
+  color: var(--brand-600, #4f46e5);
+  border-color: var(--brand-100, #e0e7ff);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.12);
 }
 
 .dbg-section-body {
@@ -113,7 +125,8 @@ const open = ref(props.defaultOpen);
   word-break: break-all;
   max-height: 320px;
   overflow: auto;
-  background: #1a2a32;
-  color: #dce8eb;
+  background: #0f172a;
+  color: #e2e8f0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 </style>
