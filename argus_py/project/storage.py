@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 from argus_py.core.exceptions import ProjectError
-from argus_py.infra.db import DEFAULT_DB_PATH, connect, init_database
+from argus_py.infra.db import DEFAULT_DB_PATH, connect, init_database, with_conn, with_tx
 from argus_py.project.models import Project
 
 
@@ -18,11 +17,13 @@ class ProjectSQLiteStorage:
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH) -> None:
         self.db_path = Path(db_path)
         init_database(self.db_path)
+        # 复用同一个连接工厂，与 Repository 层风格统一。
+        self._connect = lambda: connect(self.db_path)
 
     def exists(self, project_id: str) -> bool:
         """判断项目是否存在。"""
-        with closing(connect(self.db_path)) as connection:
-            row = connection.execute(
+        with with_conn(self._connect) as conn:
+            row = conn.execute(
                 "SELECT 1 FROM projects WHERE project_id = ?",
                 (project_id,),
             ).fetchone()
@@ -30,44 +31,43 @@ class ProjectSQLiteStorage:
 
     def save(self, project: Project) -> Project:
         """保存项目，存在时覆盖。"""
-        with closing(connect(self.db_path)) as connection:
-            with connection:
-                connection.execute(
-                    """
-                    INSERT INTO projects (
-                      project_id,
-                      name,
-                      description,
-                      base_url,
-                      git_url,
-                      auth_state_name,
-                      default_max_steps,
-                      default_timeout_seconds,
-                      default_capture_screenshots,
-                      parameters_json,
-                      created_at,
-                      updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(project_id) DO UPDATE SET
-                      name = excluded.name,
-                      description = excluded.description,
-                      base_url = excluded.base_url,
-                      git_url = excluded.git_url,
-                      auth_state_name = excluded.auth_state_name,
-                      default_max_steps = excluded.default_max_steps,
-                      default_timeout_seconds = excluded.default_timeout_seconds,
-                      default_capture_screenshots = excluded.default_capture_screenshots,
-                      parameters_json = excluded.parameters_json,
-                      updated_at = excluded.updated_at
-                    """,
-                    self._to_row(project),
-                )
+        with with_tx(self._connect) as conn:
+            conn.execute(
+                """
+                INSERT INTO projects (
+                  project_id,
+                  name,
+                  description,
+                  base_url,
+                  git_url,
+                  auth_state_name,
+                  default_max_steps,
+                  default_timeout_seconds,
+                  default_capture_screenshots,
+                  parameters_json,
+                  created_at,
+                  updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                  name = excluded.name,
+                  description = excluded.description,
+                  base_url = excluded.base_url,
+                  git_url = excluded.git_url,
+                  auth_state_name = excluded.auth_state_name,
+                  default_max_steps = excluded.default_max_steps,
+                  default_timeout_seconds = excluded.default_timeout_seconds,
+                  default_capture_screenshots = excluded.default_capture_screenshots,
+                  parameters_json = excluded.parameters_json,
+                  updated_at = excluded.updated_at
+                """,
+                self._to_row(project),
+            )
         return project
 
     def load(self, project_id: str) -> Project:
         """按 ID 读取项目。"""
-        with closing(connect(self.db_path)) as connection:
-            row = connection.execute(
+        with with_conn(self._connect) as conn:
+            row = conn.execute(
                 "SELECT * FROM projects WHERE project_id = ?",
                 (project_id,),
             ).fetchone()
@@ -77,27 +77,26 @@ class ProjectSQLiteStorage:
 
     def list_projects(self) -> list[Project]:
         """列出项目。"""
-        with closing(connect(self.db_path)) as connection:
-            rows = connection.execute(
+        with with_conn(self._connect) as conn:
+            rows = conn.execute(
                 "SELECT * FROM projects ORDER BY created_at DESC",
             ).fetchall()
         return [self._from_row(row) for row in rows]
 
     def delete(self, project_id: str) -> None:
         """删除项目。"""
-        with closing(connect(self.db_path)) as connection:
-            with connection:
-                cursor = connection.execute(
-                    "DELETE FROM projects WHERE project_id = ?",
-                    (project_id,),
-                )
+        with with_tx(self._connect) as conn:
+            cursor = conn.execute(
+                "DELETE FROM projects WHERE project_id = ?",
+                (project_id,),
+            )
         if cursor.rowcount == 0:
             raise ProjectError(f"Project not found: {project_id}")
 
     def find_by_name(self, name: str) -> Project | None:
         """按名称查找项目（精确匹配，区分大小写由 SQLite 排序规则决定）。"""
-        with closing(connect(self.db_path)) as connection:
-            row = connection.execute(
+        with with_conn(self._connect) as conn:
+            row = conn.execute(
                 "SELECT * FROM projects WHERE name = ?",
                 (name,),
             ).fetchone()

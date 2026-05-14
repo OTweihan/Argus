@@ -76,9 +76,16 @@ class TaskSQLiteStorage:
         from argus_py.infra.db import connect as _connect_fn
         from argus_py.infra.db import init_database
 
-        connect = lambda: (_connect_fn(db_path) if db_path else _connect_fn(DATA_DIR / "argus.db"))
         self.db_path = Path(db_path) if db_path else DATA_DIR / "argus.db"
         init_database(self.db_path)
+
+        # 把 connect 抽成嵌套 def 以满足 ruff E731；闭包语义与原 lambda 等价：
+        # 仓储每次取连接都按构造时的 db_path 解析，避免在仓储构造时就建一个长寿
+        # 命的 sqlite3.Connection（连接复用由各 repository 自己控制）。
+        resolved_db_path = self.db_path
+
+        def connect():
+            return _connect_fn(resolved_db_path)
 
         self._tasks = TaskRepository(connect)
         self._logs = LogRepository(connect)

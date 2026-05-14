@@ -13,6 +13,7 @@ import type { ModelConfig, Project, Task } from "../types";
 import { errorMessage, nullableBoolean, nullableText, upsertById } from "../utils";
 import type { ParamEntry } from "../params";
 import { parseParamEntries } from "../params";
+import { useDebounceFn } from "./useDebounceFn";
 import { useTaskList } from "./useTaskList";
 import { useTaskSelection } from "./useTaskSelection";
 
@@ -39,7 +40,9 @@ export function useTasks(opts: {
     view: Ref<string>;
     connectEventStream: () => void;
 }) {
-    const { allTasks, projects, models, error, message, formErrors, view, connectEventStream } = opts;
+    // models 留在 opts 类型里以保持调用方契约（useConsoleApp 仍按原 shape 传入），
+    // 但当前实现不直接消费它（任务模型选择由 modelDomain 负责）。
+    const { allTasks, projects, error, message, formErrors, view, connectEventStream } = opts;
 
     const taskList = useTaskList({ allTasks });
     const taskSelection = useTaskSelection({ allTasks, view, error, connectEventStream });
@@ -52,7 +55,6 @@ export function useTasks(opts: {
         "pending", "queued", "running", "completed", "failed", "timeout", "cancelled",
     ];
 
-    let goalTimer: number | null = null;
     async function autoFillLimits(): Promise<void> {
         if (taskForm.editingId) return;
         const trimmed = taskForm.goal.trim();
@@ -65,22 +67,13 @@ export function useTasks(opts: {
             // 推断失败时静默忽略，保留现有值
         }
     }
-    watch(
-        () => taskForm.goal,
-        () => {
-            if (goalTimer !== null) clearTimeout(goalTimer);
-            goalTimer = window.setTimeout(autoFillLimits, 400);
-        },
-    );
-    watch(
-        () => taskForm.startUrl,
-        () => {
-            if (taskForm.goal.trim()) {
-                if (goalTimer !== null) clearTimeout(goalTimer);
-                goalTimer = window.setTimeout(autoFillLimits, 400);
-            }
-        },
-    );
+    // goal / startUrl 两个 watcher 共享同一 debounced 函数：任意一处修改
+    // 都重置等待计时器，组件卸载时由 useDebounceFn 自动 cancel。
+    const debouncedAutoFillLimits = useDebounceFn(autoFillLimits, 400);
+    watch(() => taskForm.goal, () => debouncedAutoFillLimits());
+    watch(() => taskForm.startUrl, () => {
+        if (taskForm.goal.trim()) debouncedAutoFillLimits();
+    });
 
     /* ── 任务操作 ── */
 

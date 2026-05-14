@@ -265,97 +265,13 @@
           <!-- Timeline -->
           <div v-if="displaySteps.length" class="timeline">
             <div class="timeline-line"/>
-            <article
+            <StepCard
                 v-for="step in displaySteps"
                 :key="step.task_log_id"
-                :id="'step-' + step.step_number"
-                :class="['step-card', 'step-' + step.result]"
-            >
-              <div class="step-node" :class="'node-' + step.result">
-                <template v-if="step.result === 'success'">
-                  <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
-                    <path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-                  </svg>
-                </template>
-                <template v-else-if="step.result === 'failed'">
-                  <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
-                    <path d="M5 5l6 6M11 5l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-                  </svg>
-                </template>
-                <template v-else>
-                  <span>{{ step.step_number }}</span>
-                </template>
-              </div>
-              <div class="step-card-body">
-                <div class="step-header">
-                  <div class="step-title-row">
-                    <h3 class="step-title">{{ step.message || step.action }}</h3>
-                    <span class="step-pill">{{ step.action }}</span>
-                  </div>
-                  <span :class="['step-result-tag', 'tag-' + step.result]">{{ step.result }}</span>
-                </div>
-
-                <div class="step-detail-grid">
-                  <div class="step-detail-item">
-                    <span class="sdi-label">步骤 ID</span>
-                    <span class="sdi-value"><code>{{ step.task_log_id }}</code></span>
-                  </div>
-                  <div class="step-detail-item">
-                    <span class="sdi-label">时间</span>
-                    <span class="sdi-value">{{ formatDate(step.created_at) }}</span>
-                  </div>
-                  <div v-if="step.url_before" class="step-detail-item full-width">
-                    <span class="sdi-label">URL 跳转前</span>
-                    <span class="sdi-value url-text">{{ step.url_before }}</span>
-                  </div>
-                  <div v-if="step.url_after" class="step-detail-item full-width">
-                    <span class="sdi-label">URL 跳转后</span>
-                    <span class="sdi-value url-text">{{ step.url_after }}</span>
-                  </div>
-                  <div v-if="step.error" class="step-detail-item full-width">
-                    <span class="sdi-label">错误</span>
-                    <span class="sdi-value error-text">{{ step.error }}</span>
-                  </div>
-                  <div v-if="step.error_code" class="step-detail-item">
-                    <span class="sdi-label">错误码</span>
-                    <span class="sdi-value"><code>{{ step.error_code }}</code></span>
-                  </div>
-                </div>
-
-                <div v-if="step.params && Object.keys(step.params).length" class="step-extras">
-                  <button class="extras-toggle" @click="toggleExtra(step.task_log_id, 'params')">
-                    <svg :class="['chevron', { open: extraOpen(step.task_log_id, 'params') }]" viewBox="0 0 16 16"
-                         fill="none" width="12" height="12">
-                      <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                    </svg>
-                    步骤参数
-                  </button>
-                  <div v-if="extraOpen(step.task_log_id, 'params')" class="extras-content">
-                    <pre class="code-block">{{ prettyJson(step.params) }}</pre>
-                  </div>
-                </div>
-
-                <div v-if="step.screenshot_path" class="step-extras">
-                  <button class="extras-toggle" @click="toggleExtra(step.task_log_id, 'screenshot')">
-                    <svg :class="['chevron', { open: extraOpen(step.task_log_id, 'screenshot') }]" viewBox="0 0 16 16"
-                         fill="none" width="12" height="12">
-                      <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                    </svg>
-                    步骤截图
-                  </button>
-                  <div v-if="extraOpen(step.task_log_id, 'screenshot')" class="extras-content">
-                    <p class="screenshot-path">截图：<code>{{ step.screenshot_path }}</code></p>
-                    <img
-                        class="screenshot"
-                        :src="screenshotSrc(step.screenshot_path)"
-                        :alt="'步骤 ' + step.step_number + ' 截图'"
-                        loading="lazy"
-                        @click="openLightbox(step.screenshot_path, step.step_number)"
-                    />
-                  </div>
-                </div>
-              </div>
-            </article>
+                :step="step"
+                :task-id="taskId"
+                @open-lightbox="openLightbox"
+            />
           </div>
           <el-empty v-else description="暂无执行步骤"/>
         </section>
@@ -381,64 +297,14 @@
           </div>
 
           <div v-if="report.findings.length" class="findings-list">
-            <article
+            <FindingCard
                 v-for="(finding, index) in report.findings"
                 :key="finding.finding_id"
-                :id="'finding-' + index"
-                :class="['finding-card', 'sev-' + finding.severity]"
-            >
-              <div class="finding-indicator" :class="'sev-bar-' + finding.severity"/>
-              <div class="finding-body">
-                <div class="finding-header">
-                  <div class="finding-title-row">
-                    <h3 class="finding-title">{{ finding.title }}</h3>
-                    <span :class="['severity-tag', 'sev-tag-' + finding.severity]">{{ finding.severity }}</span>
-                  </div>
-                  <p class="finding-desc">{{ finding.description }}</p>
-                </div>
-                <div class="finding-meta-grid">
-                  <div class="fm-item">
-                    <span class="fm-label">问题 ID</span>
-                    <span class="fm-value"><code>{{ finding.finding_id }}</code></span>
-                  </div>
-                  <div class="fm-item">
-                    <span class="fm-label">类型</span>
-                    <span class="fm-value">{{ finding.finding_type }}</span>
-                  </div>
-                  <div v-if="finding.url" class="fm-item full-width">
-                    <span class="fm-label">URL</span>
-                    <span class="fm-value url-text">{{ finding.url }}</span>
-                  </div>
-                  <div v-if="finding.location" class="fm-item full-width">
-                    <span class="fm-label">位置</span>
-                    <span class="fm-value">{{ finding.location }}</span>
-                  </div>
-                  <div class="fm-item">
-                    <span class="fm-label">时间</span>
-                    <span class="fm-value">{{ formatDate(finding.created_at) }}</span>
-                  </div>
-                </div>
-                <div v-if="finding.screenshot_path" class="finding-extras">
-                  <button class="extras-toggle" @click="toggleExtra(finding.finding_id, 'screenshot')">
-                    <svg :class="['chevron', { open: extraOpen(finding.finding_id, 'screenshot') }]" viewBox="0 0 16 16"
-                         fill="none" width="12" height="12">
-                      <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-                    </svg>
-                    问题截图
-                  </button>
-                  <div v-if="extraOpen(finding.finding_id, 'screenshot')" class="extras-content">
-                    <p class="screenshot-path">截图：<code>{{ finding.screenshot_path }}</code></p>
-                    <img
-                        class="screenshot"
-                        :src="screenshotSrc(finding.screenshot_path)"
-                        :alt="finding.title + ' 截图'"
-                        loading="lazy"
-                        @click="openLightbox(finding.screenshot_path, null)"
-                    />
-                  </div>
-                </div>
-              </div>
-            </article>
+                :finding="finding"
+                :index="index"
+                :task-id="taskId"
+                @open-lightbox="openLightbox"
+            />
           </div>
           <el-empty v-else description="未记录问题"/>
         </section>
@@ -490,6 +356,9 @@
 import {computed, onMounted, onUnmounted, ref} from "vue";
 import type {ReportData} from "../types";
 import {screenshotUrl} from "../api";
+import StepCard from "../components/task/report/StepCard.vue";
+import FindingCard from "../components/task/report/FindingCard.vue";
+import {formatDate, prettyJson} from "../components/task/report/reportUtils";
 
 const props = defineProps<{
   report: ReportData | null;
@@ -500,7 +369,6 @@ const props = defineProps<{
 // --- reactive state ---
 const activeSection = ref("");
 const rawJsonOpen = ref(false);
-const extrasOpen = ref<Record<string, boolean>>({});
 const lightboxSrc = ref<string | null>(null);
 const observer = ref<IntersectionObserver | null>(null);
 
@@ -531,33 +399,8 @@ const stepCount = computed(() => displaySteps.value.length);
 const reportJson = computed(() => prettyJson(props.report));
 
 // --- functions ---
-function formatDate(value: string | null): string {
-  if (!value) return "-";
-  try {
-    return new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-    }).format(new Date(value));
-  } catch {
-    return value;
-  }
-}
-
-function prettyJson(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
-
 function screenshotSrc(path: string): string {
   return screenshotUrl(props.taskId, path);
-}
-
-function toggleExtra(id: string, type: string): void {
-  const key = `${id}:${type}`;
-  extrasOpen.value[key] = !extrasOpen.value[key];
-}
-
-function extraOpen(id: string, type: string): boolean {
-  return !!extrasOpen.value[`${id}:${type}`];
 }
 
 function scrollTo(id: string): void {
@@ -567,7 +410,7 @@ function scrollTo(id: string): void {
   }
 }
 
-function openLightbox(path: string, _step: number | null): void {
+function openLightbox(path: string): void {
   lightboxSrc.value = path;
 }
 
@@ -1175,182 +1018,9 @@ onUnmounted(() => {
   border-radius: 1px;
 }
 
-.step-card {
-  position: relative;
-  border: 1px solid var(--rp-line);
-  border-radius: var(--radius);
-  background: var(--rp-surface);
-  box-shadow: var(--shadow-sm);
-  transition: all var(--transition);
-}
-
-.step-failed {
-  border-color: #fecdd3;
-  box-shadow: 0 10px 28px rgba(180, 35, 24, 0.08);
-}
-
-.step-card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.step-node {
-  position: absolute;
-  left: -52px;
-  top: 18px;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 800;
-  z-index: 1;
-  border: 3px solid #ffffff;
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.28);
-}
-
-.node-success {
-  background: var(--accent);
-  color: #fff;
-}
-
-.node-failed {
-  background: var(--danger);
-  color: #fff;
-  box-shadow: 0 8px 20px rgba(180, 35, 24, 0.24);
-}
-
-.node-skipped {
-  background: #d1d9df;
-  color: var(--rp-muted);
-}
-
-.step-card-body {
-  padding: 18px;
-  display: grid;
-  gap: 12px;
-}
-
-.step-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.step-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.step-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--rp-text);
-  line-height: 1.25;
-}
-
-.step-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.step-result-tag {
-  display: inline-flex;
-  align-items: center;
-  min-width: 76px;
-  justify-content: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.tag-success {
-  background: var(--success-soft);
-  color: var(--success);
-  border: 1px solid #bbf7d0;
-}
-
-.tag-failed {
-  background: var(--danger-soft);
-  color: var(--danger);
-  border: 1px solid #fecdd3;
-}
-
-.tag-skipped {
-  background: var(--info-soft);
-  color: var(--info);
-  border: 1px solid #b2ddff;
-}
-
-.step-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--rp-line);
-  border-radius: var(--radius-md);
-  background: var(--rp-surface);
-}
-
-.step-detail-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rp-line);
-}
-
-.step-detail-item.full-width {
-  grid-column: 1 / -1;
-}
-
-.step-detail-item:nth-last-child(-n + 2):not(.full-width),
-.step-detail-item:last-child {
-  border-bottom: 0;
-}
-
-.sdi-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--rp-muted);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.sdi-value {
-  font-size: 14px;
-  color: var(--rp-text);
-  overflow-wrap: anywhere;
-}
+/* step-card / step-node / step-detail-grid 等已迁至 components/task/report/StepCard.vue。 */
 
 /* ===== Extras / Toggles ===== */
-.step-extras {
-  margin-top: 2px;
-  width: 100%;
-}
-
-.step-extras .extras-toggle,
-.step-extras .extras-content {
-  width: 100%;
-}
-
 .extras-toggle {
   display: inline-flex;
   align-items: center;
@@ -1415,29 +1085,7 @@ onUnmounted(() => {
   overflow: auto;
 }
 
-/* ===== Screenshots ===== */
-.screenshot-path {
-  margin: 12px 0;
-  color: var(--rp-muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.screenshot {
-  display: block;
-  width: 100%;
-  max-height: 520px;
-  object-fit: contain;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--rp-line);
-  box-shadow: var(--shadow-sm);
-  cursor: zoom-in;
-  transition: box-shadow var(--transition);
-}
-
-.screenshot:hover {
-  box-shadow: var(--shadow-md);
-}
+/* screenshot / screenshot-path 已迁至子组件；ReportView 自身不直接渲染截图。 */
 
 /* ===== Failure Summary ===== */
 .failure-summary {
@@ -1511,171 +1159,7 @@ onUnmounted(() => {
   gap: 14px;
 }
 
-.finding-card {
-  display: flex;
-  border: 1px solid var(--rp-line);
-  border-radius: var(--radius);
-  background: var(--rp-surface);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
-  transition: all var(--transition);
-}
-
-.finding-card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.sev-critical,
-.sev-high {
-  border-color: #fecdd3;
-  box-shadow: 0 10px 28px rgba(180, 35, 24, 0.08);
-}
-
-.finding-indicator {
-  width: 4px;
-  flex-shrink: 0;
-}
-
-.sev-bar-critical {
-  background: #7f1d1d;
-}
-
-.sev-bar-high {
-  background: var(--danger);
-}
-
-.sev-bar-medium {
-  background: var(--warning);
-}
-
-.sev-bar-low {
-  background: var(--accent);
-}
-
-.sev-bar-info {
-  background: var(--info);
-}
-
-.finding-body {
-  flex: 1;
-  padding: 16px 18px;
-  display: grid;
-  gap: 12px;
-}
-
-.finding-header {
-  display: grid;
-  gap: 4px;
-}
-
-.finding-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.finding-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--rp-text);
-}
-
-.finding-desc {
-  margin: 0;
-  font-size: 14px;
-  color: var(--rp-muted);
-  line-height: 1.5;
-}
-
-.severity-tag {
-  display: inline-flex;
-  align-items: center;
-  min-width: 76px;
-  justify-content: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.sev-tag-critical {
-  background: var(--danger-soft);
-  color: #991b1b;
-  border: 1px solid #fecdd3;
-}
-
-.sev-tag-high {
-  background: var(--danger-soft);
-  color: var(--danger);
-  border: 1px solid #fecdd3;
-}
-
-.sev-tag-medium {
-  background: var(--warning-soft);
-  color: var(--warning);
-  border: 1px solid #fedf89;
-}
-
-.sev-tag-low {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border: 1px solid #c7d2fe;
-}
-
-.sev-tag-info {
-  background: var(--info-soft);
-  color: var(--info);
-  border: 1px solid #b2ddff;
-}
-
-.finding-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--rp-line);
-  border-radius: var(--radius-md);
-  background: var(--rp-surface);
-}
-
-.fm-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rp-line);
-}
-
-.fm-item.full-width {
-  grid-column: 1 / -1;
-}
-
-.fm-item:nth-last-child(-n + 2):not(.full-width),
-.fm-item:last-child {
-  border-bottom: 0;
-}
-
-.fm-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--rp-muted);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.fm-value {
-  font-size: 14px;
-  color: var(--rp-text);
-  overflow-wrap: anywhere;
-}
-
-.finding-extras {
-  margin-top: 2px;
-}
+/* finding-card / sev-tag-* / finding-meta-grid 等已迁至 components/task/report/FindingCard.vue。 */
 
 /* ===== Lightbox ===== */
 .lightbox-overlay {
@@ -1786,8 +1270,7 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .section-head,
-  .step-header {
+  .section-head {
     display: grid;
   }
 
@@ -1810,21 +1293,6 @@ onUnmounted(() => {
 
   .timeline-line {
     left: 17px;
-  }
-
-  .step-node {
-    left: -42px;
-    width: 28px;
-    height: 28px;
-    font-size: 11px;
-  }
-
-  .step-detail-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .finding-meta-grid {
-    grid-template-columns: 1fr;
   }
 
   .section-card {

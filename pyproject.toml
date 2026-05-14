@@ -38,6 +38,10 @@ dev = [
     "black>=24.0",
     "isort>=5.13",
     "mypy>=1.8",
+    # ruff 与 black/isort 共存：black 仍然负责 format，isort 仍然负责 import 排序，
+    # ruff 只跑 lint（pyflakes / pycodestyle / bugbear），不重复处理 import / format。
+    "ruff>=0.6,<1.0",
+    "pre-commit>=3.7",
 ]
 
 [project.scripts]
@@ -58,6 +62,46 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["argus_py", "tests"]
+# 排除：编辑器/构建/前端打包产物。frontend 由 ESLint 负责，不进 Python lint。
+extend-exclude = [
+    ".venv",
+    "build",
+    "dist",
+    "argus_py/api/static",
+    "frontend",
+]
+
+[tool.ruff.lint]
+# 规则选取原则：与现有 black/isort hook 不重叠，只补真正的静态检查能力。
+# - E/W：pycodestyle 错误与告警（绝大多数风格问题已由 black 抹平，仅留语义类）
+# - F：pyflakes（未使用 import / 未定义变量等真实 bug）
+# - B：flake8-bugbear（可变默认参数、循环引用陷阱等常见 bug 模式）
+# - PT：pytest 风格规范（assert 形式、fixture 使用）
+# 不启用 I（与 isort hook 重叠）、UP/SIM（会触发大量历史代码 diff，留待后续渐进迁移）。
+select = ["E", "W", "F", "B", "PT"]
+ignore = [
+    "E501",  # 行长度由 black/line-length 接管，避免 ruff 与 black 争夺
+    "B008",  # FastAPI Depends() / Query() 在函数默认参数中是合法用法
+    "B904",  # raise X from exc 在已有大量直接 raise 的兼容代码里渐进推进
+    "PT011", # pytest.raises(Exception) 不强制要求 match=
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件允许：B011（assert False）、PT004（fixture 命名）等测试惯例
+"tests/**" = [
+    "E402",  # 局部 import 用于隔离测试环境
+    "B011",
+]
+# 路由函数名 test_model_config 形式上以 test_ 开头，被 ruff 误识为 pytest fn；
+# 实际为 FastAPI 路由处理器，PT028 不适用。统一对 routes 目录关闭。
+"argus_py/api/routes/**" = ["PT028"]
+# 旧脚本允许 print
+"scripts/**" = ["T201"]
 
 [tool.mypy]
 python_version = "3.11"

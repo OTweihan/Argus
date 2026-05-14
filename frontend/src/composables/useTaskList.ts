@@ -1,6 +1,7 @@
 import { ref, watch, type Ref } from "vue";
 import { listTasks as apiListTasks } from "../api";
 import type { Task } from "../types";
+import { useDebounceFn } from "./useDebounceFn";
 
 export function useTaskList(opts: {
     allTasks: Ref<Task[]>;
@@ -43,14 +44,11 @@ export function useTaskList(opts: {
         loadTasks();
     }
 
-    let searchTimer: number | null = null;
-    watch(taskSearchQuery, () => {
-        if (searchTimer !== null) clearTimeout(searchTimer);
-        searchTimer = window.setTimeout(() => {
-            page.value = 1;
-            loadTasks();
-        }, 300);
-    });
+    const debouncedSearch = useDebounceFn(() => {
+        page.value = 1;
+        void loadTasks();
+    }, 300);
+    watch(taskSearchQuery, debouncedSearch);
 
     watch([taskStatusFilter, taskProjectFilter], () => {
         page.value = 1;

@@ -41,6 +41,8 @@ class LLMClient:
         timeout_seconds: float = 120.0,
         max_retries: int = DEFAULT_LLM_MAX_RETRIES,
         completions_path: str = "/chat/completions",
+        httpx_proxy: str | None = None,
+        httpx_trust_env: bool | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("LLM_API_KEY", "")
         if not self.api_key:
@@ -54,6 +56,15 @@ class LLMClient:
         self.completions_path = (
             completions_path if completions_path.startswith("/") else f"/{completions_path}"
         )
+        # 代理配置（不显式传入时回落到环境变量，再回落到 httpx 默认行为）：
+        # - LLM_HTTPX_PROXY: 显式 proxy URL，例如 ``http://user:pass@host:port``
+        # - LLM_HTTPX_TRUST_ENV: ``"0"`` / ``"false"`` 关闭 httpx 默认的 HTTP(S)_PROXY 环境变量探测
+        self._httpx_proxy = httpx_proxy if httpx_proxy is not None else os.getenv("LLM_HTTPX_PROXY")
+        if httpx_trust_env is None:
+            env_trust = os.getenv("LLM_HTTPX_TRUST_ENV", "").strip().lower()
+            self._httpx_trust_env = env_trust not in {"0", "false", "no", "off"}
+        else:
+            self._httpx_trust_env = httpx_trust_env
         # httpx.AsyncClient 必须在 async 上下文中关闭；首次请求时懒创建。
         self._http: httpx.AsyncClient | None = None
 
@@ -63,9 +74,28 @@ class LLMClient:
         return f"{self.base_url}{self.completions_path}"
 
     def _ensure_http(self) -> httpx.AsyncClient:
-        """懒创建并复用 httpx.AsyncClient（保持连接池 keep-alive）。"""
-        if self._http is None or self._http.is_closed:
-            self._http = httpx.AsyncClient(timeout=self.timeout_seconds)
+        """懒创建并复用 httpx.AsyncClient（保持连接池 keep-alive）。
+
+        按 httpx 版本兼容地传入代理参数：httpx 0.28+ 使用单数 ``proxy``，
+        旧版本使用 ``proxies``；只在显式配置 proxy 时尝试，避免在不需要代理
+        的常态路径触发 TypeError fallback。
+        """
+        if self._http is not None and not self._http.is_closed:
+            return self._http
+        kwargs: dict[str, Any] = {
+            "timeout": self.timeout_seconds,
+            "trust_env": self._httpx_trust_env,
+        }
+        if self._httpx_proxy:
+            try:
+                self._http = httpx.AsyncClient(proxy=self._httpx_proxy, **kwargs)
+            except TypeError:
+                # httpx < 0.28 兼容路径
+                legacy_kwargs = dict(kwargs)
+                legacy_kwargs["proxies"] = self._httpx_proxy
+                self._http = httpx.AsyncClient(**legacy_kwargs)
+        else:
+            self._http = httpx.AsyncClient(**kwargs)
         return self._http
 
     async def aclose(self) -> None:

@@ -2,27 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult
 from argus_py.redaction import redact_finding_entry, redact_log_entry
+from argus_py.task._base import TaskEventPublisher, _StorageEventBase
 from argus_py.task.models import Finding, Task, TaskLog
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
 
-TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
+__all__ = ["TaskEventPublisher", "TaskLogService"]
 
 
-class TaskLogService:
+class TaskLogService(_StorageEventBase):
     """管理任务步骤日志和问题记录。"""
-
-    def __init__(
-        self,
-        storage: TaskFileStorage | TaskSQLiteStorage,
-        event_publisher: TaskEventPublisher | None,
-    ) -> None:
-        self.storage = storage
-        self.event_publisher = event_publisher
 
     def append_log(
         self,
@@ -107,18 +100,6 @@ class TaskLogService:
             },
         )
         return resolved
-
-    def _resolve_task(self, task: Task | str) -> Task:
-        """接受任务对象或任务 ID，统一还原为任务对象。"""
-        if isinstance(task, Task):
-            return task
-        return self.storage.load(task)
-
-    def _publish(self, event_type: str, task: Task, data: dict[str, Any]) -> None:
-        """发布任务事件。"""
-        if self.event_publisher is None:
-            return
-        self.event_publisher(event_type, task.task_id, to_jsonable(data))
 
 
 def _redact_log_payload(log: TaskLog) -> dict[str, Any]:

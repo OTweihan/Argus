@@ -8,9 +8,7 @@ from typing import Any
 
 from argus_py.core.constants import (
     DEFAULT_LLM_MAX_RETRIES,
-    DEFAULT_LLM_MAX_TOKENS,
     DEFAULT_LLM_MODEL,
-    DEFAULT_LLM_TEMPERATURE,
 )
 from argus_py.core.enums import TaskType
 from argus_py.core.ids import generate_model_config_id

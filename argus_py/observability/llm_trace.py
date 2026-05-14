@@ -90,7 +90,13 @@ def _redact_sensitive_content(text: str) -> str:
     """对字符串内容进行内容级脱敏，抹去内嵌的 API Key / JWT / 凭据等。"""
     result = text
     for pattern in _CONTENT_REDACT_PATTERNS:
-        result = pattern.sub(lambda m: _content_replacement(m, pattern), result)
+        # 用默认参数把 pattern 立即绑死到 lambda 闭包，避免循环变量延迟绑定
+        # （ruff B023）。本处 sub 是同步立即调用、不会真触发延迟问题，但显式
+        # 绑定让规则不再误报，也对未来重构更友好。
+        def replace_match(match: re.Match[str], bound_pattern: re.Pattern[str] = pattern) -> str:
+            return _content_replacement(match, bound_pattern)
+
+        result = pattern.sub(replace_match, result)
     return result
 
 

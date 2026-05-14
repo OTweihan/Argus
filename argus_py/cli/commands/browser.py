@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 
 from argus_py.browser import BrowserSession, PlaywrightClient
-from argus_py.cli.utils import print_cli_error
 from argus_py.core.paths import SCREENSHOTS_DIR, resolve_project_path
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
     """添加 browser 子命令解析器。"""
-    from argus_py.cli.utils import positive_int
 
     browser_parser = subparsers.add_parser("browser", help="浏览器封装调试命令")
     browser_subparsers = browser_parser.add_subparsers(dest="browser_command")

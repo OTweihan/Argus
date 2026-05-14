@@ -4,21 +4,21 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.redaction import redact_href, redact_sensitive_text
+from argus_py.task._base import TaskEventPublisher, _StorageEventBase
 from argus_py.task.models import Task
 from argus_py.task.status import assert_transition
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
-from argus_py.utils.jsonx import to_jsonable
 
-TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
+__all__ = ["TaskEventPublisher", "TaskLifecycleService"]
 
 
-class TaskLifecycleService:
+class TaskLifecycleService(_StorageEventBase):
     """管理任务创建、删除、状态流转和取消令牌。"""
 
     def __init__(
@@ -26,8 +26,7 @@ class TaskLifecycleService:
         storage: TaskFileStorage | TaskSQLiteStorage,
         event_publisher: TaskEventPublisher | None,
     ) -> None:
-        self.storage = storage
-        self.event_publisher = event_publisher
+        super().__init__(storage, event_publisher)
         self._cancellation_tokens: dict[str, CancellationToken] = {}
 
     def create_task(
@@ -259,18 +258,6 @@ class TaskLifecycleService:
         token = self.get_cancellation_token(resolved.task_id)
         token.resume()
         return self.update_status(resolved, TaskStatus.RUNNING)
-
-    def _resolve_task(self, task: Task | str) -> Task:
-        """接受任务对象或任务 ID，统一还原为任务对象。"""
-        if isinstance(task, Task):
-            return task
-        return self.storage.load(task)
-
-    def _publish(self, event_type: str, task: Task, data: dict[str, Any]) -> None:
-        """发布任务事件。"""
-        if self.event_publisher is None:
-            return
-        self.event_publisher(event_type, task.task_id, to_jsonable(data))
 
 
 def _task_summary(task: Task) -> dict[str, Any]:

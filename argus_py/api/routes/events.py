@@ -19,6 +19,7 @@ from argus_py.api.dependencies import get_task_service
 from argus_py.api.schemas.llm_trace import LLMTraceResponse
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import OUTPUT_DIR, SCREENSHOTS_DIR
+from argus_py.infra.temp_cleanup import DEBUG_BUNDLE_TMP_PREFIX
 from argus_py.task.service import TaskService
 
 logger = logging.getLogger(__name__)
@@ -137,7 +138,8 @@ def download_debug_bundle(
     except TaskError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    # 加专属前缀，便于服务启动时的残留清理扫描识别（参见 infra/temp_cleanup.py）。
+    tmp = tempfile.NamedTemporaryFile(delete=False, prefix=DEBUG_BUNDLE_TMP_PREFIX, suffix=".zip")
     tmp_path = tmp.name
     total_size = 0
     skipped = False

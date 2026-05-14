@@ -31,11 +31,21 @@ export function useConsoleApp() {
 
     /* ── connectEventStream wrapper：需要 view（来自 nav）和 selectedTaskId（来自 useTasks） ── */
 
-    // 占位 ref，useTasks 返回后替换为真实引用
-    let selectedTaskIdRef: Ref<string | null> = ref(null);
+    // useTasks 需要 connectEventStream 当回调，但 connectEventStream 又需要
+    // taskDomain.selectedTaskId —— 鸡生蛋。
+    //
+    // 用普通对象做 holder：
+    //   - holder 自身是 const，``current`` 字段在 taskDomain 构造完后被替换
+    //     为 taskDomain.selectedTaskId（普通字段 mutation，ESLint vue/no-ref-
+    //     as-operand 不会误报；shallowRef 在此处会被 vue-tsc auto-unwrap，
+    //     绕不开类型层面的 ref 解包）
+    //   - useRuntimeEvents.connectEventStream 的实现是"调用瞬间读 .value"，
+    //     所有真实调用时机（onMounted / watch view / changeView / selectTask）
+    //     都在 holder.current 替换之后发生，闭包总是读到最新 inner ref。
+    const selectedTaskIdHolder: { current: Ref<string | null> } = { current: ref(null) };
 
     function connectEventStream(): void {
-        events.connectEventStream(nav.view, selectedTaskIdRef);
+        events.connectEventStream(nav.view, selectedTaskIdHolder.current);
     }
 
     const taskDomain = useTasks({
@@ -43,7 +53,7 @@ export function useConsoleApp() {
         view: nav.view,
         connectEventStream,
     });
-    selectedTaskIdRef = taskDomain.selectedTaskId;
+    selectedTaskIdHolder.current = taskDomain.selectedTaskId;
 
     const projectDomain = useProjects({ projects, error, message, formErrors });
 
@@ -54,7 +64,9 @@ export function useConsoleApp() {
     const taskEvents = useTaskEvents(
         allTasks,
         taskDomain.loadTasks,
-        selectedTaskIdRef,
+        // 走到这一行时 taskDomain 已就绪，直接传它的 selectedTaskId，不必再
+        // 透过 holder 间接引用，类型也更直接。
+        taskDomain.selectedTaskId,
         (msg) => { error.value = msg; },
         (s) => { summary.value = s; },
     );

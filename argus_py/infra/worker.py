@@ -10,7 +10,6 @@ from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.aspect import log_operation
-from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 
 logger = logging.getLogger(__name__)

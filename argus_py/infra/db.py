@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
+from collections.abc import Callable, Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from argus_py.core.paths import DATA_DIR
 
 DEFAULT_DB_PATH = DATA_DIR / "argus.db"
+
+ConnectFn = Callable[[], sqlite3.Connection]
+"""无参连接工厂签名（通常为 ``lambda: connect(db_path)``）。"""
 
 _MIN_SQLITE_VERSION = (3, 35, 0)
 """ALTER TABLE DROP COLUMN 需要 SQLite 3.35.0+。"""
@@ -164,6 +168,42 @@ def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA busy_timeout = 5000")
     return connection
+
+
+@contextmanager
+def with_conn(connect_fn: ConnectFn) -> Iterator[sqlite3.Connection]:
+    """打开连接并在退出时关闭，用于纯读路径。
+
+    取代调用方反复编写的 ``with closing(connect_fn()) as connection:`` 模板：
+
+        with with_conn(self._connect) as conn:
+            row = conn.execute("SELECT ...").fetchone()
+    """
+    connection = connect_fn()
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+@contextmanager
+def with_tx(connect_fn: ConnectFn) -> Iterator[sqlite3.Connection]:
+    """打开连接并在 ``with conn:`` 事务上下文里执行，退出时关闭连接。
+
+    SQLite Connection 自身的上下文协议在 ``__exit__`` 时根据是否抛异常自动
+    ``commit`` / ``rollback``；本 helper 在外层再加 try/finally 保证连接关闭。
+    用于一次或多次写操作：
+
+        with with_tx(self._connect) as conn:
+            conn.execute("INSERT ...", row)
+            conn.execute("UPDATE ...", row)
+    """
+    connection = connect_fn()
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 _REQUIRED_TASK_COLUMNS: dict[str, str] = {

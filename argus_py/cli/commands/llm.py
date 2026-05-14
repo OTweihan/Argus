@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from argus_py.cli.utils import print_cli_cancelled, print_cli_error
+from argus_py.cli.utils import print_cli_error
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.llm import LLMClient
 from argus_py.llm.prompts import load_prompt

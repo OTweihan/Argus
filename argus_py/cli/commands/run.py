@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession, PlaywrightClient

@@ -61,10 +61,10 @@ class TestRedactSensitiveText:
         assert redact_sensitive_text(text) == expected
 
     @pytest.mark.parametrize(
-        ("text",),
+        "text",
         [
-            ("hello world",),
-            ("username=admin&action=login",),
+            "hello world",
+            "username=admin&action=login",
         ],
         ids=["plain", "non_sensitive_key_value"],
     )

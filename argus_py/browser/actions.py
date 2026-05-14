@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -19,6 +22,59 @@ from argus_py.core.constants import (
     DEFAULT_PAGE_SETTLE_MS,
     DEFAULT_SCREENSHOTS_DIR,
 )
+
+_T = TypeVar("_T")
+
+
+def _extract_target(
+    sig: inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any], name: str
+) -> Any:
+    """从绑定的实参里取出表示“操作目标”的参数值，用于异常消息。"""
+    try:
+        bound = sig.bind(*args, **kwargs)
+    except TypeError:
+        return ""
+    return bound.arguments.get(name, "")
+
+
+def _handle_browser_errors(
+    action: str,
+    *,
+    timeout_msg: str,
+    target_param: str = "target",
+) -> Callable[[Callable[..., Awaitable[_T]]], Callable[..., Awaitable[_T]]]:
+    """统一封装 BrowserActions 方法的异常映射。
+
+    捕获顺序：
+
+    1. ``PlaywrightTimeoutError`` → ``BrowserTimeoutError(f"{timeout_msg}：{target}")``
+    2. 已经是 ``BrowserError`` 子类（如 ``ElementNotFoundError``）直接 raise
+    3. 其余 ``Exception`` → ``BrowserActionError(action, str(exc), str(target))``
+
+    ``target`` 取自函数签名里名为 ``target_param`` 的形参（默认 ``target``）。
+    使用 ``inspect.signature`` 在装饰时一次性解析签名，运行时只在异常路径
+    做 ``sig.bind``，正常路径开销可忽略。
+    """
+
+    def decorator(fn: Callable[..., Awaitable[_T]]) -> Callable[..., Awaitable[_T]]:
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> _T:
+            try:
+                return await fn(*args, **kwargs)
+            except PlaywrightTimeoutError as exc:
+                target = _extract_target(sig, args, kwargs, target_param)
+                raise BrowserTimeoutError(f"{timeout_msg}：{target}") from exc
+            except BrowserError:
+                raise
+            except Exception as exc:
+                target = _extract_target(sig, args, kwargs, target_param)
+                raise BrowserActionError(action, str(exc), str(target)) from exc
+
+        return wrapper
+
+    return decorator
 
 
 class BrowserActions:
@@ -72,6 +128,7 @@ class BrowserActions:
             await asyncio.sleep(self.page_settle_ms / 1000)
         return {"url_after": self.page.url, "title": await self.page.title()}
 
+    @_handle_browser_errors("navigate", timeout_msg="页面打开超时", target_param="url")
     async def navigate(
         self,
         url: str,
@@ -81,19 +138,12 @@ class BrowserActions:
     ) -> dict[str, Any]:
         """打开页面并返回跳转前后状态。"""
         before = self.page.url
-        try:
-            response = await self.page.goto(
-                url,
-                wait_until=wait_until,
-                timeout=self.navigation_timeout_ms,
-            )
-            ready_state = await self.wait_for_page_ready(require_load=True)
-        except PlaywrightTimeoutError as exc:
-            raise BrowserTimeoutError(f"页面打开超时：{url}") from exc
-        except BrowserError:
-            raise
-        except Exception as exc:
-            raise BrowserActionError("navigate", str(exc), url) from exc
+        response = await self.page.goto(
+            url,
+            wait_until=wait_until,
+            timeout=self.navigation_timeout_ms,
+        )
+        ready_state = await self.wait_for_page_ready(require_load=True)
         return {
             "url_before": before,
             "url_after": ready_state["url_after"],
@@ -101,73 +151,49 @@ class BrowserActions:
             "title": ready_state["title"],
         }
 
+    @_handle_browser_errors("click", timeout_msg="点击超时")
     async def click(self, target: str | SelectorQuery) -> dict[str, Any]:
         """点击元素。"""
         before = self.page.url
-        try:
-            await self.wait_for_page_ready(require_load=False)
-            locator = await require_visible(self.page, target, self.action_timeout_ms)
-            await locator.click(timeout=self.action_timeout_ms)
-            ready_state = await self.wait_for_page_ready(require_load=False)
-        except PlaywrightTimeoutError as exc:
-            raise BrowserTimeoutError(f"点击超时：{target}") from exc
-        except BrowserError:
-            raise
-        except Exception as exc:
-            raise BrowserActionError("click", str(exc), str(target)) from exc
+        await self.wait_for_page_ready(require_load=False)
+        locator = await require_visible(self.page, target, self.action_timeout_ms)
+        await locator.click(timeout=self.action_timeout_ms)
+        ready_state = await self.wait_for_page_ready(require_load=False)
         return {
             "url_before": before,
             "url_after": ready_state["url_after"],
             "title": ready_state["title"],
         }
 
+    @_handle_browser_errors("fill", timeout_msg="输入超时")
     async def fill(
         self, target: str | SelectorQuery, text: str, clear: bool = True
     ) -> dict[str, Any]:
         """填写输入框。"""
-        try:
-            await self.wait_for_page_ready(require_load=False)
-            locator = await require_visible(self.page, target, self.action_timeout_ms)
-            if clear:
-                await locator.fill("", timeout=self.action_timeout_ms)
-            await locator.fill(text, timeout=self.action_timeout_ms)
-            ready_state = await self.wait_for_page_ready(require_load=False)
-        except PlaywrightTimeoutError as exc:
-            raise BrowserTimeoutError(f"输入超时：{target}") from exc
-        except BrowserError:
-            raise
-        except Exception as exc:
-            raise BrowserActionError("fill", str(exc), str(target)) from exc
+        await self.wait_for_page_ready(require_load=False)
+        locator = await require_visible(self.page, target, self.action_timeout_ms)
+        if clear:
+            await locator.fill("", timeout=self.action_timeout_ms)
+        await locator.fill(text, timeout=self.action_timeout_ms)
+        ready_state = await self.wait_for_page_ready(require_load=False)
         return {"url_after": ready_state["url_after"], "title": ready_state["title"]}
 
+    @_handle_browser_errors("press", timeout_msg="按键超时")
     async def press(self, target: str | SelectorQuery, key: str) -> dict[str, Any]:
         """对元素发送按键。"""
-        try:
-            await self.wait_for_page_ready(require_load=False)
-            locator = await require_visible(self.page, target, self.action_timeout_ms)
-            await locator.press(key, timeout=self.action_timeout_ms)
-            ready_state = await self.wait_for_page_ready(require_load=False)
-        except PlaywrightTimeoutError as exc:
-            raise BrowserTimeoutError(f"按键超时：{target}") from exc
-        except BrowserError:
-            raise
-        except Exception as exc:
-            raise BrowserActionError("press", str(exc), str(target)) from exc
+        await self.wait_for_page_ready(require_load=False)
+        locator = await require_visible(self.page, target, self.action_timeout_ms)
+        await locator.press(key, timeout=self.action_timeout_ms)
+        ready_state = await self.wait_for_page_ready(require_load=False)
         return {"url_after": ready_state["url_after"], "title": ready_state["title"]}
 
+    @_handle_browser_errors("select_option", timeout_msg="选择超时")
     async def select_option(self, target: str | SelectorQuery, value: str) -> dict[str, Any]:
         """选择下拉框选项。"""
-        try:
-            await self.wait_for_page_ready(require_load=False)
-            locator = await require_visible(self.page, target, self.action_timeout_ms)
-            await locator.select_option(value, timeout=self.action_timeout_ms)
-            ready_state = await self.wait_for_page_ready(require_load=False)
-        except PlaywrightTimeoutError as exc:
-            raise BrowserTimeoutError(f"选择超时：{target}") from exc
-        except BrowserError:
-            raise
-        except Exception as exc:
-            raise BrowserActionError("select_option", str(exc), str(target)) from exc
+        await self.wait_for_page_ready(require_load=False)
+        locator = await require_visible(self.page, target, self.action_timeout_ms)
+        await locator.select_option(value, timeout=self.action_timeout_ms)
+        ready_state = await self.wait_for_page_ready(require_load=False)
         return {"url_after": ready_state["url_after"], "title": ready_state["title"]}
 
     async def wait(self, milliseconds: int) -> dict[str, Any]:
@@ -175,18 +201,14 @@ class BrowserActions:
         await asyncio.sleep(milliseconds / 1000)
         return {"url_after": self.page.url, "title": await self.page.title()}
 
+    @_handle_browser_errors(
+        "wait_for_load_state", timeout_msg="等待页面状态超时", target_param="state"
+    )
     async def wait_for_load_state(
         self, state: Literal["domcontentloaded", "load", "networkidle"] = "networkidle"
     ) -> dict[str, Any]:
         """等待页面加载状态。"""
-        try:
-            await self.page.wait_for_load_state(state, timeout=self.navigation_timeout_ms)
-        except PlaywrightTimeoutError as exc:
-            raise BrowserTimeoutError(f"等待页面状态超时：{state}") from exc
-        except BrowserError:
-            raise
-        except Exception as exc:
-            raise BrowserActionError("wait_for_load_state", str(exc), state) from exc
+        await self.page.wait_for_load_state(state, timeout=self.navigation_timeout_ms)
         return {"url_after": self.page.url, "title": await self.page.title()}
 
     async def screenshot(self, name: str, full_page: bool = True) -> Path:

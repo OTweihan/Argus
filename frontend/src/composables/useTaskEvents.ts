@@ -1,8 +1,9 @@
-import { onUnmounted, type Ref } from "vue";
+import type { Ref } from "vue";
 
 import { getTask as apiGetTask, summary as apiSummary } from "../api";
 import type { ConfigSummary, Task, TaskEvent } from "../types";
 import { errorMessage, upsertById } from "../utils";
+import { useDebounceFn } from "./useDebounceFn";
 
 export function useTaskEvents(
   allTasks: Ref<Task[]>,
@@ -11,12 +12,6 @@ export function useTaskEvents(
   onError: (msg: string) => void,
   onSummaryUpdate: (summary: ConfigSummary) => void,
 ) {
-  let refreshTimer: number | null = null;
-
-  onUnmounted(() => {
-    if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-  });
-
   /* ── 兜底刷新（事件合并失败时 fallback） ── */
 
   async function refreshRuntimeData(): Promise<void> {
@@ -35,13 +30,11 @@ export function useTaskEvents(
     }
   }
 
-  function scheduleRefresh(): void {
-    if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-    refreshTimer = window.setTimeout(() => {
-      refreshTimer = null;
-      void refreshRuntimeData();
-    }, 350);
-  }
+  // 350 ms 防抖：高频事件期间合并多次 fallback 刷新；组件卸载时由
+  // useDebounceFn 自动 cancel，无需手写 onUnmounted。
+  const scheduleRefresh = useDebounceFn(() => {
+    void refreshRuntimeData();
+  }, 350);
 
   /* ── 运行时事件合并 ── */
 

@@ -50,7 +50,7 @@ type AppContext = ReturnType<typeof useConsoleApp>;
 
 const props = defineProps<{ app: AppContext }>();
 const {
-  models, modelForm, showModelDialog, formErrors, error,
+  models, modelForm, showModelDialog, formErrors,
   editModel, testModel, deleteModel, saveModel, openNewModelDialog,
 } = props.app;
 

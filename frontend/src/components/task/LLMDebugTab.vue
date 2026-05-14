@@ -118,57 +118,14 @@
           </div>
 
           <!-- Code sections -->
-          <div v-if="systemPrompt" class="dbg-section">
-            <div class="dbg-section-head" @click="toggleSection('sysprompt')">
-              <span class="dbg-section-title">
-                <svg :class="['dbg-sec-chevron', { open: sectionOpen('sysprompt') }]" viewBox="0 0 16 16" fill="none" width="11" height="11"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                System Prompt
-              </span>
-              <button class="dbg-section-copy" @click.stop="copyText(systemPrompt)">复制</button>
-            </div>
-            <div v-if="sectionOpen('sysprompt')" class="dbg-section-body">
-              <pre class="dbg-code">{{ systemPrompt }}</pre>
-            </div>
-          </div>
-
-          <div v-if="inputPayloadStr" class="dbg-section">
-            <div class="dbg-section-head" @click="toggleSection('payload')">
-              <span class="dbg-section-title">
-                <svg :class="['dbg-sec-chevron', { open: sectionOpen('payload') }]" viewBox="0 0 16 16" fill="none" width="11" height="11"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                Input Payload
-              </span>
-              <button class="dbg-section-copy" @click.stop="copyText(inputPayloadStr)">复制</button>
-            </div>
-            <div v-if="sectionOpen('payload')" class="dbg-section-body">
-              <pre class="dbg-code">{{ inputPayloadStr }}</pre>
-            </div>
-          </div>
-
-          <div v-if="selectedTrace.rawResponse" class="dbg-section">
-            <div class="dbg-section-head" @click="toggleSection('raw')">
-              <span class="dbg-section-title">
-                <svg :class="['dbg-sec-chevron', { open: sectionOpen('raw') }]" viewBox="0 0 16 16" fill="none" width="11" height="11"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                Raw Response
-              </span>
-              <button class="dbg-section-copy" @click.stop="copyText(selectedTrace.rawResponse!)">复制</button>
-            </div>
-            <div v-if="sectionOpen('raw')" class="dbg-section-body">
-              <pre class="dbg-code">{{ selectedTrace.rawResponse }}</pre>
-            </div>
-          </div>
-
-          <div v-if="selectedTrace.parsedResult" class="dbg-section">
-            <div class="dbg-section-head" @click="toggleSection('parsed')">
-              <span class="dbg-section-title">
-                <svg :class="['dbg-sec-chevron', { open: sectionOpen('parsed') }]" viewBox="0 0 16 16" fill="none" width="11" height="11"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                Parsed Result
-              </span>
-              <button class="dbg-section-copy" @click.stop="copyText(parsedResultStr)">复制</button>
-            </div>
-            <div v-if="sectionOpen('parsed')" class="dbg-section-body">
-              <pre class="dbg-code">{{ parsedResultStr }}</pre>
-            </div>
-          </div>
+          <DebugCodeSection title="System Prompt" :content="systemPrompt" @copy="copyText" />
+          <DebugCodeSection title="Input Payload" :content="inputPayloadStr" @copy="copyText" />
+          <DebugCodeSection
+              title="Raw Response"
+              :content="selectedTrace.rawResponse ?? ''"
+              @copy="copyText"
+          />
+          <DebugCodeSection title="Parsed Result" :content="parsedResultStr" @copy="copyText" />
         </div>
       </div>
       <el-empty v-else class="dbg-empty-detail" description="选择左侧追踪记录查看详情" />
@@ -181,6 +138,7 @@ import { computed, onMounted, ref } from "vue";
 import { getTaskTraces, debugBundleUrl } from "../../api";
 import type { LLMTraceRecord } from "../../types";
 import { ElMessage } from "element-plus";
+import DebugCodeSection from "./debug/DebugCodeSection.vue";
 
 const props = defineProps<{ taskId: string }>();
 
@@ -189,12 +147,6 @@ const loading = ref(true);
 const selectedTrace = ref<LLMTraceRecord | null>(null);
 const phaseFilter = ref("");
 const hideStarted = ref(true);
-const sectionsOpen = ref<Record<string, boolean>>({
-  sysprompt: true,
-  payload: true,
-  raw: true,
-  parsed: true,
-});
 
 const filteredTraces = computed(() => {
   let list = traces.value;
@@ -231,14 +183,6 @@ function onFilterChange() {
   if (selectedTrace.value && !filteredTraces.value.includes(selectedTrace.value)) {
     selectedTrace.value = filteredTraces.value[0] || null;
   }
-}
-
-function toggleSection(key: string): void {
-  sectionsOpen.value[key] = !sectionsOpen.value[key];
-}
-
-function sectionOpen(key: string): boolean {
-  return sectionsOpen.value[key] !== false;
 }
 
 function eventTagType(event: string): string {
@@ -614,85 +558,7 @@ onMounted(async () => {
   color: #92400e;
 }
 
-/* ===== Sections ===== */
-.dbg-section {
-  border: 1px solid #e6edf0;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(24, 40, 50, 0.04);
-}
-
-.dbg-section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 9px 14px;
-  background: #fafcfc;
-  border-bottom: 1px solid #e6edf0;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.12s ease;
-}
-.dbg-section-head:hover {
-  background: #f0f4f7;
-}
-
-.dbg-section-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #1a2a32;
-}
-
-.dbg-sec-chevron {
-  transition: transform 0.2s ease;
-}
-.dbg-sec-chevron.open {
-  transform: rotate(90deg);
-}
-
-.dbg-section-copy {
-  padding: 3px 10px;
-  border: 1px solid #e6edf0;
-  border-radius: 5px;
-  background: #fff;
-  color: #687a85;
-  font-size: 11px;
-  font-weight: 540;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-.dbg-section-copy:hover {
-  background: #f0f4f7;
-  color: #1a2a32;
-  border-color: #d0dbdf;
-}
-
-.dbg-section-body {
-  animation: fadeIn 0.18s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.dbg-code {
-  margin: 0;
-  padding: 14px;
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 320px;
-  overflow: auto;
-  background: #1a2a32;
-  color: #dce8eb;
-}
+/* dbg-section / dbg-section-head / dbg-code 等已迁至 components/task/debug/DebugCodeSection.vue。 */
 
 .dbg-empty-detail {
   flex: 1;

@@ -25,12 +25,16 @@ def report_to_dict(report: Report) -> dict[str, Any]:
     """将报告转换为 dict，所有步骤参数和 URL 中的敏感信息会被脱敏。"""
     data = to_jsonable(report)
 
-    # 脱敏 steps 和 task.logs
+    # 脱敏 steps 和 task.logs：Report.from_task 让两者指向同一份 task.logs，
+    # to_jsonable 序列化后才拆成两个独立 dict 列表，因此必须各自脱敏后写回，
+    # 否则 JSON 报告 / 调试包 中的 data["task"]["logs"] 仍是原文。
     steps: list[dict[str, Any]] = [redact_log_entry(s) for s in data.get("steps", [])]
-    task_logs: list[dict[str, Any]] = [
-        redact_log_entry(s) for s in data.get("task", {}).get("logs", [])
-    ]
     data["steps"] = steps
+    task_dict_for_logs = data.get("task")
+    if isinstance(task_dict_for_logs, dict):
+        task_dict_for_logs["logs"] = [
+            redact_log_entry(s) for s in task_dict_for_logs.get("logs", [])
+        ]
 
     # 脱敏 task 层级的 URL
     task = data.get("task", {})

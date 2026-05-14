@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 from argus_py.browser import BrowserSession, PlaywrightClient
 from argus_py.cli.utils import (
     auth_state_name_from_url,
-    print_cli_cancelled,
     print_cli_error,
     resolve_auth_state_path,
 )

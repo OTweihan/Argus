@@ -35,6 +35,7 @@ __all__ = [
     "ConfigSummaryResponse",
     "FindingResponse",
     "HealthResponse",
+    "InferredLimitsResponse",
     "ModelConfigCreateRequest",
     "ModelConfigListResponse",
     "ModelConfigResponse",

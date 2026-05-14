@@ -10,24 +10,37 @@ from argus_py.redaction.patterns import (
     _REDACTED,
     _SENSITIVE_NAME_PATTERNS,
     _TEXT_PARAM_NAMES,
+    SENSITIVE_VALUE_KEYWORDS,
     _is_sensitive,
     _is_url_param,
 )
 
-_SENSITIVE_TEXT_PATTERNS = [
-    # key=value query/fragment pairs
-    (
-        r"(?i)(token|access_token|api_key|apikey|secret|password|credential|auth|authorization|session|sess|sid|jwt)\s*=\s*\S+",
-        r"\1=[REDACTED]",
-    ),
-    # Bearer/Basic auth headers
-    (r"(?i)(Authorization|Auth)\s*:\s*(Bearer|Basic)\s+\S+", r"\1: \2 [REDACTED]"),
-    # JSON-like patterns: "token":"...", "api_key":"..."
-    (
-        r'(?i)"(token|access_token|api_key|apikey|secret|password|credential|session|jwt)"\s*:\s*"[^"]*"',
-        r'"\1":"[REDACTED]"',
-    ),
-]
+
+def _build_sensitive_text_patterns() -> list[tuple[str, str]]:
+    """根据权威关键词列表拼装 ``key=value`` / Bearer / JSON 三类脱敏正则。
+
+    关键词来源统一为 ``SENSITIVE_VALUE_KEYWORDS``（在 ``redaction.patterns``
+    集中维护），避免之前正则字面量与 ``_SENSITIVE_NAME_PATTERNS`` 双份维护。
+    """
+    keywords = "|".join(re.escape(kw) for kw in SENSITIVE_VALUE_KEYWORDS)
+    json_keywords = "|".join(
+        re.escape(kw)
+        for kw in SENSITIVE_VALUE_KEYWORDS
+        # JSON 字段中 auth / authorization 通常代表认证头部，单独的 "auth":"..."
+        # 多用作字面量字段（如登录类型）；保留 authorization、去除裸 auth，避免误伤。
+        if kw not in {"auth"}
+    )
+    return [
+        # key=value 形式（query string、fragment、命令行等）
+        (rf"(?i)({keywords})\s*=\s*\S+", r"\1=[REDACTED]"),
+        # HTTP Authorization / Auth header（保留原 Bearer / Basic 标签）
+        (r"(?i)(Authorization|Auth)\s*:\s*(Bearer|Basic)\s+\S+", r"\1: \2 [REDACTED]"),
+        # JSON: "token": "..." / "api_key": "..."
+        (rf'(?i)"({json_keywords})"\s*:\s*"[^"]*"', r'"\1":"[REDACTED]"'),
+    ]
+
+
+_SENSITIVE_TEXT_PATTERNS: list[tuple[str, str]] = _build_sensitive_text_patterns()
 
 
 def redact_href(href: str) -> str:

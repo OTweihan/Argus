@@ -61,6 +61,16 @@ repos:
         types: [python]
         require_serial: true
 
+      # ruff 仅做 lint（不替代 black 的格式化与 isort 的 import 排序），
+      # 在 black/isort 之后运行，确保它们的格式化结果不会被 ruff 二次改动。
+      - id: ruff
+        name: ruff (lint)
+        entry: python -m ruff check
+        language: system
+        types: [python]
+        require_serial: true
+        args: ["--force-exclude"]
+
       - id: mypy
         name: mypy
         entry: python -m mypy

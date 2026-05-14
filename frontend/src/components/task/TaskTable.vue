@@ -94,7 +94,10 @@ function projectName(projectId: string | null): string {
   return props.projects.find((p) => p.projectId === projectId)?.name ?? projectId;
 }
 
-function tagType(task: Task): string {
+// el-tag :type 形参类型为字面量联合，宽 string 会触发 vue-tsc TS2322。
+type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
+
+function tagType(task: Task): ElTagType {
   const status = taskDisplayStatus(task);
   if (status === "completed") return "success";
   if (status === "failed" || status === "timeout" || status === "cancelled") return "danger";

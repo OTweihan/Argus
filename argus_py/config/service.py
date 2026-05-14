@@ -10,8 +10,6 @@ from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.models import ModelConfig
 from argus_py.core.constants import (
     DEFAULT_LLM_MAX_RETRIES,
-    DEFAULT_LLM_MAX_TOKENS,
-    DEFAULT_LLM_TEMPERATURE,
 )
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import ModelConfigError

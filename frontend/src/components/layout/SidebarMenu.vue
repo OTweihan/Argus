@@ -1,7 +1,7 @@
 <template>
   <el-aside width="220px" class="sidebar">
     <h1 class="brand">Argus</h1>
-    <el-menu :default-active="view" class="nav-menu" @select="$emit('changeView', $event)">
+    <el-menu :default-active="view" class="nav-menu" @select="onSelect">
       <el-menu-item index="dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
              stroke-linejoin="round">
@@ -44,7 +44,15 @@
 import type {ViewKey} from "../../composables/useConsoleApp";
 
 defineProps<{ view: ViewKey }>();
-defineEmits<{ changeView: [index: ViewKey] }>();
+const emit = defineEmits<{ changeView: [index: ViewKey] }>();
+
+// el-menu @select 事件签名固定为 (index: string)，但模板里 4 个 menu-item
+// 的 index 都硬编码为 ViewKey 的成员，运行时不会出现非 ViewKey 字符串，
+// 这里 cast 即可（vue-tsc 在 inline `$emit('changeView', $event)` 形式下
+// 无法做这层窄化推断，必须拆成 setup 函数）。
+function onSelect(index: string): void {
+    emit("changeView", index as ViewKey);
+}
 </script>
 
 <style>

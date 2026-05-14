@@ -18,6 +18,7 @@ from argus_py.core.crypto import ensure_fernet_key
 from argus_py.core.paths import API_STATIC_DIR
 from argus_py.infra.db import DEFAULT_DB_PATH
 from argus_py.infra.recovery import recover_interrupted_tasks
+from argus_py.infra.temp_cleanup import cleanup_stale_debug_bundles
 from argus_py.utils.logger import setup_logging
 
 API_PREFIX = "/api/v1"
@@ -34,6 +35,8 @@ def create_app() -> FastAPI:
         """管理后台任务 Worker 生命周期。"""
         ensure_fernet_key(DEFAULT_DB_PATH)
         recover_interrupted_tasks(get_task_service())
+        # 清理上次运行可能遗留的调试包临时文件（进程被强 kill / unlink 失败等场景）。
+        cleanup_stale_debug_bundles()
         await get_task_worker().start()
         try:
             yield

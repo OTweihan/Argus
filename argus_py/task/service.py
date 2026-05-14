@@ -2,23 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.observability.aspect import log_operation
-from argus_py.task.event import TaskTimelineService
+from argus_py.task._base import TaskEventPublisher
+from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
 from argus_py.task.query import TaskQueryService
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
-TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
+__all__ = ["TaskEventPublisher", "TaskService"]
 
 
 class TaskService:
-    """兼容外观：保持原有全部公开方法签名，内部委托给单一职责子服务。"""
+    """兼容外观：保持原有全部公开方法签名，内部委托给单一职责子服务。
+
+    新代码推荐直接通过 ``service.lifecycle`` / ``service.query`` /
+    ``service.log`` / ``service.timeline`` 子服务调用。本 facade 仅为兼容
+    存量调用方而保留。
+    """
 
     def __init__(
         self,
@@ -29,10 +35,12 @@ class TaskService:
         self.lifecycle = TaskLifecycleService(resolved, event_publisher)
         self.query = TaskQueryService(resolved)
         self.log = TaskLogService(resolved, event_publisher)
-        self.timeline = (
+        # 仅 SQLite 后端支持时间线持久化；非 SQLite 后端用 Null Object 占位，
+        # 让 facade 与子服务调用方都不再需要写 ``if timeline is None`` 分支。
+        self.timeline: TaskTimelineService | _NullTimelineService = (
             TaskTimelineService(resolved, event_publisher)
             if isinstance(resolved, TaskSQLiteStorage)
-            else None
+            else _NullTimelineService()
         )
 
     def emit_timeline(
@@ -45,20 +53,17 @@ class TaskService:
         data: dict[str, Any] | None = None,
     ) -> None:
         """发射时间线事件（存储 + WebSocket 广播）。"""
-        if self.timeline is not None:
-            self.timeline.emit(
-                task_id=task_id,
-                event_type=event_type,
-                phase=phase,
-                step_number=step_number,
-                summary=summary,
-                data=data,
-            )
+        self.timeline.emit(
+            task_id=task_id,
+            event_type=event_type,
+            phase=phase,
+            step_number=step_number,
+            summary=summary,
+            data=data,
+        )
 
     def list_timeline_events(self, task_id: str) -> list[dict[str, Any]]:
         """返回任务的时间线事件列表（API 输出格式）。"""
-        if self.timeline is None:
-            return []
         return [e.to_dict() for e in self.timeline.list_by_task(task_id)]
 
     # ── 生命周期 ──
