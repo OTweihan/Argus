@@ -6,14 +6,20 @@
         <el-card shadow="hover" class="metric-card metric-projects">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                   stroke-linejoin="round">
-                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              <svg
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
             </div>
             <div class="metric-info">
-              <div class="metric-value">{{ projects.length }}</div>
-              <div class="metric-label">项目总数</div>
+              <div class="metric-value">
+                {{ projects.length }}
+              </div>
+              <div class="metric-label">
+                项目总数
+              </div>
             </div>
           </div>
         </el-card>
@@ -24,15 +30,21 @@
         <el-card shadow="hover" class="metric-card metric-tasks">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                   stroke-linejoin="round">
-                <path d="M9 11l3 3L22 4"/>
-                <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+              <svg
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 11l3 3L22 4" />
+                <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
               </svg>
             </div>
             <div class="metric-info">
-              <div class="metric-value">{{ allTasks.length }}</div>
-              <div class="metric-label">全部任务</div>
+              <div class="metric-value">
+                {{ allTasks.length }}
+              </div>
+              <div class="metric-label">
+                全部任务
+              </div>
             </div>
           </div>
         </el-card>
@@ -43,15 +55,21 @@
         <el-card shadow="hover" class="metric-card metric-running">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                   stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
+              <svg
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
             </div>
             <div class="metric-info">
-              <div class="metric-value">{{ runningCount }}</div>
-              <div class="metric-label">运行中</div>
+              <div class="metric-value">
+                {{ runningCount }}
+              </div>
+              <div class="metric-label">
+                运行中
+              </div>
             </div>
           </div>
         </el-card>
@@ -62,16 +80,22 @@
         <el-card shadow="hover" class="metric-card metric-findings">
           <div class="metric-content">
             <div class="metric-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                   stroke-linejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              <svg
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
             </div>
             <div class="metric-info">
-              <div class="metric-value">{{ findingCount }}</div>
-              <div class="metric-label">发现问题</div>
+              <div class="metric-value">
+                {{ findingCount }}
+              </div>
+              <div class="metric-label">
+                发现问题
+              </div>
             </div>
           </div>
         </el-card>
@@ -86,26 +110,25 @@
         </div>
       </template>
       <TaskTable
-          :tasks="recentTasks"
-          :projects="projects"
-          :show-edit="false"
-          :show-delete="false"
-          :show-run-actions="false"
-          compact-actions
-          @select="showTaskDetail"
-          @report="showTaskReport"
+        :tasks="recentTasks"
+        :projects="projects"
+        :show-edit="false"
+        :show-delete="false"
+        :show-run-actions="false"
+        compact-actions
+        @select="showTaskDetail"
+        @report="showTaskReport"
       />
     </el-card>
 
     <TaskDetailDialog
-        :visible="detailVisible"
-        :task="detailTask"
-        :loading="detailLoading"
-        :projects="projects"
-        :enabled-models="enabledModels"
-        @close="detailVisible = false"
+      :visible="detailVisible"
+      :task="detailTask"
+      :loading="detailLoading"
+      :projects="projects"
+      :enabled-models="enabledModels"
+      @close="detailVisible = false"
     />
-
   </div>
 </template>
 

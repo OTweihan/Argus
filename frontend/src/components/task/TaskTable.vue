@@ -3,7 +3,9 @@
     <el-table-column label="任务名称" min-width="240">
       <template #default="{ row }">
         <strong>{{ row.name || "-" }}</strong>
-        <div style="color:#909399;font-size:12px">{{ row.taskId }}</div>
+        <div style="color:#909399;font-size:12px">
+          {{ row.taskId }}
+        </div>
       </template>
     </el-table-column>
     <el-table-column label="目标" min-width="300">
@@ -13,54 +15,78 @@
     </el-table-column>
     <el-table-column label="状态" min-width="120">
       <template #default="{ row }">
-        <el-tag :type="tagType(row)">{{ taskDisplayStatus(row) }}</el-tag>
+        <el-tag :type="tagType(row)">
+          {{ taskDisplayStatus(row) }}
+        </el-tag>
       </template>
     </el-table-column>
     <el-table-column label="项目" min-width="200">
-      <template #default="{ row }">{{ projectName(row.projectId) }}</template>
+      <template #default="{ row }">
+        {{ projectName(row.projectId) }}
+      </template>
     </el-table-column>
     <el-table-column label="步骤" min-width="100">
-      <template #default="{ row }">{{ row.currentStep }}/{{ row.maxSteps }}</template>
+      <template #default="{ row }">
+        {{ row.currentStep }}/{{ row.maxSteps }}
+      </template>
     </el-table-column>
     <el-table-column label="创建时间" width="200">
-      <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+      <template #default="{ row }">
+        {{ formatDate(row.createdAt) }}
+      </template>
     </el-table-column>
     <el-table-column v-if="props.compactActions" label="操作" width="220" fixed="right">
       <template #default="{ row }">
-        <el-button @click="$emit('select', row.taskId)">任务详情</el-button>
-        <el-button v-if="props.showReport" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">报告详情
+        <el-button @click="$emit('select', row.taskId)">
+          任务详情
         </el-button>
-        <el-button v-if="props.showEdit" :disabled="!canEditTask(row)" @click="$emit('edit', row)">编辑</el-button>
+        <el-button v-if="props.showReport" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">
+          报告详情
+        </el-button>
+        <el-button v-if="props.showEdit" :disabled="!canEditTask(row)" @click="$emit('edit', row)">
+          编辑
+        </el-button>
         <el-button v-if="props.showDelete" type="danger" :disabled="!canDeleteTask(row)" @click="$emit('delete', row)">
           删除
         </el-button>
         <el-button v-if="props.showRunActions && canStartTask(row)" type="primary" @click="$emit('start', row.taskId)">
           启动
         </el-button>
-        <el-button v-else-if="props.showRunActions && canRestartTask(row)" type="primary"
-                   @click="$emit('restart', row.taskId)">重试
+        <el-button
+          v-else-if="props.showRunActions && canRestartTask(row)" type="primary"
+          @click="$emit('restart', row.taskId)"
+        >
+          重试
         </el-button>
       </template>
     </el-table-column>
     <el-table-column v-else label="操作" width="430" fixed="right">
       <template #default="{ row }">
-        <el-button @click="$emit('select', row.taskId)">任务详情</el-button>
-        <el-button v-if="props.showReport" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">报告详情
+        <el-button @click="$emit('select', row.taskId)">
+          任务详情
         </el-button>
-        <el-button v-if="props.showEdit" :disabled="!canEditTask(row)" @click="$emit('edit', row)">编辑</el-button>
+        <el-button v-if="props.showReport" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">
+          报告详情
+        </el-button>
+        <el-button v-if="props.showEdit" :disabled="!canEditTask(row)" @click="$emit('edit', row)">
+          编辑
+        </el-button>
         <el-button v-if="props.showDelete" type="danger" :disabled="!canDeleteTask(row)" @click="$emit('delete', row)">
           删除
         </el-button>
         <el-button v-if="props.showRunActions && canStartTask(row)" type="primary" @click="$emit('start', row.taskId)">
           启动
         </el-button>
-        <el-button v-else-if="props.showRunActions && canRestartTask(row)" type="primary"
-                   @click="$emit('restart', row.taskId)">重试
+        <el-button
+          v-else-if="props.showRunActions && canRestartTask(row)" type="primary"
+          @click="$emit('restart', row.taskId)"
+        >
+          重试
         </el-button>
       </template>
     </el-table-column>
   </el-table>
-  <el-empty v-else description="暂无任务"/>
+  <el-empty v-else description="暂无任务" />
 </template>
 
 <script setup lang="ts">

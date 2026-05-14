@@ -1,21 +1,23 @@
 <template>
   <el-config-provider :locale="zhCn">
     <el-container class="shell">
-      <SidebarMenu :view="view" @changeView="changeView"/>
+      <SidebarMenu :view="view" @change-view="changeView" />
 
       <el-container class="main-area">
         <el-header class="topbar">
           <h1>{{ viewTitle }}</h1>
           <div class="topbar-actions">
             <div class="status">
-              <span class="dot" :class="eventStatus"></span>
+              <span class="dot" :class="eventStatus" />
               <span>事件流：{{ eventStatusText }}</span>
             </div>
             <el-button class="refresh-btn" type="primary" plain @click="loadAll">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                   stroke-linejoin="round" width="16" height="16" class="refresh-icon">
-                <path d="M21 12a9 9 0 11-3.51-7.13L21 8"/>
-                <polyline points="21 3 21 8 16 8"/>
+              <svg
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" width="16" height="16" class="refresh-icon"
+              >
+                <path d="M21 12a9 9 0 11-3.51-7.13L21 8" />
+                <polyline points="21 3 21 8 16 8" />
               </svg>
               刷新
             </el-button>
@@ -23,15 +25,15 @@
         </el-header>
 
         <el-main class="content-area">
-          <el-alert v-if="loading" type="info" :closable="false" show-icon title="正在加载数据" class="banner"/>
+          <el-alert v-if="loading" type="info" :closable="false" show-icon title="正在加载数据" class="banner" />
 
           <Suspense>
             <template #default>
-              <component :is="currentView" :app="consoleApp"/>
+              <component :is="currentView" :app="consoleApp" />
             </template>
             <template #fallback>
               <div class="view-loading">
-                <span class="view-loading-spinner"/>
+                <span class="view-loading-spinner" />
                 <span>正在加载视图…</span>
               </div>
             </template>
@@ -40,15 +42,17 @@
       </el-container>
 
       <el-dialog
-          v-model="dialogVisible"
-          :title="dialog?.title ?? ''"
-          :width="dialog?.tone === 'error' ? '420px' : '420px'"
-          :show-close="true"
-          append-to-body
+        v-model="dialogVisible"
+        :title="dialog?.title ?? ''"
+        :width="dialog?.tone === 'error' ? '420px' : '420px'"
+        :show-close="true"
+        append-to-body
       >
         <span>{{ dialog?.message }}</span>
         <template #footer>
-          <el-button type="primary" @click="closeDialog">确定</el-button>
+          <el-button type="primary" @click="closeDialog">
+            确定
+          </el-button>
         </template>
       </el-dialog>
     </el-container>

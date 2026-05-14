@@ -12,13 +12,13 @@
           <el-checkbox v-model="hideStarted" label="隐藏 started" @change="onFilterChange" />
         </div>
         <span class="dbg-count">
-          <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" /><path d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" /></svg>
           {{ filteredTraces.length }} 条追踪
         </span>
       </div>
       <div class="dbg-toolbar-right">
         <button class="dbg-dl-btn" @click="downloadDebugBundle">
-          <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><path d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><path d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
           下载调试包
         </button>
       </div>
@@ -44,11 +44,13 @@
             </div>
             <div class="dbg-item-body">
               <span class="dbg-model">{{ trace.model || '-' }}</span>
-              <span class="dbg-latency" v-if="trace.latencyMs != null && trace.latencyMs > 0">
+              <span v-if="trace.latencyMs != null && trace.latencyMs > 0" class="dbg-latency">
                 {{ (trace.latencyMs / 1000).toFixed(1) }}s
               </span>
             </div>
-            <div class="dbg-item-time">{{ formatTime(trace.timestamp) }}</div>
+            <div class="dbg-item-time">
+              {{ formatTime(trace.timestamp) }}
+            </div>
           </div>
         </div>
         <el-empty v-if="!filteredTraces.length" :description="loading ? '加载中...' : '无追踪记录'" />
@@ -60,11 +62,11 @@
           <span class="dbg-detail-title">追踪详情</span>
           <div class="dbg-detail-actions">
             <button class="dbg-copy-btn" @click="copyPrompt">
-              <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3"/></svg>
+              <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" /><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" /></svg>
               复制 Prompt
             </button>
             <button class="dbg-copy-btn" @click="copyRawResponse">
-              <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3"/></svg>
+              <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" /><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" /></svg>
               复制 Raw Response
             </button>
           </div>
@@ -89,7 +91,7 @@
               <span class="dbg-meta-label">Host</span>
               <span class="dbg-meta-value mono">{{ selectedTrace.baseUrlHost || '-' }}</span>
             </div>
-            <div class="dbg-meta-item" v-if="selectedTrace.latencyMs != null">
+            <div v-if="selectedTrace.latencyMs != null" class="dbg-meta-item">
               <span class="dbg-meta-label">耗时</span>
               <span class="dbg-meta-value">{{ (selectedTrace.latencyMs / 1000).toFixed(2) }}s</span>
             </div>
@@ -97,11 +99,11 @@
               <span class="dbg-meta-label">时间</span>
               <span class="dbg-meta-value">{{ formatTime(selectedTrace.timestamp) }}</span>
             </div>
-            <div class="dbg-meta-item" v-if="tokenUsage?.prompt_tokens != null">
+            <div v-if="tokenUsage?.prompt_tokens != null" class="dbg-meta-item">
               <span class="dbg-meta-label">Prompt Tokens</span>
               <span class="dbg-meta-value mono">{{ tokenUsage.prompt_tokens }}</span>
             </div>
-            <div class="dbg-meta-item" v-if="tokenUsage?.completion_tokens != null">
+            <div v-if="tokenUsage?.completion_tokens != null" class="dbg-meta-item">
               <span class="dbg-meta-label">Completion Tokens</span>
               <span class="dbg-meta-value mono">{{ tokenUsage.completion_tokens }}</span>
             </div>
@@ -109,11 +111,11 @@
 
           <!-- Error banner -->
           <div v-if="selectedTrace.error" class="dbg-alert dbg-alert-error">
-            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4"/><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" /><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
             <span>{{ selectedTrace.error }}</span>
           </div>
           <div v-if="selectedTrace.parseError" class="dbg-alert dbg-alert-warning">
-            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4"/><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" /><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
             <span>解析失败：{{ selectedTrace.parseError }}</span>
           </div>
 
@@ -121,9 +123,9 @@
           <DebugCodeSection title="System Prompt" :content="systemPrompt" @copy="copyText" />
           <DebugCodeSection title="Input Payload" :content="inputPayloadStr" @copy="copyText" />
           <DebugCodeSection
-              title="Raw Response"
-              :content="selectedTrace.rawResponse ?? ''"
-              @copy="copyText"
+            title="Raw Response"
+            :content="selectedTrace.rawResponse ?? ''"
+            @copy="copyText"
           />
           <DebugCodeSection title="Parsed Result" :content="parsedResultStr" @copy="copyText" />
         </div>

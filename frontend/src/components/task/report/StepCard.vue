@@ -3,12 +3,12 @@
     <div class="step-node" :class="'node-' + step.result">
       <template v-if="step.result === 'success'">
         <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
-          <path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </template>
       <template v-else-if="step.result === 'failed'">
         <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
-          <path d="M5 5l6 6M11 5l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M5 5l6 6M11 5l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </template>
       <template v-else>
@@ -18,7 +18,9 @@
     <div class="step-card-body">
       <div class="step-header">
         <div class="step-title-row">
-          <h3 class="step-title">{{ step.message || step.action }}</h3>
+          <h3 class="step-title">
+            {{ step.message || step.action }}
+          </h3>
           <span class="step-pill">{{ step.action }}</span>
         </div>
         <span :class="['step-result-tag', 'tag-' + step.result]">{{ step.result }}</span>
@@ -54,7 +56,7 @@
       <div v-if="step.params && Object.keys(step.params).length" class="step-extras">
         <button class="extras-toggle" @click="paramsOpen = !paramsOpen">
           <svg :class="['chevron', { open: paramsOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
           </svg>
           步骤参数
         </button>
@@ -66,19 +68,21 @@
       <div v-if="step.screenshot_path" class="step-extras">
         <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
           <svg :class="['chevron', { open: screenshotOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
           </svg>
           步骤截图
         </button>
         <div v-if="screenshotOpen" class="extras-content">
-          <p class="screenshot-path">截图：<code>{{ step.screenshot_path }}</code></p>
+          <p class="screenshot-path">
+            截图：<code>{{ step.screenshot_path }}</code>
+          </p>
           <img
-              class="screenshot"
-              :src="screenshotUrl(taskId, step.screenshot_path)"
-              :alt="'步骤 ' + step.step_number + ' 截图'"
-              loading="lazy"
-              @click="$emit('open-lightbox', step.screenshot_path)"
-          />
+            class="screenshot"
+            :src="screenshotUrl(taskId, step.screenshot_path)"
+            :alt="'步骤 ' + step.step_number + ' 截图'"
+            loading="lazy"
+            @click="$emit('open-lightbox', step.screenshot_path)"
+          >
         </div>
       </div>
     </div>

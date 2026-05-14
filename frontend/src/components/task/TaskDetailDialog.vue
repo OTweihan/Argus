@@ -1,9 +1,11 @@
 <template>
-  <el-dialog :model-value="visible" @update:model-value="$emit('close')" title="任务详情" width="600px" align-center
-             append-to-body>
+  <el-dialog
+    :model-value="visible" title="任务详情" width="600px" align-center append-to-body
+    @update:model-value="$emit('close')"
+  >
     <div v-loading="loading" class="dialog-body">
-      <TaskDetail v-if="task" :task="task" :projects="projects" :enabled-models="enabledModels"/>
-      <el-empty v-else-if="!loading" description="未选择任务"/>
+      <TaskDetail v-if="task" :task="task" :projects="projects" :enabled-models="enabledModels" />
+      <el-empty v-else-if="!loading" description="未选择任务" />
     </div>
   </el-dialog>
 </template>

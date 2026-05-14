@@ -3,11 +3,13 @@
     <div class="dbg-section-head" @click="open = !open">
       <span class="dbg-section-title">
         <svg :class="['dbg-sec-chevron', { open }]" viewBox="0 0 16 16" fill="none" width="11" height="11">
-          <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
         </svg>
         {{ title }}
       </span>
-      <button class="dbg-section-copy" @click.stop="$emit('copy', content)">复制</button>
+      <button class="dbg-section-copy" @click.stop="$emit('copy', content)">
+        复制
+      </button>
     </div>
     <div v-if="open" class="dbg-section-body">
       <pre class="dbg-code">{{ content }}</pre>

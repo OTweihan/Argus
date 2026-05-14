@@ -1,13 +1,17 @@
 <template>
   <article :id="'finding-' + index" :class="['finding-card', 'sev-' + finding.severity]">
-    <div class="finding-indicator" :class="'sev-bar-' + finding.severity"/>
+    <div class="finding-indicator" :class="'sev-bar-' + finding.severity" />
     <div class="finding-body">
       <div class="finding-header">
         <div class="finding-title-row">
-          <h3 class="finding-title">{{ finding.title }}</h3>
+          <h3 class="finding-title">
+            {{ finding.title }}
+          </h3>
           <span :class="['severity-tag', 'sev-tag-' + finding.severity]">{{ finding.severity }}</span>
         </div>
-        <p class="finding-desc">{{ finding.description }}</p>
+        <p class="finding-desc">
+          {{ finding.description }}
+        </p>
       </div>
       <div class="finding-meta-grid">
         <div class="fm-item">
@@ -34,19 +38,21 @@
       <div v-if="finding.screenshot_path" class="finding-extras">
         <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
           <svg :class="['chevron', { open: screenshotOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
           </svg>
           问题截图
         </button>
         <div v-if="screenshotOpen" class="extras-content">
-          <p class="screenshot-path">截图：<code>{{ finding.screenshot_path }}</code></p>
+          <p class="screenshot-path">
+            截图：<code>{{ finding.screenshot_path }}</code>
+          </p>
           <img
-              class="screenshot"
-              :src="screenshotUrl(taskId, finding.screenshot_path)"
-              :alt="finding.title + ' 截图'"
-              loading="lazy"
-              @click="$emit('open-lightbox', finding.screenshot_path!)"
-          />
+            class="screenshot"
+            :src="screenshotUrl(taskId, finding.screenshot_path)"
+            :alt="finding.title + ' 截图'"
+            loading="lazy"
+            @click="$emit('open-lightbox', finding.screenshot_path!)"
+          >
         </div>
       </div>
     </div>
@@ -241,6 +247,12 @@ const screenshotOpen = ref(false);
 
 .finding-extras {
   margin-top: 2px;
+  width: 100%;
+}
+
+.finding-extras .extras-toggle,
+.finding-extras .extras-content {
+  width: 100%;
 }
 
 .extras-toggle {

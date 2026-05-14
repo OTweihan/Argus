@@ -4,39 +4,42 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">模型列表</span>
-          <el-button type="primary" @click="openNewModelDialog">新增模型</el-button>
+          <el-button type="primary" @click="openNewModelDialog">
+            新增模型
+          </el-button>
         </div>
       </template>
       <div class="filter-bar">
         <el-input v-model="modelSearchQuery" placeholder="搜索名称、供应商、模型、Base URL" clearable class="search-input">
           <template #prefix>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                 stroke-linejoin="round" class="search-icon">
-              <circle cx="11" cy="11" r="8"/>
-              <path d="m21 21-4.35-4.35"/>
+            <svg
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" class="search-icon"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
             </svg>
           </template>
         </el-input>
       </div>
       <ModelTable
-          :models="filteredModels"
-          height="100%"
-          @edit="editModel"
-          @test="testModel"
-          @delete="deleteModel"
+        :models="filteredModels"
+        height="100%"
+        @edit="editModel"
+        @test="testModel"
+        @delete="deleteModel"
       />
     </el-card>
   </div>
 
   <ModelFormDialog
-      :visible="showModelDialog"
-      :form="modelForm"
-      :editing="Boolean(modelForm.editingId)"
-      :form-errors="formErrors"
-      @save="saveModel"
-      @close="showModelDialog = false"
-      @test="testModel(modelForm.editingId ?? '')"
-
+    :visible="showModelDialog"
+    :form="modelForm"
+    :editing="Boolean(modelForm.editingId)"
+    :form-errors="formErrors"
+    @save="saveModel"
+    @close="showModelDialog = false"
+    @test="testModel(modelForm.editingId ?? '')"
   />
 </template>
 

@@ -4,41 +4,47 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">项目列表</span>
-          <el-button type="primary" @click="openNewProjectDialog">新增项目</el-button>
+          <el-button type="primary" @click="openNewProjectDialog">
+            新增项目
+          </el-button>
         </div>
       </template>
       <div class="filter-bar">
         <el-input v-model="searchQuery" placeholder="搜索名称、基础 URL" clearable class="search-input">
           <template #prefix>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                 stroke-linejoin="round" class="search-icon">
-              <circle cx="11" cy="11" r="8"/>
-              <path d="m21 21-4.35-4.35"/>
+            <svg
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" class="search-icon"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
             </svg>
           </template>
         </el-input>
       </div>
       <div class="table-wrap">
-        <ProjectTable :projects="filteredProjects" height="100%" @detail="showDetail" @edit="editProject"
-                      @delete="deleteProject"/>
+        <ProjectTable
+          :projects="filteredProjects" height="100%" @detail="showDetail" @edit="editProject"
+          @delete="deleteProject"
+        />
       </div>
     </el-card>
 
     <ProjectFormDialog
-        :visible="showProjectDialog"
-        :form="projectForm"
-        :editing="Boolean(projectForm.editingId)"
-        :form-errors="formErrors"
-        @save="saveProject"
-        @close="showProjectDialog = false"
-        @add-param="projectForm.parameters.push({key:'', value:''})"
-        @remove-param="projectForm.parameters.splice($event, 1)"
+      :visible="showProjectDialog"
+      :form="projectForm"
+      :editing="Boolean(projectForm.editingId)"
+      :form-errors="formErrors"
+      @save="saveProject"
+      @close="showProjectDialog = false"
+      @add-param="projectForm.parameters.push({key:'', value:''})"
+      @remove-param="projectForm.parameters.splice($event, 1)"
     />
 
     <ProjectDetailDialog
-        :visible="detailVisible"
-        :project="detailProject"
-        @close="detailVisible = false"
+      :visible="detailVisible"
+      :project="detailProject"
+      @close="detailVisible = false"
     />
   </div>
 </template>
