@@ -203,6 +203,9 @@ class TaskService:
     ) -> int:
         return self.query.count_tasks(status=status, project_id=project_id, q=q)
 
+    def count_findings(self) -> int:
+        return self.query.count_findings()
+
     def list_task_summaries(
         self,
         status: TaskStatus | None = None,

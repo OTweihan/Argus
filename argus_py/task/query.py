@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from argus_py.core.enums import TaskStatus
-from argus_py.core.exceptions import TaskError
+from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.task.models import Task
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
@@ -20,7 +20,7 @@ class TaskQueryService:
     def get_task(self, task_id: str) -> Task:
         """按 ID 获取任务。"""
         if not self.storage.exists(task_id):
-            raise TaskError(f"Task not found: {task_id}")
+            raise TaskNotFoundError(f"Task not found: {task_id}")
         return self.storage.load(task_id)
 
     def get_latest_task(self, task: Task) -> Task:
@@ -58,6 +58,15 @@ class TaskQueryService:
                 tasks = tasks[:limit]
             return tasks
         return self.storage.list_tasks(offset=offset, limit=limit)
+
+    def count_findings(self) -> int:
+        """返回所有任务的发现项总数（仪表盘聚合统计）。
+
+        非 SQLite 后端没有跨任务索引，遍历任务文件聚合 ``len(findings)`` 仍能给出正确值。
+        """
+        if isinstance(self.storage, TaskSQLiteStorage):
+            return self.storage.count_findings()
+        return sum(len(task.findings or []) for task in self.storage.list_tasks())
 
     def count_tasks(
         self,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from argus_py.core.exceptions import TaskError
+from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.core.paths import DATA_DIR, TEMP_DIR
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.repositories.event_repo import EventRepository
@@ -65,7 +65,7 @@ class TaskFileStorage:
         """删除任务快照。"""
         path = self.task_path(task_id)
         if not path.exists():
-            raise TaskError(f"Task not found: {task_id}")
+            raise TaskNotFoundError(f"Task not found: {task_id}")
         path.unlink()
 
 
@@ -145,6 +145,10 @@ class TaskSQLiteStorage:
 
     def append_finding(self, task_id: str, finding: Finding) -> None:
         self._findings.append(task_id, finding)
+
+    def count_findings(self) -> int:
+        """返回 findings 表总记录数（供仪表盘统计）。"""
+        return self._findings.count_all()
 
     # ── 时间线事件 ────────────────────────────────────────────
 

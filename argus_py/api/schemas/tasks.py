@@ -222,3 +222,16 @@ class InferredLimitsResponse(ApiModel):
 
     max_steps: int = Field(alias="maxSteps")
     timeout_seconds: int = Field(alias="timeoutSeconds")
+
+
+class DashboardStatsResponse(ApiModel):
+    """仪表盘聚合统计响应。
+
+    与 ``GET /tasks`` 的分页列表解耦：``tasks_total`` / ``running_total`` 走 COUNT，
+    不受当前页 ``limit`` 影响；``recent_tasks`` 单独返回最近 N 条 summary。
+    """
+
+    tasks_total: int = Field(alias="tasksTotal")
+    running_total: int = Field(alias="runningTotal")
+    findings_total: int = Field(alias="findingsTotal")
+    recent_tasks: list[TaskSummaryResponse] = Field(default_factory=list, alias="recentTasks")

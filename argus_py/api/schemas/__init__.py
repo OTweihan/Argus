@@ -23,6 +23,7 @@ from argus_py.api.schemas.prompt_preview import (
     PromptRole,
 )
 from argus_py.api.schemas.tasks import (
+    DashboardStatsResponse,
     FindingResponse,
     InferredLimitsResponse,
     TaskCreateRequest,
@@ -38,6 +39,7 @@ from argus_py.api.schemas.tasks import (
 __all__ = [
     "ApiModel",
     "ConfigSummaryResponse",
+    "DashboardStatsResponse",
     "FindingResponse",
     "HealthResponse",
     "InferredLimitsResponse",

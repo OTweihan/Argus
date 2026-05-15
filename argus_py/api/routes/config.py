@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from typing import Any, cast
 
@@ -29,10 +30,13 @@ router = APIRouter(prefix="/config", tags=["config"])
 @router.get("/summary", response_model=ConfigSummaryResponse)
 async def get_config_summary() -> ConfigSummaryResponse:
     """返回非敏感配置摘要。"""
-    settings = load_server_settings()
-    model_service = get_model_config_service()
-    model_configs = model_service.list_model_configs()
-    default_model_config = model_service.get_default_model_config()
+    # load_server_settings 走文件 IO；list_model_configs / get_default_model_config 走 SQLite。
+    # 用 gather + to_thread 让三次同步 IO 并行执行，事件循环不再卡 dashboard 首屏。
+    settings, model_configs, default_model_config = await asyncio.gather(
+        asyncio.to_thread(load_server_settings),
+        asyncio.to_thread(get_model_config_service().list_model_configs),
+        asyncio.to_thread(get_model_config_service().get_default_model_config),
+    )
     return ConfigSummaryResponse(
         server_host=settings.host,
         server_port=settings.port,
@@ -55,7 +59,7 @@ async def list_model_configs(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConfigListResponse:
     """列出模型配置。"""
-    configs = service.list_model_configs(include_disabled=include_disabled)
+    configs = await asyncio.to_thread(service.list_model_configs, include_disabled=include_disabled)
     return ModelConfigListResponse(
         total=len(configs),
         models=[ModelConfigResponse.from_model_config(config) for config in configs],
@@ -68,7 +72,8 @@ async def create_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConfigResponse:
     """创建模型配置。"""
-    config = service.create_model_config(
+    config = await asyncio.to_thread(
+        service.create_model_config,
         name=request.name,
         provider=request.provider,
         model=request.model,
@@ -90,7 +95,7 @@ async def test_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConnectionTestResponse:
     """测试已保存或临时模型配置。"""
-    config = _resolve_test_config(request, service)
+    config = await asyncio.to_thread(_resolve_test_config, request, service)
     try:
         result = await service.test_model_config(config)
     except Exception as exc:
@@ -104,7 +109,8 @@ async def get_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConfigResponse:
     """查询模型配置详情。"""
-    return ModelConfigResponse.from_model_config(service.get_model_config(model_config_id))
+    config = await asyncio.to_thread(service.get_model_config, model_config_id)
+    return ModelConfigResponse.from_model_config(config)
 
 
 @router.put("/models/{model_config_id}", response_model=ModelConfigResponse)
@@ -115,9 +121,8 @@ async def update_model_config(
 ) -> ModelConfigResponse:
     """更新模型配置。"""
     updates = request.model_dump(exclude_unset=True)
-    return ModelConfigResponse.from_model_config(
-        service.update_model_config(model_config_id, updates)
-    )
+    config = await asyncio.to_thread(service.update_model_config, model_config_id, updates)
+    return ModelConfigResponse.from_model_config(config)
 
 
 @router.delete("/models/{model_config_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -126,7 +131,7 @@ async def delete_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> Response:
     """删除模型配置。"""
-    service.delete_model_config(model_config_id)
+    await asyncio.to_thread(service.delete_model_config, model_config_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

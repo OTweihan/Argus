@@ -26,6 +26,7 @@ export {
     getTaskEvents,
     getTaskTrace,
     getTaskTraces,
+    getDashboardStats,
 } from "./task";
 export {
     listModels,

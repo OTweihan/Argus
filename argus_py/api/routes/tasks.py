@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from argus_py.api.dependencies import get_task_app_service
 from argus_py.api.schemas import (
+    DashboardStatsResponse,
     InferredLimitsResponse,
     TaskCreateRequest,
     TaskResponse,
@@ -23,15 +25,22 @@ from argus_py.task.strategy import infer_execution_limits
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
-def _call(
+async def _acall_sync(
     fn: Any,
     *args: Any,
     http_status: int = 409,
     **kwargs: Any,
 ) -> Any:
-    """调用同步应用层方法，TaskAppError 自动转为 HTTPException。"""
+    """在线程池中调用同步应用层方法，TaskAppError 自动转为 HTTPException。
+
+    ``asyncio.to_thread`` 把阻塞 SQLite / 文件 IO 移出事件循环，避免并发请求
+    互相阻塞。``TaskAppError`` 通过 ``to_thread`` 在线程内抛出，由 ``await`` 处
+    重新抛到协程上下文，再被本函数转换。``http_status`` 参数为兼容旧 ``_call``
+    签名保留，未实际使用（HTTP 状态码以 ``TaskAppError.http_status`` 为准）。
+    """
+    del http_status  # 保留参数以兼容旧调用签名，实际未使用
     try:
-        return fn(*args, **kwargs)
+        return await asyncio.to_thread(fn, *args, **kwargs)
     except TaskAppError as e:
         raise HTTPException(
             status_code=e.http_status,
@@ -46,6 +55,7 @@ async def _acall(
     **kwargs: Any,
 ) -> Any:
     """调用异步应用层方法，TaskAppError 自动转为 HTTPException。"""
+    del http_status
     try:
         return await fn(*args, **kwargs)
     except TaskAppError as e:
@@ -61,7 +71,10 @@ async def create_task(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """创建任务快照，不立即启动执行。"""
-    params = app.resolve_create_params(
+    # resolve_create_params 内部读取 project + model_config（同步 SQLite），
+    # 与 create_task 一起放线程池执行，避免事件循环被任一阶段阻塞。
+    params = await asyncio.to_thread(
+        app.resolve_create_params,
         goal=request.goal,
         name=request.name,
         start_url=request.start_url,
@@ -73,7 +86,7 @@ async def create_task(
         model_config_id=request.model_config_id,
         parameters=request.parameters,
     )
-    task = _call(app.create_task, **params)
+    task = await _acall_sync(app.create_task, **params)
     return TaskResponse.from_task(task)
 
 
@@ -84,7 +97,8 @@ async def update_task(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """更新待执行任务的基础信息。"""
-    params = app.resolve_create_params(
+    params = await asyncio.to_thread(
+        app.resolve_create_params,
         goal=request.goal,
         name=request.name,
         start_url=request.start_url,
@@ -120,10 +134,23 @@ async def list_tasks(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskSummaryListResponse:
     """列出任务（轻量，不含日志和发现项），支持过滤和分页。"""
-    tasks = app.list_task_summaries(
-        status=status, project_id=project_id, offset=offset, limit=limit, q=q
+    # 列表和 COUNT 都走同步 SQLite，并行扔进线程池避免事件循环阻塞。
+    tasks, total = await asyncio.gather(
+        asyncio.to_thread(
+            app.list_task_summaries,
+            status=status,
+            project_id=project_id,
+            offset=offset,
+            limit=limit,
+            q=q,
+        ),
+        asyncio.to_thread(
+            app.count_tasks,
+            status=status,
+            project_id=project_id,
+            q=q,
+        ),
     )
-    total = app.count_tasks(status=status, project_id=project_id, q=q)
     status_snapshot = await app.snapshot_queue_statuses()
     return TaskSummaryListResponse(
         total=total,
@@ -144,6 +171,28 @@ async def infer_limits(
     return InferredLimitsResponse(
         max_steps=limits.max_steps,
         timeout_seconds=limits.timeout_seconds,
+    )
+
+
+@router.get("/stats", response_model=DashboardStatsResponse)
+async def get_dashboard_stats(
+    recent_limit: int = Query(default=8, ge=1, le=50, alias="recentLimit"),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> DashboardStatsResponse:
+    """返回仪表盘聚合统计。
+
+    与分页列表解耦：COUNT 走 SQLite 索引，避免 dashboard 把"当前页"误当全量。
+    """
+    stats = await asyncio.to_thread(app.get_dashboard_stats, recent_limit=recent_limit)
+    status_snapshot = await app.snapshot_queue_statuses()
+    return DashboardStatsResponse(
+        tasks_total=stats["tasks_total"],
+        running_total=stats["running_total"],
+        findings_total=stats["findings_total"],
+        recent_tasks=[
+            TaskSummaryResponse.from_task(task, scheduler_status=status_snapshot.get(task.task_id))
+            for task in stats["recent_tasks"]
+        ],
     )
 
 

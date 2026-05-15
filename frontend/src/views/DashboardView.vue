@@ -40,7 +40,7 @@
             </div>
             <div class="metric-info">
               <div class="metric-value">
-                {{ allTasks.length }}
+                {{ tasksTotal }}
               </div>
               <div class="metric-label">
                 全部任务
@@ -145,7 +145,7 @@ type AppContext = ReturnType<typeof useConsoleApp>;
 const props = defineProps<{ app: AppContext }>();
 const {
   projects,
-  allTasks,
+  tasksTotal,
   recentTasks,
   runningCount,
   findingCount,

@@ -17,6 +17,13 @@ from argus_py.observability.llm_trace import (
     LLMTraceRecord,
     write_trace,
 )
+from argus_py.observability.llm_trace_writer import (
+    LLMTraceWriter,
+    cleanup_old_traces,
+    get_trace_writer,
+    start_trace_writer,
+    stop_trace_writer,
+)
 
 __all__ = [
     "AuditService",
@@ -25,13 +32,18 @@ __all__ = [
     "EVENT_LLM_STARTED",
     "EVENT_LLM_SUCCEEDED",
     "LLMTraceRecord",
+    "LLMTraceWriter",
     "STATUS_CANCELLED",
     "STATUS_ERROR",
     "STATUS_SUCCESS",
     "audit",
     "bind_context",
+    "cleanup_old_traces",
     "current_context",
+    "get_trace_writer",
     "log_event",
     "log_operation",
+    "start_trace_writer",
+    "stop_trace_writer",
     "write_trace",
 ]

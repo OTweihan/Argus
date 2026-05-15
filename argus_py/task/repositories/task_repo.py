@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from argus_py.core.exceptions import TaskError
+from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.db import ConnectFn, with_conn, with_tx
 from argus_py.task.models import Task
 from argus_py.task.repositories.mappers import row_to_task, task_to_row
@@ -55,7 +55,7 @@ class TaskRepository:
         with with_conn(self._connect) as conn:
             task_row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
             if task_row is None:
-                raise TaskError(f"Task not found: {task_id}")
+                raise TaskNotFoundError(f"Task not found: {task_id}")
             log_rows = conn.execute(
                 "SELECT * FROM task_logs WHERE task_id = ? ORDER BY step_number, created_at",
                 (task_id,),
@@ -73,7 +73,7 @@ class TaskRepository:
             conn.execute("DELETE FROM findings WHERE task_id = ?", (task_id,))
             cursor = conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
         if cursor.rowcount == 0:
-            raise TaskError(f"Task not found: {task_id}")
+            raise TaskNotFoundError(f"Task not found: {task_id}")
 
     def update_task(self, task_id: str, **fields: Any) -> None:
         """窄更新：只修改 tasks 表的指定列。"""

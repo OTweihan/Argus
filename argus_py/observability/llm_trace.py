@@ -58,6 +58,18 @@ def _ensure_config() -> None:
     _INITIALIZED = True
 
 
+def reset_config_for_tests() -> None:
+    """测试钩子：强制下一次 ``write_trace`` 重新加载配置。
+
+    生产代码不应调用；存在的目的是让单测在改环境变量后立即生效。
+    """
+    global _LLM_TRACE_ENABLED, _LLM_TRACE_MAX_SIZE_BYTES, _LLM_TRACE_CONTENT_REDACT, _INITIALIZED
+    _LLM_TRACE_ENABLED = None
+    _LLM_TRACE_MAX_SIZE_BYTES = None
+    _LLM_TRACE_CONTENT_REDACT = None
+    _INITIALIZED = False
+
+
 # ── 脱敏配置 ──────────────────────────────────────────────
 # 匹配到这些 key 时值被脱敏（精确匹配，不含子串）
 _SENSITIVE_KEYS = frozenset(
@@ -205,6 +217,9 @@ def write_trace(record: LLMTraceRecord) -> None:
 
     task_id 为空时跳过写入，避免产生无归属的 .jsonl 文件。
     受 server.yaml observability.llm_trace 和环境变量 LLM_TRACE_ENABLED / LLM_TRACE_MAX_SIZE_MB 控制。
+
+    写入路径优先走 ``LLMTraceWriter`` 后台批量写入（已启动时）；未启动或
+    enqueue 失败时回退到本进程同步 append，保证 CLI / 测试场景兼容。
     """
     _ensure_config()
 
@@ -217,11 +232,10 @@ def write_trace(record: LLMTraceRecord) -> None:
         )
         return
     traces_dir = OUTPUT_DIR / "traces"
-    traces_dir.mkdir(parents=True, exist_ok=True)
-
     file_path = traces_dir / f"{record.task_id}.jsonl"
 
-    # 大小上限检查
+    # 大小上限检查仍在主线程做：和后台 writer 之间存在最长 0.5s 的竞争窗口，
+    # 实际只会让单个文件略微超过上限（误差量级 < 单批 32 条），可接受。
     if (
         _LLM_TRACE_MAX_SIZE_BYTES is not None
         and _LLM_TRACE_MAX_SIZE_BYTES > 0
@@ -237,6 +251,16 @@ def write_trace(record: LLMTraceRecord) -> None:
 
     data = asdict(record)
     redacted = redact_trace_data(data) if _LLM_TRACE_CONTENT_REDACT else data
+    line = json.dumps(redacted, ensure_ascii=False, default=str)
 
+    # 走后台 writer，失败时再同步 fallback；后台 writer 自行处理 mkdir。
+    from argus_py.observability.llm_trace_writer import get_trace_writer
+
+    writer = get_trace_writer()
+    if writer is not None and writer.enqueue(file_path, line):
+        return
+
+    # Fallback: 单条同步 append（CLI / 测试 / writer 队列满）。
+    traces_dir.mkdir(parents=True, exist_ok=True)
     with open(file_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(redacted, ensure_ascii=False, default=str) + "\n")
+        f.write(line + "\n")

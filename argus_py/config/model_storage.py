@@ -8,7 +8,7 @@ from typing import Any
 from argus_py.config.models import ModelConfig
 from argus_py.core.crypto import decrypt_api_key, encrypt_api_key
 from argus_py.core.enums import TaskType
-from argus_py.core.exceptions import ModelConfigError
+from argus_py.core.exceptions import ModelConfigNotFoundError
 from argus_py.infra.db import DEFAULT_DB_PATH, connect, init_database, with_conn, with_tx
 
 
@@ -70,7 +70,7 @@ class ModelConfigSQLiteStorage:
                 (model_config_id,),
             ).fetchone()
         if row is None:
-            raise ModelConfigError(f"Model config not found: {model_config_id}")
+            raise ModelConfigNotFoundError(f"Model config not found: {model_config_id}")
         return self._from_row(row)
 
     def list_configs(self, include_disabled: bool = True) -> list[ModelConfig]:
@@ -92,7 +92,7 @@ class ModelConfigSQLiteStorage:
                 (model_config_id,),
             )
         if cursor.rowcount == 0:
-            raise ModelConfigError(f"Model config not found: {model_config_id}")
+            raise ModelConfigNotFoundError(f"Model config not found: {model_config_id}")
 
     def find_default(self, task_type: TaskType | None = None) -> ModelConfig | None:
         """查找默认模型配置，优先匹配任务类型。"""

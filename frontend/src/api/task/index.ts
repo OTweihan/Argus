@@ -1,6 +1,6 @@
 import {request} from "../client";
 import type {TaskPayload} from "../types";
-import type {LLMTraceRecord, ReportData, Task, TaskDisplayStatus, TaskListResponse, TaskStartResponse, TimelineEvent,} from "../../types";
+import type {DashboardStats, LLMTraceRecord, ReportData, Task, TaskDisplayStatus, TaskListResponse, TaskStartResponse, TimelineEvent,} from "../../types";
 
 export function listTasks(
     filters: {
@@ -72,4 +72,9 @@ export function inferTaskLimits(goal: string, startUrl?: string): Promise<{maxSt
     const params = new URLSearchParams({goal});
     if (startUrl) params.set("startUrl", startUrl);
     return request(`/tasks/infer-limits?${params.toString()}`);
+}
+
+export function getDashboardStats(recentLimit?: number): Promise<DashboardStats> {
+    const query = recentLimit !== undefined ? `?recentLimit=${recentLimit}` : "";
+    return request<DashboardStats>(`/tasks/stats${query}`);
 }

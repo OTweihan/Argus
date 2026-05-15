@@ -180,10 +180,10 @@ export interface TaskEvent<T = Record<string, unknown>> {
 }
 
 export interface DashboardStats {
-    projects: number;
-    tasks: number;
-    running: number;
-    findings: number;
+    tasksTotal: number;
+    runningTotal: number;
+    findingsTotal: number;
+    recentTasks: Task[];
 }
 
 export interface ReportFinding {

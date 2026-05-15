@@ -11,14 +11,18 @@ export function useTaskEvents(
   selectedTaskId: Ref<string | null>,
   onError: (msg: string) => void,
   onSummaryUpdate: (summary: ConfigSummary) => void,
+  refreshDashboardStats?: () => Promise<void>,
 ) {
   /* ── 兜底刷新（事件合并失败时 fallback） ── */
 
   async function refreshRuntimeData(): Promise<void> {
     try {
+      // 仪表盘指标走独立 stats 接口，避免与分页 allTasks 共算。stats 刷新失败
+      // 不应阻断列表更新，所以容错落到 onError 而非 throw。
       const [summaryResponse] = await Promise.all([
         apiSummary(),
         loadTasks(),
+        refreshDashboardStats ? refreshDashboardStats() : Promise.resolve(),
       ]);
       if (selectedTaskId.value) {
         const snapshot = await apiGetTask(selectedTaskId.value);

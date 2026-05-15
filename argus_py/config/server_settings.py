@@ -34,9 +34,19 @@ class ServerSettings:
     observability_request_logging: bool = True
     observability_operation_logging: bool = True
     observability_audit_logging: bool = True
+    # P0-5：全局请求 body 大小上限（字节），0 表示不限制。默认 5MB 足以覆盖
+    # 正常 task 表单/prompt 预览/模型配置等场景，又能拦住误粘超大 payload。
+    request_max_body_size_bytes: int = 5 * 1024 * 1024
     llm_trace_enabled: bool = True
     llm_trace_max_size_mb: int = 50
     llm_trace_content_redact: bool = True
+    # P0-3：集中后台写入（默认开启）+ 启动期 TTL/总量清理。
+    # 旧版本同步 append 是性能与磁盘膨胀的双重风险：长期跑下来 outputs/traces
+    # 会无限增长。这里把写入排队给独立线程，并在 startup 清理过旧/超量文件。
+    llm_trace_async_writer: bool = True
+    llm_trace_writer_queue_size: int = 10000
+    llm_trace_retention_days: int = 7
+    llm_trace_total_size_mb: int = 500
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -78,9 +88,18 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
             observability.get("audit_logging"),
             True,
         ),
+        request_max_body_size_bytes=_as_int(
+            (data.get("request") or {}).get("max_body_size_bytes"),
+            5 * 1024 * 1024,
+            minimum=0,
+        ),
         llm_trace_enabled=_as_bool(llm_trace.get("enabled"), True),
         llm_trace_max_size_mb=_as_int(llm_trace.get("max_size_mb"), 50, minimum=0),
         llm_trace_content_redact=_as_bool(llm_trace.get("content_redact"), True),
+        llm_trace_async_writer=_as_bool(llm_trace.get("async_writer"), True),
+        llm_trace_writer_queue_size=_as_int(llm_trace.get("writer_queue_size"), 10000, minimum=64),
+        llm_trace_retention_days=_as_int(llm_trace.get("retention_days"), 7, minimum=0),
+        llm_trace_total_size_mb=_as_int(llm_trace.get("total_size_mb"), 500, minimum=0),
     )
 
 

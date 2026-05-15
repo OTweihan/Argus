@@ -1,8 +1,8 @@
 import { computed, nextTick, onMounted, reactive, ref, watch, type Ref } from "vue";
 
 import { ElMessage } from "element-plus";
-import { summary as apiSummary } from "../api";
-import type { ConfigSummary, ModelConfig, Project, Task } from "../types";
+import { summary as apiSummary, getDashboardStats as apiDashboardStats } from "../api";
+import type { ConfigSummary, DashboardStats, ModelConfig, Project, Task } from "../types";
 import { compact, errorMessage } from "../utils";
 import { useDialog } from "./useDialog";
 import { useModels } from "./useModels";
@@ -24,6 +24,17 @@ export function useConsoleApp() {
     const projects = ref<Project[]>([]);
     const allTasks = ref<Task[]>([]);
     const models = ref<ModelConfig[]>([]);
+    // dashboardStats 与分页列表解耦，由 /tasks/stats 提供全量计数与最近任务摘要。
+    // allTasks 只反映当前任务页（分页用），不能用来算"全部任务数"。
+    const dashboardStats = ref<DashboardStats | null>(null);
+
+    async function loadDashboardStats(): Promise<void> {
+        try {
+            dashboardStats.value = await apiDashboardStats(8);
+        } catch (caught) {
+            error.value = caught instanceof Error ? caught.message : "加载仪表盘统计失败";
+        }
+    }
 
     const nav = useNavigation();
     const dialog = useDialog();
@@ -69,6 +80,7 @@ export function useConsoleApp() {
         taskDomain.selectedTaskId,
         (msg) => { error.value = msg; },
         (s) => { summary.value = s; },
+        loadDashboardStats,
     );
     events.onTaskEvent((event) => taskEvents.applyEvent(event));
 
@@ -89,19 +101,15 @@ export function useConsoleApp() {
 
     /* ── 计算属性 ── */
 
-    const runningCount = computed(() => {
-        return allTasks.value.filter((task) => task.status === "running").length;
-    });
+    // 仪表盘指标走 /tasks/stats 全量统计，避免被分页 allTasks 误导。
+    // stats 还未加载时回退为 0 / 空数组，DashboardView 显示骨架值。
+    const tasksTotal = computed(() => dashboardStats.value?.tasksTotal ?? 0);
 
-    const findingCount = computed(() => {
-        return allTasks.value.reduce((total, task) => total + (task.findingCount ?? task.findings?.length ?? 0), 0);
-    });
+    const runningCount = computed(() => dashboardStats.value?.runningTotal ?? 0);
 
-    const recentTasks = computed(() => {
-        return [...allTasks.value]
-            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-            .slice(0, 8);
-    });
+    const findingCount = computed(() => dashboardStats.value?.findingsTotal ?? 0);
+
+    const recentTasks = computed(() => dashboardStats.value?.recentTasks ?? []);
 
     const enabledModels = computed(() => models.value.filter((model) => model.enabled));
 
@@ -163,6 +171,7 @@ export function useConsoleApp() {
                 projectDomain.loadProjects(),
                 taskDomain.loadTasks(),
                 modelDomain.loadModels(),
+                loadDashboardStats(),
             ]);
             summary.value = summaryResponse;
         } catch (caught) {
@@ -175,6 +184,8 @@ export function useConsoleApp() {
     return {
         addParam: taskDomain.addParam,
         allTasks,
+        dashboardStats,
+        tasksTotal,
         changeView,
         closeDialog: dialog.closeDialog,
         deleteTask: taskDomain.deleteTask,

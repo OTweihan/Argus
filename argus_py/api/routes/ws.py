@@ -26,7 +26,8 @@ async def task_events(
     """订阅单个任务的实时事件。"""
     await websocket.accept()
     try:
-        service.get_task(task_id)
+        # SQLite 读阻塞事件循环时 WebSocket 心跳会被拖慢，挪去线程池。
+        await asyncio.to_thread(service.get_task, task_id)
     except TaskError as exc:
         await websocket.send_json(_system_event("system.error", task_id=task_id, message=str(exc)))
         await websocket.close(code=1008)

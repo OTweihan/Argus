@@ -1,8 +1,8 @@
-"""findings 表写入。"""
+"""findings 表读写。"""
 
 from __future__ import annotations
 
-from argus_py.infra.db import ConnectFn, with_tx
+from argus_py.infra.db import ConnectFn, with_conn, with_tx
 from argus_py.task.models import Finding
 from argus_py.task.repositories.mappers import finding_to_row
 
@@ -20,3 +20,9 @@ class FindingRepository:
                 "INSERT INTO findings (finding_id, task_id, title, description, severity, finding_type, url, location, screenshot_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 finding_to_row(task_id, finding),
             )
+
+    def count_all(self) -> int:
+        """返回所有任务的发现项总数（供仪表盘统计）。"""
+        with with_conn(self._connect) as conn:
+            row = conn.execute("SELECT COUNT(*) AS cnt FROM findings").fetchone()
+        return row["cnt"] if row else 0

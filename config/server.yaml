@@ -19,6 +19,11 @@ scheduler:
   queue_max_size: 0
   shutdown_timeout_seconds: 5
 
+request:
+  # 单次请求 body 大小上限（字节）。0 表示不限制；超过时返回 413。
+  # 默认 5MB，足以容纳常规 task 表单 / prompt 预览 / 模型配置。
+  max_body_size_bytes: 5242880
+
 events:
   history_limit: 200
   subscriber_queue_size: 100
@@ -29,5 +34,9 @@ observability:
   audit_logging: true
   llm_trace:
     enabled: true
-    max_size_mb: 50
+    max_size_mb: 50            # 单文件上限
     content_redact: true
+    async_writer: true         # 集中后台写入（避免阻塞 LLM 调用路径）
+    writer_queue_size: 10000   # 后台 writer 内部队列上限，溢出按 drop_oldest 处理
+    retention_days: 7          # 启动期 TTL：删除 mtime 超出该天数的 trace 文件
+    total_size_mb: 500         # 启动期总量上限：按 mtime 从旧到新清理

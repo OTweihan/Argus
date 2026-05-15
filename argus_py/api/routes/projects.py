@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Response, status
 
 from argus_py.api.dependencies import get_project_service
@@ -21,7 +23,7 @@ async def list_projects(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectListResponse:
     """列出项目。"""
-    projects = service.list_projects()
+    projects = await asyncio.to_thread(service.list_projects)
     return ProjectListResponse(
         total=len(projects),
         projects=[ProjectResponse.from_project(project) for project in projects],
@@ -34,7 +36,8 @@ async def create_project(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
     """创建项目。"""
-    project = service.create_project(
+    project = await asyncio.to_thread(
+        service.create_project,
         name=request.name,
         description=request.description,
         base_url=request.base_url,
@@ -54,7 +57,8 @@ async def get_project(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
     """查询项目详情。"""
-    return ProjectResponse.from_project(service.get_project(project_id))
+    project = await asyncio.to_thread(service.get_project, project_id)
+    return ProjectResponse.from_project(project)
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
@@ -65,7 +69,8 @@ async def update_project(
 ) -> ProjectResponse:
     """更新项目。"""
     updates = request.model_dump(exclude_unset=True)
-    return ProjectResponse.from_project(service.update_project(project_id, updates))
+    project = await asyncio.to_thread(service.update_project, project_id, updates)
+    return ProjectResponse.from_project(project)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -74,5 +79,5 @@ async def delete_project(
     service: ProjectService = Depends(get_project_service),
 ) -> Response:
     """删除项目。"""
-    service.delete_project(project_id)
+    await asyncio.to_thread(service.delete_project, project_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

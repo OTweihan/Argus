@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from argus_py.core.exceptions import ProjectError
+from argus_py.core.exceptions import ProjectNotFoundError
 from argus_py.infra.db import DEFAULT_DB_PATH, connect, init_database, with_conn, with_tx
 from argus_py.project.models import Project
 
@@ -72,7 +72,7 @@ class ProjectSQLiteStorage:
                 (project_id,),
             ).fetchone()
         if row is None:
-            raise ProjectError(f"Project not found: {project_id}")
+            raise ProjectNotFoundError(f"Project not found: {project_id}")
         return self._from_row(row)
 
     def list_projects(self) -> list[Project]:
@@ -91,7 +91,7 @@ class ProjectSQLiteStorage:
                 (project_id,),
             )
         if cursor.rowcount == 0:
-            raise ProjectError(f"Project not found: {project_id}")
+            raise ProjectNotFoundError(f"Project not found: {project_id}")
 
     def find_by_name(self, name: str) -> Project | None:
         """按名称查找项目（精确匹配，区分大小写由 SQLite 排序规则决定）。"""

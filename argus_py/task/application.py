@@ -6,6 +6,7 @@ CLI 也可复用此类避免重复编排逻辑。
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from argus_py.config.service import ModelConfigService
@@ -110,7 +111,8 @@ class TaskApplicationService:
 
     async def update_task(self, task_id: str, params: dict[str, Any]) -> Any:
         """更新 pending 且未入队的任务。"""
-        task = self._task.get_task(task_id)
+        # SQLite 读写都走线程池：协程中并发请求互不阻塞。
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if task.status is not TaskStatus.PENDING or scheduler_status is not None:
             raise TaskAppError(
@@ -122,14 +124,14 @@ class TaskApplicationService:
                     "schedulerStatus": scheduler_status,
                 },
             )
-        updated = self._task.update_task_info(task, **params)
+        updated = await asyncio.to_thread(self._task.update_task_info, task, **params)
         return updated, await self._queue.scheduler_status(updated.task_id)
 
     # ── 删除 ──
 
     async def delete_task(self, task_id: str) -> None:
         """删除 pending 且未入队的任务。"""
-        task = self._task.get_task(task_id)
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if task.status is not TaskStatus.PENDING or scheduler_status is not None:
             raise TaskAppError(
@@ -141,13 +143,13 @@ class TaskApplicationService:
                     "schedulerStatus": scheduler_status,
                 },
             )
-        self._task.delete_pending_task(task)
+        await asyncio.to_thread(self._task.delete_pending_task, task)
 
     # ── 启动 ──
 
     async def start_task(self, task_id: str) -> tuple[Any, str]:
         """将 pending 任务加入执行队列。"""
-        task = self._task.get_task(task_id)
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         if task.status is not TaskStatus.PENDING:
             raise TaskAppError(
                 "TASK_NOT_PENDING",
@@ -167,21 +169,22 @@ class TaskApplicationService:
 
     async def restart_task(self, task_id: str) -> tuple[Any, str]:
         """重试失败/超时/取消的任务，创建新任务并立即入队。"""
-        task = self._task.get_task(task_id)
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         if task.status not in (TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED):
             raise TaskAppError(
                 "TASK_NOT_RETRYABLE",
                 f"只有失败/超时/取消的任务可以重试，当前状态：{task.status.value}。",
                 details={"taskId": task.task_id, "status": task.status.value},
             )
-        new_task = self._task.restart_task(task)
+        new_task = await asyncio.to_thread(self._task.restart_task, task)
         try:
             result = await self._queue.enqueue(new_task.task_id)
         except Exception:
-            self._task.delete_pending_task(new_task)
+            # 入队失败需要回滚新建的任务，同样走线程池。
+            await asyncio.to_thread(self._task.delete_pending_task, new_task)
             raise
         if result.already_known:
-            self._task.delete_pending_task(new_task)
+            await asyncio.to_thread(self._task.delete_pending_task, new_task)
             raise TaskAppError(
                 "TASK_ALREADY_SCHEDULED",
                 f"新创建的任务意外处于已调度状态：{result.scheduler_status}。",
@@ -193,7 +196,7 @@ class TaskApplicationService:
 
     async def _check_not_finished(self, task_id: str) -> tuple[Any, str | None]:
         """获取任务并校验未处于终态。返回 (task, scheduler_status)。"""
-        task = self._task.get_task(task_id)
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if task.status in (
             TaskStatus.CANCELLED,
@@ -214,7 +217,7 @@ class TaskApplicationService:
         task, scheduler_status = await self._check_not_finished(task_id)
         if scheduler_status == "queued":
             await self._queue.cancel(task_id)
-        task = self._task.cancel_task(task)
+        task = await asyncio.to_thread(self._task.cancel_task, task)
         return task, await self._queue.scheduler_status(task.task_id)
 
     async def stop_task(self, task_id: str) -> tuple[Any, str | None]:
@@ -224,24 +227,24 @@ class TaskApplicationService:
     # ── 暂停/恢复 ──
 
     async def pause_task(self, task_id: str) -> Any:
-        task = self._task.get_task(task_id)
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         if task.status is not TaskStatus.RUNNING:
             raise TaskAppError(
                 "TASK_NOT_RUNNING",
                 f"只有运行中的任务可以暂停，当前状态：{task.status.value}。",
                 details={"taskId": task.task_id, "status": task.status.value},
             )
-        return self._task.pause_task(task)
+        return await asyncio.to_thread(self._task.pause_task, task)
 
     async def resume_task(self, task_id: str) -> Any:
-        task = self._task.get_task(task_id)
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         if task.status is not TaskStatus.PAUSED:
             raise TaskAppError(
                 "TASK_NOT_PAUSED",
                 f"只有暂停的任务可以恢复，当前状态：{task.status.value}。",
                 details={"taskId": task.task_id, "status": task.status.value},
             )
-        return self._task.resume_task(task)
+        return await asyncio.to_thread(self._task.resume_task, task)
 
     # ── 查询（委托） ──
 
@@ -249,7 +252,7 @@ class TaskApplicationService:
         return self._task.get_task(task_id)
 
     async def get_task_with_scheduler(self, task_id: str) -> tuple[Any, str | None]:
-        task = self._task.get_task(task_id)
+        task = await asyncio.to_thread(self._task.get_task, task_id)
         sched = await self._queue.scheduler_status(task_id)
         return task, sched
 
@@ -275,3 +278,21 @@ class TaskApplicationService:
 
     async def snapshot_queue_statuses(self) -> dict[str, str]:
         return await self._queue.snapshot_statuses()
+
+    def get_dashboard_stats(self, recent_limit: int = 8) -> dict[str, Any]:
+        """返回仪表盘聚合统计：全量计数与最近任务摘要。
+
+        - tasks_total / running_total：跨页准确（COUNT 走 SQLite 索引）
+        - findings_total：当前所有任务的发现项数量
+        - recent_tasks：按 created_at 降序的前 ``recent_limit`` 条 task summary
+        """
+        tasks_total = self._task.count_tasks()
+        running_total = self._task.count_tasks(status=TaskStatus.RUNNING)
+        findings_total = self._task.count_findings()
+        recent = self._task.list_task_summaries(offset=0, limit=recent_limit)
+        return {
+            "tasks_total": tasks_total,
+            "running_total": running_total,
+            "findings_total": findings_total,
+            "recent_tasks": recent,
+        }

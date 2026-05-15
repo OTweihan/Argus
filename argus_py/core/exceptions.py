@@ -29,12 +29,28 @@ class TaskError(ArgusError):
         self.error_code = error_code
 
 
+class TaskNotFoundError(TaskError):
+    """任务实体不存在。
+
+    P0-6：作为 ``TaskError`` 的精确子类替代 ``"not found" in message`` 的字符串
+    匹配，从根本上避免错误消息本地化或重写时丢失 404 语义。
+    """
+
+
 class ProjectError(ArgusError):
     """项目管理失败。"""
 
 
+class ProjectNotFoundError(ProjectError):
+    """项目实体不存在。"""
+
+
 class ModelConfigError(ConfigError):
     """模型配置管理失败。"""
+
+
+class ModelConfigNotFoundError(ModelConfigError):
+    """模型配置实体不存在。"""
 
 
 class ReportError(ArgusError):
