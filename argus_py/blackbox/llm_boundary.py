@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from argus_py.blackbox.evaluator import BlackboxEvaluator
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.llm.client import LLMClient
 from argus_py.llm.resolver import resolve_llm_client_for_task
+from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.models import Task
 
 logger = logging.getLogger(__name__)
+
+PROMPT_EXTENSION_KEY = "prompt_extensions"
 
 
 class LLMBoundaryFactory:
@@ -26,9 +30,11 @@ class LLMBoundaryFactory:
         self,
         default_planner: BlackboxPlanner | None = None,
         default_evaluator: BlackboxEvaluator | None = None,
+        project_storage: ProjectSQLiteStorage | None = None,
     ) -> None:
         self._default_planner = default_planner
         self._default_evaluator = default_evaluator
+        self._project_storage = project_storage
         self._owned_clients: list[LLMClient] = []
 
     def resolve(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:
@@ -39,10 +45,13 @@ class LLMBoundaryFactory:
         if planner is None or evaluator is None:
             llm_client = resolve_llm_client_for_task(task)
             self._owned_clients.append(llm_client)
+            planner_exts, evaluator_exts = self._collect_extensions(task)
             if planner is None:
-                planner = BlackboxPlanner(llm_client=llm_client)
+                planner = BlackboxPlanner(llm_client=llm_client, prompt_extensions=planner_exts)
             if evaluator is None:
-                evaluator = BlackboxEvaluator(llm_client=llm_client)
+                evaluator = BlackboxEvaluator(
+                    llm_client=llm_client, prompt_extensions=evaluator_exts
+                )
 
         return planner, evaluator
 
@@ -55,3 +64,50 @@ class LLMBoundaryFactory:
                 await client.aclose()
             except Exception:  # noqa: BLE001
                 logger.debug("关闭自有 LLMClient 时忽略异常", exc_info=True)
+
+    def _collect_extensions(self, task: Task) -> tuple[list[str], list[str]]:
+        """按 [project, task] 顺序收集 planner / evaluator 的 prompt 扩展片段。"""
+        project_ext = self._load_project_extensions(task.project_id)
+        task_ext = _extract_extension_map(task.parameters)
+
+        planner_exts = _ordered_extensions("planner", project_ext, task_ext)
+        evaluator_exts = _ordered_extensions("evaluator", project_ext, task_ext)
+        return planner_exts, evaluator_exts
+
+    def _load_project_extensions(self, project_id: str | None) -> dict[str, str]:
+        """从 project.parameters 读取 prompt 扩展；加载失败时降级为空。"""
+        if not project_id:
+            return {}
+        try:
+            storage = self._project_storage or ProjectSQLiteStorage()
+            project = storage.load(project_id)
+        except Exception:  # noqa: BLE001
+            # 项目读取失败（不存在、DB 不可用等）不应阻塞任务执行
+            logger.debug(
+                "读取项目 prompt 扩展失败，按无扩展处理：project_id=%s",
+                project_id,
+                exc_info=True,
+            )
+            return {}
+        return _extract_extension_map(project.parameters)
+
+
+def _extract_extension_map(parameters: dict[str, Any] | None) -> dict[str, str]:
+    """从 parameters 字典提取 prompt_extensions 子结构。"""
+    if not parameters:
+        return {}
+    raw = parameters.get(PROMPT_EXTENSION_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, value in raw.items():
+        if isinstance(value, str):
+            result[str(key)] = value
+    return result
+
+
+def _ordered_extensions(
+    role: str, project_ext: dict[str, str], task_ext: dict[str, str]
+) -> list[str]:
+    """按 [project, task] 顺序返回非空扩展。"""
+    return [ext for ext in (project_ext.get(role, ""), task_ext.get(role, "")) if ext]

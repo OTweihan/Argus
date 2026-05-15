@@ -17,6 +17,11 @@ from argus_py.api.schemas.projects import (
     ProjectResponse,
     ProjectUpdateRequest,
 )
+from argus_py.api.schemas.prompt_preview import (
+    PromptPreviewRequest,
+    PromptPreviewResponse,
+    PromptRole,
+)
 from argus_py.api.schemas.tasks import (
     FindingResponse,
     InferredLimitsResponse,
@@ -46,6 +51,9 @@ __all__ = [
     "ProjectListResponse",
     "ProjectResponse",
     "ProjectUpdateRequest",
+    "PromptPreviewRequest",
+    "PromptPreviewResponse",
+    "PromptRole",
     "TaskCreateRequest",
     "TaskListResponse",
     "TaskLogResponse",

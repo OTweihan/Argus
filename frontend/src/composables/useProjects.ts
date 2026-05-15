@@ -11,6 +11,12 @@ import type {Project} from "../types";
 import {errorMessage, nullableText, upsertById} from "../utils";
 import {dictToParamEntries, parseParamEntries} from "../params";
 import type {ParamEntry} from "../params";
+import {
+    emptyPromptExtensions,
+    mergePromptExtensions,
+    splitParametersFromPromptExtensions,
+    type PromptExtensions,
+} from "../promptExtensions";
 
 export interface ProjectForm {
     editingId: string | null;
@@ -23,6 +29,7 @@ export interface ProjectForm {
     defaultTimeoutSeconds: number | null;
     defaultCaptureScreenshots: boolean;
     parameters: ParamEntry[];
+    promptExtensions: PromptExtensions;
 }
 
 export function useProjects(opts: {
@@ -63,6 +70,7 @@ export function useProjects(opts: {
             formErrors.projectParameters = caught instanceof Error ? caught.message : "参数格式错误";
             return;
         }
+        parameters = mergePromptExtensions(parameters, projectForm.promptExtensions);
         try {
             const payload: ProjectPayload = {
                 name: String(projectForm.name).trim(),
@@ -91,6 +99,7 @@ export function useProjects(opts: {
     }
 
     function editProject(project: Project): void {
+        const {rest, promptExtensions} = splitParametersFromPromptExtensions(project.parameters);
         Object.assign(projectForm, {
             editingId: project.projectId,
             name: project.name ?? "",
@@ -101,7 +110,8 @@ export function useProjects(opts: {
             defaultMaxSteps: project.defaultMaxSteps ?? DEFAULT_MAX_STEPS,
             defaultTimeoutSeconds: project.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_S,
             defaultCaptureScreenshots: project.defaultCaptureScreenshots,
-            parameters: dictToParamEntries(project.parameters),
+            parameters: dictToParamEntries(rest),
+            promptExtensions,
         });
         error.value = "";
         clearFormErrors();
@@ -167,5 +177,6 @@ function defaultProjectForm(): ProjectForm {
         defaultTimeoutSeconds: DEFAULT_TIMEOUT_S,
         defaultCaptureScreenshots: true,
         parameters: [],
+        promptExtensions: emptyPromptExtensions(),
     };
 }

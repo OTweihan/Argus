@@ -6,33 +6,33 @@ from argus_py.llm.prompts import (
 )
 
 
-def test_load_prompt_falls_back_to_builtin_when_user_template_missing(tmp_path):
-    content = load_prompt("blackbox_planner.md", prompts_dir=tmp_path / "missing")
+def test_load_builtin_planner_prompt():
+    content = load_prompt("blackbox_planner.md")
 
     assert content.startswith("你是 Argus 黑盒测试规划器")
+    assert "## 业务扩展" in content
 
 
-def test_user_prompt_overrides_builtin_prompt(tmp_path):
-    prompts_dir = tmp_path / "prompts"
-    prompts_dir.mkdir()
-    prompt_path = prompts_dir / "blackbox_planner.md"
-    prompt_path.write_text("用户覆盖模板", encoding="utf-8")
+def test_load_builtin_evaluator_prompt():
+    content = load_prompt("blackbox_evaluator.md")
 
-    template = load_prompt_template("blackbox_planner.md", prompts_dir=prompts_dir)
+    assert content.startswith("你是 Argus 黑盒测试结果评估器")
+    assert "## 业务扩展" in content
 
-    assert template.content == "用户覆盖模板"
-    assert template.source == str(prompt_path)
+
+def test_load_prompt_template_contains_source(tmp_path):
+    template = load_prompt_template("blackbox_planner.md")
+
+    assert template.name == "blackbox_planner.md"
+    assert template.source.endswith("blackbox_planner.md")
 
 
 def test_explicit_prompt_path_has_highest_priority(tmp_path):
-    user_dir = tmp_path / "prompts"
-    user_dir.mkdir()
-    (user_dir / "demo.md").write_text("用户模板", encoding="utf-8")
     explicit_path = tmp_path / "explicit.md"
     explicit_path.write_text("显式路径 {{ value }}", encoding="utf-8")
 
-    resolved = resolve_prompt_path(str(explicit_path), prompts_dir=user_dir)
-    rendered = render_prompt(str(explicit_path), prompts_dir=user_dir, value="优先")
+    resolved = resolve_prompt_path(str(explicit_path))
+    rendered = render_prompt(str(explicit_path), value="优先")
 
     assert resolved == explicit_path
     assert rendered == "显式路径 优先"

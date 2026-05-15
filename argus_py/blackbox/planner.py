@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
-from argus_py.blackbox.prompts import load_planner_prompt
+from argus_py.blackbox.prompts import compose_planner_prompt
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.core.enums import ActionType
 from argus_py.core.exceptions import LLMError
@@ -26,8 +26,13 @@ from argus_py.utils.jsonx import to_jsonable
 class BlackboxPlanner:
     """黑盒动作规划边界。"""
 
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        prompt_extensions: list[str] | None = None,
+    ) -> None:
         self.llm_client = llm_client
+        self._extensions: list[str] = list(prompt_extensions or [])
 
     async def plan_initial(self, task_input: BlackboxTaskInput) -> ActionSequence:
         """生成初始动作序列，先确定性打开起始 URL。"""
@@ -47,7 +52,7 @@ class BlackboxPlanner:
         evaluator_next_action: str = "",
     ) -> ActionSequence:
         """基于最新页面观察和上一轮失败信息生成下一批动作。"""
-        sys_prompt = load_planner_prompt()
+        sys_prompt = compose_planner_prompt(*self._extensions)
         payload = {
             "goal": goal,
             "current_url": current_url,

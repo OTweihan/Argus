@@ -343,7 +343,6 @@ argus/
 │   ├── whitebox/      # 第三阶段 Java 白盒分析客户端占位
 │   └── utils/         # 通用工具
 ├── config/
-│   ├── prompts/       # 用户 Prompt 覆盖模板
 │   ├── llm.env        # 本地大模型配置，不提交
 │   ├── llm.env.example
 │   └── logging.yaml
@@ -359,26 +358,52 @@ argus/
 
 ## Prompt 模板
 
-Prompt 模板分为内置模板和用户覆盖模板：
+Prompt 模板分为**内置模板**和**用户业务扩展**两部分：
 
-- 内置模板位于 `argus_py/llm/prompts/`，随 Python 包一起发布，保证安装包运行时不依赖源码根目录下的 `config/prompts`。
-- 用户覆盖模板位于 `config/prompts/`，文件名与内置模板一致时优先使用用户模板。
-- 显式传入的 Prompt 文件路径优先级最高，其次是用户覆盖模板，最后才是包内内置模板。
+- 内置模板位于 `argus_py/llm/prompts/`，随 Python 包一起发布；包含输入字段、输出 JSON schema 和安全边界等硬契约，**不可覆盖**。
+- 当前内置模板：
 
-当前内置模板包括：
+  ```text
+  blackbox_planner.md
+  blackbox_evaluator.md
+  ```
 
-```text
-blackbox_planner.md
-blackbox_evaluator.md
+  内置模板末尾保留 `## 业务扩展` marker 段，用户扩展会拼接到这里之后。
+
+- `argus llm check` 使用的连接检查 Prompt 已内联在 CLI 代码中，不属于模板体系。
+
+### 用户业务扩展（项目 + 任务双层）
+
+用户可以为每个**项目**或**任务**追加业务规则，拼接顺序为 `内置 → 项目扩展 → 任务扩展`。
+
+存储位置：复用现有 `Project.parameters` / `Task.parameters` 字典，约定 key 为 `prompt_extensions`：
+
+```json
+{
+  "prompt_extensions": {
+    "planner": "## 项目特定规则\n- 危险按钮关键词：作废、出库、开账\n- 登录页固定在 /auth/signin",
+    "evaluator": "..."
+  }
+}
 ```
 
-> `argus llm check` 使用的连接检查 Prompt 已内联在 CLI 代码中，不属于可覆盖模板。
+任务级扩展可以通过 CLI 在创建任务时指定：
+
+```pwsh
+argus run --goal "..." --url "..." `
+  --planner-extension .\prompt-ext\planner.md `
+  --evaluator-extension .\prompt-ext\evaluator.md
+```
+
+**前端控制台**：在 Web 控制台的「项目新增/编辑」与「任务新增/编辑」对话框中，展开折叠面板 **Prompt 业务扩展**，即可在 Planner / Evaluator 两个 Tab 下用双栏（左侧 Markdown 编辑、右侧实时渲染）的方式编辑扩展内容；面板底部的「完整 system_prompt 预览」会以 600ms 防抖调用后端 `POST /api/v1/prompts/preview`，展示内置 + 项目 + 任务三段拼接后的最终 Prompt。项目详情和任务详情对话框也会以只读 Markdown 展示已配置的扩展内容。
+
+> **迁移提示**：旧版本曾支持把 `config/prompts/<name>.md` 作为用户全覆盖模板，本版本已**移除该机制**。如果你之前有自定义文件，请把内容迁移到对应项目或任务的 `parameters.prompt_extensions.{planner,evaluator}`。
 
 ## 路径策略
 
 项目通过 `argus_py/core/paths.py` 统一解析路径：
 
-- 默认从项目根目录读取 `config/llm.env`、用户 Prompt 覆盖模板和 `outputs`；内置 Prompt 和报告模板从包内读取。
+- 默认从项目根目录读取 `config/llm.env` 和 `outputs`；内置 Prompt 和报告模板从包内读取。
 - 从其他目录执行 `argus` 时，不会因为当前工作目录变化导致配置或模板找不到。
 - 可通过环境变量 `ARGUS_PROJECT_ROOT` 覆盖项目根目录。
 

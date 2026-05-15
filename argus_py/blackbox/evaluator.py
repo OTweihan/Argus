@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from argus_py.blackbox.prompts import load_evaluator_prompt
+from argus_py.blackbox.prompts import compose_evaluator_prompt
 from argus_py.config.llm_settings import load_llm_settings
 from argus_py.core.enums import FindingSeverity, FindingType
 from argus_py.core.exceptions import LLMError
@@ -76,8 +76,13 @@ class EvaluationResult:
 class BlackboxEvaluator:
     """判断目标是否完成的边界。"""
 
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        prompt_extensions: list[str] | None = None,
+    ) -> None:
         self.llm_client = llm_client
+        self._extensions: list[str] = list(prompt_extensions or [])
 
     async def evaluate(
         self,
@@ -86,7 +91,7 @@ class BlackboxEvaluator:
         history: list[dict[str, Any]] | None = None,
     ) -> EvaluationResult:
         """调用 LLM 判断目标是否完成。"""
-        sys_prompt = load_evaluator_prompt()
+        sys_prompt = compose_evaluator_prompt(*self._extensions)
         payload = {
             "goal": goal,
             "observation": observation,

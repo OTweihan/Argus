@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession, PlaywrightClient
@@ -38,6 +39,14 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
     parser.add_argument("--auth-state", help="复用已保存登录态")
     parser.add_argument("--create-only", action="store_true", help="只创建任务，不执行黑盒闭环")
     parser.add_argument("--no-screenshot", action="store_true", help="创建任务时关闭截图开关")
+    parser.add_argument(
+        "--planner-extension",
+        help="planner Prompt 业务扩展片段文件路径（追加到内置 planner Prompt 末尾）",
+    )
+    parser.add_argument(
+        "--evaluator-extension",
+        help="evaluator Prompt 业务扩展片段文件路径（追加到内置 evaluator Prompt 末尾）",
+    )
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -54,13 +63,30 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    task = service.create_task(
-        goal=args.goal,
-        start_url=args.url,
-        max_steps=limits.max_steps,
-        timeout_seconds=limits.timeout_seconds,
-        capture_screenshots=not args.no_screenshot,
-    )
+    try:
+        prompt_extensions = _read_prompt_extensions(
+            planner_path=getattr(args, "planner_extension", None),
+            evaluator_path=getattr(args, "evaluator_extension", None),
+        )
+    except FileNotFoundError as exc:
+        cli_error(
+            "任务执行失败",
+            f"Prompt 扩展文件不存在：{exc}",
+            "请检查 --planner-extension / --evaluator-extension 路径是否正确。",
+        )
+        return 1
+
+    create_kwargs: dict = {
+        "goal": args.goal,
+        "start_url": args.url,
+        "max_steps": limits.max_steps,
+        "timeout_seconds": limits.timeout_seconds,
+        "capture_screenshots": not args.no_screenshot,
+    }
+    if prompt_extensions:
+        create_kwargs["parameters"] = {"prompt_extensions": prompt_extensions}
+
+    task = service.create_task(**create_kwargs)
     cli_success(f"已创建任务：{task.task_id}")
     cli_info(f"执行限制：最大 {limits.max_steps} 步，超时 {limits.timeout_seconds} 秒")
 
@@ -101,6 +127,21 @@ async def run(args: argparse.Namespace) -> int:
 
     _print_task_result(result)
     return 0
+
+
+def _read_prompt_extensions(planner_path: str | None, evaluator_path: str | None) -> dict[str, str]:
+    """读取 planner / evaluator 的 Prompt 扩展文件并归集。"""
+    extensions: dict[str, str] = {}
+    for role, raw_path in (("planner", planner_path), ("evaluator", evaluator_path)):
+        if not raw_path:
+            continue
+        path = Path(raw_path)
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        content = path.read_text(encoding="utf-8").strip()
+        if content:
+            extensions[role] = content
+    return extensions
 
 
 def _load_latest_task(service: TaskService, task: Task) -> Task:

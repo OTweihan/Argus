@@ -168,6 +168,7 @@ outputs/traces/<task_id>.jsonl
 - `argus run` 的 `--max-steps` 和 `--timeout` 接受正整数；非法值会在参数解析阶段拦截。
 - `argus run --browser` 和 `argus browser check --browser` 限制为 `chromium`、`firefox`、`webkit`。
 - `argus run --no-screenshot` 会关闭执行步骤截图；即使 LLM 输出 `screenshot` 动作，也只记录跳过，不落图。
+- `argus run --planner-extension <file>` / `--evaluator-extension <file>` 读取业务规则片段并写入 `task.parameters.prompt_extensions`，运行时按 `内置 → 项目 → 任务` 顺序拼接到内置 prompt 末尾的 `## 业务扩展` marker 之后。
 - `argus serve` 会读取 `config/server.yaml` 启动 FastAPI，支持 `--host`、`--port`、`--reload` 和 `--config` 覆盖。
 - CLI 运行期错误统一输出为 `错误：...`、`详情：...`、`提示：...` 格式；取消类输出统一为 `已取消：...`。
 
@@ -185,6 +186,7 @@ outputs/traces/<task_id>.jsonl
 - `argus_py/api/routes/events.py`
 - `argus_py/api/routes/projects.py`
 - `argus_py/api/routes/config.py`
+- `argus_py/api/routes/prompts.py`
 - `argus_py/api/routes/ws.py`
 - `argus_py/infra/events.py`
 - `argus_py/infra/queue.py`
@@ -208,6 +210,7 @@ outputs/traces/<task_id>.jsonl
 - `/api/v1/projects` 已支持 SQLite 项目 CRUD；`/api/v1/config/summary` 返回非敏感服务、调度和事件配置摘要。
 - `/api/v1/config/models` 已支持模型配置 CRUD；`/api/v1/config/models/test` 可测试已保存或临时模型配置。
 - `/api/v1/ws/tasks/{task_id}` 支持订阅单个任务事件，`/api/v1/ws/tasks` 支持订阅全局任务事件。
+- `/api/v1/prompts/preview` 提供 Prompt 拼接预览：传 `role`（`planner` / `evaluator`）和可选的 `projectExtension` / `taskExtension`，返回拼接后的完整 `systemPrompt` 及各段长度，供前端编辑器实时调试业务扩展。
 - API 请求/响应模型支持 camelCase 别名，同时内部仍复用现有 snake_case 任务模型。
 - Web API 创建任务必须传 `projectId`；任务未显式传 `startUrl`、`maxSteps`、`timeoutSeconds`、`captureScreenshots` 时会继承项目默认配置；可通过 `modelConfigId` 指定模型配置。
 - FastAPI lifespan 启动时会校验 Fernet key、恢复中断任务并启动后台 Worker；shutdown 时尽量停止 Worker。
@@ -308,6 +311,9 @@ outputs/traces/<task_id>.jsonl
 - `frontend/src/utils.ts`
 - `frontend/src/ws.ts`
 - `frontend/src/styles.css`
+- `frontend/src/promptExtensions.ts`
+- `frontend/src/components/prompt/PromptExtensionEditor.vue`
+- `frontend/src/components/prompt/PromptExtensionViewer.vue`
 - `argus_py/api/app.py`
 
 当前行为：
@@ -366,7 +372,8 @@ outputs/traces/<task_id>.jsonl
 - `argus_py/blackbox/runner.py`
 - `argus_py/llm/prompts/blackbox_planner.md`
 - `argus_py/llm/prompts/blackbox_evaluator.md`
-- `config/prompts/`（可选用户覆盖目录，默认空；按需新建同名 .md 即可生效）
+- `argus_py/blackbox/prompts.py`（`compose_planner_prompt` / `compose_evaluator_prompt` 负责拼接业务扩展）
+- `argus_py/blackbox/llm_boundary.py`（从 `Project.parameters` / `Task.parameters` 提取扩展并注入 planner / evaluator）
 
 当前行为：
 
@@ -477,9 +484,13 @@ outputs/traces/<task_id>.jsonl
 - Prompt 模板加载。
 - 异步重试逻辑。
 - API Key 缺失提示已改为面向用户：提示执行 `argus config llm`。
-- Prompt 模板已区分内置模板和用户覆盖模板：显式路径 > `config/prompts` 用户模板 > `argus_py/llm/prompts` 内置模板。
-- 内置 Prompt 已加入包数据，后续安装包运行时不依赖源码目录下的 `config/prompts`。
-- 用户可覆盖范围已收敛到 `blackbox_planner.md` / `blackbox_evaluator.md`；`argus llm check` 用的连接检查 Prompt 改为代码内联常量，不再走模板加载。
+- Prompt 模板只保留内置版本，随 Python 包发布；显式路径仍然优先用于调试，但**不再支持** `config/prompts/` 用户覆盖文件。
+- 内置 Prompt 已加入包数据，运行时不依赖源码根目录的 `config/prompts`。
+- 用户自定义改为**项目 + 任务双层 Prompt 业务扩展**：`Project.parameters.prompt_extensions.{planner,evaluator}` 和 `Task.parameters.prompt_extensions.{planner,evaluator}` 会按 `内置 → 项目 → 任务` 顺序拼接到内置 prompt 的 `## 业务扩展` marker 之后，由 `compose_planner_prompt` / `compose_evaluator_prompt` 在 `argus_py/blackbox/prompts.py` 中完成拼接。
+- `LLMBoundaryFactory.resolve(task)` 负责从 SQLite 加载项目扩展并和任务扩展合并；项目读取失败（不存在 / DB 不可用）时降级为无扩展。
+- `BlackboxTaskInput.prompt_extensions` 用于无 project 的直跑场景；CLI `argus run` 提供 `--planner-extension` / `--evaluator-extension` 文件参数读取并写入 `task.parameters`。
+- Web 控制台在项目/任务的新增/编辑对话框新增「Prompt 业务扩展」折叠面板：双栏（Markdown 编辑 + 实时渲染）编辑 planner / evaluator 两个角色的扩展，底部「完整 system_prompt 预览」以 600ms 防抖调用 `POST /api/v1/prompts/preview`；项目详情、任务详情对话框使用只读 Markdown 组件展示已配置的扩展内容。前端工具 `frontend/src/promptExtensions.ts` 负责 `parameters.prompt_extensions` 的拆合，`PromptExtensionEditor.vue` / `PromptExtensionViewer.vue` 负责 UI 渲染。
+- `argus llm check` 用的连接检查 Prompt 改为代码内联常量，不再走模板加载。
 - `LLMClient.complete()` / `chat()` 支持内部 `_trace_ctx`，用于补充 latency、model、token_usage、base_url_host 和 error。
 
 ### T007 文档与示例
@@ -534,7 +545,7 @@ outputs/traces/<task_id>.jsonl
 - LLM trace 脱敏当前基于字段名，不扫描普通字符串内容；如果后续需要更严格外发安全，需要增加文本内容级脱敏策略。
 - `argus browser check` 是浏览器能力调试入口；完整黑盒测试仍以 `argus run` 为准。
 - LLM 调用失败时仍需区分代码问题、接口配置问题、代理 / TLS / 网络问题和模型服务问题。
-- `config/prompts` 只作为用户覆盖目录；修改用户模板前注意和包内内置模板的差异。
+- 用户自定义 Prompt 已从"文件级覆盖"切换为"项目 + 任务双层业务扩展"；任何调用方修改 `Project.parameters` / `Task.parameters` 中 `prompt_extensions` 字段前，应阅读内置 planner/evaluator 模板，确保扩展规则不与安全边界冲突。
 - `uv.lock` 尚未因 FastAPI / uvicorn 依赖变更重新锁定；后续如使用 uv 安装依赖，需要按项目流程更新锁文件。
 - 修改前仍应先查看工作区状态，避免覆盖用户未提交改动。
 

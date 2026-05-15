@@ -4,6 +4,8 @@ export type {
     TaskPayload,
     ModelConfigPayload,
     ModelConnectionPayload,
+    PromptPreviewPayload,
+    PromptPreviewResponse,
 } from "./types";
 export {
     listProjects,
@@ -33,3 +35,4 @@ export {
     testModel,
 } from "./model";
 export {summary} from "./config";
+export {previewPrompt} from "./prompt";

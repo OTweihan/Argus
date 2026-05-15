@@ -10,7 +10,16 @@ from fastapi.staticfiles import StaticFiles
 
 from argus_py.api.dependencies import get_task_service, get_task_worker
 from argus_py.api.middleware import configure_middleware
-from argus_py.api.routes import config, events, health, projects, reports, tasks, ws
+from argus_py.api.routes import (
+    config,
+    events,
+    health,
+    projects,
+    prompts,
+    reports,
+    tasks,
+    ws,
+)
 from argus_py.config.server_settings import load_server_settings
 from argus_py.config.settings import load_settings
 from argus_py.core.constants import PROJECT_NAME, PROJECT_TAGLINE, PROJECT_VERSION
@@ -57,6 +66,7 @@ def create_app() -> FastAPI:
     application.include_router(reports.router, prefix=API_PREFIX)
     application.include_router(config.router, prefix=API_PREFIX)
     application.include_router(events.router, prefix=API_PREFIX)
+    application.include_router(prompts.router, prefix=API_PREFIX)
     application.include_router(ws.router, prefix=API_PREFIX)
     if (API_STATIC_DIR / "index.html").exists():
         application.mount(

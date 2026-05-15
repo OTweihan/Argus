@@ -43,13 +43,19 @@
       <div class="detail-row">
         <span class="detail-label">参数</span>
         <span class="detail-value">
-          <template v-if="Object.keys(project.parameters).length">
-            <div v-for="(val, key) in project.parameters" :key="key" class="detail-param">
+          <template v-if="Object.keys(restParameters).length">
+            <div v-for="(val, key) in restParameters" :key="key" class="detail-param">
               <span class="detail-param-key">{{ key }}</span>
               <span class="detail-param-val">{{ typeof val === "string" ? val : JSON.stringify(val) }}</span>
             </div>
           </template>
           <span v-else>-</span>
+        </span>
+      </div>
+      <div v-if="hasExt" class="detail-row">
+        <span class="detail-label">Prompt 扩展</span>
+        <span class="detail-value">
+          <PromptExtensionViewer :extensions="promptExtensions" />
         </span>
       </div>
       <div class="detail-row">
@@ -65,11 +71,29 @@
 </template>
 
 <script setup lang="ts">
+import {computed} from "vue";
 import type {Project} from "../../types";
 import {formatDate} from "../../utils";
+import {
+    emptyPromptExtensions,
+    hasAnyExtension,
+    splitParametersFromPromptExtensions,
+} from "../../promptExtensions";
+import PromptExtensionViewer from "../prompt/PromptExtensionViewer.vue";
 
-defineProps<{ visible: boolean; project: Project | null }>();
+const props = defineProps<{ visible: boolean; project: Project | null }>();
 defineEmits<{ close: [] }>();
+
+const split = computed(() => {
+  if (!props.project) {
+    return {rest: {} as Record<string, unknown>, promptExtensions: emptyPromptExtensions()};
+  }
+  return splitParametersFromPromptExtensions(props.project.parameters);
+});
+
+const restParameters = computed(() => split.value.rest);
+const promptExtensions = computed(() => split.value.promptExtensions);
+const hasExt = computed(() => hasAnyExtension(promptExtensions.value));
 </script>
 
 <style scoped>

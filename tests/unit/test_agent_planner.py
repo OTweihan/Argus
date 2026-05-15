@@ -23,20 +23,23 @@ def test_extract_json_from_markdown_block():
 
 
 def test_blackbox_prompts_require_login_interaction_coverage():
+    """冻结 planner / evaluator 内置 Prompt 中与登录、表单、selector 安全相关的关键短语，
+    避免在演化 Prompt 时无意中丢失安全契约或测试覆盖语义。
+    """
     planner_prompt = load_planner_prompt()
     evaluator_prompt = load_evaluator_prompt()
 
-    assert "测试登录界面" in planner_prompt
+    assert "登录 / 注册" in planner_prompt
     assert "空表单提交" in planner_prompt
-    assert "无效的测试账号" in planner_prompt
-    assert "selector= 推荐值" in planner_prompt
+    assert "明显无效账号密码" in planner_prompt
+    assert "`selector=` 推荐值" in planner_prompt
     assert "button:contains" in planner_prompt
-    assert "不要重复使用同一个 selector" in planner_prompt
-    assert "不能只因为页面元素存在就判定完成" in evaluator_prompt
-    assert "history 中看到实际交互证据" in evaluator_prompt
+    assert "不要重复上一步失败的同一 selector" in planner_prompt
+    assert "不要继续无限重试同类动作" in planner_prompt
+    assert "不能只因为元素存在或页面已打开就完成" in evaluator_prompt
+    assert "history 中存在实际交互证据" in evaluator_prompt
     assert "已覆盖的测试场景" in evaluator_prompt
-    assert "不要只做必填校验就结束" in planner_prompt
-    assert "不能只因为已打开新增表单或只验证了必填项就判定完成" in evaluator_prompt
+    assert "只观察到必填校验" in evaluator_prompt
 
 
 class FakeLLMClient:

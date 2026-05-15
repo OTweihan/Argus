@@ -44,12 +44,24 @@
         <span v-else>-</span>
       </span>
     </div>
+    <div v-if="hasExt" class="detail-row">
+      <span class="detail-label">Prompt 扩展</span>
+      <span class="detail-value">
+        <PromptExtensionViewer :extensions="promptExtensions" />
+      </span>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import {computed} from "vue";
 import type {ModelConfig, Project, Task} from "../../types";
+import {
+    hasAnyExtension,
+    PROMPT_EXTENSIONS_KEY,
+    splitParametersFromPromptExtensions,
+} from "../../promptExtensions";
+import PromptExtensionViewer from "../prompt/PromptExtensionViewer.vue";
 
 const props = defineProps<{ task: Task; projects: Project[]; enabledModels: ModelConfig[] }>();
 
@@ -65,7 +77,15 @@ const modelName = computed(() => {
   return props.enabledModels.find((model) => model.modelConfigId === id)?.name ?? id;
 });
 
-const parameterEntries = computed(() => Object.entries(props.task.parameters ?? {}).filter(([key]) => key !== "modelConfigId"));
+const split = computed(() => splitParametersFromPromptExtensions(props.task.parameters));
+const promptExtensions = computed(() => split.value.promptExtensions);
+const hasExt = computed(() => hasAnyExtension(promptExtensions.value));
+
+const parameterEntries = computed(() =>
+  Object.entries(split.value.rest).filter(
+    ([key]) => key !== "modelConfigId" && key !== PROMPT_EXTENSIONS_KEY,
+  ),
+);
 
 function formatParamValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);

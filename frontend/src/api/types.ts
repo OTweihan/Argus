@@ -42,3 +42,16 @@ export interface ModelConfigPayload {
 export interface ModelConnectionPayload extends Partial<ModelConfigPayload> {
     modelConfigId?: string | null;
 }
+
+export interface PromptPreviewPayload {
+    role: "planner" | "evaluator";
+    projectExtension?: string;
+    taskExtension?: string;
+}
+
+export interface PromptPreviewResponse {
+    systemPrompt: string;
+    builtinLength: number;
+    projectLength: number;
+    taskLength: number;
+}

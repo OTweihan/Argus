@@ -23,7 +23,6 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = _find_project_root()
 
 CONFIG_DIR = PROJECT_ROOT / "config"
-PROMPTS_DIR = CONFIG_DIR / "prompts"
 BROWSER_STATES_DIR = CONFIG_DIR / "browser-states"
 BUILTIN_PROMPTS_DIR = PACKAGE_ROOT / "llm" / "prompts"
 LOGGING_CONFIG_FILE = CONFIG_DIR / "logging.yaml"

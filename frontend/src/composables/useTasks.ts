@@ -13,6 +13,12 @@ import type { ModelConfig, Project, Task } from "../types";
 import { errorMessage, nullableBoolean, nullableText, upsertById } from "../utils";
 import type { ParamEntry } from "../params";
 import { parseParamEntries } from "../params";
+import {
+    emptyPromptExtensions,
+    mergePromptExtensions,
+    splitParametersFromPromptExtensions,
+    type PromptExtensions,
+} from "../promptExtensions";
 import { useDebounceFn } from "./useDebounceFn";
 import { useTaskList } from "./useTaskList";
 import { useTaskSelection } from "./useTaskSelection";
@@ -28,6 +34,7 @@ interface TaskForm {
     captureScreenshots: string;
     modelConfigId: string;
     parameters: ParamEntry[];
+    promptExtensions: PromptExtensions;
 }
 
 export function useTasks(opts: {
@@ -147,6 +154,7 @@ export function useTasks(opts: {
             formErrors.taskParameters = caught instanceof Error ? caught.message : "参数格式无效";
             return;
         }
+        parameters = mergePromptExtensions(parameters, taskForm.promptExtensions);
         try {
             const modelConfigId = taskForm.modelConfigId === "__default__" ? null : taskForm.modelConfigId || null;
             const captureScreenshots = taskForm.captureScreenshots === "__default__" ? null : nullableBoolean(taskForm.captureScreenshots as "" | "true" | "false");
@@ -200,6 +208,7 @@ export function useTasks(opts: {
         const task = targetTask ?? taskSelection.selectedTask.value;
         if (!task) return;
         const projectId = task.projectId ?? projects.value[0]?.projectId ?? "";
+        const {rest, promptExtensions} = splitParametersFromPromptExtensions(task.parameters);
         Object.assign(taskForm, {
             editingId: task.taskId,
             goal: task.goal,
@@ -209,10 +218,11 @@ export function useTasks(opts: {
             maxSteps: task.maxSteps,
             timeoutSeconds: task.timeoutSeconds,
             captureScreenshots: task.captureScreenshots ? "true" : "false",
-            modelConfigId: (task.parameters?.modelConfigId as string) ?? "__default__",
-            parameters: task.parameters ? Object.entries(task.parameters)
+            modelConfigId: (rest.modelConfigId as string) ?? "__default__",
+            parameters: Object.entries(rest)
                 .filter(([k]) => k !== "modelConfigId")
-                .map(([key, value]) => ({key, value: String(value)})) : [],
+                .map(([key, value]) => ({key, value: String(value)})),
+            promptExtensions,
         });
         error.value = "";
         clearFormErrors();
@@ -263,6 +273,7 @@ function defaultTaskForm(projectId = ""): TaskForm {
         captureScreenshots: "__default__",
         modelConfigId: "__default__",
         parameters: [],
+        promptExtensions: emptyPromptExtensions(),
     };
 }
 

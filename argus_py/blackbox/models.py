@@ -62,3 +62,4 @@ class BlackboxTaskInput:
     max_steps: int = 20
     timeout_seconds: int = 300
     capture_screenshots: bool = True
+    prompt_extensions: dict[str, str] = field(default_factory=dict)

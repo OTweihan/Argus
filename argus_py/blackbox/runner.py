@@ -111,12 +111,16 @@ class BlackboxRunner:
         """统一任务输入。"""
         if isinstance(task, Task):
             return task
+        parameters: dict[str, str | dict[str, str]] = {}
+        if task.prompt_extensions:
+            parameters["prompt_extensions"] = dict(task.prompt_extensions)
         return self.service.create_task(
             goal=task.goal,
             start_url=task.start_url,
             max_steps=task.max_steps,
             timeout_seconds=task.timeout_seconds,
             capture_screenshots=task.capture_screenshots,
+            parameters=parameters or None,
         )
 
     def _to_task_input(self, task: Task) -> BlackboxTaskInput:
