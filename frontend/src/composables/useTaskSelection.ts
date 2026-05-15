@@ -5,13 +5,20 @@ import { errorMessage, upsertById } from "../utils";
 
 export type TaskDetailTab = "report" | "timeline" | "llm-debug";
 
+/**
+ * P1-13：本 composable 只负责"选中态"这一份纯状态（selectedTaskId / selectedTask /
+ * reportData 等），**不再**主动驱动 WebSocket 重连。
+ *
+ * WS 重连由编排层 `useConsoleApp` 通过 `watch([view, selectedTaskId])` 接管，
+ * 避免之前为"useTasks 需要 connectEventStream、connectEventStream 又需要
+ * selectedTaskId"的鸡生蛋问题而采用的 holder ref hack。
+ */
 export function useTaskSelection(opts: {
     allTasks: Ref<Task[]>;
     view: Ref<string>;
     error: Ref<string>;
-    connectEventStream: () => void;
 }) {
-    const { allTasks, view, error, connectEventStream } = opts;
+    const { allTasks, view, error } = opts;
     const selectedTaskId = ref<string | null>(null);
     const selectedTaskTab = ref<TaskDetailTab>("report");
     const reportData = ref<ReportData | null>(null);
@@ -24,6 +31,8 @@ export function useTaskSelection(opts: {
 
     async function selectTask(taskId: string, tab: TaskDetailTab = "report"): Promise<void> {
         try {
+            // 先翻转 view 与 selectedTaskId，使编排层 watch 能在数据加载期间
+            // 就已触发 WS 重连，事件接收点更早。
             selectedTaskId.value = taskId;
             selectedTaskTab.value = tab;
             view.value = "task-detail";
@@ -36,7 +45,6 @@ export function useTaskSelection(opts: {
                 const data = await apiGetTaskReportJson(taskId);
                 reportData.value = data;
             }
-            connectEventStream();
         } catch (caught) {
             error.value = errorMessage(caught);
         } finally {

@@ -54,9 +54,26 @@ playwright install chromium
 
 ## Web 控制台构建产物
 
-Web 控制台源码位于 `frontend/`，Vite 构建产物输出到 `argus_py/api/static/`，并由 FastAPI 在 `argus serve` 启动时托管。该目录会随 Python 包一起分发，目的是让本地部署在未安装 Node 依赖时也能直接打开控制台。
+Web 控制台源码位于 `frontend/`，Vite 构建产物输出到 `argus_py/api/static/`（具体是 `index.html` 与 `assets/` 下的 JS/CSS chunk），并由 FastAPI 在 `argus serve` 启动时托管。
 
-本仓库保留并提交 `argus_py/api/static/` 构建产物。修改 `frontend/src/` 中影响控制台运行效果的代码后，需要在 `frontend/` 下执行前端构建，并一并提交更新后的 `argus_py/api/static/`。不要手工修改 `argus_py/api/static/`，该目录内容只应由前端构建生成。
+构建产物**不入 git**（`.gitignore` 已忽略 `argus_py/api/static/assets/` 与 `argus_py/api/static/index.html`），需要按下面流程在本地生成后再启动 API。
+
+首次启动 / 拉取后第一次跑：
+
+```pwsh
+cd frontend
+pnpm install
+pnpm build
+cd ..
+argus serve
+```
+
+后续工作流：
+
+- 仅改 Python 后端 → 直接 `argus serve`，无需重新 build 前端
+- 改了 `frontend/src/` 中影响控制台的代码 → 在 `frontend/` 下执行 `pnpm build`，再重启 `argus serve`
+- 不要手工修改 `argus_py/api/static/assets/` 或 `argus_py/api/static/index.html`，该目录内容只应由 Vite 构建生成
+- `argus_py/api/static/favicon.ico` 是仓库直接维护的静态资源，不在 build 产物清单中
 
 ## 任务可观测性与调试
 

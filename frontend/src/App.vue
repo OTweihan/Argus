@@ -1,5 +1,5 @@
 <template>
-  <el-config-provider :locale="zhCn">
+  <el-config-provider :locale="locale ?? undefined">
     <el-container class="shell">
       <SidebarMenu :view="view" @change-view="changeView" />
 
@@ -60,8 +60,8 @@
 </template>
 
 <script setup lang="ts">
-import {computed, defineAsyncComponent} from "vue";
-import zhCn from "element-plus/dist/locale/zh-cn.mjs";
+import {computed, defineAsyncComponent, onBeforeMount, shallowRef} from "vue";
+import type {Language} from "element-plus/es/locale";
 import SidebarMenu from "./components/layout/SidebarMenu.vue";
 import {useConsoleApp} from "./composables/useConsoleApp";
 
@@ -70,6 +70,24 @@ const DashboardView = defineAsyncComponent(() => import("./views/DashboardView.v
 const ProjectsView = defineAsyncComponent(() => import("./views/ProjectsView.vue"));
 const TasksView = defineAsyncComponent(() => import("./views/TasksView.vue"));
 const ModelsView = defineAsyncComponent(() => import("./views/ModelsView.vue"));
+
+// P1-12：zh-cn locale 以 dynamic import 形式从主 bundle 拆出，由 Vite 生成
+// 独立的 async chunk。
+//
+// Element Plus 默认 locale 是英文，仅 DatePicker / Pagination / Cascader 等
+// "需要交互才出现"的组件会读取 locale 文案；首屏主要按钮/标题都是项目自定义
+// 文本，首帧用 fallback 英文 locale 也看不到差异。chunk 加载（~4.6 KB 源码、
+// gzip 后 < 2 KB）通常在首帧之前就完成。
+const locale = shallowRef<Language | null>(null);
+onBeforeMount(async () => {
+  try {
+    const mod = await import("element-plus/dist/locale/zh-cn.mjs");
+    locale.value = mod.default;
+  } catch (caught) {
+    // 加载失败时退化到内置英文，仅打印告警，不阻塞应用渲染。
+    console.warn("[App] 加载 element-plus zh-cn locale 失败，回退到英文：", caught);
+  }
+});
 
 const consoleApp = useConsoleApp();
 

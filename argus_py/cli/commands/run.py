@@ -75,6 +75,27 @@ async def run(args: argparse.Namespace) -> int:
             "请检查 --planner-extension / --evaluator-extension 路径是否正确。",
         )
         return 1
+    except PromptExtensionDecodeError as exc:
+        # P1-14：把 UnicodeDecodeError 翻译成中文友好提示，并附上具体的转码命令，
+        # Windows 用户保存为 GBK 默认编码时最容易遇到这一类问题。
+        cli_error(
+            "任务执行失败",
+            f"无法以 UTF-8 读取 --{exc.role}-extension 指向的文件 {exc.path}：{exc.reason}",
+            (
+                "请把该文件改存为 UTF-8（不带 BOM）后重试：\n"
+                "  - VSCode：右下角点击编码 → Save with Encoding → UTF-8\n"
+                f"  - PowerShell：(Get-Content '{exc.path}') | Set-Content '{exc.path}' -Encoding utf8"
+            ),
+        )
+        return 1
+    except PromptExtensionReadError as exc:
+        # 权限不足 / 目录路径 / IO 错误等其它 OSError。
+        cli_error(
+            "任务执行失败",
+            f"无法读取 --{exc.role}-extension 指向的文件 {exc.path}：{exc.cause}",
+            "请确认该路径是普通文件、当前用户具备读取权限。",
+        )
+        return 1
 
     create_kwargs: dict = {
         "goal": args.goal,
@@ -129,8 +150,38 @@ async def run(args: argparse.Namespace) -> int:
     return 0
 
 
+class PromptExtensionDecodeError(Exception):
+    """Prompt 扩展文件存在但不是合法 UTF-8。
+
+    P1-14：把底层 ``UnicodeDecodeError`` 翻译成带角色（planner / evaluator）和
+    路径信息的领域异常，便于 CLI 层给出"换 UTF-8 重存"的明确指引。
+    """
+
+    def __init__(self, role: str, path: Path, cause: UnicodeDecodeError) -> None:
+        super().__init__(f"无法以 UTF-8 解码 {path}：{cause.reason}")
+        self.role = role
+        self.path = path
+        self.cause = cause
+        self.reason = cause.reason
+
+
+class PromptExtensionReadError(Exception):
+    """Prompt 扩展文件读取失败（权限不足 / 是目录 / 磁盘 IO 错误等）。"""
+
+    def __init__(self, role: str, path: Path, cause: OSError) -> None:
+        super().__init__(f"无法读取 {path}：{cause}")
+        self.role = role
+        self.path = path
+        self.cause = cause
+
+
 def _read_prompt_extensions(planner_path: str | None, evaluator_path: str | None) -> dict[str, str]:
-    """读取 planner / evaluator 的 Prompt 扩展文件并归集。"""
+    """读取 planner / evaluator 的 Prompt 扩展文件并归集。
+
+    P1-14：除了原有的 ``FileNotFoundError``，还会把非 UTF-8 解码失败与其它 IO
+    错误分别翻译为 ``PromptExtensionDecodeError`` / ``PromptExtensionReadError``，
+    避免 ``UnicodeDecodeError`` 直接冒泡到 main 产生不可读的 traceback。
+    """
     extensions: dict[str, str] = {}
     for role, raw_path in (("planner", planner_path), ("evaluator", evaluator_path)):
         if not raw_path:
@@ -138,7 +189,15 @@ def _read_prompt_extensions(planner_path: str | None, evaluator_path: str | None
         path = Path(raw_path)
         if not path.exists():
             raise FileNotFoundError(str(path))
-        content = path.read_text(encoding="utf-8").strip()
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise PromptExtensionDecodeError(role, path, exc) from exc
+        except OSError as exc:
+            # FileNotFoundError 已被上面 path.exists() 拦截，此分支主要兜底
+            # PermissionError / IsADirectoryError / 网络驱动器 IO 错误等。
+            raise PromptExtensionReadError(role, path, exc) from exc
+        content = content.strip()
         if content:
             extensions[role] = content
     return extensions

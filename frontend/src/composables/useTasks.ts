@@ -37,6 +37,11 @@ interface TaskForm {
     promptExtensions: PromptExtensions;
 }
 
+/**
+ * P1-13：本 composable 不再接收 `connectEventStream` 回调。任务创建/选中后
+ * 由编排层 `useConsoleApp` 通过 `watch([view, selectedTaskId])` 主动驱动 WS 重连，
+ * 避免曾经的"holder ref"鸡生蛋 hack。
+ */
 export function useTasks(opts: {
     allTasks: Ref<Task[]>;
     projects: Ref<Project[]>;
@@ -45,14 +50,13 @@ export function useTasks(opts: {
     message: Ref<string>;
     formErrors: Record<string, string>;
     view: Ref<string>;
-    connectEventStream: () => void;
 }) {
     // models 留在 opts 类型里以保持调用方契约（useConsoleApp 仍按原 shape 传入），
     // 但当前实现不直接消费它（任务模型选择由 modelDomain 负责）。
-    const { allTasks, projects, error, message, formErrors, view, connectEventStream } = opts;
+    const { allTasks, projects, error, message, formErrors, view } = opts;
 
     const taskList = useTaskList({ allTasks });
-    const taskSelection = useTaskSelection({ allTasks, view, error, connectEventStream });
+    const taskSelection = useTaskSelection({ allTasks, view, error });
 
     /* ── 任务表单 ── */
 
@@ -178,7 +182,7 @@ export function useTasks(opts: {
             taskSelection.selectedTaskId.value = task.taskId;
             showTaskDialog.value = false;
             resetTaskForm();
-            connectEventStream();
+            // P1-13：WS 重连由编排层 watch(selectedTaskId) 自动触发，无需手动调。
             message.value = isEditing ? "任务已更新。" : "任务已创建。";
             error.value = "";
         } catch (caught) {

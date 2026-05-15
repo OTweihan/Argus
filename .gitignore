@@ -44,6 +44,11 @@ frontend/node_modules/
 frontend/dist/
 frontend/src/components.d.ts
 
+# Vite build 产物：由 `cd frontend && pnpm build` 生成，不入 git。
+# 详见 README 「Web 控制台构建产物」节。
+argus_py/api/static/assets/
+argus_py/api/static/index.html
+
 # Environment
 .env
 .env.local

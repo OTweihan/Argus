@@ -225,3 +225,130 @@ def test_main_run_handles_generic_error_with_unified_format(monkeypatch, capsys)
     assert exit_code == 1
     assert "错误：任务执行失败" in error_output
     assert "详情：boom" in error_output
+
+
+# ─── P1-14: Prompt 扩展文件编码 / IO 错误友好提示 ──────────────────────────
+
+
+def test_read_prompt_extensions_utf8_success(tmp_path):
+    planner = tmp_path / "planner.md"
+    planner.write_text("planner 扩展内容\n第二行", encoding="utf-8")
+    evaluator = tmp_path / "evaluator.md"
+    evaluator.write_text("evaluator 扩展", encoding="utf-8")
+
+    out = run_cmd._read_prompt_extensions(str(planner), str(evaluator))
+
+    assert out == {"planner": "planner 扩展内容\n第二行", "evaluator": "evaluator 扩展"}
+
+
+def test_read_prompt_extensions_skips_empty_files(tmp_path):
+    """空文件 / 仅空白 → 该角色不进入返回字典。"""
+    planner = tmp_path / "planner.md"
+    planner.write_text("   \n  \t", encoding="utf-8")
+
+    out = run_cmd._read_prompt_extensions(str(planner), None)
+
+    assert out == {}
+
+
+def test_read_prompt_extensions_missing_file_raises_filenotfound(tmp_path):
+    missing = tmp_path / "absent.md"
+    with pytest.raises(FileNotFoundError) as exc_info:
+        run_cmd._read_prompt_extensions(str(missing), None)
+    assert str(missing) in str(exc_info.value)
+
+
+def test_read_prompt_extensions_non_utf8_raises_decode_error(tmp_path):
+    """GBK / Latin-1 等非 UTF-8 编码文件应翻译为 PromptExtensionDecodeError，
+    并带上 role / path / reason 三个关键信息。"""
+    bad = tmp_path / "planner_gbk.md"
+    # 使用一个 UTF-8 严格无效的字节序列：0xFF 0xFE（UTF-16 BOM）+ 0x80
+    bad.write_bytes(b"\xff\xfe planner \x80\xff content")
+
+    with pytest.raises(run_cmd.PromptExtensionDecodeError) as exc_info:
+        run_cmd._read_prompt_extensions(str(bad), None)
+
+    err = exc_info.value
+    assert err.role == "planner"
+    assert err.path == bad
+    # reason 由底层 UnicodeDecodeError 提供，应非空字符串
+    assert isinstance(err.reason, str)
+    assert err.reason
+
+
+def test_read_prompt_extensions_directory_raises_read_error(tmp_path):
+    """把目录路径传进来：path.exists() 返回 True、read_text 抛 IsADirectoryError
+    （Linux）或 PermissionError（Windows），均应转为 PromptExtensionReadError。"""
+    sub_dir = tmp_path / "evaluator_dir"
+    sub_dir.mkdir()
+
+    with pytest.raises(run_cmd.PromptExtensionReadError) as exc_info:
+        run_cmd._read_prompt_extensions(None, str(sub_dir))
+
+    err = exc_info.value
+    assert err.role == "evaluator"
+    assert err.path == sub_dir
+    # 底层异常应是 OSError 子类
+    assert isinstance(err.cause, OSError)
+
+
+@pytest.mark.asyncio
+async def test_run_translates_decode_error_to_friendly_message(monkeypatch, capsys, tmp_path):
+    """端到端：CLI run() 收到非 UTF-8 扩展文件时应 return 1 +
+    输出中文提示 + 给出转码命令建议，不能让 UnicodeDecodeError 冒泡。"""
+    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
+    bad = tmp_path / "planner.md"
+    bad.write_bytes(b"\xff\xfe non-utf8 \x80\xff")
+
+    args = argparse.Namespace(
+        goal="打开页面",
+        url="https://example.com",
+        max_steps=None,
+        timeout=None,
+        no_screenshot=False,
+        create_only=True,
+        headed=False,
+        browser="chromium",
+        planner_extension=str(bad),
+        evaluator_extension=None,
+    )
+
+    exit_code = await run_cmd.run(args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "错误：任务执行失败" in captured.err
+    # 路径与角色都应出现在 detail 行
+    assert str(bad) in captured.err
+    assert "--planner-extension" in captured.err
+    # hint 应明确建议 UTF-8 转码
+    assert "UTF-8" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_run_translates_read_error_to_friendly_message(monkeypatch, capsys, tmp_path):
+    """非编码的 IO 错误（这里用目录路径触发）也应得到友好中文提示。"""
+    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
+    sub_dir = tmp_path / "evaluator_dir"
+    sub_dir.mkdir()
+
+    args = argparse.Namespace(
+        goal="打开页面",
+        url="https://example.com",
+        max_steps=None,
+        timeout=None,
+        no_screenshot=False,
+        create_only=True,
+        headed=False,
+        browser="chromium",
+        planner_extension=None,
+        evaluator_extension=str(sub_dir),
+    )
+
+    exit_code = await run_cmd.run(args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "错误：任务执行失败" in captured.err
+    assert str(sub_dir) in captured.err
+    assert "--evaluator-extension" in captured.err

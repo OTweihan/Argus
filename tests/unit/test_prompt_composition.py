@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
 
+from argus_py.blackbox import prompts as prompts_module
 from argus_py.blackbox.evaluator import BlackboxEvaluator
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.blackbox.prompts import (
+    PROMPT_EXTENSION_MARKER,
+    _compose,
     compose_evaluator_prompt,
     compose_planner_prompt,
     load_evaluator_prompt,
@@ -76,6 +80,29 @@ def test_compose_evaluator_appends_extension_at_tail():
     composed = compose_evaluator_prompt(extension)
 
     assert composed.rstrip().endswith(extension)
+
+
+def test_compose_warns_when_marker_missing(caplog: pytest.LogCaptureFixture) -> None:
+    """P1-8：模板缺 marker 时应 warn 并降级为末尾追加，不静默失语义。"""
+    caplog.set_level(logging.WARNING, logger=prompts_module.__name__)
+
+    base_without_marker = "# 内置模板\n\n仅安全边界，没有业务扩展 marker。\n"
+    composed = _compose(base_without_marker, ["EXT_TOKEN"], prompt_name="test.md")
+
+    # 行为：扩展仍被追加到末尾（向后兼容）
+    assert composed.rstrip().endswith("EXT_TOKEN")
+    # 但必须出现 warn，提示模板可能被改坏
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any(PROMPT_EXTENSION_MARKER in r.getMessage() for r in warnings)
+    assert any("test.md" in r.getMessage() for r in warnings)
+
+
+def test_compose_no_warn_when_no_extensions(caplog: pytest.LogCaptureFixture) -> None:
+    """没有任何扩展时即使 marker 缺失也不应 warn（不会出错也不需要噪声）。"""
+    caplog.set_level(logging.WARNING, logger=prompts_module.__name__)
+    _compose("没有 marker 的模板。", [], prompt_name="test.md")
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings == []
 
 
 @pytest.mark.asyncio

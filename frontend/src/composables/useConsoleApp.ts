@@ -1,9 +1,10 @@
-import { computed, nextTick, onMounted, reactive, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 
 import { ElMessage } from "element-plus";
-import { summary as apiSummary, getDashboardStats as apiDashboardStats } from "../api";
-import type { ConfigSummary, DashboardStats, ModelConfig, Project, Task } from "../types";
+import { summary as apiSummary } from "../api";
+import type { ConfigSummary, ModelConfig, Project, Task } from "../types";
 import { compact, errorMessage } from "../utils";
+import { useDashboardStats } from "./useDashboardStats";
 import { useDialog } from "./useDialog";
 import { useModels } from "./useModels";
 import { useNavigation } from "./useNavigation";
@@ -24,47 +25,18 @@ export function useConsoleApp() {
     const projects = ref<Project[]>([]);
     const allTasks = ref<Task[]>([]);
     const models = ref<ModelConfig[]>([]);
-    // dashboardStats 与分页列表解耦，由 /tasks/stats 提供全量计数与最近任务摘要。
-    // allTasks 只反映当前任务页（分页用），不能用来算"全部任务数"。
-    const dashboardStats = ref<DashboardStats | null>(null);
 
-    async function loadDashboardStats(): Promise<void> {
-        try {
-            dashboardStats.value = await apiDashboardStats(8);
-        } catch (caught) {
-            error.value = caught instanceof Error ? caught.message : "加载仪表盘统计失败";
-        }
-    }
+    // P1-13：dashboard 相关 ref / loader / computed 抽到 useDashboardStats。
+    const dashboard = useDashboardStats({ error });
 
     const nav = useNavigation();
     const dialog = useDialog();
     const events = useRuntimeEvents();
 
-    /* ── connectEventStream wrapper：需要 view（来自 nav）和 selectedTaskId（来自 useTasks） ── */
-
-    // useTasks 需要 connectEventStream 当回调，但 connectEventStream 又需要
-    // taskDomain.selectedTaskId —— 鸡生蛋。
-    //
-    // 用普通对象做 holder：
-    //   - holder 自身是 const，``current`` 字段在 taskDomain 构造完后被替换
-    //     为 taskDomain.selectedTaskId（普通字段 mutation，ESLint vue/no-ref-
-    //     as-operand 不会误报；shallowRef 在此处会被 vue-tsc auto-unwrap，
-    //     绕不开类型层面的 ref 解包）
-    //   - useRuntimeEvents.connectEventStream 的实现是"调用瞬间读 .value"，
-    //     所有真实调用时机（onMounted / watch view / changeView / selectTask）
-    //     都在 holder.current 替换之后发生，闭包总是读到最新 inner ref。
-    const selectedTaskIdHolder: { current: Ref<string | null> } = { current: ref(null) };
-
-    function connectEventStream(): void {
-        events.connectEventStream(nav.view, selectedTaskIdHolder.current);
-    }
-
     const taskDomain = useTasks({
         allTasks, projects, models, error, message, formErrors,
         view: nav.view,
-        connectEventStream,
     });
-    selectedTaskIdHolder.current = taskDomain.selectedTaskId;
 
     const projectDomain = useProjects({ projects, error, message, formErrors });
 
@@ -75,20 +47,28 @@ export function useConsoleApp() {
     const taskEvents = useTaskEvents(
         allTasks,
         taskDomain.loadTasks,
-        // 走到这一行时 taskDomain 已就绪，直接传它的 selectedTaskId，不必再
-        // 透过 holder 间接引用，类型也更直接。
         taskDomain.selectedTaskId,
         (msg) => { error.value = msg; },
         (s) => { summary.value = s; },
-        loadDashboardStats,
+        dashboard.loadDashboardStats,
     );
     events.onTaskEvent((event) => taskEvents.applyEvent(event));
 
-    /* ── 视图切换（恢复旧逻辑中丢失的 side effect） ── */
+    /* ── 视图与 WebSocket 编排 ──
+     *
+     * P1-13：之前 `useTasks → useTaskSelection.selectTask` 主动回调 `connectEventStream`，
+     * 而 `connectEventStream` 闭包又需要 `taskDomain.selectedTaskId`，形成"鸡生蛋"，
+     * 用 holder ref 后期填充绕过。现在反向：让 useTasks 只更新状态，编排层 watch
+     * `[view, selectedTaskId]` 任一变化都触发 WS 重连，Vue 批量更新机制保证两者
+     * 同 tick 变化时只触发一次。
+     */
+    function connectEventStream(): void {
+        events.connectEventStream(nav.view, taskDomain.selectedTaskId);
+    }
 
-    watch(nav.view, () => {
+    watch([nav.view, taskDomain.selectedTaskId], () => {
         // nextTick 确保视图切换渲染完成后再重连 WebSocket，
-        // 避免 event replay 触发 allTasks 更新导致 el-table 闪烁
+        // 避免 event replay 触发 allTasks 更新导致 el-table 闪烁。
         nextTick(() => connectEventStream());
     });
 
@@ -96,21 +76,13 @@ export function useConsoleApp() {
         nav.changeView(nextView);
         error.value = "";
         message.value = "";
-        connectEventStream();
+        // 不再主动调 connectEventStream：watch(view) 已经接管。
     }
 
     /* ── 计算属性 ── */
 
-    // 仪表盘指标走 /tasks/stats 全量统计，避免被分页 allTasks 误导。
-    // stats 还未加载时回退为 0 / 空数组，DashboardView 显示骨架值。
-    const tasksTotal = computed(() => dashboardStats.value?.tasksTotal ?? 0);
-
-    const runningCount = computed(() => dashboardStats.value?.runningTotal ?? 0);
-
-    const findingCount = computed(() => dashboardStats.value?.findingsTotal ?? 0);
-
-    const recentTasks = computed(() => dashboardStats.value?.recentTasks ?? []);
-
+    // 仪表盘指标已抽到 useDashboardStats（tasksTotal / runningCount /
+    // findingCount / recentTasks），下面只保留 useConsoleApp 自己需要的派生项。
     const enabledModels = computed(() => models.value.filter((model) => model.enabled));
 
     const viewTitle = computed(() => {
@@ -171,7 +143,7 @@ export function useConsoleApp() {
                 projectDomain.loadProjects(),
                 taskDomain.loadTasks(),
                 modelDomain.loadModels(),
-                loadDashboardStats(),
+                dashboard.loadDashboardStats(),
             ]);
             summary.value = summaryResponse;
         } catch (caught) {
@@ -184,8 +156,8 @@ export function useConsoleApp() {
     return {
         addParam: taskDomain.addParam,
         allTasks,
-        dashboardStats,
-        tasksTotal,
+        dashboardStats: dashboard.dashboardStats,
+        tasksTotal: dashboard.tasksTotal,
         changeView,
         closeDialog: dialog.closeDialog,
         deleteTask: taskDomain.deleteTask,
@@ -200,7 +172,7 @@ export function useConsoleApp() {
         eventStatus: events.eventStatus,
         eventStatusText: events.eventStatusText,
         onTaskEvent: events.onTaskEvent,
-        findingCount,
+        findingCount: dashboard.findingCount,
         formErrors,
         goBackToTasks: taskDomain.goBackToTasks,
         loadAll,
@@ -218,13 +190,13 @@ export function useConsoleApp() {
         pageSize: taskDomain.pageSize,
         projectForm: projectDomain.projectForm,
         projects,
-        recentTasks,
+        recentTasks: dashboard.recentTasks,
         removeParam: taskDomain.removeParam,
         reportData: taskDomain.reportData,
         reportLoading: taskDomain.reportLoading,
         resetModelForm: modelDomain.resetModelForm,
         resetProjectForm: projectDomain.resetProjectForm,
-        runningCount,
+        runningCount: dashboard.runningCount,
         saveModel: modelDomain.saveModel,
         saveProject: projectDomain.saveProject,
         saveTask: taskDomain.saveTask,
