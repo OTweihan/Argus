@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskNotFoundError
+from argus_py.observability.events import log_event
 from argus_py.task.models import Task
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+
+logger = logging.getLogger(__name__)
 
 
 class TaskQueryService:
@@ -24,10 +29,17 @@ class TaskQueryService:
         return self.storage.load(task_id)
 
     def get_latest_task(self, task: Task) -> Task:
-        """从存储中读取最新任务快照，失败时返回原对象。"""
+        """从存储中读取最新任务快照。
+
+        任务被删除时返回原对象（业务上允许的降级）；DB 损坏、磁盘 I/O 等
+        非预期异常向上冒泡，以免上游用过期数据继续决策。
+        """
         try:
             return self.get_task(task.task_id)
-        except Exception:
+        except TaskNotFoundError:
+            log_event(
+                logger, "task.get_latest.fallback", status="error", details={"taskId": task.task_id}
+            )
             return task
 
     def list_tasks(

@@ -14,7 +14,7 @@ from argus_py.config.service import ModelConfigService
 from argus_py.infra.events import EventBus
 from argus_py.infra.queue import TaskQueue
 from argus_py.infra.worker import TaskWorker
-from argus_py.observability.audit import AuditService
+from argus_py.observability.audit import AuditService, set_audit_service
 from argus_py.project.service import ProjectService
 from argus_py.task.service import TaskService
 
@@ -50,6 +50,8 @@ def create_container() -> RuntimeContainer:
     audit_service = AuditService(
         event_publisher=event_bus.publish if settings.observability_audit_logging else None,
     )
+
+    set_audit_service(audit_service)
 
     task_service = TaskService(event_publisher=event_bus.publish)
 

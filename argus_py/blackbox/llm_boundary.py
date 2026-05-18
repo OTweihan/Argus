@@ -40,21 +40,41 @@ class LLMBoundaryFactory:
         self._owned_clients: list[LLMClient] = []
 
     def resolve(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:
-        """为任务创建（或复用）planner 和 evaluator。"""
+        """为任务创建（或复用）planner 和 evaluator。
+
+        当外部注入的 planner/evaluator ``llm_client is None`` 时，惰性
+        ``_client()`` 会各自创建独立的 ``LLMClient``，导致底层 httpx 连接池
+        泄漏。本方法注入工厂托管的共享 client 以阻断惰性加载路径。
+        """
         planner = self._default_planner
         evaluator = self._default_evaluator
 
-        if planner is None or evaluator is None:
+        # 注意：外部可能传入无 llm_client 属性的 Mock/stub 对象，
+        # 使用 hasattr 安全探测。
+        def _needs_client(obj: Any) -> bool:
+            return obj is None or (hasattr(obj, "llm_client") and obj.llm_client is None)
+
+        if _needs_client(planner) or _needs_client(evaluator):
             llm_client = resolve_llm_client_for_task(task)
             self._owned_clients.append(llm_client)
             planner_exts, evaluator_exts = self._collect_extensions(task)
+
             if planner is None:
                 planner = BlackboxPlanner(llm_client=llm_client, prompt_extensions=planner_exts)
+            elif hasattr(planner, "llm_client") and planner.llm_client is None:
+                planner.llm_client = llm_client
+
             if evaluator is None:
                 evaluator = BlackboxEvaluator(
                     llm_client=llm_client, prompt_extensions=evaluator_exts
                 )
+            elif hasattr(evaluator, "llm_client") and evaluator.llm_client is None:
+                evaluator.llm_client = llm_client
 
+        # _needs_client 都为 False 意味着双方非 None，但 mypy 无法从辅助
+        # 函数中推断窄化，用断言保证类型安全。
+        assert planner is not None
+        assert evaluator is not None
         return planner, evaluator
 
     async def aclose_owned(self) -> None:

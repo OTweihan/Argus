@@ -42,7 +42,19 @@ class AuditService:
         )
 
 
-_AUDIT_LOGGER = logging.getLogger("argus.audit")
+# ── 模块级注册表：让 audit() 零侵入接入 AuditService ──
+
+_AUDIT_SERVICE: AuditService | None = None
+"""运行时注册的 AuditService 实例。仅在容器上下文（API 服务器）中存在。"""
+
+
+def set_audit_service(service: AuditService) -> None:
+    """注册 AuditService 实例，使 audit() 函数能够发布事件总线。
+
+    在容器初始化时调用一次，CLI/脚本中无需调用。
+    """
+    global _AUDIT_SERVICE
+    _AUDIT_SERVICE = service
 
 
 def audit(
@@ -52,27 +64,26 @@ def audit(
     status: str = "success",
     **details: Any,
 ) -> None:
-    """记录一条审计事件到 ``argus.audit`` logger（不发布事件总线）。
+    """记录一条业务审计事件。
 
-    用于"用户可感知的业务动作"埋点（任务/项目/模型配置 CRUD、登录态变更等），
-    与 ``@log_operation`` 的运维侧 trace 互补。``**details`` 中的字段会作为
-    审计 payload 的 ``details`` 子对象写入日志，并经过敏感字段脱敏。
+    容器上下文（API 服务器）中，通过 ``AuditService`` 同时写入日志和事件总线；
+    CLI/脚本中等零依赖上下文只写入 ``argus.audit`` logger。
 
-    本函数零运行时依赖，可在 CLI / 一次性脚本中安全调用——不会触发
-    RuntimeContainer 初始化。若需同时发布事件总线，请直接调用
-    ``AuditService.record``。
-
-    例：
-
-        audit("task.create", task_id=task.task_id, goal=task.goal)
+    与 ``@log_operation`` 的运维侧 trace 互补。``**details`` 中的字段会经过
+    敏感字段脱敏。
     """
+    if _AUDIT_SERVICE is not None:
+        _AUDIT_SERVICE.record(action, task_id=task_id, status=status, details=details or None)
+        return
+
+    # 零依赖降级路径：仅写日志，不发事件总线
     payload = redact(to_jsonable(details)) if details else {}
     extra: dict[str, Any] = {"event": action, "status": status}
     if payload:
         extra["details"] = payload
     if task_id is not None:
         extra["task_id"] = task_id
-    _AUDIT_LOGGER.info("审计事件：%s", action, extra=extra)
+    logging.getLogger("argus.audit").info("审计事件：%s", action, extra=extra)
 
 
 __all__ = ["AuditEventPublisher", "AuditService", "audit"]
