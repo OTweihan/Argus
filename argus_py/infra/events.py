@@ -272,4 +272,4 @@ def _log_publish_error(task: asyncio.Task[object]) -> None:
     """记录事件发布异步任务中的未处理异常。"""
     exc = task.exception()
     if exc:
-        logger.error("事件发布失败: %s", exc)
+        logger.error("事件发布失败: %s", exc, exc_info=True)

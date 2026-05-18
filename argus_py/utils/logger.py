@@ -30,6 +30,6 @@ def setup_logging(config_path: str | Path = LOGGING_CONFIG_FILE) -> None:
     logging.config.dictConfig(config)
 
 
-def get_logger(name: str = "argus") -> logging.Logger:
-    """获取 Logger。"""
+def get_logger(name: str) -> logging.Logger:
+    """获取 Logger。业务模块调用时传入 ``__name__``。"""
     return logging.getLogger(name)

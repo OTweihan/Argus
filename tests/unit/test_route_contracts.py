@@ -20,6 +20,8 @@ from typing import Any, cast
 import pytest
 from fastapi import HTTPException
 
+pytestmark = pytest.mark.integration
+
 from argus_py.api.routes import projects as project_routes
 from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import (

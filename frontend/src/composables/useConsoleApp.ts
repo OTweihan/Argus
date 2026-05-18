@@ -108,14 +108,22 @@ export function useConsoleApp() {
         },
     );
 
+    let _lastErrorToast = 0;
     watch(error, (val) => {
         if (val) {
+            const now = Date.now();
+            if (now - _lastErrorToast < 2000) return;
+            _lastErrorToast = now;
             ElMessage({ message: val, type: "error", duration: 5000 });
         }
     });
 
+    let _lastMessageToast = 0;
     watch(message, (val) => {
         if (val) {
+            const now = Date.now();
+            if (now - _lastMessageToast < 2000) return;
+            _lastMessageToast = now;
             ElMessage({ message: val, type: "success", duration: 3000 });
         }
     });

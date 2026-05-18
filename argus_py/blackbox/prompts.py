@@ -83,11 +83,21 @@ def _compose(base: str, extensions: Iterable[str], *, prompt_name: str = "<inlin
     return base.rstrip() + "\n\n" + "\n\n".join(cleaned_blocks)
 
 
-def compose_planner_prompt(*extensions: str) -> str:
-    """读取内置 planner prompt，按顺序在 marker 之后追加非空扩展片段。"""
-    return _compose(load_planner_prompt(), extensions, prompt_name=PLANNER_PROMPT)
+def compose_planner_prompt(*extensions: str, base: str | None = None) -> str:
+    """读取内置 planner prompt，按顺序在 marker 之后追加非空扩展片段。
+
+    可传入 ``base`` 跳过读取（预览路由已预加载时避免重复 I/O）。
+    """
+    if base is None:
+        base = load_planner_prompt()
+    return _compose(base, extensions, prompt_name=PLANNER_PROMPT)
 
 
-def compose_evaluator_prompt(*extensions: str) -> str:
-    """读取内置 evaluator prompt，按顺序在 marker 之后追加非空扩展片段。"""
-    return _compose(load_evaluator_prompt(), extensions, prompt_name=EVALUATOR_PROMPT)
+def compose_evaluator_prompt(*extensions: str, base: str | None = None) -> str:
+    """读取内置 evaluator prompt，按顺序在 marker 之后追加非空扩展片段。
+
+    可传入 ``base`` 跳过读取（预览路由已预加载时避免重复 I/O）。
+    """
+    if base is None:
+        base = load_evaluator_prompt()
+    return _compose(base, extensions, prompt_name=EVALUATOR_PROMPT)

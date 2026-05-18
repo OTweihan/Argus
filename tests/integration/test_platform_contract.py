@@ -15,6 +15,8 @@ from argus_py.task.models import Task
 from tests.helpers.factories import make_app_stack
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_web_platform_project_task_worker_events_and_report(tmp_path, monkeypatch):
     """覆盖项目创建、任务创建、入队、后台执行、事件推送和报告回写。"""
@@ -88,6 +90,8 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
         await worker.stop(timeout_seconds=1)
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 def test_submitted_project_and_task_survive_service_recreation(tmp_path):
     """覆盖服务重建后已提交项目和任务仍可读取。"""
     stack = make_app_stack(tmp_path)
@@ -106,6 +110,7 @@ def test_submitted_project_and_task_survive_service_recreation(tmp_path):
     assert recreated.task_service.get_task(task.task_id).goal == "服务重启后任务不丢失"
 
 
+@pytest.mark.integration
 def test_cli_run_and_serve_commands_can_coexist():
     """覆盖 CLI 模式和 Web 模式命令入口并存。"""
     parser = cli_main.build_parser()

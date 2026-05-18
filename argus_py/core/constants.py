@@ -1,5 +1,9 @@
 """应用级常量。"""
 
+from __future__ import annotations
+
+from pathlib import Path
+
 from argus_py.core.paths import (
     LOGS_DIR,
     OUTPUT_DIR,
@@ -9,8 +13,28 @@ from argus_py.core.paths import (
 )
 
 PROJECT_NAME = "Argus"
-PROJECT_VERSION = "0.1.0"
 PROJECT_TAGLINE = "Every bug has nowhere to hide."
+
+
+def _resolve_version() -> str:
+    """从已安装的包元数据读取版本，未安装时尝试解析 pyproject.toml。"""
+    try:
+        from importlib.metadata import version
+
+        return version("argus")
+    except Exception:
+        pass
+    # fallback：开发环境未安装时直接从 pyproject.toml 读取
+    try:
+        import tomllib
+
+        pf = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        return tomllib.loads(pf.read_text(encoding="utf-8"))["project"]["version"]
+    except Exception:
+        return "0.0.0"
+
+
+PROJECT_VERSION = _resolve_version()
 
 DEFAULT_OUTPUT_DIR = str(OUTPUT_DIR)
 DEFAULT_LOGS_DIR = str(LOGS_DIR)
@@ -33,3 +57,5 @@ DEFAULT_LLM_MAX_RETRIES = 5
 
 DEFAULT_MAX_STEPS = 20
 DEFAULT_TASK_TIMEOUT_S = 300
+
+WS_KEEPALIVE_SECONDS = 30.0

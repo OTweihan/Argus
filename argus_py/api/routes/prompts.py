@@ -23,10 +23,10 @@ async def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResponse
 
     if request.role == "planner":
         builtin = load_planner_prompt()
-        system_prompt = compose_planner_prompt(project_ext, task_ext)
+        system_prompt = compose_planner_prompt(project_ext, task_ext, base=builtin)
     else:
         builtin = load_evaluator_prompt()
-        system_prompt = compose_evaluator_prompt(project_ext, task_ext)
+        system_prompt = compose_evaluator_prompt(project_ext, task_ext, base=builtin)
 
     return PromptPreviewResponse(
         system_prompt=system_prompt,

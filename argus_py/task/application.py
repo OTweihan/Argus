@@ -179,7 +179,7 @@ class TaskApplicationService:
         new_task = await asyncio.to_thread(self._task.restart_task, task)
         try:
             result = await self._queue.enqueue(new_task.task_id)
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             # 入队失败需要回滚新建的任务，同样走线程池。
             await asyncio.to_thread(self._task.delete_pending_task, new_task)
             raise
@@ -217,6 +217,9 @@ class TaskApplicationService:
         task, scheduler_status = await self._check_not_finished(task_id)
         if scheduler_status == "queued":
             await self._queue.cancel(task_id)
+        # CancellationToken 线程不安全；必须在 event loop 线程修改信号量，
+        # 否则线程池写入与执行循环读取形成不可观测的 data race。
+        self._task.get_cancellation_token(task.task_id).cancel()
         task = await asyncio.to_thread(self._task.cancel_task, task)
         return task, await self._queue.scheduler_status(task.task_id)
 
@@ -230,6 +233,8 @@ class TaskApplicationService:
                 f"只有运行中的任务可以暂停，当前状态：{task.status.value}。",
                 details={"taskId": task.task_id, "status": task.status.value},
             )
+        # CancellationToken 线程不安全；必须在 event loop 线程修改信号量。
+        self._task.get_cancellation_token(task.task_id).pause()
         return await asyncio.to_thread(self._task.pause_task, task)
 
     async def resume_task(self, task_id: str) -> Any:
@@ -240,6 +245,8 @@ class TaskApplicationService:
                 f"只有暂停的任务可以恢复，当前状态：{task.status.value}。",
                 details={"taskId": task.task_id, "status": task.status.value},
             )
+        # CancellationToken 线程不安全；必须在 event loop 线程修改信号量。
+        self._task.get_cancellation_token(task.task_id).resume()
         return await asyncio.to_thread(self._task.resume_task, task)
 
     # ── 查询（委托） ──

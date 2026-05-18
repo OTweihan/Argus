@@ -56,8 +56,8 @@ export function mergePromptExtensions(
         return next;
     }
     const payload: Record<string, string> = {};
-    if (planner) payload.planner = extensions.planner;
-    if (evaluator) payload.evaluator = extensions.evaluator;
+    if (planner) payload.planner = planner;
+    if (evaluator) payload.evaluator = evaluator;
     next[PROMPT_EXTENSIONS_KEY] = payload;
     return next;
 }

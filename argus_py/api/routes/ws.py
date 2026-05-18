@@ -8,11 +8,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from argus_py.api.dependencies import get_event_bus, get_task_service
+from argus_py.core.constants import WS_KEEPALIVE_SECONDS
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.events import EventBus, EventSubscription
 from argus_py.task.service import TaskService
 
-KEEPALIVE_SECONDS = 30.0
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
 
@@ -59,7 +59,7 @@ async def _stream_events(websocket: WebSocket, subscription: EventSubscription) 
             try:
                 event = await asyncio.wait_for(
                     subscription.queue.get(),
-                    timeout=KEEPALIVE_SECONDS,
+                    timeout=WS_KEEPALIVE_SECONDS,
                 )
             except TimeoutError:
                 await websocket.send_json(_system_event("system.keepalive"))

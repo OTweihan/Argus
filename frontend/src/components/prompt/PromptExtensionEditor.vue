@@ -173,7 +173,6 @@ watch(
       rendered.evaluator = renderMarkdown(local.evaluator);
     }
   },
-  {deep: true},
 );
 
 onBeforeUnmount(() => {

@@ -35,7 +35,11 @@ class RuntimeContainer:
 
 @lru_cache
 def create_container() -> RuntimeContainer:
-    """创建（或返回已缓存的）运行时容器单例。"""
+    """创建（或返回已缓存的）运行时容器单例。
+
+    注意：``@lru_cache`` 保证单例但意可能测试跨用例污染。测试中若直接调用此函数，
+    务必在 teardown 中执行 ``create_container.cache_clear()`` 清除缓存。
+    """
     settings = load_server_settings()
 
     event_bus = EventBus(
