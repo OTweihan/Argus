@@ -90,6 +90,10 @@ class BlackboxExecutionLoop:
                     break
                 executed_steps += 1
 
+                # 每个步骤前检查取消，避免长 batch 中停止不响应。
+                if await self._check_cancelled(task):
+                    return self.finalizer.finalize(self.service.get_latest_task(task), owns_status)
+
                 self.events.action(
                     task.task_id,
                     executed_steps,

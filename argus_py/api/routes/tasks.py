@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -21,6 +22,8 @@ from argus_py.api.schemas import (
 from argus_py.core.enums import TaskStatus
 from argus_py.task.application import TaskAppError, TaskApplicationService
 from argus_py.task.strategy import infer_execution_limits
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -135,7 +138,11 @@ async def list_tasks(
 ) -> TaskSummaryListResponse:
     """列出任务（轻量，不含日志和发现项），支持过滤和分页。"""
     # 列表和 COUNT 都走同步 SQLite，并行扔进线程池避免事件循环阻塞。
-    tasks, total = await asyncio.gather(
+    # gather 带 return_exceptions=True：list 失败则整段报错，count 失败则
+    # 降级返回 total=0，避免 COUNT 异常拖垮列表渲染。
+    tasks_or_err: Any
+    total_or_err: Any
+    tasks_or_err, total_or_err = await asyncio.gather(
         asyncio.to_thread(
             app.list_task_summaries,
             status=status,
@@ -150,7 +157,12 @@ async def list_tasks(
             project_id=project_id,
             q=q,
         ),
+        return_exceptions=True,
     )
+    if isinstance(tasks_or_err, Exception):
+        raise tasks_or_err
+    tasks = tasks_or_err
+    total = 0 if isinstance(total_or_err, Exception) else total_or_err
     status_snapshot = await app.snapshot_queue_statuses()
     return TaskSummaryListResponse(
         total=total,
@@ -183,9 +195,18 @@ async def get_dashboard_stats(
 
     与分页列表解耦：COUNT 走 SQLite 索引，避免 dashboard 把"当前页"误当全量。
     """
-    stats, status_snapshot = await asyncio.gather(
+    stats_or_err: Any
+    status_snapshot_or_err: Any
+    stats_or_err, status_snapshot_or_err = await asyncio.gather(
         asyncio.to_thread(app.get_dashboard_stats, recent_limit=recent_limit),
         app.snapshot_queue_statuses(),
+        return_exceptions=True,
+    )
+    if isinstance(stats_or_err, Exception):
+        raise stats_or_err
+    stats = stats_or_err
+    status_snapshot: dict[str, str] = (
+        {} if isinstance(status_snapshot_or_err, Exception) else status_snapshot_or_err
     )
     return DashboardStatsResponse(
         tasks_total=stats["tasks_total"],

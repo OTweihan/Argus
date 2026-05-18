@@ -10,10 +10,14 @@ class ConfigError(ArgusError):
 
 
 class LLMError(ArgusError):
-    """LLM 调用失败。"""
+    """LLM 调用失败（非可重试 —— 响应格式异常等）。"""
 
 
-class LLMRateLimitError(LLMError):
+class LLMTransientError(LLMError):
+    """LLM 临时故障（网络超时、5xx 等），可重试。"""
+
+
+class LLMRateLimitError(LLMTransientError):
     """LLM 供应商限流。"""
 
 

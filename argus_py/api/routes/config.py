@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import replace
 from typing import Any, cast
 
@@ -19,10 +20,12 @@ from argus_py.api.schemas import (
     ModelConnectionTestResponse,
 )
 from argus_py.config.models import ModelConfig
-from argus_py.config.server_settings import load_server_settings
+from argus_py.config.server_settings import ServerSettings, load_server_settings
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.llm.providers import get_provider_spec
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -32,11 +35,25 @@ async def get_config_summary() -> ConfigSummaryResponse:
     """返回非敏感配置摘要。"""
     # load_server_settings 走文件 IO；list_model_configs / get_default_model_config 走 SQLite。
     # 用 gather + to_thread 让三次同步 IO 并行执行，事件循环不再卡 dashboard 首屏。
-    settings, model_configs, default_model_config = await asyncio.gather(
+    # settings 失败则整段报错（无设置无服务）；模型配置失败时降级为 0 / None。
+    settings_or_err, model_configs_or_err, default_or_err = await asyncio.gather(
         asyncio.to_thread(load_server_settings),
         asyncio.to_thread(get_model_config_service().list_model_configs),
         asyncio.to_thread(get_model_config_service().get_default_model_config),
+        return_exceptions=True,
     )
+    if isinstance(settings_or_err, BaseException):
+        raise settings_or_err
+    settings: ServerSettings = settings_or_err
+
+    model_configs: list[ModelConfig]
+    default_model_config: ModelConfig | None
+    if not isinstance(model_configs_or_err, BaseException):
+        model_configs = model_configs_or_err
+        default_model_config = None if isinstance(default_or_err, BaseException) else default_or_err
+    else:
+        model_configs = []
+        default_model_config = None
     return ConfigSummaryResponse(
         server_host=settings.host,
         server_port=settings.port,

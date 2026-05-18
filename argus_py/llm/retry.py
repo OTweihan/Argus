@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TypeVar
 
 from argus_py.core.constants import DEFAULT_LLM_MAX_RETRIES
-from argus_py.core.exceptions import LLMError, LLMRateLimitError
+from argus_py.core.exceptions import LLMError, LLMTransientError
 
 T = TypeVar("T")
 
@@ -23,14 +24,15 @@ class RetryConfig:
     max_delay_seconds: float = 8.0
 
     def delay_for_attempt(self, attempt: int) -> float:
-        """根据重试次数计算退避时间。"""
-        return min(self.base_delay_seconds * (2**attempt), self.max_delay_seconds)
+        """计算退避时间（全抖动）。"""
+        cap = min(self.base_delay_seconds * (2**attempt), self.max_delay_seconds)
+        return random.uniform(0, cap)
 
 
 async def retry_async(
     operation: Callable[[], Awaitable[T]],
     retry_config: RetryConfig | None = None,
-    retryable_errors: tuple[type[Exception], ...] = (LLMRateLimitError,),
+    retryable_errors: tuple[type[Exception], ...] = (LLMTransientError,),
 ) -> T:
     """执行异步操作并按配置重试。"""
     config = retry_config or RetryConfig()
@@ -50,7 +52,7 @@ async def retry_async(
 
 def with_retry(
     max_retries: int = DEFAULT_LLM_MAX_RETRIES,
-    retryable_errors: tuple[type[Exception], ...] = (LLMRateLimitError,),
+    retryable_errors: tuple[type[Exception], ...] = (LLMTransientError,),
     base_delay: float = 1.0,
 ):
     """异步函数重试装饰器。"""

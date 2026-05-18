@@ -16,7 +16,12 @@ from argus_py.core.constants import (
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_TEMPERATURE,
 )
-from argus_py.core.exceptions import ConfigError, LLMError, LLMRateLimitError
+from argus_py.core.exceptions import (
+    ConfigError,
+    LLMError,
+    LLMRateLimitError,
+    LLMTransientError,
+)
 from argus_py.llm.models import ChatCompletionRequest, ChatMessage, ChatResponse
 from argus_py.llm.retry import RetryConfig, retry_async
 
@@ -138,7 +143,7 @@ class LLMClient:
             response = await retry_async(
                 lambda: self._post_completion(request),
                 retry_config=self.retry_config,
-                retryable_errors=(LLMRateLimitError, LLMError),
+                retryable_errors=(LLMTransientError,),
             )
         except Exception as exc:
             if _trace_ctx is not None:
@@ -200,14 +205,14 @@ class LLMClient:
                 json=request.to_payload(),
             )
         except httpx.TimeoutException as exc:
-            raise LLMError(f"LLM 请求超时：{exc}") from exc
+            raise LLMTransientError(f"LLM 请求超时：{exc}") from exc
         except httpx.HTTPError as exc:
-            raise LLMError(f"LLM 请求失败：{exc}") from exc
+            raise LLMTransientError(f"LLM 请求失败：{exc}") from exc
 
         if response.status_code == 429:
             raise LLMRateLimitError("LLM 请求被限流。")
         if response.status_code >= 500:
-            raise LLMError(f"LLM 服务端异常：HTTP {response.status_code} {response.text}")
+            raise LLMTransientError(f"LLM 服务端异常：HTTP {response.status_code} {response.text}")
         if response.status_code in {401, 403}:
             raise ConfigError(f"LLM 鉴权失败：HTTP {response.status_code}")
         if response.status_code >= 400:
