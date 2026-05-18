@@ -7,34 +7,19 @@ from argus_py.api.routes import projects as project_routes
 from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
 from argus_py.cli import main as cli_main
-from argus_py.config.model_storage import ModelConfigSQLiteStorage
-from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus
 from argus_py.infra.events import EventBus
-from argus_py.infra.queue import TaskQueue
 from argus_py.infra.worker import TaskWorker
-from argus_py.project.service import ProjectService
-from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.report.generator import ReportGenerator, generate_report_safely
-from argus_py.task.application import TaskApplicationService
 from argus_py.task.models import Task
-from argus_py.task.service import TaskService
-from argus_py.task.storage import TaskFileStorage
+from tests.helpers.factories import make_app_stack
 
 
 @pytest.mark.asyncio
 async def test_web_platform_project_task_worker_events_and_report(tmp_path, monkeypatch):
     """覆盖项目创建、任务创建、入队、后台执行、事件推送和报告回写。"""
     event_bus = EventBus(history_limit=50)
-    task_service = TaskService(
-        TaskFileStorage(tmp_path / "tasks"),
-        event_publisher=event_bus.publish,
-    )
-    project_service = ProjectService(
-        ProjectSQLiteStorage(tmp_path / "argus.db"),
-        task_service=task_service,
-    )
-    queue = TaskQueue()
+    stack = make_app_stack(tmp_path, event_publisher=event_bus.publish)
     report_dir = tmp_path / "reports"
 
     class FakeTaskRunner:
@@ -58,8 +43,7 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
 
     monkeypatch.setattr("argus_py.infra.worker.TaskRunner", FakeTaskRunner)
 
-    subscription = await event_bus.subscribe(replay=False)
-    worker = TaskWorker(queue=queue, service=task_service)
+    worker = TaskWorker(queue=stack.queue, service=stack.task_service)
     await worker.start()
     try:
         project = await project_routes.create_project(
@@ -69,7 +53,7 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
                 default_max_steps=3,
                 default_timeout_seconds=30,
             ),
-            service=project_service,
+            service=stack.project_service,
         )
         task = await task_routes.create_task(
             TaskCreateRequest(
@@ -77,30 +61,18 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
                 goal="验证 Web 平台端到端契约",
                 capture_screenshots=False,
             ),
-            app=TaskApplicationService(
-                task_service=task_service,
-                queue=queue,
-                project_service=project_service,
-                model_config_service=ModelConfigService(
-                    ModelConfigSQLiteStorage(tmp_path / "models.db")
-                ),
-            ),
+            app=stack.app,
         )
+        # create_task 经 asyncio.to_thread 在线程池执行，线程内无 running loop，
+        # 事件降级写入 history 而非订阅队列。在此之后订阅并 replay，可补回该事件。
+        subscription = await event_bus.subscribe(replay=True)
 
-        start_result = await task_routes.start_task(
-            task.task_id,
-            app=TaskApplicationService(
-                task_service=task_service,
-                queue=queue,
-                project_service=project_service,
-                model_config_service=ModelConfigService(
-                    ModelConfigSQLiteStorage(tmp_path / "models.db")
-                ),
-            ),
-        )
+        start_result = await task_routes.start_task(task.task_id, app=stack.app)
 
         assert start_result.scheduler_status == "queued"
-        completed = await _wait_for_task_status(task_service, task.task_id, TaskStatus.COMPLETED)
+        completed = await _wait_for_task_status(
+            stack.task_service, task.task_id, TaskStatus.COMPLETED
+        )
         assert completed.current_step == 1
         assert completed.report_path is not None
         assert Path(completed.report_path).exists()
@@ -118,26 +90,20 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
 
 def test_submitted_project_and_task_survive_service_recreation(tmp_path):
     """覆盖服务重建后已提交项目和任务仍可读取。"""
-    db_path = tmp_path / "argus.db"
-    task_dir = tmp_path / "tasks"
-
-    task_service = TaskService(TaskFileStorage(task_dir))
-    project_service = ProjectService(ProjectSQLiteStorage(db_path), task_service=task_service)
-    project = project_service.create_project(name="持久化项目", base_url="https://example.com")
-    task = task_service.create_task(
+    stack = make_app_stack(tmp_path)
+    project = stack.project_service.create_project(
+        name="持久化项目", base_url="https://example.com"
+    )
+    task = stack.task_service.create_task(
         project_id=project.project_id,
         goal="服务重启后任务不丢失",
         start_url=project.base_url,
     )
 
-    recreated_task_service = TaskService(TaskFileStorage(task_dir))
-    recreated_project_service = ProjectService(
-        ProjectSQLiteStorage(db_path),
-        task_service=recreated_task_service,
-    )
+    recreated = make_app_stack(tmp_path)
 
-    assert recreated_project_service.get_project(project.project_id).name == "持久化项目"
-    assert recreated_task_service.get_task(task.task_id).goal == "服务重启后任务不丢失"
+    assert recreated.project_service.get_project(project.project_id).name == "持久化项目"
+    assert recreated.task_service.get_task(task.task_id).goal == "服务重启后任务不丢失"
 
 
 def test_cli_run_and_serve_commands_can_coexist():
@@ -165,7 +131,7 @@ def test_cli_run_and_serve_commands_can_coexist():
 
 
 async def _wait_for_task_status(
-    service: TaskService,
+    service,
     task_id: str,
     status: TaskStatus,
     timeout_seconds: float = 2.0,

@@ -16,13 +16,29 @@ from argus_py.report.models import Report
 from argus_py.utils.jsonx import to_jsonable
 
 
+def _to_camel(snake: str) -> str:
+    """将 snake_case 转换为 camelCase。"""
+    parts = snake.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _camel_keys(data: Any) -> Any:
+    """递归将 dict 的所有 key 从 snake_case 转为 camelCase。"""
+    if isinstance(data, dict):
+        return {_to_camel(k): _camel_keys(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_camel_keys(item) for item in data]
+    return data
+
+
 def _sanitize_report_path(path: str) -> str:
     """报告对外只保留文件名，避免暴露本机绝对路径。"""
     return Path(path).name
 
 
 def report_to_dict(report: Report) -> dict[str, Any]:
-    """将报告转换为 dict，所有步骤参数和 URL 中的敏感信息会被脱敏。"""
+    """将报告转换为 camelCase dict，所有步骤参数和 URL 中的敏感信息会被脱敏。"""
+    # 先以 snake_case 做所有脱敏和结构操作，最后统一转 camelCase
     data = to_jsonable(report)
 
     # 脱敏 steps 和 task.logs：Report.from_task 让两者指向同一份 task.logs，
@@ -64,7 +80,8 @@ def report_to_dict(report: Report) -> dict[str, Any]:
     data["hidden_system_steps"] = [step for step in steps if not _should_display_step(step)]
     data["total_steps_count"] = len(steps)
     data["hidden_steps_count"] = len(steps) - len(display_steps)
-    return data
+
+    return _camel_keys(data)
 
 
 def _should_display_step(step: dict[str, Any]) -> bool:

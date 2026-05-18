@@ -9,7 +9,7 @@ def test_report_to_dict():
     data = report_to_dict(report)
 
     assert data["task"]["goal"] == "打开页面"
-    assert data["report_id"].startswith("report-")
+    assert data["reportId"].startswith("report-")
 
 
 def test_report_to_dict_hides_internal_success_steps():
@@ -25,9 +25,9 @@ def test_report_to_dict_hides_internal_success_steps():
 
     data = report_to_dict(Report.from_task(task))
 
-    assert [step["action"] for step in data["display_steps"]] == ["goto", "click"]
-    assert data["total_steps_count"] == 4
-    assert data["hidden_steps_count"] == 2
+    assert [step["action"] for step in data["displaySteps"]] == ["goto", "click"]
+    assert data["totalStepsCount"] == 4
+    assert data["hiddenStepsCount"] == 2
 
 
 def test_report_generator_writes_html_and_json(tmp_path):

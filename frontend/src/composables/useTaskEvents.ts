@@ -132,8 +132,9 @@ export function useTaskEvents(
     }
 
     const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
-    if (idx === -1 && eventType === "task.created" && eventSummary) {
-      allTasks.value = [eventSummary as unknown as Task, ...allTasks.value];
+    if (idx === -1 && eventType === "task.created") {
+      // 拉完整任务对象而非强转事件载荷，避免字段缺失导致运行时错误。
+      void refreshTaskById(taskId);
       scheduleStatsRefresh();
       return;
     }

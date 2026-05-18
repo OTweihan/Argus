@@ -86,21 +86,21 @@ describe("reportUtils.getReportSummary", () => {
     it("优先取 report.summary", () => {
         const out = getReportSummary({
             summary: "顶层 summary",
-            task: {result_summary: "任务级 summary"},
+            task: {resultSummary: "任务级 summary"},
         });
         expect(out).toBe("顶层 summary");
     });
 
-    it("顶层缺失时回落到 task.result_summary", () => {
+    it("顶层缺失时回落到 task.resultSummary", () => {
         const out = getReportSummary({
             summary: null,
-            task: {result_summary: "任务级 summary"},
+            task: {resultSummary: "任务级 summary"},
         });
         expect(out).toBe("任务级 summary");
     });
 
     it("两者均空时返回默认提示", () => {
-        expect(getReportSummary({summary: "", task: {result_summary: ""}})).toBe(
+        expect(getReportSummary({summary: "", task: {resultSummary: ""}})).toBe(
             "未记录结果摘要。",
         );
         expect(getReportSummary({summary: null, task: null})).toBe("未记录结果摘要。");

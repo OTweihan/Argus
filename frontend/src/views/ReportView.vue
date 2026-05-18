@@ -44,22 +44,22 @@
                 d="M2 4l6 3 6-3M2 12l6-3 6 3M2 8l6-3 6 3" stroke="currentColor" stroke-width="1.2"
                 stroke-linecap="round" stroke-linejoin="round"
               /></svg>
-              步骤 {{ stepCount }} / {{ report.task.max_steps }}
+              步骤 {{ stepCount }} / {{ report.task.maxSteps }}
             </span>
           </div>
         </div>
         <aside class="hero-meta" aria-label="报告元信息">
           <div class="meta-row">
             <span class="meta-label">报告 ID</span>
-            <span class="meta-value mono">{{ report.report_id }}</span>
+            <span class="meta-value mono">{{ report.reportId }}</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">任务 ID</span>
-            <span class="meta-value mono">{{ report.task.task_id }}</span>
+            <span class="meta-value mono">{{ report.task.taskId }}</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">生成时间</span>
-            <span class="meta-value">{{ formatDate(report.generated_at) }}</span>
+            <span class="meta-value">{{ formatDate(report.generatedAt) }}</span>
           </div>
         </aside>
       </div>
@@ -151,7 +151,7 @@
               </div>
               <div class="metric-body">
                 <span class="metric-label">最大步数</span>
-                <strong class="metric-value">{{ report.task.max_steps }}</strong>
+                <strong class="metric-value">{{ report.task.maxSteps }}</strong>
               </div>
             </div>
           </div>
@@ -183,7 +183,7 @@
             <tbody>
               <tr>
                 <th>任务 ID</th>
-                <td><code>{{ report.task.task_id }}</code></td>
+                <td><code>{{ report.task.taskId }}</code></td>
               </tr>
               <tr>
                 <th>目标</th>
@@ -191,7 +191,7 @@
               </tr>
               <tr>
                 <th>起始 URL</th>
-                <td>{{ report.task.start_url || '-' }}</td>
+                <td>{{ report.task.startUrl || '-' }}</td>
               </tr>
               <tr>
                 <th>结果摘要</th>
@@ -199,26 +199,26 @@
               </tr>
               <tr>
                 <th>报告路径</th>
-                <td><code>{{ report.task.report_path || '-' }}</code></td>
+                <td><code>{{ report.task.reportPath || '-' }}</code></td>
               </tr>
               <tr>
                 <th>错误信息</th>
                 <td>
-                  <span v-if="report.task.error_message" class="error-text">{{ report.task.error_message }}</span>
+                  <span v-if="report.task.errorMessage" class="error-text">{{ report.task.errorMessage }}</span>
                   <span v-else class="muted">无</span>
                 </td>
               </tr>
               <tr>
                 <th>创建时间</th>
-                <td>{{ formatDate(report.task.created_at) }}</td>
+                <td>{{ formatDate(report.task.createdAt) }}</td>
               </tr>
               <tr>
                 <th>开始时间</th>
-                <td>{{ formatDate(report.task.started_at) }}</td>
+                <td>{{ formatDate(report.task.startedAt) }}</td>
               </tr>
               <tr>
                 <th>完成时间</th>
-                <td>{{ formatDate(report.task.completed_at) }}</td>
+                <td>{{ formatDate(report.task.completedAt) }}</td>
               </tr>
             </tbody>
           </table>
@@ -240,8 +240,8 @@
                 <h2>执行步骤</h2>
                 <p class="section-subtitle">
                   按照 Agent 实际操作顺序展示关键动作。
-                  <template v-if="report.hidden_steps_count > 0">
-                    已隐藏 {{ report.hidden_steps_count }} 个内部等待或纯截图步骤。
+                  <template v-if="report.hiddenStepsCount > 0">
+                    已隐藏 {{ report.hiddenStepsCount }} 个内部等待或纯截图步骤。
                   </template>
                 </p>
               </div>
@@ -263,12 +263,12 @@
             <div class="failure-list">
               <a
                 v-for="step in failedSteps"
-                :key="step.step_number"
-                :href="'#step-' + step.step_number"
+                :key="step.stepNumber"
+                :href="'#step-' + step.stepNumber"
                 class="failure-chip"
-                @click.prevent="scrollTo('step-' + step.step_number)"
+                @click.prevent="scrollTo('step-' + step.stepNumber)"
               >
-                <span class="failure-step-num">#{{ step.step_number }}</span>
+                <span class="failure-step-num">#{{ step.stepNumber }}</span>
                 <span class="failure-msg">{{ step.error || step.message || '未记录错误详情' }}</span>
                 <svg class="failure-arrow" viewBox="0 0 16 16" fill="none" width="12" height="12">
                   <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
@@ -282,7 +282,7 @@
             <div class="timeline-line" />
             <StepCard
               v-for="step in displaySteps"
-              :key="step.task_log_id"
+              :key="step.taskLogId"
               :step="step"
               :task-id="taskId"
               @open-lightbox="openLightbox"
@@ -318,7 +318,7 @@
           <div v-if="report.findings.length" class="findings-list">
             <FindingCard
               v-for="(finding, index) in report.findings"
-              :key="finding.finding_id"
+              :key="finding.findingId"
               :finding="finding"
               :index="index"
               :task-id="taskId"
@@ -409,7 +409,7 @@ const navItems = REPORT_NAV_ITEMS;
 const status = computed(() => props.report?.task?.status ?? "");
 const statusLabel = computed(() => getStatusLabel(status.value));
 const summary = computed(() => getReportSummary(props.report));
-const displaySteps = computed(() => props.report?.display_steps ?? []);
+const displaySteps = computed(() => props.report?.displaySteps ?? []);
 const failedSteps = computed(() => displaySteps.value.filter((s) => s.result === "failed"));
 const failedCount = computed(() => failedSteps.value.length);
 const findingCount = computed(() => props.report?.findings?.length ?? 0);

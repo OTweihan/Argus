@@ -22,7 +22,15 @@
       "mcp__gitnexus__detect_changes",
       "Bash(py *)",
       "Bash(.venv/Scripts/python.exe *)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(node \"C:/Users/18441/.claude/hooks/gitnexus/gitnexus-hook.cjs\" --help)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(echo '{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Grep\",\"tool_input\":{\"pattern\":\"cancel_task\"},\"cwd\":\"D:\\\\\\\\PythonProjects\\\\\\\\Argus\"}')",
+      "Bash(node \"C:/Users/18441/.claude/hooks/gitnexus/gitnexus-hook.cjs\")",
+      "Read(//tmp/**)",
+      "Bash(node *)",
+      "Bash(git -C \"D:/PythonProjects/Argus\" show HEAD:frontend/src/views/ReportView.vue)",
+      "Bash(npx vitest *)"
     ]
   }
 }

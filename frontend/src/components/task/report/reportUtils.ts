@@ -63,14 +63,14 @@ const DEFAULT_REPORT_SUMMARY = "未记录结果摘要。";
 
 /**
  * 给定 report 对象推导 summary 文案：优先用 ``report.summary``、其次
- * ``report.task.result_summary``，最后回落到默认提示。
+ * ``report.task.resultSummary``，最后回落到默认提示。
  *
  * 该函数容忍 ``null`` / 空对象，便于在 ``computed`` 与 SSR 占位中复用。
  */
 export function getReportSummary(report: {
     summary?: string | null;
-    task?: { result_summary?: string | null } | null;
+    task?: { resultSummary?: string | null } | null;
 } | null | undefined): string {
     if (!report) return DEFAULT_REPORT_SUMMARY;
-    return report.summary || report.task?.result_summary || DEFAULT_REPORT_SUMMARY;
+    return report.summary || report.task?.resultSummary || DEFAULT_REPORT_SUMMARY;
 }

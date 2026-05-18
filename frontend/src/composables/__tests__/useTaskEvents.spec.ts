@@ -151,15 +151,25 @@ describe("useTaskEvents.applyEvent — fallback 路径收紧（P1-11）", () => 
         h.dispose();
     });
 
-    it("task.created 且不在当前页：本地前置插入 + 仅 stats 刷新", async () => {
+    it("task.created 且不在当前页：走 refreshTaskById 拉完整对象 + stats 刷新", async () => {
         const h = setupHarness([makeTask({ taskId: "t1" })]);
         const newTaskSummary = { taskId: "t2", status: "pending", goal: "new" };
+        apiGetTaskMock.mockResolvedValue(
+            makeTask({ taskId: "t2", status: "pending", goal: "new" }),
+        );
 
         h.events.applyEvent({
             eventType: "task.created",
             data: { task: newTaskSummary },
         } as TaskEvent);
 
+        // 不强制转载荷，列表不动（refreshTaskById resolve 后才 upsert）
+        expect(h.allTasks.value.map((t) => t.taskId)).toEqual(["t1"]);
+
+        await flushPromises();
+        await flushPromises();
+        expect(apiGetTaskMock).toHaveBeenCalledTimes(1);
+        expect(apiGetTaskMock).toHaveBeenCalledWith("t2");
         expect(h.allTasks.value.map((t) => t.taskId)).toEqual(["t2", "t1"]);
 
         await vi.advanceTimersByTimeAsync(350);

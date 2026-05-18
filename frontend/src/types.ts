@@ -186,64 +186,68 @@ export interface DashboardStats {
     recentTasks: Task[];
 }
 
+// ── 报告类型（camelCase）─────────────────────────────────────────────────────
+// report.json 经 report_to_dict 的 _camel_keys 转换后输出 camelCase，
+// 与其余 API 类型风格一致。
+
 export interface ReportFinding {
-    finding_id: string;
+    findingId: string;
     title: string;
     description: string;
     severity: FindingSeverity;
-    finding_type: string;
+    findingType: string;
     url: string | null;
     location: string | null;
-    screenshot_path: string | null;
-    created_at: string;
+    screenshotPath: string | null;
+    createdAt: string;
 }
 
 export interface ReportTaskLog {
-    step_number: number;
+    stepNumber: number;
     action: string;
     result: StepResult;
-    task_log_id: string;
+    taskLogId: string;
     params: Record<string, unknown>;
-    url_before: string | null;
-    url_after: string | null;
-    screenshot_path: string | null;
+    urlBefore: string | null;
+    urlAfter: string | null;
+    screenshotPath: string | null;
     message: string | null;
     error: string | null;
-    error_code: string | null;
-    created_at: string;
+    errorCode: string | null;
+    createdAt: string;
 }
 
 export interface ReportTask {
-    task_id: string;
-    project_id: string | null;
+    taskId: string;
+    projectId: string | null;
     goal: string;
-    start_url: string | null;
-    task_type: TaskType;
+    startUrl: string | null;
+    taskType: TaskType;
     status: TaskStatus;
-    max_steps: number;
-    timeout_seconds: number;
-    capture_screenshots: boolean;
-    current_step: number;
+    maxSteps: number;
+    timeoutSeconds: number;
+    captureScreenshots: boolean;
+    currentStep: number;
     parameters: Record<string, unknown>;
     logs: ReportTaskLog[];
     findings: ReportFinding[];
-    created_at: string;
-    started_at: string | null;
-    completed_at: string | null;
-    report_path: string | null;
-    result_summary: string | null;
-    error_message: string | null;
+    createdAt: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    reportPath: string | null;
+    resultSummary: string | null;
+    errorMessage: string | null;
 }
 
 export interface ReportData {
     task: ReportTask;
-    report_id: string;
+    reportId: string;
     title: string;
     summary: string;
-    generated_at: string;
+    generatedAt: string;
     steps: ReportTaskLog[];
     findings: ReportFinding[];
-    display_steps: ReportTaskLog[];
-    total_steps_count: number;
-    hidden_steps_count: number;
+    displaySteps: ReportTaskLog[];
+    totalStepsCount: number;
+    hiddenStepsCount: number;
 }

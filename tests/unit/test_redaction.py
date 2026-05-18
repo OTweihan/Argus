@@ -114,26 +114,26 @@ class TestRedactLogEntry:
     def test_redacts_all_log_fields(self) -> None:
         entry = {
             "params": {"password": "secret"},
-            "url_before": "http://example.com?t=1",
-            "url_after": "http://example.com#section",
-            "screenshot_path": "/home/user/screenshots/step1.png",
+            "urlBefore": "http://example.com?t=1",
+            "urlAfter": "http://example.com#section",
+            "screenshotPath": "/home/user/screenshots/step1.png",
             "message": "executed token=abc",
             "error": "failed api_key=xyz",
         }
         result = redact_log_entry(entry)
         assert result["params"]["password"] == "[REDACTED]"
-        assert result["url_before"] == "http://example.com"
-        assert result["url_after"] == "http://example.com"
-        assert result["screenshot_path"] == "step1.png"
+        assert result["urlBefore"] == "http://example.com"
+        assert result["urlAfter"] == "http://example.com"
+        assert result["screenshotPath"] == "step1.png"
         assert "[REDACTED]" in result["message"]
         assert "[REDACTED]" in result["error"]
 
     def test_preserves_non_sensitive_log_fields(self) -> None:
-        entry = {"action": "goto", "result": "success", "step_number": 1}
+        entry = {"action": "goto", "result": "success", "stepNumber": 1}
         result = redact_log_entry(entry)
         assert result["action"] == "goto"
         assert result["result"] == "success"
-        assert result["step_number"] == 1
+        assert result["stepNumber"] == 1
 
     def test_does_not_mutate_original(self) -> None:
         original = {"message": "token=abc"}
@@ -146,14 +146,14 @@ class TestRedactFindingEntry:
     def test_redacts_all_finding_fields(self) -> None:
         finding = {
             "url": "http://example.com?secret=1",
-            "screenshot_path": "/tmp/screen.png",
+            "screenshotPath": "/tmp/screen.png",
             "title": "found token=abc",
             "description": "error api_key=xyz",
             "location": "div#main",
         }
         result = redact_finding_entry(finding)
         assert result["url"] == "http://example.com"
-        assert result["screenshot_path"] == "screen.png"
+        assert result["screenshotPath"] == "screen.png"
         assert "[REDACTED]" in result["title"]
         assert "[REDACTED]" in result["description"]
         assert result["location"] == finding["location"]

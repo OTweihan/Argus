@@ -32,7 +32,7 @@ def resolve_llm_client_for_task(task: Task) -> LLMClient:
 
 def _task_model_config_id(task: Task) -> str | None:
     """从任务参数读取模型配置 ID。"""
-    value = task.parameters.get("modelConfigId") or task.parameters.get("model_config_id")
+    value = task.parameters.get("model_config_id")
     if value is None:
         return None
     resolved = str(value).strip()

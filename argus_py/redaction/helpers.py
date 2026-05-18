@@ -20,11 +20,12 @@ def redact_log_entry(data: dict[str, Any]) -> dict[str, Any]:
     params = result.get("params")
     if isinstance(params, dict):
         result["params"] = redact_step_params(params)
-    for url_key in ("url_before", "url_after"):
+    for url_key in ("urlBefore", "urlAfter"):
         value = result.get(url_key)
         if isinstance(value, str):
             result[url_key] = redact_href(value)
-    result["screenshot_path"] = _strip_path(result.get("screenshot_path"))
+    if "screenshotPath" in result:
+        result["screenshotPath"] = _strip_path(result["screenshotPath"])
     for text_key in ("message", "error"):
         value = result.get(text_key)
         if isinstance(value, str):
@@ -38,7 +39,8 @@ def redact_finding_entry(data: dict[str, Any]) -> dict[str, Any]:
     url = result.get("url")
     if isinstance(url, str):
         result["url"] = redact_href(url)
-    result["screenshot_path"] = _strip_path(result.get("screenshot_path"))
+    if "screenshotPath" in result:
+        result["screenshotPath"] = _strip_path(result["screenshotPath"])
     for text_key in ("title", "description", "location"):
         value = result.get(text_key)
         if isinstance(value, str):

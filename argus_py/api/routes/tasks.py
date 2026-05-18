@@ -183,8 +183,10 @@ async def get_dashboard_stats(
 
     与分页列表解耦：COUNT 走 SQLite 索引，避免 dashboard 把"当前页"误当全量。
     """
-    stats = await asyncio.to_thread(app.get_dashboard_stats, recent_limit=recent_limit)
-    status_snapshot = await app.snapshot_queue_statuses()
+    stats, status_snapshot = await asyncio.gather(
+        asyncio.to_thread(app.get_dashboard_stats, recent_limit=recent_limit),
+        app.snapshot_queue_statuses(),
+    )
     return DashboardStatsResponse(
         tasks_total=stats["tasks_total"],
         running_total=stats["running_total"],
@@ -260,13 +262,3 @@ async def resume_task(
     """恢复暂停的任务。"""
     task = await _acall(app.resume_task, task_id)
     return TaskResponse.from_task(task)
-
-
-@router.post("/{task_id}/stop", response_model=TaskResponse)
-async def stop_task(
-    task_id: str,
-    app: TaskApplicationService = Depends(get_task_app_service),
-) -> TaskResponse:
-    """强制终止任务。"""
-    task, sched = await _acall(app.stop_task, task_id)
-    return TaskResponse.from_task(task, scheduler_status=sched)

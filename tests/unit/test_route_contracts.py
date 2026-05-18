@@ -27,16 +27,9 @@ from argus_py.api.schemas import (
     TaskCreateRequest,
     TaskUpdateRequest,
 )
-from argus_py.config.model_storage import ModelConfigSQLiteStorage
-from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import ProjectError, TaskError
-from argus_py.infra.queue import TaskQueue
-from argus_py.project.service import ProjectService
-from argus_py.project.storage import ProjectSQLiteStorage
-from argus_py.task.application import TaskApplicationService
-from argus_py.task.service import TaskService
-from argus_py.task.storage import TaskFileStorage
+from tests.helpers.factories import make_app_stack
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -46,23 +39,7 @@ def _detail(exc: HTTPException) -> dict[str, Any]:
     return cast(dict[str, Any], exc.detail)
 
 
-def _make_app(tmp_path: Path) -> tuple[TaskApplicationService, TaskService, ProjectService]:
-    task_service = TaskService(TaskFileStorage(tmp_path / "tasks"))
-    project_service = ProjectService(
-        ProjectSQLiteStorage(tmp_path / "argus.db"),
-        task_service=task_service,
-    )
-    queue = TaskQueue()
-    app = TaskApplicationService(
-        task_service=task_service,
-        queue=queue,
-        project_service=project_service,
-        model_config_service=ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db")),
-    )
-    return app, task_service, project_service
-
-
-async def _create_project(project_service: ProjectService, **overrides) -> str:
+async def _create_project(project_service, **overrides) -> str:
     project = await project_routes.create_project(
         ProjectCreateRequest(
             name=overrides.pop("name", "契约测试项目"),
@@ -74,9 +51,7 @@ async def _create_project(project_service: ProjectService, **overrides) -> str:
     return project.project_id
 
 
-async def _create_pending_task(
-    app: TaskApplicationService, project_id: str, *, goal: str = "契约任务"
-):
+async def _create_pending_task(app, project_id: str, *, goal: str = "契约任务"):
     return await task_routes.create_task(
         TaskCreateRequest(project_id=project_id, goal=goal, capture_screenshots=False),
         app=app,
@@ -87,12 +62,12 @@ async def _create_pending_task(
 
 
 async def test_create_task_happy_path_returns_pending(tmp_path: Path) -> None:
-    app, _, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
 
     response = await task_routes.create_task(
         TaskCreateRequest(project_id=project_id, goal="打开首页", capture_screenshots=False),
-        app=app,
+        app=stack.app,
     )
 
     assert response.status is TaskStatus.PENDING
@@ -105,46 +80,46 @@ async def test_get_task_404_when_missing(tmp_path: Path) -> None:
 
     路由层本身不 catch ``TaskError``，会原样冒泡。本测试验证抛出类型/消息符合 contract。
     """
-    app, _, _ = _make_app(tmp_path)
+    stack = make_app_stack(tmp_path)
 
     with pytest.raises(TaskError, match="not found"):
-        await task_routes.get_task("no-such", app=app)
+        await task_routes.get_task("no-such", app=stack.app)
 
 
 async def test_list_tasks_pagination_and_filter(tmp_path: Path) -> None:
-    app, task_service, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
     for i in range(3):
-        await _create_pending_task(app, project_id, goal=f"任务 {i}")
+        await _create_pending_task(stack.app, project_id, goal=f"任务 {i}")
 
     # 直接 await 调路由函数会绕过 FastAPI 依赖解析，所有 Query/Path 形参的默认值
     # 都是 ``Query(...)`` 对象（非 int / str / None）。这里所有调用点必须显式
     # 传齐 status / project_id / q / offset / limit 五个参数，模拟 FastAPI 在
     # 真实请求中替我们填好的值。
     full = await task_routes.list_tasks(
-        status=None, project_id=None, q=None, offset=0, limit=50, app=app
+        status=None, project_id=None, q=None, offset=0, limit=50, app=stack.app
     )
     assert full.total == 3
     assert len(full.tasks) == 3
 
     # offset/limit 分页
     page = await task_routes.list_tasks(
-        status=None, project_id=None, q=None, offset=1, limit=1, app=app
+        status=None, project_id=None, q=None, offset=1, limit=1, app=stack.app
     )
     assert page.total == 3
     assert len(page.tasks) == 1
 
     # status=PENDING 过滤
     pending = await task_routes.list_tasks(
-        status=TaskStatus.PENDING, project_id=None, q=None, offset=0, limit=50, app=app
+        status=TaskStatus.PENDING, project_id=None, q=None, offset=0, limit=50, app=stack.app
     )
     assert pending.total == 3
 
     # status=COMPLETED 应该过滤为空
-    completed = await task_routes.list_tasks(
-        status=TaskStatus.COMPLETED, project_id=None, q=None, offset=0, limit=50, app=app
+    completed_list = await task_routes.list_tasks(
+        status=TaskStatus.COMPLETED, project_id=None, q=None, offset=0, limit=50, app=stack.app
     )
-    assert completed.total == 0
+    assert completed_list.total == 0
 
 
 async def test_infer_limits_returns_positive_numbers(tmp_path: Path) -> None:
@@ -159,14 +134,14 @@ async def test_infer_limits_returns_positive_numbers(tmp_path: Path) -> None:
 
 
 async def test_start_task_409_when_already_running(tmp_path: Path) -> None:
-    app, task_service, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
-    pending = await _create_pending_task(app, project_id)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
+    pending = await _create_pending_task(stack.app, project_id)
     # 直接把任务推进到 RUNNING（绕过队列），模拟 worker 已经接管
-    task_service.start_task(task_service.get_task(pending.task_id))
+    stack.task_service.start_task(stack.task_service.get_task(pending.task_id))
 
     with pytest.raises(HTTPException) as exc_info:
-        await task_routes.start_task(pending.task_id, app=app)
+        await task_routes.start_task(pending.task_id, app=stack.app)
 
     assert exc_info.value.status_code == 409
     assert _detail(exc_info.value)["code"] == "TASK_NOT_PENDING"
@@ -175,12 +150,12 @@ async def test_start_task_409_when_already_running(tmp_path: Path) -> None:
 
 async def test_pause_task_409_when_not_running(tmp_path: Path) -> None:
     """pending 状态不允许暂停。"""
-    app, _, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
-    pending = await _create_pending_task(app, project_id)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
+    pending = await _create_pending_task(stack.app, project_id)
 
     with pytest.raises(HTTPException) as exc_info:
-        await task_routes.pause_task(pending.task_id, app=app)
+        await task_routes.pause_task(pending.task_id, app=stack.app)
 
     assert exc_info.value.status_code == 409
     assert _detail(exc_info.value)["code"] == "TASK_NOT_RUNNING"
@@ -188,12 +163,12 @@ async def test_pause_task_409_when_not_running(tmp_path: Path) -> None:
 
 async def test_resume_task_409_when_not_paused(tmp_path: Path) -> None:
     """pending 状态不允许 resume。"""
-    app, _, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
-    pending = await _create_pending_task(app, project_id)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
+    pending = await _create_pending_task(stack.app, project_id)
 
     with pytest.raises(HTTPException) as exc_info:
-        await task_routes.resume_task(pending.task_id, app=app)
+        await task_routes.resume_task(pending.task_id, app=stack.app)
 
     assert exc_info.value.status_code == 409
     assert _detail(exc_info.value)["code"] == "TASK_NOT_PAUSED"
@@ -201,15 +176,15 @@ async def test_resume_task_409_when_not_paused(tmp_path: Path) -> None:
 
 async def test_cancel_task_400_when_already_finished(tmp_path: Path) -> None:
     """终态任务取消应返回 400 + ``TASK_ALREADY_FINISHED``。"""
-    app, task_service, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
-    pending = await _create_pending_task(app, project_id)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
+    pending = await _create_pending_task(stack.app, project_id)
     # 直接把任务设为 COMPLETED
-    running = task_service.start_task(task_service.get_task(pending.task_id))
-    task_service.complete_task(running, result_summary="人工标记完成")
+    running = stack.task_service.start_task(stack.task_service.get_task(pending.task_id))
+    stack.task_service.complete_task(running, result_summary="人工标记完成")
 
     with pytest.raises(HTTPException) as exc_info:
-        await task_routes.cancel_task(pending.task_id, app=app)
+        await task_routes.cancel_task(pending.task_id, app=stack.app)
 
     assert exc_info.value.status_code == 400
     assert _detail(exc_info.value)["code"] == "TASK_ALREADY_FINISHED"
@@ -217,12 +192,12 @@ async def test_cancel_task_400_when_already_finished(tmp_path: Path) -> None:
 
 async def test_restart_task_409_when_not_in_terminal_state(tmp_path: Path) -> None:
     """pending 状态不允许 restart（必须 failed/timeout/cancelled）。"""
-    app, _, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
-    pending = await _create_pending_task(app, project_id)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
+    pending = await _create_pending_task(stack.app, project_id)
 
     with pytest.raises(HTTPException) as exc_info:
-        await task_routes.restart_task(pending.task_id, app=app)
+        await task_routes.restart_task(pending.task_id, app=stack.app)
 
     assert exc_info.value.status_code == 409
     assert _detail(exc_info.value)["code"] == "TASK_NOT_RETRYABLE"
@@ -230,16 +205,16 @@ async def test_restart_task_409_when_not_in_terminal_state(tmp_path: Path) -> No
 
 async def test_update_task_409_when_not_pending(tmp_path: Path) -> None:
     """RUNNING 任务不允许更新。"""
-    app, task_service, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
-    pending = await _create_pending_task(app, project_id)
-    task_service.start_task(task_service.get_task(pending.task_id))
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
+    pending = await _create_pending_task(stack.app, project_id)
+    stack.task_service.start_task(stack.task_service.get_task(pending.task_id))
 
     with pytest.raises(HTTPException) as exc_info:
         await task_routes.update_task(
             pending.task_id,
             TaskUpdateRequest(goal="改一下", project_id=project_id),
-            app=app,
+            app=stack.app,
         )
 
     assert exc_info.value.status_code == 409
@@ -247,18 +222,18 @@ async def test_update_task_409_when_not_pending(tmp_path: Path) -> None:
 
 
 async def test_delete_task_204_for_pending_and_409_for_running(tmp_path: Path) -> None:
-    app, task_service, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
 
-    deletable = await _create_pending_task(app, project_id, goal="可删任务")
-    response = await task_routes.delete_task(deletable.task_id, app=app)
+    deletable = await _create_pending_task(stack.app, project_id, goal="可删任务")
+    response = await task_routes.delete_task(deletable.task_id, app=stack.app)
     assert response.status_code == 204
 
-    blocked = await _create_pending_task(app, project_id, goal="阻塞删除任务")
-    task_service.start_task(task_service.get_task(blocked.task_id))
+    blocked = await _create_pending_task(stack.app, project_id, goal="阻塞删除任务")
+    stack.task_service.start_task(stack.task_service.get_task(blocked.task_id))
 
     with pytest.raises(HTTPException) as exc_info:
-        await task_routes.delete_task(blocked.task_id, app=app)
+        await task_routes.delete_task(blocked.task_id, app=stack.app)
     assert exc_info.value.status_code == 409
     assert _detail(exc_info.value)["code"] == "TASK_NOT_DELETABLE"
 
@@ -268,16 +243,16 @@ async def test_delete_task_204_for_pending_and_409_for_running(tmp_path: Path) -
 
 async def test_delete_project_with_attached_tasks_raises_project_error(tmp_path: Path) -> None:
     """有关联任务的项目删除应抛 ``ProjectError``（middleware 会翻成 400）。"""
-    app, _, project_service = _make_app(tmp_path)
-    project_id = await _create_project(project_service, name="待删除项目")
-    await _create_pending_task(app, project_id)
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service, name="待删除项目")
+    await _create_pending_task(stack.app, project_id)
 
     with pytest.raises(ProjectError, match="不能删除"):
-        await project_routes.delete_project(project_id, service=project_service)
+        await project_routes.delete_project(project_id, service=stack.project_service)
 
 
 async def test_get_project_raises_project_not_found(tmp_path: Path) -> None:
     """``ProjectService.get_project`` 不存在 → ``ProjectError``。"""
-    _, _, project_service = _make_app(tmp_path)
+    stack = make_app_stack(tmp_path)
     with pytest.raises(ProjectError, match="not found"):
-        await project_routes.get_project("no-such-project", service=project_service)
+        await project_routes.get_project("no-such-project", service=stack.project_service)

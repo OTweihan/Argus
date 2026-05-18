@@ -130,7 +130,7 @@ async def test_stop_queued_task_clears_scheduler_status(tmp_path):
     task = task_service.create_task(goal="等待执行", start_url="https://example.com")
     await queue.enqueue(task.task_id)
 
-    response = await task_routes.stop_task(
+    response = await task_routes.cancel_task(
         task.task_id,
         app=TaskApplicationService(
             task_service=task_service,

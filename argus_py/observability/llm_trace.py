@@ -13,6 +13,7 @@ from typing import Any
 from argus_py.core.ids import generate_id
 from argus_py.core.paths import OUTPUT_DIR
 from argus_py.observability.context import current_context
+from argus_py.observability.redaction import _is_sensitive_key
 
 logger = logging.getLogger(__name__)
 
@@ -71,30 +72,30 @@ def reset_config_for_tests() -> None:
 
 
 # ── 脱敏配置 ──────────────────────────────────────────────
-# 匹配到这些 key 时值被脱敏（精确匹配，不含子串）
-_SENSITIVE_KEYS = frozenset(
-    {"api_key", "apikey", "authorization", "cookie", "password", "secret", "token"}
-)
-# 即使在敏感 dict 内也保留的诊断字段
+# 敏感 key 判断委托给 redaction._is_sensitive_key（子串匹配，与日志脱敏行为一致）
+# 即使命中敏感 key 也保留的诊断字段（子串匹配下 total_tokens 会命中 token）
 _SAFELIST_KEYS = frozenset({"prompt_tokens", "completion_tokens", "total_tokens", "token_usage"})
 
 MASK = "***"
 
 # ── 内容级脱敏 ────────────────────────────────────────────
 # 内容级脱敏正则：匹配字符串值中的敏感模式
+# 用命名常量而非列表索引，避免顺序变化导致 _content_replacement 分支失效。
+_PATTERN_SK_OR = re.compile(r"\b(sk-or-v1-[A-Za-z0-9]{20,})\b")
+_PATTERN_SK = re.compile(r"\b(sk-[A-Za-z0-9]{20,})\b")
+_PATTERN_JWT = re.compile(r"\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b")
+_PATTERN_URL_CRED = re.compile(r"(://)([^:/\s]+):([^@\s]+)@")
+_PATTERN_KV = re.compile(
+    r'\b(api[_-]?key|apikey|password|secret|token)\s*[=:]\s*["\']?([^\s"\'&,;]+)["\']?',
+    re.IGNORECASE,
+)
+
 _CONTENT_REDACT_PATTERNS: list[re.Pattern[str]] = [
-    # API Key: sk-... / sk-or-... (OpenAI 风格)
-    re.compile(r"\b(sk-or-v1-[A-Za-z0-9]{20,})\b"),
-    re.compile(r"\b(sk-[A-Za-z0-9]{20,})\b"),
-    # JWT: base64.base64.base64（跳过头尾伪码）
-    re.compile(r"\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b"),
-    # URL 内嵌凭据 ://user:pass@
-    re.compile(r"(://)([^:/\s]+):([^@\s]+)@"),
-    # 内联 key=value 或 key:value 形式的敏感字段
-    re.compile(
-        r'\b(api[_-]?key|apikey|password|secret|token)\s*[=:]\s*["\']?([^\s"\'&,;]+)["\']?',
-        re.IGNORECASE,
-    ),
+    _PATTERN_SK_OR,
+    _PATTERN_SK,
+    _PATTERN_JWT,
+    _PATTERN_URL_CRED,
+    _PATTERN_KV,
 ]
 
 
@@ -114,10 +115,10 @@ def _redact_sensitive_content(text: str) -> str:
 
 def _content_replacement(m: re.Match, pattern: re.Pattern[str]) -> str:
     # URL 内嵌凭据 → 保留协议和 host，遮掉密码部分
-    if pattern == _CONTENT_REDACT_PATTERNS[3]:
+    if pattern is _PATTERN_URL_CRED:
         return m.group(1) + m.group(2) + ":***@"  # ://user:***@
     # key=value → key=***
-    if pattern == _CONTENT_REDACT_PATTERNS[4]:
+    if pattern is _PATTERN_KV:
         return m.group(1) + "=" + MASK
     return MASK
 
@@ -131,7 +132,7 @@ def redact_trace_data(data: dict[str, Any]) -> dict[str, Any]:
     """递归脱敏敏感字段，支持 key 级和内容级脱敏。"""
 
     def _is_sensitive(key: str) -> bool:
-        return key.strip().lower().replace("-", "_") in _SENSITIVE_KEYS
+        return _is_sensitive_key(key)
 
     def _is_safelisted(key: str) -> bool:
         return key.strip().lower().replace("-", "_") in _SAFELIST_KEYS
@@ -140,10 +141,10 @@ def redact_trace_data(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, dict):
             result: dict[str, Any] = {}
             for k, v in value.items():
-                if _is_sensitive(k):
-                    result[k] = MASK
-                elif _is_safelisted(k):
+                if _is_safelisted(k):
                     result[k] = v
+                elif _is_sensitive(k):
+                    result[k] = MASK
                 else:
                     result[k] = _recurse(v)
             return result

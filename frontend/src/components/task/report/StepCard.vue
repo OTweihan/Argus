@@ -1,5 +1,5 @@
 <template>
-  <article :id="'step-' + step.step_number" :class="['step-card', 'step-' + step.result]">
+  <article :id="'step-' + step.stepNumber" :class="['step-card', 'step-' + step.result]">
     <div class="step-node" :class="'node-' + step.result">
       <template v-if="step.result === 'success'">
         <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
@@ -12,7 +12,7 @@
         </svg>
       </template>
       <template v-else>
-        <span>{{ step.step_number }}</span>
+        <span>{{ step.stepNumber }}</span>
       </template>
     </div>
     <div class="step-card-body">
@@ -29,27 +29,27 @@
       <div class="step-detail-grid">
         <div class="step-detail-item">
           <span class="sdi-label">步骤 ID</span>
-          <span class="sdi-value"><code>{{ step.task_log_id }}</code></span>
+          <span class="sdi-value"><code>{{ step.taskLogId }}</code></span>
         </div>
         <div class="step-detail-item">
           <span class="sdi-label">时间</span>
-          <span class="sdi-value">{{ formatDate(step.created_at) }}</span>
+          <span class="sdi-value">{{ formatDate(step.createdAt) }}</span>
         </div>
-        <div v-if="step.url_before" class="step-detail-item full-width">
+        <div v-if="step.urlBefore" class="step-detail-item full-width">
           <span class="sdi-label">URL 跳转前</span>
-          <span class="sdi-value url-text">{{ step.url_before }}</span>
+          <span class="sdi-value url-text">{{ step.urlBefore }}</span>
         </div>
-        <div v-if="step.url_after" class="step-detail-item full-width">
+        <div v-if="step.urlAfter" class="step-detail-item full-width">
           <span class="sdi-label">URL 跳转后</span>
-          <span class="sdi-value url-text">{{ step.url_after }}</span>
+          <span class="sdi-value url-text">{{ step.urlAfter }}</span>
         </div>
         <div v-if="step.error" class="step-detail-item full-width">
           <span class="sdi-label">错误</span>
           <span class="sdi-value error-text">{{ step.error }}</span>
         </div>
-        <div v-if="step.error_code" class="step-detail-item">
+        <div v-if="step.errorCode" class="step-detail-item">
           <span class="sdi-label">错误码</span>
-          <span class="sdi-value"><code>{{ step.error_code }}</code></span>
+          <span class="sdi-value"><code>{{ step.errorCode }}</code></span>
         </div>
       </div>
 
@@ -65,7 +65,7 @@
         </div>
       </div>
 
-      <div v-if="step.screenshot_path" class="step-extras">
+      <div v-if="step.screenshotPath" class="step-extras">
         <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
           <svg :class="['chevron', { open: screenshotOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
             <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
@@ -74,14 +74,14 @@
         </button>
         <div v-if="screenshotOpen" class="extras-content">
           <p class="screenshot-path">
-            截图：<code>{{ step.screenshot_path }}</code>
+            截图：<code>{{ step.screenshotPath }}</code>
           </p>
           <img
             class="screenshot"
-            :src="screenshotUrl(taskId, step.screenshot_path)"
-            :alt="'步骤 ' + step.step_number + ' 截图'"
+            :src="screenshotUrl(taskId, step.screenshotPath)"
+            :alt="'步骤 ' + step.stepNumber + ' 截图'"
             loading="lazy"
-            @click="$emit('open-lightbox', step.screenshot_path)"
+            @click="$emit('open-lightbox', step.screenshotPath)"
           >
         </div>
       </div>

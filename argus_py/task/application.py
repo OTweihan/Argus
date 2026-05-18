@@ -87,7 +87,7 @@ class TaskApplicationService:
         merged_params = {**project.parameters, **(parameters or {})}
         if model_config_id:
             self._model_config.get_model_config(model_config_id)
-            merged_params["modelConfigId"] = model_config_id
+            merged_params["model_config_id"] = model_config_id
 
         limits = resolve_execution_limits(goal, start_url, max_steps, timeout_seconds)
 
@@ -219,10 +219,6 @@ class TaskApplicationService:
             await self._queue.cancel(task_id)
         task = await asyncio.to_thread(self._task.cancel_task, task)
         return task, await self._queue.scheduler_status(task.task_id)
-
-    async def stop_task(self, task_id: str) -> tuple[Any, str | None]:
-        """强制终止任务（与 cancel 同行为，语义更强）。"""
-        return await self.cancel_task(task_id)
 
     # ── 暂停/恢复 ──
 

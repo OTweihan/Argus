@@ -1,14 +1,14 @@
 {% extends "base.html.j2" %}
 {% block content %}
 {% set status = report.task.status %}
-{% set summary = report.summary or report.task.result_summary or "未记录结果摘要。" %}
-{% set display_steps = report.display_steps %}
+{% set summary = report.summary or report.task.resultSummary or "未记录结果摘要。" %}
+{% set display_steps = report.displaySteps %}
 {% set failed_steps = display_steps | selectattr("result", "equalto", "failed") | list %}
 {% set failed_count = failed_steps | length %}
 {% set finding_count = report.findings | length %}
 {% set step_count = display_steps | length %}
-{% set total_steps_count = report.total_steps_count %}
-{% set hidden_steps_count = report.hidden_steps_count %}
+{% set total_steps_count = report.totalStepsCount %}
+{% set hidden_steps_count = report.hiddenStepsCount %}
 
 <header class="report-hero" id="top">
   <div class="hero-inner">
@@ -19,22 +19,22 @@
       <div class="hero-status">
         <span class="badge {{ status }}">{{ status }}</span>
         <span class="badge {{ 'success' if finding_count == 0 else 'failed' }}">问题 {{ finding_count }}</span>
-        <span class="badge info">步骤 {{ step_count }} / {{ report.task.max_steps }}</span>
+        <span class="badge info">步骤 {{ step_count }} / {{ report.task.maxSteps }}</span>
       </div>
     </div>
 
     <aside class="hero-meta" aria-label="报告元信息">
       <div class="meta-row">
         <span class="meta-label">报告 ID</span>
-        <span class="meta-value">{{ report.report_id }}</span>
+        <span class="meta-value">{{ report.reportId }}</span>
       </div>
       <div class="meta-row">
         <span class="meta-label">任务 ID</span>
-        <span class="meta-value">{{ report.task.task_id }}</span>
+        <span class="meta-value">{{ report.task.taskId }}</span>
       </div>
       <div class="meta-row">
         <span class="meta-label">生成时间</span>
-        <span class="meta-value">{{ report.generated_at | datetime_short }}</span>
+        <span class="meta-value">{{ report.generatedAt | datetime_short }}</span>
       </div>
     </aside>
   </div>
@@ -72,7 +72,7 @@
         </div>
         <div class="metric">
           <span>最大步数</span>
-          <strong>{{ report.task.max_steps }}</strong>
+          <strong>{{ report.task.maxSteps }}</strong>
         </div>
       </div>
     </section>
@@ -89,7 +89,7 @@
       <table class="info-table">
         <tr>
           <th>任务 ID</th>
-          <td><code>{{ report.task.task_id }}</code></td>
+          <td><code>{{ report.task.taskId }}</code></td>
         </tr>
         <tr>
           <th>目标</th>
@@ -97,7 +97,7 @@
         </tr>
         <tr>
           <th>起始 URL</th>
-          <td>{{ report.task.start_url or "" }}</td>
+          <td>{{ report.task.startUrl or "" }}</td>
         </tr>
         <tr>
           <th>结果摘要</th>
@@ -105,13 +105,13 @@
         </tr>
         <tr>
           <th>报告路径</th>
-          <td>{{ report.task.report_path or "" }}</td>
+          <td>{{ report.task.reportPath or "" }}</td>
         </tr>
         <tr>
           <th>错误信息</th>
           <td>
-            {% if report.task.error_message %}
-              {{ report.task.error_message }}
+            {% if report.task.errorMessage %}
+              {{ report.task.errorMessage }}
             {% else %}
               <span class="muted">无</span>
             {% endif %}
@@ -119,15 +119,15 @@
         </tr>
         <tr>
           <th>创建时间</th>
-          <td>{{ report.task.created_at | datetime_short }}</td>
+          <td>{{ report.task.createdAt | datetime_short }}</td>
         </tr>
         <tr>
           <th>开始时间</th>
-          <td>{{ report.task.started_at | datetime_short }}</td>
+          <td>{{ report.task.startedAt | datetime_short }}</td>
         </tr>
         <tr>
           <th>完成时间</th>
-          <td>{{ report.task.completed_at | datetime_short }}</td>
+          <td>{{ report.task.completedAt | datetime_short }}</td>
         </tr>
       </table>
     </section>
@@ -153,11 +153,11 @@
           <table class="info-table">
             {% for step in failed_steps %}
               <tr>
-                <th>#{{ step.step_number }} {{ step.action }}</th>
+                <th>#{{ step.stepNumber }} {{ step.action }}</th>
                 <td>
-                  <a href="#step-{{ step.step_number }}">{{ step.error or step.message or "未记录错误详情" }}</a>
-                  {% if step.error_code %}
-                  <span class="err-code">{{ step.error_code }}</span>
+                  <a href="#step-{{ step.stepNumber }}">{{ step.error or step.message or "未记录错误详情" }}</a>
+                  {% if step.errorCode %}
+                  <span class="err-code">{{ step.errorCode }}</span>
                   {% endif %}
                 </td>
               </tr>
@@ -169,7 +169,7 @@
       {% if display_steps %}
         <div class="timeline">
           {% for step in display_steps %}
-            <article class="step result-{{ step.result }}" id="step-{{ step.step_number }}" data-step="{{ step.step_number }}">
+            <article class="step result-{{ step.result }}" id="step-{{ step.stepNumber }}" data-step="{{ step.stepNumber }}">
               <div class="step-head">
                 <div>
                   <div class="step-title">
@@ -185,13 +185,13 @@
                 <table class="info-table">
                   <tr>
                     <th>步骤 ID</th>
-                    <td><code>{{ step.task_log_id }}</code></td>
+                    <td><code>{{ step.taskLogId }}</code></td>
                   </tr>
                   <tr>
                     <th>URL Before</th>
                     <td>
-                      {% if step.url_before %}
-                        {{ step.url_before }}
+                      {% if step.urlBefore %}
+                        {{ step.urlBefore }}
                       {% else %}
                         <span class="muted">未记录</span>
                       {% endif %}
@@ -200,8 +200,8 @@
                   <tr>
                     <th>URL After</th>
                     <td>
-                      {% if step.url_after %}
-                        {{ step.url_after }}
+                      {% if step.urlAfter %}
+                        {{ step.urlAfter }}
                       {% else %}
                         <span class="muted">未记录</span>
                       {% endif %}
@@ -217,15 +217,15 @@
                       {% endif %}
                     </td>
                   </tr>
-                  {% if step.error_code %}
+                  {% if step.errorCode %}
                   <tr>
                     <th>错误码</th>
-                    <td><code>{{ step.error_code }}</code></td>
+                    <td><code>{{ step.errorCode }}</code></td>
                   </tr>
                   {% endif %}
                   <tr>
                     <th>时间</th>
-                    <td>{{ step.created_at | datetime_short }}</td>
+                    <td>{{ step.createdAt | datetime_short }}</td>
                   </tr>
                 </table>
 
@@ -236,19 +236,19 @@
                   </details>
                 {% endif %}
 
-                {% if step.screenshot_path %}
-                  {% set screenshot_src = step.screenshot_path | screenshot_src %}
+                {% if step.screenshotPath %}
+                  {% set screenshot_src = step.screenshotPath | screenshot_src %}
                   <details>
                     <summary>步骤截图</summary>
                     <div class="screenshot-wrap">
-                      <p class="screenshot-path">截图：<code>{{ step.screenshot_path }}</code></p>
+                      <p class="screenshot-path">截图：<code>{{ step.screenshotPath }}</code></p>
                       {% if screenshot_src %}
-                        <a class="screenshot-link" href="#step-shot-{{ step.step_number }}" title="点击放大截图">
-                          <img class="screenshot" src="{{ screenshot_src }}" alt="步骤 {{ step.step_number }} 截图">
+                        <a class="screenshot-link" href="#step-shot-{{ step.stepNumber }}" title="点击放大截图">
+                          <img class="screenshot" src="{{ screenshot_src }}" alt="步骤 {{ step.stepNumber }} 截图">
                         </a>
-                        <div class="lightbox" id="step-shot-{{ step.step_number }}">
-                          <a class="lightbox-close" href="#step-{{ step.step_number }}">关闭预览</a>
-                          <img src="{{ screenshot_src }}" alt="步骤 {{ step.step_number }} 截图放大预览">
+                        <div class="lightbox" id="step-shot-{{ step.stepNumber }}">
+                          <a class="lightbox-close" href="#step-{{ step.stepNumber }}">关闭预览</a>
+                          <img src="{{ screenshot_src }}" alt="步骤 {{ step.stepNumber }} 截图放大预览">
                         </div>
                       {% else %}
                         <p class="muted">截图文件不存在或无法访问。</p>
@@ -287,7 +287,7 @@
                 <div>
                   <div class="step-title">
                     <h3>{{ finding.title }}</h3>
-                    <span class="action-pill">{{ finding.finding_type }}</span>
+                    <span class="action-pill">{{ finding.findingType }}</span>
                   </div>
                   <p class="muted">{{ finding.description }}</p>
                 </div>
@@ -298,11 +298,11 @@
                 <table class="info-table">
                   <tr>
                     <th>问题 ID</th>
-                    <td><code>{{ finding.finding_id }}</code></td>
+                    <td><code>{{ finding.findingId }}</code></td>
                   </tr>
                   <tr>
                     <th>类型</th>
-                    <td>{{ finding.finding_type }}</td>
+                    <td>{{ finding.findingType }}</td>
                   </tr>
                   <tr>
                     <th>URL</th>
@@ -314,16 +314,16 @@
                   </tr>
                   <tr>
                     <th>时间</th>
-                    <td>{{ finding.created_at | datetime_short }}</td>
+                    <td>{{ finding.createdAt | datetime_short }}</td>
                   </tr>
                 </table>
 
-                {% if finding.screenshot_path %}
-                  {% set finding_screenshot_src = finding.screenshot_path | screenshot_src %}
+                {% if finding.screenshotPath %}
+                  {% set finding_screenshot_src = finding.screenshotPath | screenshot_src %}
                   <details>
                     <summary>问题截图</summary>
                     <div class="screenshot-wrap">
-                      <p class="screenshot-path">截图：<code>{{ finding.screenshot_path }}</code></p>
+                      <p class="screenshot-path">截图：<code>{{ finding.screenshotPath }}</code></p>
                       {% if finding_screenshot_src %}
                         <a class="screenshot-link" href="#finding-shot-{{ loop.index }}" title="点击放大截图">
                           <img class="screenshot" src="{{ finding_screenshot_src }}" alt="{{ finding.title }} 截图">

@@ -16,11 +16,11 @@
       <div class="finding-meta-grid">
         <div class="fm-item">
           <span class="fm-label">问题 ID</span>
-          <span class="fm-value"><code>{{ finding.finding_id }}</code></span>
+          <span class="fm-value"><code>{{ finding.findingId }}</code></span>
         </div>
         <div class="fm-item">
           <span class="fm-label">类型</span>
-          <span class="fm-value">{{ finding.finding_type }}</span>
+          <span class="fm-value">{{ finding.findingType }}</span>
         </div>
         <div v-if="finding.url" class="fm-item full-width">
           <span class="fm-label">URL</span>
@@ -32,10 +32,10 @@
         </div>
         <div class="fm-item">
           <span class="fm-label">时间</span>
-          <span class="fm-value">{{ formatDate(finding.created_at) }}</span>
+          <span class="fm-value">{{ formatDate(finding.createdAt) }}</span>
         </div>
       </div>
-      <div v-if="finding.screenshot_path" class="finding-extras">
+      <div v-if="finding.screenshotPath" class="finding-extras">
         <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
           <svg :class="['chevron', { open: screenshotOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
             <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
@@ -44,14 +44,14 @@
         </button>
         <div v-if="screenshotOpen" class="extras-content">
           <p class="screenshot-path">
-            截图：<code>{{ finding.screenshot_path }}</code>
+            截图：<code>{{ finding.screenshotPath }}</code>
           </p>
           <img
             class="screenshot"
-            :src="screenshotUrl(taskId, finding.screenshot_path)"
+            :src="screenshotUrl(taskId, finding.screenshotPath)"
             :alt="finding.title + ' 截图'"
             loading="lazy"
-            @click="$emit('open-lightbox', finding.screenshot_path!)"
+            @click="$emit('open-lightbox', finding.screenshotPath!)"
           >
         </div>
       </div>
