@@ -26,7 +26,7 @@ export function useTaskList(opts: {
                 offset: (page.value - 1) * pageSize.value,
                 limit: pageSize.value,
             });
-            allTasks.value = res.tasks;
+            allTasks.value = res.tasks ?? [];
             total.value = res.total;
         } finally {
             taskLoading.value = false;

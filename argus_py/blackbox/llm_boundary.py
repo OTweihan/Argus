@@ -23,9 +23,11 @@ class LLMBoundaryFactory:
     """为任务解析 planner 和 evaluator 的 LLM client。
 
     若本次 resolve 由内部新建了 LLMClient（以便其底层 httpx.AsyncClient 能在
-    任务期间复用 keep-alive），调用方应在任务结束后调用 ``aclose_owned()``
-    关闭这些“自有”client；外部注入的 default_planner / default_evaluator
+    任务期间复用 keep-alive），调用方应在任务结束后调用 ``aclose_owned(task_id)``
+    关闭这些"自有"client；外部注入的 default_planner / default_evaluator
     所携带的 client 不在此清理之列，避免误关掉调用方持有的连接池。
+
+    ``_owned_clients`` 按 ``task_id`` 索引，避免并发任务互相干扰。
     """
 
     def __init__(
@@ -37,7 +39,7 @@ class LLMBoundaryFactory:
         self._default_planner = default_planner
         self._default_evaluator = default_evaluator
         self._project_storage = project_storage
-        self._owned_clients: list[LLMClient] = []
+        self._owned_clients: dict[str, list[LLMClient]] = {}
 
     def resolve(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:
         """为任务创建（或复用）planner 和 evaluator。
@@ -56,7 +58,7 @@ class LLMBoundaryFactory:
 
         if _needs_client(planner) or _needs_client(evaluator):
             llm_client = resolve_llm_client_for_task(task)
-            self._owned_clients.append(llm_client)
+            self._owned_clients.setdefault(task.task_id, []).append(llm_client)
             planner_exts, evaluator_exts = self._collect_extensions(task)
 
             if planner is None:
@@ -77,10 +79,18 @@ class LLMBoundaryFactory:
         assert evaluator is not None
         return planner, evaluator
 
-    async def aclose_owned(self) -> None:
-        """关闭本工厂创建的 LLMClient 底层连接池，可重复调用。"""
-        clients = self._owned_clients
-        self._owned_clients = []
+    async def aclose_owned(self, task_id: str | None = None) -> None:
+        """关闭本工厂创建的 LLMClient 底层连接池。
+
+        指定 ``task_id`` 时只关闭该任务的自有 client，避免并发任务互相干扰；
+        不传则关闭全部（向后兼容）。
+        """
+        if task_id is not None:
+            clients = self._owned_clients.pop(task_id, [])
+        else:
+            clients = []
+            for tid in list(self._owned_clients):
+                clients.extend(self._owned_clients.pop(tid))
         for client in clients:
             try:
                 await client.aclose()

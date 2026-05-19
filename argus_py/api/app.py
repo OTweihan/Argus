@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -33,7 +34,10 @@ from argus_py.observability import (
     start_trace_writer,
     stop_trace_writer,
 )
+from argus_py.observability.events import STATUS_ERROR, log_event
 from argus_py.utils.logger import setup_logging
+
+logger = logging.getLogger(__name__)
 
 API_PREFIX = "/api/v1"
 
@@ -48,16 +52,23 @@ def create_app() -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         """管理后台任务 Worker 与 LLM trace writer 生命周期。"""
         ensure_fernet_key(_DefaultDBProbe(DEFAULT_DB_PATH))
-        recover_interrupted_tasks(get_task_service())
-        # 清理上次运行可能遗留的调试包临时文件（进程被强 kill / unlink 失败等场景）。
-        cleanup_stale_debug_bundles()
-        # LLM trace 启动期清理 + 后台 writer（受 server.yaml 配置控制）
+        try:
+            recover_interrupted_tasks(get_task_service())
+        except Exception:
+            log_event(logger, "lifespan.recover_tasks", status=STATUS_ERROR, exc_info=True)
+        try:
+            cleanup_stale_debug_bundles()
+        except Exception:
+            log_event(logger, "lifespan.cleanup_bundles", status=STATUS_ERROR, exc_info=True)
         if settings.llm_trace_enabled:
-            cleanup_old_traces(
-                OUTPUT_DIR / "traces",
-                retention_days=settings.llm_trace_retention_days,
-                total_size_mb=settings.llm_trace_total_size_mb,
-            )
+            try:
+                cleanup_old_traces(
+                    OUTPUT_DIR / "traces",
+                    retention_days=settings.llm_trace_retention_days,
+                    total_size_mb=settings.llm_trace_total_size_mb,
+                )
+            except Exception:
+                log_event(logger, "lifespan.cleanup_traces", status=STATUS_ERROR, exc_info=True)
             if settings.llm_trace_async_writer:
                 start_trace_writer(max_queue_size=settings.llm_trace_writer_queue_size)
         await get_task_worker().start()

@@ -11,6 +11,8 @@ from argus_py.infra.worker import TaskWorker
 from argus_py.observability.audit import AuditService
 from argus_py.project.service import ProjectService
 from argus_py.runtime.container import create_container
+from argus_py.task.event import TaskTimelineService, _NullTimelineService
+from argus_py.task.query import TaskQueryService
 from argus_py.task.service import TaskService
 
 if TYPE_CHECKING:
@@ -63,3 +65,31 @@ def get_task_app_service() -> "TaskApplicationService":
         project_service=c.project_service,
         model_config_service=c.model_config_service,
     )
+
+
+@lru_cache
+def get_task_query_service() -> TaskQueryService:
+    """返回 TaskQueryService（从容器 TaskService 中提取）。"""
+    return create_container().task_service.query
+
+
+@lru_cache
+def get_task_timeline_service() -> TaskTimelineService | _NullTimelineService:
+    """返回 TaskTimelineService（从容器 TaskService 中提取）。"""
+    return create_container().task_service.timeline
+
+
+def reset_all_dependencies() -> None:
+    """重置所有 lru_cache 单例，用于测试间隔离。
+
+    测试 teardown 中调用本函数可确保下次 ``Depends(get_xxx)`` 拿到新实例，
+    避免缓存污染跨用例传递。
+    """
+    get_event_bus.cache_clear()
+    get_audit_service.cache_clear()
+    get_task_service.cache_clear()
+    get_project_service.cache_clear()
+    get_model_config_service.cache_clear()
+    get_task_queue.cache_clear()
+    get_task_worker.cache_clear()
+    get_task_app_service.cache_clear()

@@ -65,6 +65,6 @@ export function renderMarkdown(text: string | null | undefined): string {
         ],
         ALLOWED_ATTR: ["href", "target", "rel", "title", "alt", "src", "class"],
         // 禁掉 data:, vbscript:, javascript: 等危险协议
-        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[#\/]|$)/i,
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[#/]|$)/i,
     });
 }

@@ -272,7 +272,7 @@ class TaskApplicationService:
         offset: int = 0,
         limit: int | None = None,
         q: str | None = None,
-    ) -> list[Any]:
+    ) -> tuple[list[Any], int]:
         return self._task.list_task_summaries(
             status=status, project_id=project_id, offset=offset, limit=limit, q=q
         )
@@ -298,7 +298,7 @@ class TaskApplicationService:
         tasks_total = self._task.count_tasks()
         running_total = self._task.count_tasks(status=TaskStatus.RUNNING)
         findings_total = self._task.count_findings()
-        recent = self._task.list_task_summaries(offset=0, limit=recent_limit)
+        recent, _ = self._task.list_task_summaries(offset=0, limit=recent_limit)
         return {
             "tasks_total": tasks_total,
             "running_total": running_total,

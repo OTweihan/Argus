@@ -1,23 +1,69 @@
-export type TaskStatus =
-    | "pending"
-    | "running"
-    | "paused"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "timeout";
+
+/* ----- 以下类型从 OpenAPI schema 自动生成，由 FastAPI Pydantic 模型驱动 ---- */
+
+import type {components} from "./api/openapi.gen";
+
+/** @description 任务状态 */
+export type TaskStatus = components["schemas"]["TaskStatus"];
+
+/** @description 任务类型 */
+export type TaskType = components["schemas"]["TaskType"];
+
+/** @description 步骤执行结果 */
+export type StepResult = components["schemas"]["StepResult"];
+
+/** @description 问题严重级别 */
+export type FindingSeverity = components["schemas"]["FindingSeverity"];
+
+/** @description 问题分类 */
+export type FindingType = components["schemas"]["FindingType"];
+
+/** @description 任务详情响应（含可选 logs/findings，兼容 summary） */
+export type Task = Omit<components["schemas"]["TaskResponse"], "logs" | "findings"> & {
+    logs?: components["schemas"]["TaskLogResponse"][];
+    findings?: components["schemas"]["FindingResponse"][];
+    findingCount?: number;
+};
+
+/** @description 任务步骤日志响应 */
+export type TaskLog = components["schemas"]["TaskLogResponse"];
+
+/** @description 问题记录响应 */
+export type Finding = components["schemas"]["FindingResponse"];
+
+/** @description 轻量任务列表响应 */
+export type TaskListResponse = components["schemas"]["TaskSummaryListResponse"];
+
+/** @description 任务启动响应 */
+export type TaskStartResponse = components["schemas"]["TaskStartResponse"];
+
+/** @description 仪表盘聚合统计 */
+export type DashboardStats = components["schemas"]["DashboardStatsResponse"];
+
+/** @description 项目响应 */
+export type Project = components["schemas"]["ProjectResponse"];
+
+/** @description 项目列表响应 */
+export type ProjectListResponse = components["schemas"]["ProjectListResponse"];
+
+/** @description 模型配置响应 */
+export type ModelConfig = components["schemas"]["ModelConfigResponse"];
+
+/** @description 模型配置列表响应 */
+export type ModelConfigListResponse = components["schemas"]["ModelConfigListResponse"];
+
+/** @description 模型连接检查响应 */
+export type ModelConnectionTestResponse =
+    components["schemas"]["ModelConnectionTestResponse"];
+
+/** @description 配置摘要 */
+export type ConfigSummary = components["schemas"]["ConfigSummaryResponse"];
+
+/* ----- 以下类型非 OpenAPI schema，保持手写 ----- */
 
 export type SchedulerStatus = "queued" | "running";
 
 export type TaskDisplayStatus = TaskStatus | SchedulerStatus;
-
-export type TaskType = "blackbox" | "whitebox";
-
-export type StepResult = "success" | "failed" | "skipped";
-
-export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
-
-export type FindingType = "functional" | "visual" | "performance" | "security" | "accessibility" | "error";
 
 export interface TimelineEvent {
     eventId: string;
@@ -48,130 +94,6 @@ export interface LLMTraceRecord {
     timestamp: string;
 }
 
-export interface ConfigSummary {
-    serverHost: string;
-    serverPort: number;
-    corsAllowOrigins: string[];
-    schedulerConcurrency: number;
-    schedulerQueueMaxSize: number;
-    schedulerShutdownTimeoutSeconds: number;
-    eventsHistoryLimit: number;
-    eventsSubscriberQueueSize: number;
-    modelConfigsCount: number;
-    defaultModelConfigId: string | null;
-}
-
-export interface Project {
-    projectId: string;
-    name: string;
-    description: string | null;
-    baseUrl: string | null;
-    gitUrl: string | null;
-    authStateName: string | null;
-    defaultMaxSteps: number | null;
-    defaultTimeoutSeconds: number | null;
-    defaultCaptureScreenshots: boolean;
-    parameters: Record<string, unknown>;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface ProjectListResponse {
-    total: number;
-    projects: Project[];
-}
-
-export interface TaskLog {
-    stepNumber: number;
-    action: string;
-    result: StepResult;
-    taskLogId: string;
-    params: Record<string, unknown>;
-    urlBefore: string | null;
-    urlAfter: string | null;
-    screenshotPath: string | null;
-    message: string | null;
-    error: string | null;
-    errorCode: string | null;
-    createdAt: string;
-}
-
-export interface Finding {
-    findingId: string;
-    title: string;
-    description: string;
-    severity: FindingSeverity;
-    findingType: FindingType;
-    url: string | null;
-    location: string | null;
-    screenshotPath: string | null;
-    createdAt: string;
-}
-
-export interface Task {
-    taskId: string;
-    projectId: string | null;
-    goal: string;
-    name: string | null;
-    startUrl: string | null;
-    taskType: TaskType;
-    status: TaskStatus;
-    schedulerStatus: SchedulerStatus | null;
-    maxSteps: number;
-    timeoutSeconds: number;
-    captureScreenshots: boolean;
-    currentStep: number;
-    findingCount?: number;
-    parameters: Record<string, unknown>;
-    logs?: TaskLog[];
-    findings?: Finding[];
-    createdAt: string;
-    startedAt: string | null;
-    completedAt: string | null;
-    reportPath: string | null;
-    resultSummary: string | null;
-    errorMessage: string | null;
-}
-
-export interface TaskListResponse {
-    total: number;
-    tasks: Task[];
-}
-
-export interface TaskStartResponse {
-    schedulerStatus: SchedulerStatus;
-    task: Task;
-}
-
-export interface ModelConfig {
-    modelConfigId: string;
-    name: string;
-    provider: string;
-    model: string;
-    apiKeySet: boolean;
-    baseUrl: string;
-    completionsPath: string;
-    maxRetries: number;
-    timeoutSeconds: number;
-    taskType: TaskType | null;
-    isDefault: boolean;
-    enabled: boolean;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface ModelConfigListResponse {
-    total: number;
-    models: ModelConfig[];
-}
-
-export interface ModelConnectionTestResponse {
-    success: boolean;
-    message: string;
-    model: string | null;
-    latencyMs: number | null;
-}
-
 export interface TaskEvent<T = Record<string, unknown>> {
     sequence?: number;
     eventType: string;
@@ -180,16 +102,7 @@ export interface TaskEvent<T = Record<string, unknown>> {
     createdAt?: string;
 }
 
-export interface DashboardStats {
-    tasksTotal: number;
-    runningTotal: number;
-    findingsTotal: number;
-    recentTasks: Task[];
-}
-
-// ── 报告类型（camelCase）─────────────────────────────────────────────────────
-// report.json 经 report_to_dict 的 _camel_keys 转换后输出 camelCase，
-// 与其余 API 类型风格一致。
+// ── 报告类型（来自 report.json 而非 OpenAPI）─────────────────────────────────
 
 export interface ReportFinding {
     findingId: string;

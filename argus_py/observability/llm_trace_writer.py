@@ -145,8 +145,28 @@ class LLMTraceWriter:
             return
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+            idx_path = path.with_suffix(".idx")
+            idx_entries: list[tuple[str, int]] = []
             with open(path, "a", encoding="utf-8") as f:
-                f.write("\n".join(lines) + "\n")
+                for line in lines:
+                    offset = f.tell()
+                    f.write(line + "\n")
+                    import json as _json
+
+                    try:
+                        rec = _json.loads(line)
+                        tid = rec.get("trace_id", "")
+                        if tid:
+                            idx_entries.append((tid, offset))
+                    except _json.JSONDecodeError:
+                        continue
+            if idx_entries:
+                with open(idx_path, "a", encoding="utf-8") as f_idx:
+                    for tid, offset in idx_entries:
+                        f_idx.write(
+                            _json.dumps({"trace_id": tid, "offset": offset}, ensure_ascii=False)
+                            + "\n"
+                        )
             self.written_count += len(lines)
         except OSError as exc:
             # 写盘失败不应崩 worker：记一条并丢这批 lines。

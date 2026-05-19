@@ -1,5 +1,5 @@
 import { ApiError } from "./api";
-import type { Task, TaskDisplayStatus } from "./types";
+import type { SchedulerStatus, Task, TaskDisplayStatus } from "./types";
 
 export function formatDate(value: string | null): string {
   if (!value) return "-";
@@ -13,7 +13,7 @@ export function compact(value: string, length: number): string {
 }
 
 export function taskDisplayStatus(task: Task): TaskDisplayStatus {
-  if (task.status === "pending" && task.schedulerStatus) return task.schedulerStatus;
+  if (task.status === "pending" && task.schedulerStatus) return task.schedulerStatus as SchedulerStatus;
   return task.status;
 }
 

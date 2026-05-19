@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from argus_py.api.dependencies import reset_all_dependencies
 from tests.helpers.factories import AppStack, make_app_stack
+
+
+@pytest.fixture(autouse=True)
+def _reset_dependencies() -> None:
+    """每用例前置重置 lru_cache 单例，防止依赖注入缓存跨用例污染。"""
+    reset_all_dependencies()
 
 
 @pytest.fixture

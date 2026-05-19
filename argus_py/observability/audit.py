@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable
 
 from argus_py.observability.redaction import redact
@@ -47,14 +48,27 @@ class AuditService:
 _AUDIT_SERVICE: AuditService | None = None
 """运行时注册的 AuditService 实例。仅在容器上下文（API 服务器）中存在。"""
 
+_AUDIT_LOCK = threading.Lock()
+"""保护 _AUDIT_SERVICE 的线程锁，防止并发 set 与读取形成 data race。"""
+
 
 def set_audit_service(service: AuditService) -> None:
     """注册 AuditService 实例，使 audit() 函数能够发布事件总线。
 
     在容器初始化时调用一次，CLI/脚本中无需调用。
+
+    线程安全：多线程同时调用时仅第一次生效，后续调用会记录 warning。
+    服务重启（hot reload）会重新加载模块，重新注册。
     """
     global _AUDIT_SERVICE
-    _AUDIT_SERVICE = service
+    with _AUDIT_LOCK:
+        if _AUDIT_SERVICE is not None:
+            logging.getLogger("argus.audit").warning(
+                "audit service 已注册，忽略重复调用：%r",
+                service,
+            )
+            return
+        _AUDIT_SERVICE = service
 
 
 def audit(

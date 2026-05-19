@@ -295,8 +295,9 @@ class TestSummaries:
         _make_task(summary_store, "t1", "摘要测试")
         _append_logs(summary_store, "t1", 1)
         _append_findings(summary_store, "t1", 1)
-        summaries = summary_store.list_task_summaries()
+        summaries, total = summary_store.list_task_summaries()
         assert len(summaries) == 1
+        assert total == 1
         assert summaries[0].logs == []
         assert summaries[0].findings == []
 
@@ -320,7 +321,9 @@ class TestSummaries:
         _make_task(summary_store, "t1", "摘要")
         _append_logs(summary_store, "t1", n_logs)
         _append_findings(summary_store, "t1", n_findings)
-        summaries = summary_store.list_task_summaries()
+        summaries, total = summary_store.list_task_summaries()
+        assert len(summaries) == 1
+        assert total == 1
         assert summaries[0].current_step == expected_step
         assert summaries[0].finding_count == expected_count
         full = summary_store.load("t1")
@@ -333,8 +336,9 @@ class TestSummaries:
             _make_task(store, f"t{i}", f"任务{i}")
             _append_logs(store, f"t{i}", i + 1)
             _append_findings(store, f"t{i}", i + 1)
-        summaries = store.list_task_summaries()
+        summaries, total = store.list_task_summaries()
         assert len(summaries) == 3
+        assert total == 3
         step_map = {s.task_id: s.current_step for s in summaries}
         find_map = {s.task_id: s.finding_count for s in summaries}
         assert step_map["t0"] == 1

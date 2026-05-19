@@ -1,35 +1,35 @@
 <template>
   <el-dialog
-      :model-value="visible" :title="editing ? '编辑项目' : '新增项目'"
-      width="800px" align-center append-to-body @update:model-value="$emit('close')"
+    :model-value="visible" :title="editing ? '编辑项目' : '新增项目'"
+    width="800px" align-center append-to-body @update:model-value="$emit('close')"
   >
     <el-form label-position="top" @submit.prevent="$emit('save')">
       <el-form-item label="名称" :error="formErrors.name" required>
-        <el-input v-model="form.name" maxlength="50" show-word-limit @input="clearError('name')"/>
+        <el-input v-model="form.name" maxlength="50" show-word-limit @input="clearError('name')" />
       </el-form-item>
       <el-form-item label="描述">
-        <el-input v-model="form.description" type="textarea" :rows="4" maxlength="200" show-word-limit/>
+        <el-input v-model="form.description" type="textarea" :rows="4" maxlength="200" show-word-limit />
       </el-form-item>
       <el-form-item label="基础 URL" :error="formErrors.baseUrl">
-        <el-input v-model="form.baseUrl" placeholder="https://example.com" @input="clearError('baseUrl')"/>
+        <el-input v-model="form.baseUrl" placeholder="https://example.com" @input="clearError('baseUrl')" />
       </el-form-item>
       <el-form-item label="Git URL" :error="formErrors.gitUrl">
-        <el-input v-model="form.gitUrl" placeholder="https://github.com/" @input="clearError('gitUrl')"/>
+        <el-input v-model="form.gitUrl" placeholder="https://github.com/" @input="clearError('gitUrl')" />
       </el-form-item>
       <el-row :gutter="12">
         <el-col :span="12">
           <el-form-item label="默认最大步骤">
             <el-input-number
-                v-model="form.defaultMaxSteps" :min="1" :max="1000" :step="1" :precision="0"
-                style="width:100%"
+              v-model="form.defaultMaxSteps" :min="1" :max="1000" :step="1" :precision="0"
+              style="width:100%"
             />
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="默认超时秒数">
             <el-input-number
-                v-model="form.defaultTimeoutSeconds" :min="1" :max="3600" :step="1" :precision="0"
-                style="width:100%"
+              v-model="form.defaultTimeoutSeconds" :min="1" :max="3600" :step="1" :precision="0"
+              style="width:100%"
             />
           </el-form-item>
         </el-col>
@@ -55,19 +55,19 @@
               未配置
             </el-tag>
           </template>
-          <PromptExtensionEditor v-model="form.promptExtensions" scope="project"/>
+          <PromptExtensionEditor v-model="form.promptExtensions" scope="project" />
         </el-collapse-item>
       </el-collapse>
       <el-form-item label="参数" :error="formErrors.projectParameters">
         <div class="param-list">
           <div v-for="(entry, index) in form.parameters" :key="index" class="param-row">
             <el-input
-                v-model="entry.key" placeholder="键名" class="param-key"
-                @input="clearError('projectParameters')"
+              v-model="entry.key" placeholder="键名" class="param-key"
+              @input="clearError('projectParameters')"
             />
             <el-input
-                v-model="entry.value" placeholder="值（字符串）" class="param-value"
-                @input="clearError('projectParameters')"
+              v-model="entry.value" placeholder="值（字符串）" class="param-value"
+              @input="clearError('projectParameters')"
             />
             <el-button type="danger" circle @click="$emit('remove-param', index)">
               ×

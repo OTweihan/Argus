@@ -49,6 +49,9 @@ frontend/src/components.d.ts
 argus_py/api/static/assets/
 argus_py/api/static/index.html
 
+# OpenAPI intermediate build artifact（codegen 中间产物，不含 git）
+openapi.json
+
 # Environment
 .env
 .env.local

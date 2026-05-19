@@ -4,31 +4,39 @@
       <div class="report-bar">
         <button class="tb-btn tb-back" @click="goBackToTasks">
           <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
-            <path d="M10 4L6 8l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-                  stroke-linejoin="round"/>
+            <path
+              d="M10 4L6 8l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           返回任务列表
         </button>
         <template v-if="selectedTask?.reportPath">
-          <div class="tb-divider"/>
+          <div class="tb-divider" />
           <button class="tb-btn tb-action" @click="openHtmlReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
-              <path d="M2 4l6 4-6 4M8 12h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
-                    stroke-linejoin="round"/>
+              <path
+                d="M2 4l6 4-6 4M8 12h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             查看 HTML 报告
           </button>
           <button class="tb-btn tb-action" @click="downloadHtmlReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
-              <path d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
-                    stroke-linejoin="round"/>
+              <path
+                d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             下载 HTML 报告
           </button>
           <button class="tb-btn tb-action" @click="downloadJsonReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
-              <path d="M5 7l-3 3 3 3M11 7l3 3-3 3M8.5 4l-1 8" stroke="currentColor" stroke-width="1.4"
-                    stroke-linecap="round"/>
+              <path
+                d="M5 7l-3 3 3 3M11 7l3 3-3 3M8.5 4l-1 8" stroke="currentColor" stroke-width="1.4"
+                stroke-linecap="round"
+              />
             </svg>
             下载 JSON 报告
           </button>
@@ -41,17 +49,17 @@
         <el-tabs v-model="selectedTaskTab" type="border-card" class="detail-tabs">
           <el-tab-pane label="报告" name="report">
             <ReportView
-                :key="selectedTask.taskId"
-                :report="reportData"
-                :loading="reportLoading"
-                :task-id="selectedTask.taskId"
+              :key="selectedTask.taskId"
+              :report="reportData"
+              :loading="reportLoading"
+              :task-id="selectedTask.taskId"
             />
           </el-tab-pane>
           <el-tab-pane label="执行时间线" name="timeline">
-            <TaskTimeline :key="selectedTask.taskId" :task-id="selectedTask.taskId" :on-task-event="onTaskEvent"/>
+            <TaskTimeline :key="selectedTask.taskId" :task-id="selectedTask.taskId" :on-task-event="onTaskEvent" />
           </el-tab-pane>
           <el-tab-pane label="LLM 调试" name="llm-debug">
-            <LLMDebugTab :key="selectedTask.taskId" :task-id="selectedTask.taskId"/>
+            <LLMDebugTab :key="selectedTask.taskId" :task-id="selectedTask.taskId" />
           </el-tab-pane>
         </el-tabs>
       </template>
@@ -70,47 +78,47 @@
           <el-input v-model="taskSearchQuery" placeholder="搜索目标、任务 ID、URL" clearable class="search-input">
             <template #prefix>
               <svg
-                  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                  stroke-linejoin="round" class="search-icon"
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" class="search-icon"
               >
-                <circle cx="11" cy="11" r="8"/>
-                <path d="m21 21-4.35-4.35"/>
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
               </svg>
             </template>
           </el-input>
           <el-select v-model="taskStatusFilter" placeholder="全部状态" clearable style="width:140px">
-            <el-option v-for="status in taskStatuses" :key="status" :label="status" :value="status"/>
+            <el-option v-for="status in taskStatuses" :key="status" :label="status" :value="status" />
           </el-select>
           <el-select v-model="taskProjectFilter" placeholder="全部项目" clearable style="width:160px">
             <el-option
-                v-for="project in projects" :key="project.projectId" :label="project.name"
-                :value="project.projectId"
+              v-for="project in projects" :key="project.projectId" :label="project.name"
+              :value="project.projectId"
             />
           </el-select>
         </div>
         <div v-loading="taskLoading" class="table-wrap">
           <TaskTable
-              :tasks="allTasks"
-              :projects="projects"
-              height="100%"
-              @select="showTaskDetail"
-              @report="showTaskReport"
-              @edit="editTask"
-              @start="startTask"
-              @restart="retryTask"
-              @delete="deleteTask"
+            :tasks="allTasks"
+            :projects="projects"
+            height="100%"
+            @select="showTaskDetail"
+            @report="showTaskReport"
+            @edit="editTask"
+            @start="startTask"
+            @restart="retryTask"
+            @delete="deleteTask"
           />
         </div>
         <div class="pagination-bar">
           <el-pagination
-              v-model:current-page="page"
-              v-model:page-size="pageSize"
-              :total="total"
-              :page-sizes="[10, 20, 50, 100]"
-              layout="total, sizes, prev, pager, next"
-              background
-              @current-change="onPageChange"
-              @size-change="onPageSizeChange"
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :total="total"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next"
+            background
+            @current-change="onPageChange"
+            @size-change="onPageSizeChange"
           />
         </div>
       </el-card>
@@ -118,25 +126,25 @@
   </div>
 
   <TaskFormDialog
-      :visible="showTaskDialog"
-      :form="taskForm"
-      :editing="Boolean(taskForm.editingId)"
-      :form-errors="formErrors"
-      :projects="projects"
-      :enabled-models="enabledModels"
-      @save="saveTask"
-      @close="showTaskDialog = false"
-      @add-param="addParam()"
-      @remove-param="removeParam($event)"
+    :visible="showTaskDialog"
+    :form="taskForm"
+    :editing="Boolean(taskForm.editingId)"
+    :form-errors="formErrors"
+    :projects="projects"
+    :enabled-models="enabledModels"
+    @save="saveTask"
+    @close="showTaskDialog = false"
+    @add-param="addParam()"
+    @remove-param="removeParam($event)"
   />
 
   <TaskDetailDialog
-      :visible="detailVisible"
-      :task="detailTask"
-      :loading="detailLoading"
-      :projects="projects"
-      :enabled-models="enabledModels"
-      @close="detailVisible = false"
+    :visible="detailVisible"
+    :task="detailTask"
+    :loading="detailLoading"
+    :projects="projects"
+    :enabled-models="enabledModels"
+    @close="detailVisible = false"
   />
 </template>
 

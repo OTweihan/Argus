@@ -84,9 +84,9 @@ describe("useDashboardStats", () => {
 
     it("recentTasks computed：返回 API 给的最近任务列表副本", async () => {
         const error = ref("");
-        const recent = [
-            { taskId: "t1", goal: "demo1" } as DashboardStats["recentTasks"][number],
-            { taskId: "t2", goal: "demo2" } as DashboardStats["recentTasks"][number],
+        const recent: DashboardStats["recentTasks"] = [
+            { taskId: "t1", goal: "demo1" } as NonNullable<DashboardStats["recentTasks"]>[number],
+            { taskId: "t2", goal: "demo2" } as NonNullable<DashboardStats["recentTasks"]>[number],
         ];
         apiMock.mockResolvedValue(makeStats({ recentTasks: recent }));
 

@@ -196,8 +196,8 @@ class TaskRepository:
         status: str | None = None,
         project_id: str | None = None,
         q: str | None = None,
-    ) -> list[Task]:
-        """轻量列表查询（不含日志和发现项），供列表页使用。"""
+    ) -> tuple[list[Task], int]:
+        """轻量列表查询，返回 (tasks, total_count)，单语句完成。"""
         with with_conn(self._connect) as conn:
             where_clauses: list[str] = []
             params: list[Any] = []
@@ -216,7 +216,8 @@ class TaskRepository:
 
             query = """
                 SELECT tasks.*,
-                  (SELECT COUNT(*) FROM findings WHERE task_id = tasks.task_id) AS finding_count
+                  (SELECT COUNT(*) FROM findings WHERE task_id = tasks.task_id) AS finding_count,
+                  COUNT(*) OVER() AS total_count
                 FROM tasks
             """
             if where_clauses:
@@ -232,10 +233,13 @@ class TaskRepository:
                 params.append(offset)
 
             rows = conn.execute(query, params).fetchall()
+
+        if not rows:
+            return [], 0
+
+        total_count = rows[0]["total_count"]
         tasks = [row_to_task(r, [], []) for r in rows]
-        # rows 与 tasks 长度由上方列表推导式保证一致；strict=True 让长度漂移在
-        # 出现的当下立即抛错，避免静默截断。
         for r, t in zip(rows, tasks, strict=True):
             t.current_step = r["current_step"]
             t.finding_count = r["finding_count"]
-        return tasks
+        return tasks, total_count

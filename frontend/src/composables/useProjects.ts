@@ -44,7 +44,7 @@ export function useProjects(opts: {
 
     async function loadProjects(): Promise<void> {
         const res = await apiListProjects();
-        projects.value = res.projects;
+        projects.value = res.projects ?? [];
     }
 
     async function saveProject(): Promise<void> {

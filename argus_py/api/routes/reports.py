@@ -5,24 +5,25 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import FileResponse
 
-from argus_py.api.dependencies import get_task_service
+from argus_py.api.dependencies import get_task_query_service
+from argus_py.api.params import TaskIdPath
 from argus_py.core.exceptions import TaskError
-from argus_py.task.service import TaskService
+from argus_py.task.query import TaskQueryService
 
 router = APIRouter(prefix="/tasks", tags=["reports"])
 
 
 @router.get("/{task_id}/report")
 def get_task_report(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     format: str = Query(default="html", pattern="^(html|json)$"),
     download: bool = Query(default=False),
-    service: TaskService = Depends(get_task_service),
+    query: TaskQueryService = Depends(get_task_query_service),
 ) -> FileResponse:
     """返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。"""
-    task = service.get_task(task_id)
+    task = query.get_task(task_id)
     try:
-        report_path = service.resolve_report_path(task)
+        report_path = query.resolve_report_path(task)
     except TaskError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -51,14 +52,14 @@ def get_task_report(
 
 @router.get("/{task_id}/report.json")
 def get_task_report_json(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     download: bool = Query(default=False),
-    service: TaskService = Depends(get_task_service),
+    query: TaskQueryService = Depends(get_task_query_service),
 ) -> FileResponse:
     """返回任务 JSON 报告文件。"""
-    task = service.get_task(task_id)
+    task = query.get_task(task_id)
     try:
-        report_path = service.resolve_report_path(task)
+        report_path = query.resolve_report_path(task)
     except TaskError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -81,14 +82,14 @@ def get_task_report_json(
 
 @router.get("/{task_id}/screenshots/{filename:path}")
 def get_task_screenshot(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     filename: str = Path(pattern=r"^[a-zA-Z0-9_.-]+$"),
-    service: TaskService = Depends(get_task_service),
+    query: TaskQueryService = Depends(get_task_query_service),
 ) -> FileResponse:
     """返回任务截图文件。"""
-    service.get_task(task_id)
+    query.get_task(task_id)
     try:
-        screenshot_path = service.resolve_screenshot_path(task_id, filename)
+        screenshot_path = query.resolve_screenshot_path(task_id, filename)
     except TaskError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return FileResponse(screenshot_path)

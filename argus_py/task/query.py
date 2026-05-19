@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import itertools
 import json
 import logging
 import tempfile
 import zipfile
-from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -23,25 +21,6 @@ logger = logging.getLogger(__name__)
 
 # 调试包大小上限：100 MB（近似，按源文件未压缩大小计算）
 _BUNDLE_MAX_SIZE_BYTES = 100 * 1024 * 1024
-
-
-def _iter_filtered_trace_records(
-    lines: Iterable[str],
-    trace_id_filter: str | None,
-) -> Iterator[dict[str, Any]]:
-    """流式解析 JSONL 行，按 trace_id 过滤并跳过空 / 损坏行。"""
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            logger.warning("跳过 JSONL 中的非法行：%s", line[:120])
-            continue
-        if trace_id_filter and record.get("trace_id") != trace_id_filter:
-            continue
-        yield record
 
 
 class TaskQueryService:
@@ -105,11 +84,12 @@ class TaskQueryService:
     def count_findings(self) -> int:
         """返回所有任务的发现项总数（仪表盘聚合统计）。
 
-        非 SQLite 后端没有跨任务索引，遍历任务文件聚合 ``len(findings)`` 仍能给出正确值。
+        仅支持 SQLite 后端。文件后端没有跨任务索引，O(N) IO 遍历不适合
+        仪表盘高频聚合，调用方应切换到 SQLite 后端。
         """
         if isinstance(self.storage, TaskSQLiteStorage):
             return self.storage.count_findings()
-        return sum(len(task.findings or []) for task in self.storage.list_tasks())
+        raise RuntimeError("count_findings 仅支持 SQLite 后端。请配置 SQLite 存储后重试。")
 
     def count_tasks(
         self,
@@ -148,8 +128,8 @@ class TaskQueryService:
         offset: int = 0,
         limit: int | None = None,
         q: str | None = None,
-    ) -> list[Task]:
-        """轻量列表查询（不含日志和发现项），供列表页使用。"""
+    ) -> tuple[list[Task], int]:
+        """轻量列表查询，返回 (tasks, total_count)，单语句完成。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             return self.storage.list_task_summaries(
                 offset=offset,
@@ -158,6 +138,7 @@ class TaskQueryService:
                 project_id=project_id,
                 q=q,
             )
+        # FileStorage 回退：无法做 SQL 聚合，手动计算总量
         tasks = self.list_tasks(status=status, project_id=project_id)
         if q:
             kw = q.lower()
@@ -171,11 +152,12 @@ class TaskQueryService:
                 or kw in (t.result_summary or "").lower()
                 or kw in (t.error_message or "").lower()
             ]
+        total = len(tasks)
         if offset:
             tasks = tasks[offset:]
         if limit is not None:
             tasks = tasks[:limit]
-        return tasks
+        return tasks, total
 
     # ── 报告路径解析 ──────────────────────────────────────────
 
@@ -218,28 +200,57 @@ class TaskQueryService:
         limit: int = 50,
         trace_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """返回任务的 LLM 调用追踪记录（从 JSONL 文件读取）。"""
+        """返回任务的 LLM 调用追踪记录（通过行号偏移索引随机访问）。"""
         trace_path = self._resolve_trace_path(task_id)
         if not trace_path.exists():
             return []
 
+        from argus_py.observability.trace_index import load_trace_index
+
+        entries, offset_map = load_trace_index(trace_path)
+        if not entries:
+            return []
+
+        # trace_id 过滤 → O(1) 字典查找 + seek 单行
+        if trace_id:
+            offset = offset_map.get(trace_id)
+            if offset is None or skip > 0:
+                return []
+            with open(trace_path, encoding="utf-8") as f:
+                f.seek(offset)
+                return [json.loads(f.readline())]
+
+        # 分页 → 只读取窗口内的行
         skip = max(skip, 0)
         stop: int | None = (skip + limit) if limit > 0 else None
+        window = entries[skip:stop]
+        results: list[dict[str, Any]] = []
         with open(trace_path, encoding="utf-8") as f:
-            sliced = itertools.islice(_iter_filtered_trace_records(f, trace_id), skip, stop)
-            return list(sliced)
+            for entry in window:
+                f.seek(entry["offset"])
+                results.append(json.loads(f.readline()))
+        return results
 
     def get_llm_trace_detail(
         self,
         task_id: str,
         trace_id: str,
     ) -> dict[str, Any] | None:
-        """返回单条 LLM 调用的完整追踪记录。"""
+        """返回单条 LLM 调用的完整追踪记录（通过偏移索引 O(1) 定位）。"""
         trace_path = self._resolve_trace_path(task_id)
         if not trace_path.exists():
             return None
+
+        from argus_py.observability.trace_index import load_trace_index
+
+        _, offset_map = load_trace_index(trace_path)
+        offset = offset_map.get(trace_id)
+        if offset is None:
+            return None
+
         with open(trace_path, encoding="utf-8") as f:
-            return next(_iter_filtered_trace_records(f, trace_id), None)
+            f.seek(offset)
+            return json.loads(f.readline())
 
     # ── 调试包 ────────────────────────────────────────────────
 

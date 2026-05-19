@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from argus_py.api.dependencies import get_event_bus, get_task_service, get_task_worker
+from argus_py.api.dependencies import get_event_bus, get_task_query_service, get_task_worker
 from argus_py.api.schemas import HealthResponse, MetricsResponse, ReadinessResponse
 from argus_py.core.constants import PROJECT_NAME, PROJECT_VERSION
 from argus_py.infra.db import DEFAULT_DB_PATH, connect
@@ -42,14 +42,15 @@ async def metrics(
 ) -> MetricsResponse:
     """返回运行指标（EventBus、队列、Worker）。"""
     eb = get_event_bus()
-    task_svc = get_task_service()
+    query_svc = get_task_query_service()
 
-    running_tasks = len(worker.queue._active_ids) if worker.queue else 0
-    queued_tasks = len(worker.queue._queued_ids) if worker.queue else 0
+    counts = await worker.queue.counts() if worker.queue else {"queued": 0, "active": 0}
+    running_tasks = counts["active"]
+    queued_tasks = counts["queued"]
 
     return MetricsResponse(
         event_bus=eb.metrics() if eb else {},
-        total_tasks=task_svc.count_tasks(),
+        total_tasks=query_svc.count_tasks(),
         running_tasks=running_tasks,
         queued_tasks=queued_tasks,
         worker_alive=worker.is_started,

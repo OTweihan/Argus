@@ -103,7 +103,7 @@ class BlackboxRunner:
             finally:
                 # 关闭本任务期间由 LLMBoundaryFactory 自建的 LLMClient，
                 # 释放底层 httpx.AsyncClient 连接池；外部注入的 client 不会被关闭。
-                await self.llm_boundary.aclose_owned()
+                await self.llm_boundary.aclose_owned(resolved.task_id)
 
         return resolved
 

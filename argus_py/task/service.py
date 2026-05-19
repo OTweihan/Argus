@@ -214,7 +214,7 @@ class TaskService:
         offset: int = 0,
         limit: int | None = None,
         q: str | None = None,
-    ) -> list[Task]:
+    ) -> tuple[list[Task], int]:
         return self.query.list_task_summaries(
             status=status, project_id=project_id, offset=offset, limit=limit, q=q
         )

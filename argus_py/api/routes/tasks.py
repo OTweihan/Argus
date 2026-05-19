@@ -6,9 +6,10 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from argus_py.api.dependencies import get_task_app_service
+from argus_py.api.params import TaskIdPath
 from argus_py.api.schemas import (
     DashboardStatsResponse,
     InferredLimitsResponse,
@@ -97,7 +98,7 @@ async def create_task(
 @router.put("/{task_id}", response_model=TaskResponse)
 async def update_task(
     request: TaskUpdateRequest,
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """更新待执行任务的基础信息。"""
@@ -120,7 +121,7 @@ async def update_task(
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> Response:
     """删除未启动的 pending 任务。"""
@@ -138,32 +139,19 @@ async def list_tasks(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskSummaryListResponse:
     """列出任务（轻量，不含日志和发现项），支持过滤和分页。"""
-    # 列表和 COUNT 都走同步 SQLite，并行扔进线程池避免事件循环阻塞。
-    # gather 带 return_exceptions=True：list 失败则整段报错，count 失败则
-    # 降级返回 total=0，避免 COUNT 异常拖垮列表渲染。
-    tasks_or_err: Any
-    total_or_err: Any
-    tasks_or_err, total_or_err = await asyncio.gather(
-        run_in_thread(
+    # 单 SQL 语句同时返回列表与总量：COUNT(*) OVER() 窗口函数避免
+    # 两次往返，也不必再走 count_tasks。
+    try:
+        tasks, total = await run_in_thread(
             app.list_task_summaries,
             status=status,
             project_id=project_id,
             offset=offset,
             limit=limit,
             q=q,
-        ),
-        run_in_thread(
-            app.count_tasks,
-            status=status,
-            project_id=project_id,
-            q=q,
-        ),
-        return_exceptions=True,
-    )
-    if isinstance(tasks_or_err, Exception):
-        raise tasks_or_err
-    tasks = tasks_or_err
-    total = 0 if isinstance(total_or_err, Exception) else total_or_err
+        )
+    except Exception as exc:
+        raise exc
     status_snapshot = await app.snapshot_queue_statuses()
     return TaskSummaryListResponse(
         total=total,
@@ -222,7 +210,7 @@ async def get_dashboard_stats(
 
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """查询任务详情。"""
@@ -232,7 +220,7 @@ async def get_task(
 
 @router.post("/{task_id}/start", response_model=TaskStartResponse)
 async def start_task(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskStartResponse:
     """将 pending 任务加入后台执行队列。"""
@@ -245,7 +233,7 @@ async def start_task(
 
 @router.post("/{task_id}/restart", response_model=TaskStartResponse)
 async def restart_task(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskStartResponse:
     """重试失败/超时/取消的任务，创建新任务并立即入队。"""
@@ -258,7 +246,7 @@ async def restart_task(
 
 @router.post("/{task_id}/cancel", response_model=TaskResponse)
 async def cancel_task(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """取消任务。支持 pending、queued 和 running 状态。"""
@@ -268,7 +256,7 @@ async def cancel_task(
 
 @router.post("/{task_id}/pause", response_model=TaskResponse)
 async def pause_task(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """暂停运行中的任务。"""
@@ -278,7 +266,7 @@ async def pause_task(
 
 @router.post("/{task_id}/resume", response_model=TaskResponse)
 async def resume_task(
-    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    task_id: TaskIdPath,
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """恢复暂停的任务。"""

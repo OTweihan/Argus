@@ -1,57 +1,20 @@
-import type {TaskType} from "../types";
 
-export interface ProjectPayload {
-    name: string;
-    description?: string | null;
-    baseUrl?: string | null;
-    gitUrl?: string | null;
-    authStateName?: string | null;
-    defaultMaxSteps?: number | null;
-    defaultTimeoutSeconds?: number | null;
-    defaultCaptureScreenshots?: boolean;
-    parameters?: Record<string, unknown>;
-}
+import type {components} from "./openapi.gen";
 
-export interface TaskPayload {
-    goal: string;
-    name?: string | null;
-    projectId: string;
-    startUrl?: string | null;
-    taskType?: TaskType;
-    maxSteps?: number | null;
-    timeoutSeconds?: number | null;
-    captureScreenshots?: boolean | null;
-    modelConfigId?: string | null;
-    parameters?: Record<string, unknown>;
-}
+/** @description 创建项目请求 */
+export type ProjectPayload = components["schemas"]["ProjectCreateRequest"];
 
-export interface ModelConfigPayload {
-    name: string;
-    provider: string;
-    model: string;
-    apiKey?: string;
-    baseUrl?: string | null;
-    completionsPath?: string | null;
-    maxRetries?: number | null;
-    timeoutSeconds?: number | null;
-    taskType?: TaskType | null;
-    isDefault?: boolean;
-    enabled?: boolean;
-}
+/** @description 创建任务请求 */
+export type TaskPayload = components["schemas"]["TaskCreateRequest"];
 
-export interface ModelConnectionPayload extends Partial<ModelConfigPayload> {
-    modelConfigId?: string | null;
-}
+/** @description 创建模型配置请求 */
+export type ModelConfigPayload = components["schemas"]["ModelConfigCreateRequest"];
 
-export interface PromptPreviewPayload {
-    role: "planner" | "evaluator";
-    projectExtension?: string;
-    taskExtension?: string;
-}
+/** @description 模型连接检查请求 */
+export type ModelConnectionPayload = components["schemas"]["ModelConfigTestRequest"];
 
-export interface PromptPreviewResponse {
-    systemPrompt: string;
-    builtinLength: number;
-    projectLength: number;
-    taskLength: number;
-}
+/** @description Prompt 扩展拼接预览请求 */
+export type PromptPreviewPayload = components["schemas"]["PromptPreviewRequest"];
+
+/** @description Prompt 扩展拼接预览响应 */
+export type PromptPreviewResponse = components["schemas"]["PromptPreviewResponse"];

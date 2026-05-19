@@ -264,4 +264,9 @@ def write_trace(record: LLMTraceRecord) -> None:
     # Fallback: 单条同步 append（CLI / 测试 / writer 队列满）。
     traces_dir.mkdir(parents=True, exist_ok=True)
     with open(file_path, "a", encoding="utf-8") as f:
+        offset = f.tell()
         f.write(line + "\n")
+
+    from argus_py.observability.trace_index import append_trace_index
+
+    append_trace_index(file_path, record.trace_id, offset)

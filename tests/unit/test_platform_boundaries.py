@@ -213,14 +213,17 @@ def test_report_path_validation(tmp_path, monkeypatch, outside_reports):
 from argus_py.api.routes import events as event_routes
 
 
-def test_list_task_events_returns_timeline(tmp_path):
+@pytest.mark.asyncio
+async def test_list_task_events_returns_timeline(tmp_path):
     """GET /tasks/{id}/events 返回已持久化的时间线事件。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "events.db"))
     task = task_service.create_task(goal="事件测试", start_url="https://example.com")
     task_service.emit_timeline(task.task_id, "start", "task", summary="开始")
     task_service.emit_timeline(task.task_id, "complete", "task", summary="完成")
 
-    result = event_routes.list_task_events(task.task_id, service=task_service)
+    result = await event_routes.list_task_events(
+        task.task_id, query=task_service.query, timeline=task_service.timeline
+    )
     assert isinstance(result, list)
     assert len(result) == 2
     assert result[0]["eventType"] == "start"
@@ -228,16 +231,20 @@ def test_list_task_events_returns_timeline(tmp_path):
     assert result[0]["taskId"] == task.task_id
 
 
-def test_list_task_events_404_for_missing_task(tmp_path):
+@pytest.mark.asyncio
+async def test_list_task_events_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "events404.db"))
 
     with pytest.raises(HTTPException) as exc_info:
-        event_routes.list_task_events("no-such", service=task_service)
+        await event_routes.list_task_events(
+            "no-such", query=task_service.query, timeline=task_service.timeline
+        )
     assert exc_info.value.status_code == 404
 
 
-def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
     """读取 JSONL 追踪文件。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm.db"))
     task = task_service.create_task(goal="LLM追踪测试")
@@ -250,35 +257,39 @@ def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
 
     trace_file = traces_dir / f"{task.task_id}.jsonl"
     trace_file.write_text(
-        '{"model":"qwen","latencyMs":1500}\n{"model":"gpt4","latencyMs":800}\n',
+        '{"trace_id":"trc-001","model":"qwen","latencyMs":1500}\n'
+        '{"trace_id":"trc-002","model":"gpt4","latencyMs":800}\n',
         encoding="utf-8",
     )
 
-    result = event_routes.list_llm_traces(task.task_id, service=task_service)
+    result = await event_routes.list_llm_traces(task.task_id, query=task_service.query)
     assert len(result) == 2
     assert result[0]["model"] == "qwen"
     assert result[1]["latencyMs"] == 800
 
 
-def test_list_llm_traces_404_for_missing_task(tmp_path):
+@pytest.mark.asyncio
+async def test_list_llm_traces_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm404.db"))
 
     with pytest.raises(HTTPException) as exc_info:
-        event_routes.list_llm_traces("no-such", service=task_service)
+        await event_routes.list_llm_traces("no-such", query=task_service.query)
     assert exc_info.value.status_code == 404
 
 
-def test_list_llm_traces_empty_when_no_file(tmp_path):
+@pytest.mark.asyncio
+async def test_list_llm_traces_empty_when_no_file(tmp_path):
     """无 JSONL 文件时返回空列表。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm_empty.db"))
     task = task_service.create_task(goal="无追踪")
 
-    result = event_routes.list_llm_traces(task.task_id, service=task_service)
+    result = await event_routes.list_llm_traces(task.task_id, query=task_service.query)
     assert result == []
 
 
-def test_list_llm_traces_pagination_streaming(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_list_llm_traces_pagination_streaming(tmp_path, monkeypatch):
     """skip/limit 分页：仅返回窗口内记录，且能跳过非法行。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm_page.db"))
     task = task_service.create_task(goal="分页测试")
@@ -289,17 +300,20 @@ def test_list_llm_traces_pagination_streaming(tmp_path, monkeypatch):
     traces_dir.mkdir()
     monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
 
-    lines = [f'{{"model":"m{i}","latencyMs":{i}}}' for i in range(5)]
-    # 故意插入一行损坏的 JSON，验证流式扫描会跳过而不是抛 500
+    lines = [f'{{"trace_id":"m{i}","model":"m{i}","latencyMs":{i}}}' for i in range(5)]
+    # 故意插入一行损坏的 JSON，验证索引重建会跳过而不是抛 500
     lines.insert(2, "{not-a-json")
     (traces_dir / f"{task.task_id}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    result = event_routes.list_llm_traces(task.task_id, skip=1, limit=2, service=task_service)
-    # 损坏行被跳过后剩 5 条；skip=1, limit=2 应取第 2、3 条
+    result = await event_routes.list_llm_traces(
+        task.task_id, skip=1, limit=2, query=task_service.query
+    )
+    # 损坏行在索引重建时被跳过，剩 5 条有效；skip=1, limit=2 应取第 2、3 条
     assert [r["model"] for r in result] == ["m1", "m2"]
 
 
-def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
     """GET /tasks/{id}/llm-traces/{trace_id} 返回匹配的追踪记录。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_detail.db"))
     task = task_service.create_task(goal="追踪详情")
@@ -317,24 +331,26 @@ def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    result = event_routes.get_trace_detail(task.task_id, "trc-001", service=task_service)
+    result = await event_routes.get_trace_detail(task.task_id, "trc-001", query=task_service.query)
     assert result["traceId"] == "trc-001"
     assert result["phase"] == "planner"
 
     with pytest.raises(HTTPException) as exc_info:
-        event_routes.get_trace_detail(task.task_id, "no-such", service=task_service)
+        await event_routes.get_trace_detail(task.task_id, "no-such", query=task_service.query)
     assert exc_info.value.status_code == 404
 
 
-def test_get_trace_detail_404_for_missing_task(tmp_path):
+@pytest.mark.asyncio
+async def test_get_trace_detail_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_404.db"))
     with pytest.raises(HTTPException) as exc_info:
-        event_routes.get_trace_detail("no-such", "trc-001", service=task_service)
+        await event_routes.get_trace_detail("no-such", "trc-001", query=task_service.query)
     assert exc_info.value.status_code == 404
 
 
-def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
     """调试包包含 task.json 和 traces。"""
     import io
     import zipfile
@@ -352,7 +368,9 @@ def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
         '{"trace_id":"trc-001","phase":"planner"}\n', encoding="utf-8"
     )
 
-    response = event_routes.download_debug_bundle(task.task_id, service=task_service)
+    response = await event_routes.download_debug_bundle(
+        task.task_id, query=task_service.query, timeline=task_service.timeline
+    )
     assert response.status_code == 200
     assert "application/zip" in response.media_type
 
@@ -366,9 +384,12 @@ def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
     assert "traces/llm.jsonl" in names
 
 
-def test_debug_bundle_404_for_missing_task(tmp_path):
+@pytest.mark.asyncio
+async def test_debug_bundle_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "debug_404.db"))
     with pytest.raises(HTTPException) as exc_info:
-        event_routes.download_debug_bundle("no-such", service=task_service)
+        await event_routes.download_debug_bundle(
+            "no-such", query=task_service.query, timeline=task_service.timeline
+        )
     assert exc_info.value.status_code == 404

@@ -1,34 +1,37 @@
 <template>
   <div class="tl-wrapper">
-    <div v-if="loading" v-loading="true" class="tl-loading"/>
+    <div v-if="loading" v-loading="true" class="tl-loading" />
     <div v-else-if="error" class="tl-status">
-      <el-empty :description="error"/>
+      <el-empty :description="error" />
     </div>
     <div v-else-if="!events.length" class="tl-status">
-      <el-empty description="暂无时间线事件"/>
+      <el-empty description="暂无时间线事件" />
     </div>
     <div v-else class="tl-scroll">
       <div class="tl-list">
         <div
-            v-for="event in events"
-            :key="event.eventId"
-            class="tl-item"
+          v-for="event in events"
+          :key="event.eventId"
+          class="tl-item"
         >
-          <div class="tl-dot" :style="{ background: phaseColor(event.phase) }"/>
-          <div class="tl-line"/>
+          <div class="tl-dot" :style="{ background: phaseColor(event.phase) }" />
+          <div class="tl-line" />
           <div class="tl-card" :style="{ borderLeftColor: phaseColor(event.phase) }">
             <div class="tl-card-header">
               <div class="tl-left">
-                <span class="tl-phase-dot" :style="{ background: phaseColor(event.phase) }"/>
+                <span class="tl-phase-dot" :style="{ background: phaseColor(event.phase) }" />
                 <span class="tl-phase-label">{{ phaseLabel(event.phase) }}</span>
                 <span class="tl-event-type">{{ eventTypeLabel(event.eventType) }}</span>
               </div>
               <div class="tl-right">
                 <span v-if="event.stepNumber > 0" class="tl-step">
-                  <svg viewBox="0 0 16 16" fill="none" width="11" height="11"><circle cx="8" cy="8" r="6"
-                                                                                      stroke="currentColor"
-                                                                                      stroke-width="1.2"/><path
-                      d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                  <svg viewBox="0 0 16 16" fill="none" width="11" height="11"><circle
+                    cx="8" cy="8" r="6"
+                    stroke="currentColor"
+                    stroke-width="1.2"
+                  /><path
+                    d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"
+                  /></svg>
                   步骤 {{ event.stepNumber }}
                 </span>
                 <span class="tl-time">{{ formatTime(event.createdAt) }}</span>
@@ -40,9 +43,11 @@
               </p>
               <div v-if="hasData(event.data)" class="tl-extras">
                 <button class="tl-toggle" @click="toggleEvent(event.eventId)">
-                  <svg :class="['tl-chevron', { open: eventOpen(event.eventId) }]" viewBox="0 0 16 16" fill="none"
-                       width="12" height="12">
-                    <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  <svg
+                    :class="['tl-chevron', { open: eventOpen(event.eventId) }]" viewBox="0 0 16 16" fill="none"
+                    width="12" height="12"
+                  >
+                    <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
                   </svg>
                   查看详情
                 </button>

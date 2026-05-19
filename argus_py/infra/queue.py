@@ -1,4 +1,16 @@
-"""进程内任务队列。"""
+"""进程内任务队列。
+
+设计约束
+--------
+- ``_queued_ids`` / ``_active_ids`` / ``_cancelled_ids`` 三个集合仅存在于
+  内存中，SQLite 没有对应的队列状态表。
+- 服务重启后这些集合全部丢失，新的 ``TaskQueue`` 实例从空状态开始。SQLite
+  中 ``status != "running"`` 的任务维持原状（PENDING 的仍是 PENDING）。
+- **这是有意设计：重启不重排队。** 崩溃前已入队但尚未被 Worker 消费的任务，
+  重启后保留为 ``PENDING`` 状态，用户可手动重新启动。
+- 若未来需要自动恢复入队，需在 SQLite 中新增 ``task_queue`` 表持久化队列
+  顺序和状态，并在 ``recover_interrupted_tasks`` 中从该表重建队列。
+"""
 
 from __future__ import annotations
 
@@ -16,7 +28,11 @@ class EnqueueResult:
 
 
 class TaskQueue:
-    """基于 asyncio.Queue 的进程内任务队列。"""
+    """基于 asyncio.Queue 的进程内任务队列。
+
+    ⚠️  内存集合（_queued_ids / _active_ids）不与 SQLite tasks.status 同步。
+        重启后队列状态清空，参考模块 docstring 了解"重启不重排队"的设计决策。
+    """
 
     def __init__(self, max_size: int = 0) -> None:
         self._queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=max_size)
@@ -89,6 +105,11 @@ class TaskQueue:
             if task_id in self._queued_ids:
                 return "queued"
         return None
+
+    async def counts(self) -> dict[str, int]:
+        """持锁返回队列深度。"""
+        async with self._lock:
+            return {"queued": len(self._queued_ids), "active": len(self._active_ids)}
 
     async def snapshot_statuses(self) -> dict[str, str]:
         """批量快照当前调度状态，返回 {task_id: status}。"""

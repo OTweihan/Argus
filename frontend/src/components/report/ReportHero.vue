@@ -7,7 +7,9 @@
           Argus Blackbox Testing
         </div>
         <h1>{{ report.title }}</h1>
-        <p class="hero-desc">{{ summary }}</p>
+        <p class="hero-desc">
+          {{ summary }}
+        </p>
         <div class="hero-status">
           <span :class="['status-badge', 'badge-' + status]">
             <span class="badge-dot" />

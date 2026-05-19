@@ -43,7 +43,7 @@ export function useModels(opts: {
 
     async function loadModels(): Promise<void> {
         const res = await apiListModels(true);
-        models.value = sortBy(res.models, (m) => (m.isDefault ? 0 : 1));
+        models.value = sortBy(res.models ?? [], (m) => (m.isDefault ? 0 : 1));
     }
 
     async function saveModel(): Promise<void> {
@@ -158,14 +158,13 @@ export function useModels(opts: {
             name: String(modelForm.name).trim(),
             provider: modelForm.provider,
             model: String(modelForm.model).trim(),
+            apiKey: nullableText(modelForm.apiKey) ?? "",
             baseUrl: nullableText(modelForm.baseUrl),
             maxRetries: modelForm.maxRetries,
             timeoutSeconds: modelForm.timeoutSeconds,
             isDefault: modelForm.isDefault,
             enabled: modelForm.enabled,
         };
-        const apiKey = nullableText(modelForm.apiKey);
-        if (apiKey) payload.apiKey = apiKey;
         return payload;
     }
 

@@ -133,7 +133,7 @@ class TaskSQLiteStorage:
         status: str | None = None,
         project_id: str | None = None,
         q: str | None = None,
-    ) -> list[Task]:
+    ) -> tuple[list[Task], int]:
         return self._tasks.list_task_summaries(offset, limit, status, project_id, q)
 
     # ── 步骤日志 ─────────────────────────────────────────────
