@@ -92,4 +92,6 @@ def reset_all_dependencies() -> None:
     get_model_config_service.cache_clear()
     get_task_queue.cache_clear()
     get_task_worker.cache_clear()
+    get_task_query_service.cache_clear()
+    get_task_timeline_service.cache_clear()
     get_task_app_service.cache_clear()
