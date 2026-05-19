@@ -24,6 +24,7 @@ from argus_py.config.server_settings import ServerSettings, load_server_settings
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.llm.providers import get_provider_spec
+from argus_py.observability.context import run_in_thread
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +37,13 @@ async def get_config_summary() -> ConfigSummaryResponse:
     # load_server_settings 走文件 IO；list_model_configs / get_default_model_config 走 SQLite。
     # 用 gather + to_thread 让三次同步 IO 并行执行，事件循环不再卡 dashboard 首屏。
     # settings 失败则整段报错（无设置无服务）；模型配置失败时降级为 0 / None。
+    settings_or_err: BaseException | ServerSettings
+    model_configs_or_err: BaseException | list[ModelConfig]
+    default_or_err: BaseException | ModelConfig | None
     settings_or_err, model_configs_or_err, default_or_err = await asyncio.gather(
-        asyncio.to_thread(load_server_settings),
-        asyncio.to_thread(get_model_config_service().list_model_configs),
-        asyncio.to_thread(get_model_config_service().get_default_model_config),
+        run_in_thread(load_server_settings),
+        run_in_thread(get_model_config_service().list_model_configs),
+        run_in_thread(get_model_config_service().get_default_model_config),
         return_exceptions=True,
     )
     if isinstance(settings_or_err, BaseException):
@@ -76,7 +80,7 @@ async def list_model_configs(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConfigListResponse:
     """列出模型配置。"""
-    configs = await asyncio.to_thread(service.list_model_configs, include_disabled=include_disabled)
+    configs = await run_in_thread(service.list_model_configs, include_disabled=include_disabled)
     return ModelConfigListResponse(
         total=len(configs),
         models=[ModelConfigResponse.from_model_config(config) for config in configs],
@@ -89,7 +93,7 @@ async def create_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConfigResponse:
     """创建模型配置。"""
-    config = await asyncio.to_thread(
+    config = await run_in_thread(
         service.create_model_config,
         name=request.name,
         provider=request.provider,
@@ -112,7 +116,7 @@ async def test_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConnectionTestResponse:
     """测试已保存或临时模型配置。"""
-    config = await asyncio.to_thread(_resolve_test_config, request, service)
+    config = await run_in_thread(_resolve_test_config, request, service)
     try:
         result = await service.test_model_config(config)
     except Exception as exc:
@@ -126,7 +130,7 @@ async def get_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> ModelConfigResponse:
     """查询模型配置详情。"""
-    config = await asyncio.to_thread(service.get_model_config, model_config_id)
+    config = await run_in_thread(service.get_model_config, model_config_id)
     return ModelConfigResponse.from_model_config(config)
 
 
@@ -138,7 +142,7 @@ async def update_model_config(
 ) -> ModelConfigResponse:
     """更新模型配置。"""
     updates = request.model_dump(exclude_unset=True)
-    config = await asyncio.to_thread(service.update_model_config, model_config_id, updates)
+    config = await run_in_thread(service.update_model_config, model_config_id, updates)
     return ModelConfigResponse.from_model_config(config)
 
 
@@ -148,7 +152,7 @@ async def delete_model_config(
     service: ModelConfigService = Depends(get_model_config_service),
 ) -> Response:
     """删除模型配置。"""
-    await asyncio.to_thread(service.delete_model_config, model_config_id)
+    await run_in_thread(service.delete_model_config, model_config_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

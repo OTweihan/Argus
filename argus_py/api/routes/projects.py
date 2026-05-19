@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import APIRouter, Depends, Response, status
 
 from argus_py.api.dependencies import get_project_service
@@ -13,6 +11,7 @@ from argus_py.api.schemas import (
     ProjectResponse,
     ProjectUpdateRequest,
 )
+from argus_py.observability.context import run_in_thread
 from argus_py.project.service import ProjectService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -23,7 +22,7 @@ async def list_projects(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectListResponse:
     """列出项目。"""
-    projects = await asyncio.to_thread(service.list_projects)
+    projects = await run_in_thread(service.list_projects)
     return ProjectListResponse(
         total=len(projects),
         projects=[ProjectResponse.from_project(project) for project in projects],
@@ -36,7 +35,7 @@ async def create_project(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
     """创建项目。"""
-    project = await asyncio.to_thread(
+    project = await run_in_thread(
         service.create_project,
         name=request.name,
         description=request.description,
@@ -57,7 +56,7 @@ async def get_project(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
     """查询项目详情。"""
-    project = await asyncio.to_thread(service.get_project, project_id)
+    project = await run_in_thread(service.get_project, project_id)
     return ProjectResponse.from_project(project)
 
 
@@ -69,7 +68,7 @@ async def update_project(
 ) -> ProjectResponse:
     """更新项目。"""
     updates = request.model_dump(exclude_unset=True)
-    project = await asyncio.to_thread(service.update_project, project_id, updates)
+    project = await run_in_thread(service.update_project, project_id, updates)
     return ProjectResponse.from_project(project)
 
 
@@ -79,5 +78,5 @@ async def delete_project(
     service: ProjectService = Depends(get_project_service),
 ) -> Response:
     """删除项目。"""
-    await asyncio.to_thread(service.delete_project, project_id)
+    await run_in_thread(service.delete_project, project_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

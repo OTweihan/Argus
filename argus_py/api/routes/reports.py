@@ -1,15 +1,12 @@
-"""任务报告路由。"""
+"""任务报告路由 — 只做 IO 适配，路径解析委托 TaskService。"""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from argus_py.api.dependencies import get_task_service
-from argus_py.core.paths import REPORTS_DIR, SCREENSHOTS_DIR
-from argus_py.task.models import Task
+from argus_py.core.exceptions import TaskError
 from argus_py.task.service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["reports"])
@@ -22,15 +19,34 @@ def get_task_report(
     download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
-    """返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。
-
-    内部使用同步 SQLite 与文件系统调用，保持 def 让 FastAPI 在线程池执行，
-    避免阻塞事件循环。
-    """
+    """返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。"""
     task = service.get_task(task_id)
+    try:
+        report_path = service.resolve_report_path(task)
+    except TaskError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "REPORT_NOT_FOUND", "message": str(e), "details": {"taskId": task_id}},
+        )
+
     if format == "json":
-        return _json_report_response(task, download=download)
-    return _html_report_response(task, download=download)
+        json_path = report_path.parent / "report.json"
+        if not json_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "REPORT_NOT_FOUND",
+                    "message": "JSON 报告文件不存在。",
+                    "details": {"taskId": task_id},
+                },
+            )
+        if download:
+            return FileResponse(json_path, media_type="application/json", filename="report.json")
+        return FileResponse(json_path, media_type="application/json")
+
+    if download:
+        return FileResponse(report_path, media_type="text/html", filename="index.html")
+    return FileResponse(report_path, media_type="text/html")
 
 
 @router.get("/{task_id}/report.json")
@@ -39,52 +55,28 @@ def get_task_report_json(
     download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
-    """返回任务 JSON 报告文件（同步 IO，线程池执行）。"""
-    return _json_report_response(service.get_task(task_id), download=download)
-
-
-def _html_report_response(task: Task, download: bool = False) -> FileResponse:
-    """返回 HTML 报告。"""
-    html_path = _resolve_html_report_path(task)
-    if download:
-        return FileResponse(html_path, media_type="text/html", filename="index.html")
-    return FileResponse(html_path, media_type="text/html")
-
-
-def _json_report_response(task: Task, download: bool = False) -> FileResponse:
-    """返回 JSON 报告。"""
-    html_path = _resolve_html_report_path(task)
-    json_path = html_path.parent / "report.json"
+    """返回任务 JSON 报告文件。"""
+    task = service.get_task(task_id)
+    try:
+        report_path = service.resolve_report_path(task)
+    except TaskError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "REPORT_NOT_FOUND", "message": str(e), "details": {"taskId": task_id}},
+        )
+    json_path = report_path.parent / "report.json"
     if not json_path.exists():
-        raise _report_not_found(task.task_id, "JSON 报告文件不存在。")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "REPORT_NOT_FOUND",
+                "message": "JSON 报告文件不存在。",
+                "details": {"taskId": task_id},
+            },
+        )
     if download:
         return FileResponse(json_path, media_type="application/json", filename="report.json")
     return FileResponse(json_path, media_type="application/json")
-
-
-def _resolve_html_report_path(task: Task) -> Path:
-    """解析并校验 HTML 报告路径。"""
-    if not task.report_path:
-        raise _report_not_found(task.task_id, "任务尚未生成报告。")
-    report_path = Path(task.report_path).expanduser().resolve()
-    reports_dir = REPORTS_DIR.resolve()
-    if not report_path.is_relative_to(reports_dir):
-        raise _report_not_found(task.task_id, "报告路径不在允许的报告目录下。")
-    if not report_path.exists():
-        raise _report_not_found(task.task_id, "HTML 报告文件不存在。")
-    return report_path
-
-
-def _report_not_found(task_id: str, message: str) -> HTTPException:
-    """生成报告不存在错误。"""
-    return HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail={
-            "code": "REPORT_NOT_FOUND",
-            "message": message,
-            "details": {"taskId": task_id},
-        },
-    )
 
 
 @router.get("/{task_id}/screenshots/{filename:path}")
@@ -93,12 +85,10 @@ def get_task_screenshot(
     filename: str,
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
-    """返回任务截图文件（同步 IO，线程池执行）。"""
+    """返回任务截图文件。"""
     service.get_task(task_id)
-    screenshot_dir = (SCREENSHOTS_DIR / task_id).resolve()
-    screenshot_path = (screenshot_dir / filename).resolve()
-    if not screenshot_path.is_relative_to(screenshot_dir):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="截图路径不合法。")
-    if not screenshot_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="截图文件不存在。")
+    try:
+        screenshot_path = service.resolve_screenshot_path(task_id, filename)
+    except TaskError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return FileResponse(screenshot_path)

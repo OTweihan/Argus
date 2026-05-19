@@ -7,63 +7,14 @@
   </div>
   <div v-else class="report-container">
     <!-- Hero -->
-    <header class="report-hero">
-      <div class="hero-bg-grid" />
-      <div class="hero-inner">
-        <div class="hero-main">
-          <div class="eyebrow">
-            <svg class="ei ei-shield" viewBox="0 0 16 16" fill="none" width="12" height="12">
-              <path
-                d="M8 1L2 3.5V7c0 4.2 2.7 7.5 6 8.5 3.3-1 6-4.3 6-8.5V3.5L8 1z" stroke="currentColor"
-                stroke-width="1.2" fill="none"
-              />
-            </svg>
-            Argus Blackbox Testing
-          </div>
-          <h1>{{ report.title }}</h1>
-          <p class="hero-desc">
-            {{ summary }}
-          </p>
-          <div class="hero-status">
-            <span :class="['status-badge', 'badge-' + status]">
-              <span class="badge-dot" />
-              {{ statusLabel }}
-            </span>
-            <span class="status-badge" :class="findingCount === 0 ? 'badge-success' : 'badge-danger'">
-              <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><circle
-                cx="8" cy="8" r="6"
-                stroke="currentColor"
-                stroke-width="1.2"
-              /><path
-                d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"
-              /></svg>
-              问题 {{ findingCount }}
-            </span>
-            <span class="status-badge badge-info">
-              <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><path
-                d="M2 4l6 3 6-3M2 12l6-3 6 3M2 8l6-3 6 3" stroke="currentColor" stroke-width="1.2"
-                stroke-linecap="round" stroke-linejoin="round"
-              /></svg>
-              步骤 {{ stepCount }} / {{ report.task.maxSteps }}
-            </span>
-          </div>
-        </div>
-        <aside class="hero-meta" aria-label="报告元信息">
-          <div class="meta-row">
-            <span class="meta-label">报告 ID</span>
-            <span class="meta-value mono">{{ report.reportId }}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">任务 ID</span>
-            <span class="meta-value mono">{{ report.task.taskId }}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">生成时间</span>
-            <span class="meta-value">{{ formatDate(report.generatedAt) }}</span>
-          </div>
-        </aside>
-      </div>
-    </header>
+    <ReportHero
+      :report="report"
+      :summary="summary"
+      :status="status"
+      :status-label="statusLabel"
+      :finding-count="findingCount"
+      :step-count="stepCount"
+    />
 
     <!-- Layout -->
     <div class="report-layout">
@@ -90,71 +41,13 @@
       <main class="report-main">
         <!-- Overview / Metrics -->
         <section id="overview" class="section" data-section>
-          <div class="metrics">
-            <div class="r-metric metric-accent-info">
-              <div class="metric-icon mi-info">
-                <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
-                  <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" />
-                  <path d="M10 7v5.5M10 5v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                </svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-label">任务状态</span>
-                <strong class="metric-value">{{ statusLabel }}</strong>
-              </div>
-            </div>
-            <div class="r-metric metric-accent-primary">
-              <div class="metric-icon mi-primary">
-                <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
-                  <path d="M4 4h12v12H4z" stroke="currentColor" stroke-width="1.4" rx="2" />
-                  <path d="M8 10l1.5 1.5L12 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                </svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-label">展示步骤</span>
-                <strong class="metric-value">{{ stepCount }}</strong>
-              </div>
-            </div>
-            <div class="r-metric" :class="findingCount === 0 ? 'metric-accent-success' : 'metric-accent-danger'">
-              <div class="metric-icon" :class="findingCount === 0 ? 'mi-success' : 'mi-danger'">
-                <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
-                  <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" />
-                  <path
-                    v-if="findingCount === 0" d="M7 10l2 2 4-4" stroke="currentColor" stroke-width="1.4"
-                    stroke-linecap="round"
-                  />
-                  <path v-else d="M10 7v4M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                </svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-label">问题数量</span>
-                <strong class="metric-value">{{ findingCount }}</strong>
-              </div>
-            </div>
-            <div class="r-metric metric-accent-warning">
-              <div class="metric-icon mi-warning">
-                <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
-                  <path d="M10 3L3 17h14L10 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
-                  <path d="M10 8v4M10 14v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                </svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-label">失败步骤</span>
-                <strong class="metric-value">{{ failedCount }}</strong>
-              </div>
-            </div>
-            <div class="r-metric metric-accent-info">
-              <div class="metric-icon mi-info">
-                <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
-                  <path d="M2 10h4l2-5 4 10 2-5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                </svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-label">最大步数</span>
-                <strong class="metric-value">{{ report.task.maxSteps }}</strong>
-              </div>
-            </div>
-          </div>
+          <ReportMetrics
+            :status-label="statusLabel"
+            :step-count="stepCount"
+            :finding-count="findingCount"
+            :failed-count="failedCount"
+            :max-steps="report.task.maxSteps"
+          />
         </section>
 
         <!-- Task Info -->
@@ -376,9 +269,12 @@
 </template>
 
 <script setup lang="ts">
-import {computed, onMounted, onUnmounted, ref} from "vue";
+import {computed, ref} from "vue";
 import type {ReportData} from "../types";
 import {screenshotUrl} from "../api";
+import {useScrollSpy} from "../composables/useScrollSpy";
+import ReportHero from "../components/report/ReportHero.vue";
+import ReportMetrics from "../components/report/ReportMetrics.vue";
 import StepCard from "../components/task/report/StepCard.vue";
 import FindingCard from "../components/task/report/FindingCard.vue";
 import {
@@ -396,10 +292,9 @@ const props = defineProps<{
 }>();
 
 // --- reactive state ---
-const activeSection = ref("");
+const { activeSection } = useScrollSpy();
 const rawJsonOpen = ref(false);
 const lightboxSrc = ref<string | null>(null);
-const observer = ref<IntersectionObserver | null>(null);
 
 // --- nav items ---
 // 详见 reportUtils.ts，外部常量便于复用与单元测试。
@@ -436,27 +331,6 @@ function closeLightbox(): void {
   lightboxSrc.value = null;
 }
 
-// --- scroll spy ---
-onMounted(() => {
-  const sections = document.querySelectorAll("[data-section]");
-  if (!sections.length) return;
-  observer.value = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            activeSection.value = entry.target.id;
-          }
-        }
-      },
-      {rootMargin: "-80px 0px -60% 0px"}
-  );
-  sections.forEach((s) => observer.value!.observe(s));
-  activeSection.value = sections[0].id;
-});
-
-onUnmounted(() => {
-  observer.value?.disconnect();
-});
 </script>
 
 <style scoped src="./report.css"></style>

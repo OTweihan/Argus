@@ -54,82 +54,14 @@
           </div>
         </div>
         <el-empty v-if="!filteredTraces.length" :description="loading ? '加载中...' : '无追踪记录'" />
+        <div v-if="loadError" class="dbg-alert dbg-alert-error">
+          <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" /><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+          <span>{{ loadError }}</span>
+        </div>
       </div>
 
       <!-- Right: detail -->
-      <div v-if="selectedTrace" class="dbg-detail">
-        <div class="dbg-detail-header">
-          <span class="dbg-detail-title">追踪详情</span>
-          <div class="dbg-detail-actions">
-            <button class="dbg-copy-btn" @click="copyPrompt">
-              <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" /><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" /></svg>
-              复制 Prompt
-            </button>
-            <button class="dbg-copy-btn" @click="copyRawResponse">
-              <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" /><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" /></svg>
-              复制 Raw Response
-            </button>
-          </div>
-        </div>
-
-        <div class="dbg-detail-scroll">
-          <!-- Meta info -->
-          <div class="dbg-meta-grid">
-            <div class="dbg-meta-item">
-              <span class="dbg-meta-label">阶段</span>
-              <span class="dbg-meta-value">{{ selectedTrace.phase }}</span>
-            </div>
-            <div class="dbg-meta-item">
-              <span class="dbg-meta-label">事件</span>
-              <span class="dbg-meta-value">{{ eventLabel(selectedTrace.event) }}</span>
-            </div>
-            <div class="dbg-meta-item">
-              <span class="dbg-meta-label">模型</span>
-              <span class="dbg-meta-value mono">{{ selectedTrace.model || '-' }}</span>
-            </div>
-            <div class="dbg-meta-item">
-              <span class="dbg-meta-label">Host</span>
-              <span class="dbg-meta-value mono">{{ selectedTrace.baseUrlHost || '-' }}</span>
-            </div>
-            <div v-if="selectedTrace.latencyMs != null" class="dbg-meta-item">
-              <span class="dbg-meta-label">耗时</span>
-              <span class="dbg-meta-value">{{ (selectedTrace.latencyMs / 1000).toFixed(2) }}s</span>
-            </div>
-            <div class="dbg-meta-item">
-              <span class="dbg-meta-label">时间</span>
-              <span class="dbg-meta-value">{{ formatTime(selectedTrace.timestamp) }}</span>
-            </div>
-            <div v-if="tokenUsage?.prompt_tokens != null" class="dbg-meta-item">
-              <span class="dbg-meta-label">Prompt Tokens</span>
-              <span class="dbg-meta-value mono">{{ tokenUsage.prompt_tokens }}</span>
-            </div>
-            <div v-if="tokenUsage?.completion_tokens != null" class="dbg-meta-item">
-              <span class="dbg-meta-label">Completion Tokens</span>
-              <span class="dbg-meta-value mono">{{ tokenUsage.completion_tokens }}</span>
-            </div>
-          </div>
-
-          <!-- Error banner -->
-          <div v-if="selectedTrace.error" class="dbg-alert dbg-alert-error">
-            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" /><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
-            <span>{{ selectedTrace.error }}</span>
-          </div>
-          <div v-if="selectedTrace.parseError" class="dbg-alert dbg-alert-warning">
-            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" /><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
-            <span>解析失败：{{ selectedTrace.parseError }}</span>
-          </div>
-
-          <!-- Code sections -->
-          <DebugCodeSection title="System Prompt" :content="systemPrompt" @copy="copyText" />
-          <DebugCodeSection title="Input Payload" :content="inputPayloadStr" @copy="copyText" />
-          <DebugCodeSection
-            title="Raw Response"
-            :content="selectedTrace.rawResponse ?? ''"
-            @copy="copyText"
-          />
-          <DebugCodeSection title="Parsed Result" :content="parsedResultStr" @copy="copyText" />
-        </div>
-      </div>
+      <TraceDetailPanel v-if="selectedTrace" :trace="selectedTrace" />
       <el-empty v-else class="dbg-empty-detail" description="选择左侧追踪记录查看详情" />
     </div>
   </div>
@@ -139,47 +71,17 @@
 import { computed, onMounted, ref } from "vue";
 import { getTaskTraces, debugBundleUrl } from "../../api";
 import type { LLMTraceRecord } from "../../types";
-import { ElMessage } from "element-plus";
-import DebugCodeSection from "./debug/DebugCodeSection.vue";
+import { errorMessage } from "../../utils";
+import TraceDetailPanel from "./debug/TraceDetailPanel.vue";
 
 const props = defineProps<{ taskId: string }>();
 
 const traces = ref<LLMTraceRecord[]>([]);
 const loading = ref(true);
+const loadError = ref("");
 const selectedTrace = ref<LLMTraceRecord | null>(null);
 const phaseFilter = ref("");
 const hideStarted = ref(true);
-
-const filteredTraces = computed(() => {
-  let list = traces.value;
-  if (phaseFilter.value) {
-    list = list.filter((t) => t.phase === phaseFilter.value);
-  }
-  if (hideStarted.value) {
-    list = list.filter((t) => t.event !== "task.llm.started");
-  }
-  return list;
-});
-
-const systemPrompt = computed(() => {
-  return selectedTrace.value?.systemPrompt || "";
-});
-
-const tokenUsage = computed(() => {
-  return selectedTrace.value?.tokenUsage || null;
-});
-
-const inputPayloadStr = computed(() => {
-  const payload = selectedTrace.value?.inputPayload;
-  if (!payload) return "";
-  return JSON.stringify(payload, null, 2);
-});
-
-const parsedResultStr = computed(() => {
-  const result = selectedTrace.value?.parsedResult;
-  if (result == null) return "";
-  return JSON.stringify(result, null, 2);
-});
 
 function onFilterChange() {
   if (selectedTrace.value && !filteredTraces.value.includes(selectedTrace.value)) {
@@ -216,28 +118,16 @@ function formatTime(iso: string): string {
   }
 }
 
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    ElMessage({ message: "已复制到剪贴板", type: "success", duration: 1500 });
-  } catch {
-    ElMessage({ message: "复制失败", type: "error", duration: 2000 });
+const filteredTraces = computed(() => {
+  let list = traces.value;
+  if (phaseFilter.value) {
+    list = list.filter((t) => t.phase === phaseFilter.value);
   }
-}
-
-function copyPrompt() {
-  if (!selectedTrace.value) return;
-  let text = systemPrompt.value;
-  if (inputPayloadStr.value) {
-    text += "\n\n--- Input ---\n" + inputPayloadStr.value;
+  if (hideStarted.value) {
+    list = list.filter((t) => t.event !== "task.llm.started");
   }
-  copyText(text);
-}
-
-function copyRawResponse() {
-  if (!selectedTrace.value?.rawResponse) return;
-  copyText(selectedTrace.value.rawResponse);
-}
+  return list;
+});
 
 function downloadDebugBundle() {
   window.open(debugBundleUrl(props.taskId), "_blank");
@@ -245,10 +135,11 @@ function downloadDebugBundle() {
 
 onMounted(async () => {
   loading.value = true;
+  loadError.value = "";
   try {
     traces.value = await getTaskTraces(props.taskId);
-  } catch {
-    // silent — show empty
+  } catch (caught) {
+    loadError.value = errorMessage(caught);
   } finally {
     loading.value = false;
   }
@@ -481,122 +372,7 @@ onMounted(async () => {
   color: var(--text-placeholder, #9ca3af);
 }
 
-/* ===== Detail ===== */
-.dbg-detail {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.dbg-detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 11px 18px;
-  border-bottom: 1px solid var(--line-soft, #e4e7ed);
-  flex-shrink: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.4) 100%);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.dbg-detail-title {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--text-strong, #11181c);
-  letter-spacing: -0.005em;
-}
-
-.dbg-detail-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.dbg-copy-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  border: 1px solid var(--line-soft, #e4e7ed);
-  border-radius: var(--radius-xs, 6px);
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--text-muted, #4b5563);
-  font-size: 12px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.dbg-copy-btn:hover {
-  background: var(--brand-50, #f4f3ff);
-  color: var(--brand-600, #4f46e5);
-  border-color: var(--brand-100, #e0e7ff);
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.12);
-}
-
-.dbg-detail-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: transparent;
-}
-
-/* 关键：阻止 flex 容器压缩子项，否则 4 个 DebugCodeSection 会被压扁导致永远不溢出、滚不动 */
-.dbg-detail-scroll > * {
-  flex-shrink: 0;
-}
-
-/* ===== Meta Grid ===== */
-.dbg-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1px;
-  background: var(--line-soft, #e4e7ed);
-  border: 1px solid var(--line-soft, #e4e7ed);
-  border-radius: var(--radius-sm, 10px);
-  overflow: hidden;
-  flex-shrink: 0;
-  box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.04));
-}
-
-.dbg-meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 11px 14px;
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.dbg-meta-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-faint, #6b7280);
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-}
-
-.dbg-meta-value {
-  font-size: 12px;
-  color: var(--text-strong, #11181c);
-  word-break: break-word;
-}
-
-.mono {
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 11px;
-}
-
-/* ===== Alert ===== */
+/* ===== Alert (list panel) ===== */
 .dbg-alert {
   display: flex;
   align-items: flex-start;
@@ -619,12 +395,6 @@ onMounted(async () => {
   background: linear-gradient(135deg, rgba(255, 241, 242, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
   border: 1px solid #fecdd3;
   color: var(--danger, #b42318);
-}
-
-.dbg-alert-warning {
-  background: linear-gradient(135deg, rgba(255, 250, 235, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
-  border: 1px solid #fde68a;
-  color: var(--warning, #b54708);
 }
 
 .dbg-empty-detail {

@@ -13,22 +13,8 @@ from argus_py.redaction import (
     redact_step_params,
 )
 from argus_py.report.models import Report
+from argus_py.utils.casing import camel_keys
 from argus_py.utils.jsonx import to_jsonable
-
-
-def _to_camel(snake: str) -> str:
-    """将 snake_case 转换为 camelCase。"""
-    parts = snake.split("_")
-    return parts[0] + "".join(p.capitalize() for p in parts[1:])
-
-
-def _camel_keys(data: Any) -> Any:
-    """递归将 dict 的所有 key 从 snake_case 转为 camelCase。"""
-    if isinstance(data, dict):
-        return {_to_camel(k): _camel_keys(v) for k, v in data.items()}
-    if isinstance(data, list):
-        return [_camel_keys(item) for item in data]
-    return data
 
 
 def _sanitize_report_path(path: str) -> str:
@@ -81,7 +67,7 @@ def report_to_dict(report: Report) -> dict[str, Any]:
     data["total_steps_count"] = len(steps)
     data["hidden_steps_count"] = len(steps) - len(display_steps)
 
-    return _camel_keys(data)
+    return camel_keys(data)
 
 
 def _should_display_step(step: dict[str, Any]) -> bool:

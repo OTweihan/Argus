@@ -176,6 +176,21 @@ body {
     box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22);
 }
 
+.dot.reconnecting {
+    background: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+    animation: argus-pulse-amber 1.2s ease-in-out infinite;
+}
+
+@keyframes argus-pulse-amber {
+    0%, 100% {
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.10);
+    }
+}
+
 @keyframes argus-pulse {
     0%, 100% {
         box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);

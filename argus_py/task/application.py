@@ -9,13 +9,16 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
+from argus_py.observability.context import run_in_thread
 from argus_py.project.service import ProjectService
 from argus_py.task.service import TaskService
 from argus_py.task.strategy import resolve_execution_limits
+from argus_py.utils.casing import camel_keys
 
 
 class TaskAppError(TaskError):
@@ -37,7 +40,7 @@ class TaskAppError(TaskError):
         return {
             "code": self.code,
             "message": str(self),
-            "details": self.details,
+            "details": camel_keys(self.details),
         }
 
 
@@ -76,6 +79,9 @@ class TaskApplicationService:
         start_url = start_url or project.base_url
         if not start_url:
             raise TaskError("任务需要 startUrl，或项目需要配置 baseUrl。")
+        result = validate_url(start_url)
+        if not result.is_ok():
+            raise TaskError(f"startUrl 校验失败：{result.error_message}")
 
         max_steps = max_steps or project.default_max_steps
         timeout_seconds = timeout_seconds or project.default_timeout_seconds
@@ -112,56 +118,56 @@ class TaskApplicationService:
     async def update_task(self, task_id: str, params: dict[str, Any]) -> Any:
         """更新 pending 且未入队的任务。"""
         # SQLite 读写都走线程池：协程中并发请求互不阻塞。
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if task.status is not TaskStatus.PENDING or scheduler_status is not None:
             raise TaskAppError(
                 "TASK_NOT_EDITABLE",
                 f"只有 pending 且未入队的任务可以编辑，当前状态：{task.status.value}。",
                 details={
-                    "taskId": task_id,
+                    "task_id": task_id,
                     "status": task.status.value,
-                    "schedulerStatus": scheduler_status,
+                    "scheduler_status": scheduler_status,
                 },
             )
-        updated = await asyncio.to_thread(self._task.update_task_info, task, **params)
+        updated = await run_in_thread(self._task.update_task_info, task, **params)
         return updated, await self._queue.scheduler_status(updated.task_id)
 
     # ── 删除 ──
 
     async def delete_task(self, task_id: str) -> None:
         """删除 pending 且未入队的任务。"""
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if task.status is not TaskStatus.PENDING or scheduler_status is not None:
             raise TaskAppError(
                 "TASK_NOT_DELETABLE",
                 f"只有 pending 且未入队的任务可以删除，当前状态：{task.status.value}。",
                 details={
-                    "taskId": task_id,
+                    "task_id": task_id,
                     "status": task.status.value,
-                    "schedulerStatus": scheduler_status,
+                    "scheduler_status": scheduler_status,
                 },
             )
-        await asyncio.to_thread(self._task.delete_pending_task, task)
+        await run_in_thread(self._task.delete_pending_task, task)
 
     # ── 启动 ──
 
     async def start_task(self, task_id: str) -> tuple[Any, str]:
         """将 pending 任务加入执行队列。"""
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         if task.status is not TaskStatus.PENDING:
             raise TaskAppError(
                 "TASK_NOT_PENDING",
                 f"只有 pending 任务可以启动，当前状态：{task.status.value}。",
-                details={"taskId": task.task_id, "status": task.status.value},
+                details={"task_id": task.task_id, "status": task.status.value},
             )
         result = await self._queue.enqueue(task.task_id)
         if result.already_known:
             raise TaskAppError(
                 "TASK_ALREADY_SCHEDULED",
                 f"任务已处于调度状态：{result.scheduler_status}。",
-                details={"taskId": task.task_id, "schedulerStatus": result.scheduler_status},
+                details={"task_id": task.task_id, "scheduler_status": result.scheduler_status},
             )
         return task, result.scheduler_status
 
@@ -169,26 +175,26 @@ class TaskApplicationService:
 
     async def restart_task(self, task_id: str) -> tuple[Any, str]:
         """重试失败/超时/取消的任务，创建新任务并立即入队。"""
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         if task.status not in (TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED):
             raise TaskAppError(
                 "TASK_NOT_RETRYABLE",
                 f"只有失败/超时/取消的任务可以重试，当前状态：{task.status.value}。",
-                details={"taskId": task.task_id, "status": task.status.value},
+                details={"task_id": task.task_id, "status": task.status.value},
             )
-        new_task = await asyncio.to_thread(self._task.restart_task, task)
+        new_task = await run_in_thread(self._task.restart_task, task)
         try:
             result = await self._queue.enqueue(new_task.task_id)
         except (Exception, asyncio.CancelledError):
             # 入队失败需要回滚新建的任务，同样走线程池。
-            await asyncio.to_thread(self._task.delete_pending_task, new_task)
+            await run_in_thread(self._task.delete_pending_task, new_task)
             raise
         if result.already_known:
-            await asyncio.to_thread(self._task.delete_pending_task, new_task)
+            await run_in_thread(self._task.delete_pending_task, new_task)
             raise TaskAppError(
                 "TASK_ALREADY_SCHEDULED",
                 f"新创建的任务意外处于已调度状态：{result.scheduler_status}。",
-                details={"taskId": new_task.task_id, "schedulerStatus": result.scheduler_status},
+                details={"task_id": new_task.task_id, "scheduler_status": result.scheduler_status},
             )
         return new_task, result.scheduler_status
 
@@ -196,7 +202,7 @@ class TaskApplicationService:
 
     async def _check_not_finished(self, task_id: str) -> tuple[Any, str | None]:
         """获取任务并校验未处于终态。返回 (task, scheduler_status)。"""
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if task.status in (
             TaskStatus.CANCELLED,
@@ -208,7 +214,7 @@ class TaskApplicationService:
                 "TASK_ALREADY_FINISHED",
                 f"任务已处于终态，不能操作：{task.status.value}。",
                 http_status=400,
-                details={"taskId": task_id, "status": task.status.value},
+                details={"task_id": task_id, "status": task.status.value},
             )
         return task, scheduler_status
 
@@ -220,34 +226,34 @@ class TaskApplicationService:
         # CancellationToken 线程不安全；必须在 event loop 线程修改信号量，
         # 否则线程池写入与执行循环读取形成不可观测的 data race。
         self._task.get_cancellation_token(task.task_id).cancel()
-        task = await asyncio.to_thread(self._task.cancel_task, task)
+        task = await run_in_thread(self._task.cancel_task, task)
         return task, await self._queue.scheduler_status(task.task_id)
 
     # ── 暂停/恢复 ──
 
     async def pause_task(self, task_id: str) -> Any:
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         if task.status is not TaskStatus.RUNNING:
             raise TaskAppError(
                 "TASK_NOT_RUNNING",
                 f"只有运行中的任务可以暂停，当前状态：{task.status.value}。",
-                details={"taskId": task.task_id, "status": task.status.value},
+                details={"task_id": task.task_id, "status": task.status.value},
             )
         # CancellationToken 线程不安全；必须在 event loop 线程修改信号量。
         self._task.get_cancellation_token(task.task_id).pause()
-        return await asyncio.to_thread(self._task.pause_task, task)
+        return await run_in_thread(self._task.pause_task, task)
 
     async def resume_task(self, task_id: str) -> Any:
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         if task.status is not TaskStatus.PAUSED:
             raise TaskAppError(
                 "TASK_NOT_PAUSED",
                 f"只有暂停的任务可以恢复，当前状态：{task.status.value}。",
-                details={"taskId": task.task_id, "status": task.status.value},
+                details={"task_id": task.task_id, "status": task.status.value},
             )
         # CancellationToken 线程不安全；必须在 event loop 线程修改信号量。
         self._task.get_cancellation_token(task.task_id).resume()
-        return await asyncio.to_thread(self._task.resume_task, task)
+        return await run_in_thread(self._task.resume_task, task)
 
     # ── 查询（委托） ──
 
@@ -255,7 +261,7 @@ class TaskApplicationService:
         return self._task.get_task(task_id)
 
     async def get_task_with_scheduler(self, task_id: str) -> tuple[Any, str | None]:
-        task = await asyncio.to_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._task.get_task, task_id)
         sched = await self._queue.scheduler_status(task_id)
         return task, sched
 

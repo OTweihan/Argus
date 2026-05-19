@@ -134,15 +134,13 @@
 
 <script setup lang="ts">
 import {ref} from "vue";
+import type {Task} from "../types";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
+import {errorMessage} from "../utils";
 import {getTask} from "../api";
-import {useConsoleApp} from "../composables/useConsoleApp";
-import type {Task} from "../types";
+import {injectConsoleApp} from "../composables/useConsoleApp";
 
-type AppContext = ReturnType<typeof useConsoleApp>;
-
-const props = defineProps<{ app: AppContext }>();
 const {
   projects,
   tasksTotal,
@@ -152,7 +150,7 @@ const {
   enabledModels,
   error,
   selectTask,
-} = props.app;
+} = injectConsoleApp();
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);
@@ -165,7 +163,7 @@ async function showTaskDetail(taskId: string): Promise<void> {
   try {
     detailTask.value = await getTask(taskId);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "获取任务详情失败";
+    error.value = errorMessage(caught);
     detailVisible.value = false;
   } finally {
     detailLoading.value = false;

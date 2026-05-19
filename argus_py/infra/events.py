@@ -38,7 +38,7 @@ class TaskEvent:
         """转换为 WebSocket 可发送的字典。"""
         return {
             "sequence": self.sequence,
-            "type": self.event_type,
+            "eventType": self.event_type,
             "taskId": self.task_id,
             "data": self.data,
             "createdAt": self.created_at.isoformat(),
@@ -180,8 +180,20 @@ class EventBus:
             self._offer(queue, event)
         return event
 
-    async def subscribe(self, task_id: str | None = None, replay: bool = True) -> EventSubscription:
-        """创建事件订阅。"""
+    async def subscribe(
+        self,
+        task_id: str | None = None,
+        replay: bool = True,
+        since_seq: int | None = None,
+    ) -> EventSubscription:
+        """创建事件订阅。
+
+        Args:
+            task_id: 订阅特定任务的事件，None 表示全局。
+            replay: 是否回放 history 中已有事件。
+            since_seq: 只回放 sequence > since_seq 的事件，用于重连补齐。
+                      为 None 时回放全部 history。
+        """
         queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=self.subscriber_queue_size)
         async with self._lock:
             if task_id is None:
@@ -191,7 +203,8 @@ class EventBus:
             if replay:
                 for event in self._history:
                     if task_id is None or event.task_id == task_id:
-                        self._offer(queue, event)
+                        if since_seq is None or event.sequence > since_seq:
+                            self._offer(queue, event)
         return EventSubscription(self, queue, task_id)
 
     async def unsubscribe(self, subscription: EventSubscription) -> None:

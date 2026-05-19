@@ -146,16 +146,14 @@ import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
 import {getTask, reportUrl} from "../api";
-import {useConsoleApp} from "../composables/useConsoleApp";
+import {errorMessage} from "../utils";
+import {injectConsoleApp} from "../composables/useConsoleApp";
 import type {Task} from "../types";
 // 任务详情页三个大体积 Tab 组件按需加载，避免拖慢任务列表首屏
 const ReportView = defineAsyncComponent(() => import("./ReportView.vue"));
 const TaskTimeline = defineAsyncComponent(() => import("../components/task/TaskTimeline.vue"));
 const LLMDebugTab = defineAsyncComponent(() => import("../components/task/LLMDebugTab.vue"));
 
-type AppContext = ReturnType<typeof useConsoleApp>;
-
-const props = defineProps<{ app: AppContext }>();
 const {
   view, projects, allTasks, taskStatusFilter, taskProjectFilter,
   taskSearchQuery, taskStatuses, selectedTask, selectedTaskTab, reportData, reportLoading, taskForm,
@@ -163,7 +161,7 @@ const {
   page, pageSize, total, taskLoading,
   startTask, retryTask, deleteTask, goBackToTasks, saveTask, openNewTaskDialog, openEditTaskDialog,
   addParam, removeParam, onPageChange, onPageSizeChange, onTaskEvent, selectTask,
-} = props.app;
+} = injectConsoleApp();
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);
@@ -176,7 +174,7 @@ async function showTaskDetail(taskId: string): Promise<void> {
   try {
     detailTask.value = await getTask(taskId);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "获取任务详情失败";
+    error.value = errorMessage(caught);
     detailVisible.value = false;
   } finally {
     detailLoading.value = false;

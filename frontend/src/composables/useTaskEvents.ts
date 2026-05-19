@@ -117,8 +117,7 @@ export function useTaskEvents(
       return;
     }
 
-    const eventType = event.eventType ?? event.type ?? "";
-    if (eventType === "task.deleted") {
+    if (event.eventType === "task.deleted") {
       const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
       if (idx !== -1) {
         allTasks.value = [
@@ -132,7 +131,7 @@ export function useTaskEvents(
     }
 
     const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
-    if (idx === -1 && eventType === "task.created") {
+    if (idx === -1 && event.eventType === "task.created") {
       // 拉完整任务对象而非强转事件载荷，避免字段缺失导致运行时错误。
       void refreshTaskById(taskId);
       scheduleStatsRefresh();
@@ -165,7 +164,7 @@ export function useTaskEvents(
     if (eventSummary.resultSummary !== undefined) patch.resultSummary = eventSummary.resultSummary as string | null;
     if (eventSummary.errorMessage !== undefined) patch.errorMessage = eventSummary.errorMessage as string | null;
 
-    if (eventType === "task.complete") {
+    if (event.eventType === "task.complete") {
       patch.status = "completed";
       if (data.reportPath) patch.reportPath = data.reportPath as string;
       if (data.resultSummary) patch.resultSummary = data.resultSummary as string;

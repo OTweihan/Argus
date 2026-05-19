@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from argus_py.core.cancellation import CancellationToken
@@ -217,6 +218,31 @@ class TaskService:
         return self.query.list_task_summaries(
             status=status, project_id=project_id, offset=offset, limit=limit, q=q
         )
+
+    # ── 报告 / 追踪 / 调试包 ──
+
+    def resolve_report_path(self, task: Task) -> Path:
+        return self.query.resolve_report_path(task)
+
+    def resolve_screenshot_path(self, task_id: str, filename: str) -> Path:
+        return self.query.resolve_screenshot_path(task_id, filename)
+
+    def list_llm_traces(
+        self,
+        task_id: str,
+        skip: int = 0,
+        limit: int = 50,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.query.list_llm_traces(task_id, skip=skip, limit=limit, trace_id=trace_id)
+
+    def get_llm_trace_detail(self, task_id: str, trace_id: str) -> dict[str, Any] | None:
+        return self.query.get_llm_trace_detail(task_id, trace_id)
+
+    def build_debug_bundle(
+        self, task_id: str, task: Task, events: list[dict[str, Any]] | None = None
+    ) -> str:
+        return self.query.build_debug_bundle(task_id, task, events=events)
 
     # ── 日志与问题 ──
 

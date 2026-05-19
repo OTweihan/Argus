@@ -17,6 +17,8 @@ export type StepResult = "success" | "failed" | "skipped";
 
 export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
 
+export type FindingType = "functional" | "visual" | "performance" | "security" | "accessibility" | "error";
+
 export interface TimelineEvent {
     eventId: string;
     taskId: string;
@@ -99,7 +101,7 @@ export interface Finding {
     title: string;
     description: string;
     severity: FindingSeverity;
-    findingType: string;
+    findingType: FindingType;
     url: string | null;
     location: string | null;
     screenshotPath: string | null;
@@ -172,10 +174,9 @@ export interface ModelConnectionTestResponse {
 
 export interface TaskEvent<T = Record<string, unknown>> {
     sequence?: number;
-    type?: string;
-    eventType?: string;
+    eventType: string;
     taskId?: string;
-    data?: T;
+    data: T;
     createdAt?: string;
 }
 
@@ -195,7 +196,7 @@ export interface ReportFinding {
     title: string;
     description: string;
     severity: FindingSeverity;
-    findingType: string;
+    findingType: FindingType;
     url: string | null;
     location: string | null;
     screenshotPath: string | null;

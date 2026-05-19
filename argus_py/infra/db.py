@@ -251,3 +251,35 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             connection.executescript(TASK_EVENTS_SCHEMA)
             _migrate_tasks_table(connection)
             _migrate_model_configs_table(connection)
+
+
+class _DefaultDBProbe:
+    """``argus_py.core.crypto.DBProbe`` 默认实现，通过 ``connect`` 查询数据库。
+
+    该实现位于 ``infra`` 层，由 ``api/app.py`` 等上层创建并注入到
+    ``ensure_fernet_key()``，避免 ``core/crypto.py`` 直接依赖 ``infra`` 层。
+    """
+
+    def __init__(self, db_path: str | Path) -> None:
+        self._db_path = db_path
+
+    def has_encrypted_api_keys(self) -> bool:
+        from contextlib import closing
+
+        try:
+            with closing(connect(self._db_path)) as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM model_configs WHERE api_key LIKE 'f:%'"
+                ).fetchone()
+                return row is not None and row["cnt"] > 0
+        except Exception:
+            return False
+
+
+__all__ = [
+    "DEFAULT_DB_PATH",
+    "ConnectFn",
+    "connect",
+    "init_database",
+    "_DefaultDBProbe",
+]

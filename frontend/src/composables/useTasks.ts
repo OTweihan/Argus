@@ -74,8 +74,8 @@ export function useTasks(opts: {
             const limits = await inferTaskLimits(trimmed, taskForm.startUrl || undefined);
             taskForm.maxSteps = limits.maxSteps;
             taskForm.timeoutSeconds = limits.timeoutSeconds;
-        } catch {
-            // 推断失败时静默忽略，保留现有值
+        } catch (caught) {
+            console.warn("任务参数推断失败：", errorMessage(caught));
         }
     }
     // goal / startUrl 两个 watcher 共享同一 debounced 函数：任意一处修改

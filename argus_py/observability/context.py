@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
@@ -17,6 +18,22 @@ _actor: ContextVar[str | None] = ContextVar("argus_actor", default=None)
 def new_request_id() -> str:
     """生成请求链路 ID。"""
     return f"req_{uuid4().hex}"
+
+
+async def run_in_thread(func, *args, **kwargs):
+    """在线程池中执行 func，传播 request 上下文（request_id / task_id 等）。
+
+    ``asyncio.to_thread`` 不会自动复制 ``ContextVar`` 到线程池线程，
+    导致线程内日志取不到 ``request_id``。本函数在切换前捕获当前上下文，
+    在线程入口处通过 ``bind_context`` 恢复。
+    """
+    ctx = current_context()
+    return await asyncio.to_thread(_run_with_context, ctx, func, *args, **kwargs)
+
+
+def _run_with_context(ctx: dict[str, str | None], func, *args, **kwargs) -> object:
+    with bind_context(**ctx):
+        return func(*args, **kwargs)
 
 
 def current_context() -> dict[str, str | None]:

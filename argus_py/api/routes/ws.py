@@ -11,9 +11,21 @@ from argus_py.api.dependencies import get_event_bus, get_task_service
 from argus_py.core.constants import WS_KEEPALIVE_SECONDS
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.events import EventBus, EventSubscription
+from argus_py.observability.context import run_in_thread
 from argus_py.task.service import TaskService
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
+
+
+def _parse_since_seq(websocket: WebSocket) -> int | None:
+    """从 WebSocket 查询参数中提取 ``sinceSeq``（客户端重连时传入）。"""
+    raw = websocket.query_params.get("sinceSeq")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return None
 
 
 @router.websocket("/tasks/{task_id}")
@@ -25,15 +37,16 @@ async def task_events(
 ) -> None:
     """订阅单个任务的实时事件。"""
     await websocket.accept()
+    since_seq = _parse_since_seq(websocket)
     try:
         # SQLite 读阻塞事件循环时 WebSocket 心跳会被拖慢，挪去线程池。
-        await asyncio.to_thread(service.get_task, task_id)
+        await run_in_thread(service.get_task, task_id)
     except TaskError as exc:
         await websocket.send_json(_system_event("system.error", task_id=task_id, message=str(exc)))
         await websocket.close(code=1008)
         return
 
-    subscription = await event_bus.subscribe(task_id=task_id, replay=True)
+    subscription = await event_bus.subscribe(task_id=task_id, replay=True, since_seq=since_seq)
     await websocket.send_json(
         _system_event("system.ready", task_id=task_id, message="任务事件订阅已建立。")
     )
@@ -47,7 +60,8 @@ async def all_task_events(
 ) -> None:
     """订阅所有任务的实时事件。"""
     await websocket.accept()
-    subscription = await event_bus.subscribe(task_id=None, replay=True)
+    since_seq = _parse_since_seq(websocket)
+    subscription = await event_bus.subscribe(task_id=None, replay=True, since_seq=since_seq)
     await websocket.send_json(_system_event("system.ready", message="全局任务事件订阅已建立。"))
     await _stream_events(websocket, subscription)
 
@@ -80,7 +94,7 @@ def _system_event(
 ) -> dict[str, Any]:
     """生成系统事件。"""
     event: dict[str, Any] = {
-        "type": event_type,
+        "eventType": event_type,
         "taskId": task_id,
         "data": {},
     }

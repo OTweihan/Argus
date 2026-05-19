@@ -62,6 +62,7 @@
 import {onMounted, onUnmounted, ref} from "vue";
 import {getTaskEvents} from "../../api";
 import type {TaskEvent, TimelineEvent} from "../../types";
+import {errorMessage} from "../../utils";
 
 const props = defineProps<{
   taskId: string;
@@ -157,15 +158,14 @@ onMounted(async () => {
   try {
     events.value = await getTaskEvents(props.taskId);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "加载时间线失败";
+    error.value = errorMessage(caught);
   } finally {
     loading.value = false;
   }
 
   if (props.onTaskEvent) {
     unregisterWs = props.onTaskEvent((wsEvent: TaskEvent) => {
-      const eventType = wsEvent.eventType ?? wsEvent.type ?? "";
-      if (!eventType.startsWith("task.timeline.")) return;
+      if (!wsEvent.eventType.startsWith("task.timeline.")) return;
       if (wsEvent.taskId !== props.taskId) return;
       const timelineEvent = wsEvent.data as unknown;
       if (!isTimelineEvent(timelineEvent)) return;

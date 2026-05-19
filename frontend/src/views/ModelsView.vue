@@ -47,15 +47,12 @@
 import {computed, ref} from "vue";
 import ModelTable from "../components/model/ModelTable.vue";
 import ModelFormDialog from "../components/model/ModelFormDialog.vue";
-import {useConsoleApp} from "../composables/useConsoleApp";
+import {injectConsoleApp} from "../composables/useConsoleApp";
 
-type AppContext = ReturnType<typeof useConsoleApp>;
-
-const props = defineProps<{ app: AppContext }>();
 const {
   models, modelForm, showModelDialog, formErrors,
   editModel, testModel, deleteModel, saveModel, openNewModelDialog,
-} = props.app;
+} = injectConsoleApp();
 
 const modelSearchQuery = ref("");
 

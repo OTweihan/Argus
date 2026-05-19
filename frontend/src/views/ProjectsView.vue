@@ -55,15 +55,12 @@ import type {Project} from "../types";
 import ProjectTable from "../components/project/ProjectTable.vue";
 import ProjectFormDialog from "../components/project/ProjectFormDialog.vue";
 import ProjectDetailDialog from "../components/project/ProjectDetailDialog.vue";
-import {useConsoleApp} from "../composables/useConsoleApp";
+import {injectConsoleApp} from "../composables/useConsoleApp";
 
-type AppContext = ReturnType<typeof useConsoleApp>;
-
-const props = defineProps<{ app: AppContext }>();
 const {
   projects, projectForm, showProjectDialog, formErrors,
   editProject, deleteProject, saveProject, openNewProjectDialog,
-} = props.app;
+} = injectConsoleApp();
 
 const searchQuery = ref("");
 const detailVisible = ref(false);

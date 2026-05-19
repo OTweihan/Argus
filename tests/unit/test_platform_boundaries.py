@@ -3,18 +3,17 @@ from fastapi import HTTPException
 
 from argus_py.api.dependencies import load_server_settings
 from argus_py.api.routes import projects as project_routes
-from argus_py.api.routes import reports as report_routes
 from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
 from argus_py.api.schemas.config import ModelConfigUpdateRequest
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
+from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
 from argus_py.llm.providers import default_base_url
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.application import TaskApplicationService
-from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
@@ -191,22 +190,24 @@ async def test_web_task_creation_inherits_project_screenshot_default(tmp_path):
     ids=["outside_reports_dir", "under_reports_dir"],
 )
 def test_report_path_validation(tmp_path, monkeypatch, outside_reports):
+    from argus_py.task import query as task_query
+
     reports_dir = tmp_path / "reports"
-    monkeypatch.setattr(report_routes, "REPORTS_DIR", reports_dir)
-    task = Task(goal="报告路径测试")
+    monkeypatch.setattr(task_query, "REPORTS_DIR", reports_dir)
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "report_test.db"))
+    task = task_service.create_task(goal="报告路径测试", start_url="https://example.com")
 
     if outside_reports:
         task.report_path = str(tmp_path / "index.html")
-        with pytest.raises(HTTPException) as exc_info:
-            report_routes._resolve_html_report_path(task)
-        assert exc_info.value.status_code == 404
+        with pytest.raises(TaskError, match="报告路径不在允许的报告目录下"):
+            task_service.resolve_report_path(task)
     else:
         report_dir = reports_dir / task.task_id
         report_dir.mkdir(parents=True, exist_ok=True)
         report_path = report_dir / "index.html"
         report_path.write_text("<html></html>", encoding="utf-8")
         task.report_path = str(report_path)
-        assert report_routes._resolve_html_report_path(task) == report_path.resolve()
+        assert task_service.resolve_report_path(task) == report_path.resolve()
 
 
 from argus_py.api.routes import events as event_routes
@@ -241,9 +242,11 @@ def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm.db"))
     task = task_service.create_task(goal="LLM追踪测试")
 
+    from argus_py.task import query as task_query
+
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr("argus_py.api.routes.events.OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
 
     trace_file = traces_dir / f"{task.task_id}.jsonl"
     trace_file.write_text(
@@ -280,9 +283,11 @@ def test_list_llm_traces_pagination_streaming(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm_page.db"))
     task = task_service.create_task(goal="分页测试")
 
+    from argus_py.task import query as task_query
+
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr("argus_py.api.routes.events.OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
 
     lines = [f'{{"model":"m{i}","latencyMs":{i}}}' for i in range(5)]
     # 故意插入一行损坏的 JSON，验证流式扫描会跳过而不是抛 500
@@ -299,9 +304,11 @@ def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_detail.db"))
     task = task_service.create_task(goal="追踪详情")
 
+    from argus_py.task import query as task_query
+
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr("argus_py.api.routes.events.OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
 
     trace_file = traces_dir / f"{task.task_id}.jsonl"
     trace_file.write_text(
@@ -335,9 +342,11 @@ def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "debug.db"))
     task = task_service.create_task(goal="调试包测试")
 
+    from argus_py.task import query as task_query
+
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr("argus_py.api.routes.events.OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
 
     (traces_dir / f"{task.task_id}.jsonl").write_text(
         '{"trace_id":"trc-001","phase":"planner"}\n', encoding="utf-8"

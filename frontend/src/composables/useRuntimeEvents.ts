@@ -4,7 +4,7 @@ import type { TaskEvent } from "../types";
 import { TaskEventStream } from "../ws";
 import type { ViewKey } from "./useNavigation";
 
-type EventStatus = "connected" | "disconnected" | "error";
+type EventStatus = "connected" | "disconnected" | "error" | "reconnecting";
 
 export function useRuntimeEvents() {
     const eventStream = new TaskEventStream();
@@ -15,7 +15,9 @@ export function useRuntimeEvents() {
             ? "已连接"
             : eventStatus.value === "error"
                 ? "异常"
-                : "未连接";
+                : eventStatus.value === "reconnecting"
+                    ? "重连中"
+                    : "未连接";
     });
 
     eventStream.onStatus((nextStatus) => {
@@ -25,8 +27,7 @@ export function useRuntimeEvents() {
     const taskEventCallbacks: ((event: TaskEvent) => void)[] = [];
 
     eventStream.onEvent((event) => {
-        const eventType = event.eventType ?? event.type ?? "";
-        if (!eventType.startsWith("task.")) return;
+        if (!event.eventType.startsWith("task.")) return;
         for (const cb of taskEventCallbacks) cb(event);
     });
 

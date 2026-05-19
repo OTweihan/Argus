@@ -29,7 +29,7 @@
 
           <Suspense>
             <template #default>
-              <component :is="currentView" :app="consoleApp" />
+              <component :is="currentView" />
             </template>
             <template #fallback>
               <div class="view-loading">

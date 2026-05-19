@@ -5,10 +5,12 @@
 - 同步路径 sequence 严格自增
 - 限频 warning 在首次和每 100 次触发
 - async 路径行为不受影响（与原有行为兼容）
+- subscribe(since_seq=...) 部分回放
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -184,3 +186,58 @@ class TestMetrics:
             "dropped_no_loop_count",
             "dropped_overflow_count",
         }
+
+
+class TestSubscribeSinceSeq:
+    """subscribe(since_seq=...) 重连部分回放。"""
+
+    @pytest.mark.asyncio
+    async def test_since_seq_filters_history(self) -> None:
+        bus = EventBus(history_limit=20)
+        for i in range(1, 6):
+            await bus.publish_async("task.step", "tk-1", {"i": i})
+
+        sub = await bus.subscribe(task_id="tk-1", since_seq=3)
+        events = _drain(sub.queue)
+        assert [e.sequence for e in events] == [4, 5]
+
+    @pytest.mark.asyncio
+    async def test_since_seq_none_replays_all(self) -> None:
+        """since_seq=None 回放全部历史（默认行为，保证向前兼容）。"""
+        bus = EventBus(history_limit=20)
+        for i in range(1, 4):
+            await bus.publish_async("task.step", "tk-1", {"i": i})
+
+        sub = await bus.subscribe(task_id="tk-1", since_seq=None)
+        events = _drain(sub.queue)
+        assert [e.sequence for e in events] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_since_seq_greater_than_all_returns_empty(self) -> None:
+        """since_seq 大于历史最大 sequence → 没有回放事件。"""
+        bus = EventBus(history_limit=20)
+        for i in range(1, 4):
+            await bus.publish_async("task.step", "tk-1", {"i": i})
+
+        sub = await bus.subscribe(task_id="tk-1", since_seq=999)
+        assert sub.queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_since_seq_with_global_subscription_respects_task_filter(self) -> None:
+        """全局订阅 + since_seq 也按 task_id 过滤后再按 sequence 过滤。"""
+        bus = EventBus(history_limit=20)
+        await bus.publish_async("task.step", "tk-1", {"i": 1})
+        await bus.publish_async("task.step", "tk-1", {"i": 2})
+        await bus.publish_async("task.step", "tk-2", {"i": 3})  # 不同任务，seq=3
+
+        sub = await bus.subscribe(task_id="tk-1", since_seq=1)
+        events = _drain(sub.queue)
+        assert [e.sequence for e in events] == [2]  # tk-1 的 seq=2
+
+
+def _drain(queue: asyncio.Queue) -> list:
+    """排空 Queue 中所有事件，供测试断言。"""
+    events: list = []
+    while not queue.empty():
+        events.append(queue.get_nowait())
+    return events

@@ -6,7 +6,7 @@ import pytest
 
 from argus_py.core.crypto import ensure_fernet_key
 from argus_py.core.exceptions import ConfigError
-from argus_py.infra.db import init_database
+from argus_py.infra.db import _DefaultDBProbe, init_database
 
 
 def test_ensure_key_when_exists(tmp_path, monkeypatch):
@@ -39,7 +39,7 @@ def test_ensure_key_generates_when_db_has_no_encrypted_keys(tmp_path, monkeypatc
     init_database(db_path)
     # 不插入任何 model_configs，所以无加密 key
 
-    ensure_fernet_key(db_path)
+    ensure_fernet_key(_DefaultDBProbe(db_path))
     assert key_file.exists()
 
 
@@ -47,9 +47,14 @@ def test_ensure_key_raises_when_db_has_encrypted_keys(tmp_path, monkeypatch):
     """key 不存在、DB 有加密记录 → 抛出 ConfigError。"""
     key_file = tmp_path / ".fernet_key"
     monkeypatch.setattr("argus_py.core.crypto.FERNET_KEY_FILE", str(key_file))
-    monkeypatch.setattr("argus_py.core.crypto._has_encrypted_api_keys", lambda _: True)
+
+    class _AlwaysEncryptedProbe:
+        """始终返回 True 的探针。"""
+
+        def has_encrypted_api_keys(self) -> bool:
+            return True
 
     with pytest.raises(ConfigError, match="Fernet 密钥文件"):
-        ensure_fernet_key(tmp_path / "irrelevant.db")
+        ensure_fernet_key(_AlwaysEncryptedProbe())
 
     assert not key_file.exists()

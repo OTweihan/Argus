@@ -83,3 +83,31 @@ def test_recover_handles_mixed_states(tmp_path):
     assert service.get_task(running.task_id).status is TaskStatus.FAILED
     assert service.get_task(pending.task_id).status is TaskStatus.PENDING
     assert service.get_task(completed.task_id).status is TaskStatus.COMPLETED
+
+
+def test_recover_continues_after_fail_task_exception(tmp_path, monkeypatch):
+    """单个任务 fail_task 抛异常不应中断整个恢复流程。"""
+    service = _make_service(tmp_path)
+
+    t1 = service.create_task("t1", start_url="https://example.com")
+    service.start_task(t1)
+    t2 = service.create_task("t2", start_url="https://example.com")
+    service.start_task(t2)
+
+    original_fail = service.fail_task
+    fail_calls: list[str] = []
+
+    def counting_fail(task, message: str = ""):
+        fail_calls.append(task.task_id)
+        if task.task_id == t1.task_id:
+            raise RuntimeError(f"fail_task 失败了：{task.task_id}")
+        return original_fail(task, message)
+
+    monkeypatch.setattr(service, "fail_task", counting_fail)
+
+    count = recover_interrupted_tasks(service)
+
+    # 两个任务都调了 fail_task；t1 失败但 t2 成功
+    assert count == 1
+    assert set(fail_calls) == {t1.task_id, t2.task_id}
+    assert service.get_task(t2.task_id).status is TaskStatus.FAILED

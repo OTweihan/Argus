@@ -25,7 +25,7 @@ from argus_py.config.settings import load_settings
 from argus_py.core.constants import PROJECT_NAME, PROJECT_TAGLINE, PROJECT_VERSION
 from argus_py.core.crypto import ensure_fernet_key
 from argus_py.core.paths import API_STATIC_DIR, OUTPUT_DIR
-from argus_py.infra.db import DEFAULT_DB_PATH
+from argus_py.infra.db import DEFAULT_DB_PATH, _DefaultDBProbe
 from argus_py.infra.recovery import recover_interrupted_tasks
 from argus_py.infra.temp_cleanup import cleanup_stale_debug_bundles
 from argus_py.observability import (
@@ -47,7 +47,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         """管理后台任务 Worker 与 LLM trace writer 生命周期。"""
-        ensure_fernet_key(DEFAULT_DB_PATH)
+        ensure_fernet_key(_DefaultDBProbe(DEFAULT_DB_PATH))
         recover_interrupted_tasks(get_task_service())
         # 清理上次运行可能遗留的调试包临时文件（进程被强 kill / unlink 失败等场景）。
         cleanup_stale_debug_bundles()

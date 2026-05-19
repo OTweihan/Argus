@@ -1,4 +1,7 @@
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import {
+  computed, inject, nextTick, onMounted, provide, reactive, ref, watch,
+  type InjectionKey,
+} from "vue";
 
 import { ElMessage } from "element-plus";
 import { summary as apiSummary } from "../api";
@@ -15,6 +18,8 @@ import { useTasks } from "./useTasks";
 
 import type { ViewKey } from "./useNavigation";
 export type { ViewKey };
+
+export const ConsoleAppKey: InjectionKey<ReturnType<typeof useConsoleApp>> = Symbol("ConsoleApp");
 
 export function useConsoleApp() {
     const loading = ref(false);
@@ -161,7 +166,7 @@ export function useConsoleApp() {
         }
     }
 
-    return {
+    const result = {
         addParam: taskDomain.addParam,
         allTasks,
         dashboardStats: dashboard.dashboardStats,
@@ -227,4 +232,13 @@ export function useConsoleApp() {
         view: nav.view,
         viewTitle,
     };
+
+    provide(ConsoleAppKey, result);
+    return result;
+}
+
+export function injectConsoleApp(): ReturnType<typeof useConsoleApp> {
+    const app = inject(ConsoleAppKey);
+    if (!app) throw new Error("injectConsoleApp() 必须在 App.vue 的后代组件中调用");
+    return app;
 }

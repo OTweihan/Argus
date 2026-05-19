@@ -20,6 +20,7 @@ from argus_py.api.schemas import (
     TaskUpdateRequest,
 )
 from argus_py.core.enums import TaskStatus
+from argus_py.observability.context import run_in_thread
 from argus_py.task.application import TaskAppError, TaskApplicationService
 from argus_py.task.strategy import infer_execution_limits
 
@@ -43,7 +44,7 @@ async def _acall_sync(
     """
     del http_status  # 保留参数以兼容旧调用签名，实际未使用
     try:
-        return await asyncio.to_thread(fn, *args, **kwargs)
+        return await run_in_thread(fn, *args, **kwargs)
     except TaskAppError as e:
         raise HTTPException(
             status_code=e.http_status,
@@ -76,7 +77,7 @@ async def create_task(
     """创建任务快照，不立即启动执行。"""
     # resolve_create_params 内部读取 project + model_config（同步 SQLite），
     # 与 create_task 一起放线程池执行，避免事件循环被任一阶段阻塞。
-    params = await asyncio.to_thread(
+    params = await run_in_thread(
         app.resolve_create_params,
         goal=request.goal,
         name=request.name,
@@ -100,7 +101,7 @@ async def update_task(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """更新待执行任务的基础信息。"""
-    params = await asyncio.to_thread(
+    params = await run_in_thread(
         app.resolve_create_params,
         goal=request.goal,
         name=request.name,
@@ -143,7 +144,7 @@ async def list_tasks(
     tasks_or_err: Any
     total_or_err: Any
     tasks_or_err, total_or_err = await asyncio.gather(
-        asyncio.to_thread(
+        run_in_thread(
             app.list_task_summaries,
             status=status,
             project_id=project_id,
@@ -151,7 +152,7 @@ async def list_tasks(
             limit=limit,
             q=q,
         ),
-        asyncio.to_thread(
+        run_in_thread(
             app.count_tasks,
             status=status,
             project_id=project_id,
@@ -198,7 +199,7 @@ async def get_dashboard_stats(
     stats_or_err: Any
     status_snapshot_or_err: Any
     stats_or_err, status_snapshot_or_err = await asyncio.gather(
-        asyncio.to_thread(app.get_dashboard_stats, recent_limit=recent_limit),
+        run_in_thread(app.get_dashboard_stats, recent_limit=recent_limit),
         app.snapshot_queue_statuses(),
         return_exceptions=True,
     )

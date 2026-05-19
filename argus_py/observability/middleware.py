@@ -19,7 +19,7 @@ logger = logging.getLogger("argus.request")
 EVENT_HTTP_REQUEST = "http.request"
 
 # 默认降噪路径：精确匹配
-DEFAULT_QUIET_PATHS: frozenset[str] = frozenset({"/healthz", "/", "/favicon.ico"})
+DEFAULT_QUIET_PATHS: frozenset[str] = frozenset({"/health", "/healthz", "/", "/favicon.ico"})
 # 默认降噪前缀：静态资源、SPA 资源目录
 DEFAULT_QUIET_PREFIXES: tuple[str, ...] = ("/assets/", "/static/")
 

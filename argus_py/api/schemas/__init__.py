@@ -10,7 +10,7 @@ from argus_py.api.schemas.config import (
     ModelConfigUpdateRequest,
     ModelConnectionTestResponse,
 )
-from argus_py.api.schemas.health import HealthResponse
+from argus_py.api.schemas.health import HealthResponse, MetricsResponse, ReadinessResponse
 from argus_py.api.schemas.projects import (
     ProjectCreateRequest,
     ProjectListResponse,
@@ -42,6 +42,8 @@ __all__ = [
     "DashboardStatsResponse",
     "FindingResponse",
     "HealthResponse",
+    "MetricsResponse",
+    "ReadinessResponse",
     "InferredLimitsResponse",
     "ModelConfigCreateRequest",
     "ModelConfigListResponse",
