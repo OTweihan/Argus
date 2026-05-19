@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import FileResponse
 
 from argus_py.api.dependencies import get_task_service
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/tasks", tags=["reports"])
 
 @router.get("/{task_id}/report")
 def get_task_report(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     format: str = Query(default="html", pattern="^(html|json)$"),
     download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
@@ -51,7 +51,7 @@ def get_task_report(
 
 @router.get("/{task_id}/report.json")
 def get_task_report_json(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     download: bool = Query(default=False),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
@@ -81,8 +81,8 @@ def get_task_report_json(
 
 @router.get("/{task_id}/screenshots/{filename:path}")
 def get_task_screenshot(
-    task_id: str,
-    filename: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    filename: str = Path(pattern=r"^[a-zA-Z0-9_.-]+$"),
     service: TaskService = Depends(get_task_service),
 ) -> FileResponse:
     """返回任务截图文件。"""

@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -26,7 +26,7 @@ def _serialize_trace(record: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/{task_id}/events")
 def list_task_events(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     service: TaskService = Depends(get_task_service),
 ):
     """返回任务的执行时间线事件（同步 SQLite 查询，线程池执行）。"""
@@ -39,7 +39,7 @@ def list_task_events(
 
 @router.get("/{task_id}/llm-traces")
 def list_llm_traces(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     skip: int = 0,
     limit: int = 50,
     trace_id: str | None = None,
@@ -56,8 +56,8 @@ def list_llm_traces(
 
 @router.get("/{task_id}/llm-traces/{trace_id}")
 def get_trace_detail(
-    task_id: str,
-    trace_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
+    trace_id: str = Path(pattern=r"^[a-zA-Z0-9_-]+$"),
     service: TaskService = Depends(get_task_service),
 ):
     """返回单条 LLM 调用的完整追踪记录。"""
@@ -73,7 +73,7 @@ def get_trace_detail(
 
 @router.get("/{task_id}/debug-bundle")
 def download_debug_bundle(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     service: TaskService = Depends(get_task_service),
 ):
     """下载任务调试包（task.json + traces + 事件 + 截图）。"""

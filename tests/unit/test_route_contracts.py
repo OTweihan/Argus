@@ -214,8 +214,8 @@ async def test_update_task_409_when_not_pending(tmp_path: Path) -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await task_routes.update_task(
-            pending.task_id,
-            TaskUpdateRequest(goal="改一下", project_id=project_id),
+            task_id=pending.task_id,
+            request=TaskUpdateRequest(goal="改一下", project_id=project_id),
             app=stack.app,
         )
 

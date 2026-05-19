@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 
 from argus_py.api.dependencies import get_task_app_service
 from argus_py.api.schemas import (
@@ -96,8 +96,8 @@ async def create_task(
 
 @router.put("/{task_id}", response_model=TaskResponse)
 async def update_task(
-    task_id: str,
     request: TaskUpdateRequest,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """更新待执行任务的基础信息。"""
@@ -120,7 +120,7 @@ async def update_task(
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> Response:
     """删除未启动的 pending 任务。"""
@@ -222,7 +222,7 @@ async def get_dashboard_stats(
 
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """查询任务详情。"""
@@ -232,7 +232,7 @@ async def get_task(
 
 @router.post("/{task_id}/start", response_model=TaskStartResponse)
 async def start_task(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskStartResponse:
     """将 pending 任务加入后台执行队列。"""
@@ -245,7 +245,7 @@ async def start_task(
 
 @router.post("/{task_id}/restart", response_model=TaskStartResponse)
 async def restart_task(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskStartResponse:
     """重试失败/超时/取消的任务，创建新任务并立即入队。"""
@@ -258,7 +258,7 @@ async def restart_task(
 
 @router.post("/{task_id}/cancel", response_model=TaskResponse)
 async def cancel_task(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """取消任务。支持 pending、queued 和 running 状态。"""
@@ -268,7 +268,7 @@ async def cancel_task(
 
 @router.post("/{task_id}/pause", response_model=TaskResponse)
 async def pause_task(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """暂停运行中的任务。"""
@@ -278,7 +278,7 @@ async def pause_task(
 
 @router.post("/{task_id}/resume", response_model=TaskResponse)
 async def resume_task(
-    task_id: str,
+    task_id: str = Path(pattern=r"^task_[a-zA-Z0-9]+$"),
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """恢复暂停的任务。"""
