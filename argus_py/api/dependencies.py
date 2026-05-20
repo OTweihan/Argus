@@ -114,3 +114,11 @@ def reset_all_dependencies() -> None:
     get_task_query_service.cache_clear()
     get_task_timeline_service.cache_clear()
     get_task_app_service.cache_clear()
+    # 运行时容器与 LLM 信号量同样需要在测试间重置，防止 asyncio.Semaphore
+    # 跨 event loop 复用导致 ``RuntimeError``。
+    from argus_py.runtime.container import create_container
+
+    create_container.cache_clear()
+    from argus_py.llm.client import set_llm_semaphore
+
+    set_llm_semaphore(None)

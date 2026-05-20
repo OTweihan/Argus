@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from argus_py.observability.context import run_in_thread
 from argus_py.task.service import TaskService
 
 
@@ -115,5 +116,5 @@ class BlackboxEvents:
 
     async def flush(self) -> None:
         """批量写入所有缓冲的日志和时间线事件。"""
-        self.service.flush_logs()
+        await run_in_thread(self.service.flush_logs)
         await self.service.flush_events()

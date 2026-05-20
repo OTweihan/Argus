@@ -77,6 +77,7 @@ async def download_debug_bundle(
     timeline: TaskTimelineService = Depends(get_task_timeline_service),
 ) -> Response:
     """下载任务调试包（task.json + traces + 事件 + 截图）。"""
+    await require_task_exists(task_id, query)
     task = await run_in_thread(query.get_task, task_id)
 
     events = await run_in_thread(timeline.list_by_task, task_id)

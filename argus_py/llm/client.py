@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _llm_semaphore: asyncio.Semaphore | None = None
 
 
-def set_llm_semaphore(sem: asyncio.Semaphore) -> None:
+def set_llm_semaphore(sem: asyncio.Semaphore | None) -> None:
     """设置全局 LLM 并发信号量。"""
     global _llm_semaphore
     _llm_semaphore = sem

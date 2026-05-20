@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult
@@ -26,6 +27,7 @@ class TaskLogService(_StorageEventBase):
     ) -> None:
         super().__init__(storage, event_publisher)
         self._pending_logs: list[tuple[str, TaskLog]] = []
+        self._flush_lock = threading.Lock()
 
     def append_log(
         self,
@@ -76,10 +78,11 @@ class TaskLogService(_StorageEventBase):
 
     def flush_logs(self) -> None:
         """将缓冲的日志批量写入存储（单事务 executemany）。"""
-        if not self._pending_logs:
-            return
-        entries = self._pending_logs[:]
-        self._pending_logs.clear()
+        with self._flush_lock:
+            if not self._pending_logs:
+                return
+            entries = self._pending_logs[:]
+            self._pending_logs.clear()
         if isinstance(self.storage, TaskSQLiteStorage):
             self.storage.append_log_batch(entries)
 

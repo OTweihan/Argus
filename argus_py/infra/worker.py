@@ -11,6 +11,7 @@ from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.aspect import log_operation
+from argus_py.observability.context import run_in_thread
 from argus_py.task.service import TaskService
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class TaskWorker:
     async def _run_task(self, task_id: str) -> None:
         """执行单个任务。"""
         try:
-            task = self.service.get_task(task_id)
+            task = await run_in_thread(self.service.get_task, task_id)
         except TaskError:
             logger.warning("Worker 获取任务失败：%s", task_id)
             return
@@ -93,6 +94,6 @@ class TaskWorker:
             return
         except Exception as exc:
             logger.exception("任务执行异常：%s", task_id)
-            latest = self.service.get_latest_task(task)
+            latest = await run_in_thread(self.service.get_latest_task, task)
             if latest.status in {TaskStatus.PENDING, TaskStatus.RUNNING}:
-                self.service.fail_task(latest, str(exc))
+                await run_in_thread(self.service.fail_task, latest, str(exc))
