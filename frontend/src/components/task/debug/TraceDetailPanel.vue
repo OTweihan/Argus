@@ -136,7 +136,7 @@ function copyRawResponse() {
 
 .dbg-detail-title {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-strong, #11181c);
   letter-spacing: -0.005em;
 }
@@ -155,7 +155,7 @@ function copyRawResponse() {
   border-radius: var(--radius-xs, 6px);
   background: rgba(255, 255, 255, 0.6);
   color: var(--text-muted, #4b5563);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
@@ -208,7 +208,7 @@ function copyRawResponse() {
 }
 
 .dbg-meta-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-faint, #6b7280);
   letter-spacing: 0.3px;
@@ -216,14 +216,14 @@ function copyRawResponse() {
 }
 
 .dbg-meta-value {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-strong, #11181c);
   word-break: break-word;
 }
 
 .mono {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .dbg-alert {
@@ -232,7 +232,7 @@ function copyRawResponse() {
   gap: 8px;
   padding: 12px 14px;
   border-radius: var(--radius-sm, 10px);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.4;
   flex-shrink: 0;
   backdrop-filter: blur(8px);

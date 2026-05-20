@@ -147,7 +147,7 @@ const emit = defineEmits<{
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-faint, #6b7280);
   white-space: nowrap;
 }
@@ -165,7 +165,7 @@ const emit = defineEmits<{
   border-radius: var(--radius-sm, 10px);
   background: var(--brand-50, #f4f3ff);
   color: var(--brand-600, #4f46e5);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
@@ -246,7 +246,7 @@ const emit = defineEmits<{
   height: 20px;
   padding: 0 9px;
   border-radius: var(--radius-pill, 999px);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.2px;
   border: 1px solid transparent;
@@ -285,7 +285,7 @@ const emit = defineEmits<{
   background: var(--brand-50, #f4f3ff);
   color: var(--brand-600, #4f46e5);
   border: 1px solid var(--brand-100, #e0e7ff);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -293,7 +293,7 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-base, #182125);
 }
 
@@ -307,12 +307,12 @@ const emit = defineEmits<{
 .dbg-latency {
   color: var(--text-faint, #6b7280);
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .dbg-item-time {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-placeholder, #9ca3af);
 }
 
@@ -323,7 +323,7 @@ const emit = defineEmits<{
   gap: 8px;
   padding: 12px 14px;
   border-radius: var(--radius-sm, 10px);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.4;
   flex-shrink: 0;
   backdrop-filter: blur(8px);

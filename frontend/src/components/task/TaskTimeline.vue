@@ -304,14 +304,14 @@ onUnmounted(() => {
 }
 
 .tl-phase-label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-muted, #4b5563);
   letter-spacing: 0.2px;
 }
 
 .tl-event-type {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-strong, #11181c);
 }
@@ -327,7 +327,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--brand-600, #4f46e5);
   background: var(--brand-50, #f4f3ff);
   border: 1px solid var(--brand-100, #e0e7ff);
@@ -338,7 +338,7 @@ onUnmounted(() => {
 }
 
 .tl-time {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-placeholder, #9ca3af);
   white-space: nowrap;
 }
@@ -352,7 +352,7 @@ onUnmounted(() => {
 
 .tl-summary {
   margin: 0;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-base, #182125);
   line-height: 1.55;
 }
@@ -372,7 +372,7 @@ onUnmounted(() => {
   border-radius: var(--radius-xs, 6px);
   background: rgba(255, 255, 255, 0.6);
   color: var(--text-faint, #6b7280);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
@@ -419,7 +419,7 @@ onUnmounted(() => {
   background: #0f172a;
   color: #e2e8f0;
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.65;
   white-space: pre;
   max-height: 320px;
