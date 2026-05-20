@@ -47,29 +47,20 @@ repos:
         types: [text]
         exclude: '\.md$'
 
-      - id: black
-        name: black
-        entry: python -m black
-        language: system
-        types: [python]
-        require_serial: true
-
-      - id: isort
-        name: isort
-        entry: python -m isort
-        language: system
-        types: [python]
-        require_serial: true
-
-      # ruff 仅做 lint（不替代 black 的格式化与 isort 的 import 排序），
-      # 在 black/isort 之后运行，确保它们的格式化结果不会被 ruff 二次改动。
       - id: ruff
-        name: ruff (lint)
-        entry: python -m ruff check
+        name: ruff (lint + import sorting)
+        entry: python -m ruff check --fix
         language: system
         types: [python]
         require_serial: true
         args: ["--force-exclude"]
+
+      - id: ruff-format
+        name: ruff format
+        entry: python -m ruff format
+        language: system
+        types: [python]
+        require_serial: true
 
       - id: mypy
         name: mypy
@@ -84,3 +75,37 @@ repos:
         entry: python scripts/pre-commit-sensitive.py
         language: system
         pass_filenames: true
+
+      # ── frontend ────────────────────────────────────────────────
+
+      - id: eslint
+        name: eslint (frontend)
+        entry: pnpm -C frontend exec eslint --max-warnings 0 src/
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+        require_serial: true
+
+      - id: vue-tsc
+        name: vue-tsc (frontend)
+        entry: pnpm -C frontend exec vue-tsc --noEmit
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+        require_serial: true
+
+      - id: codegen-check
+        name: openapi codegen check
+        entry: pnpm -C frontend codegen:check
+        language: system
+        files: ^(argus_py/api/|scripts/codegen|scripts/export_openapi)
+        pass_filenames: false
+        require_serial: true
+
+      - id: pytest-unit
+        name: pytest (unit — pre-push only)
+        entry: python -m pytest tests/unit -q --tb=short
+        language: system
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push]

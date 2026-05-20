@@ -11,8 +11,10 @@ from argus_py.blackbox.evaluator import EvaluationResult
 from argus_py.core.enums import FindingSeverity, FindingType, TaskStatus
 from argus_py.redaction import redact_href, redact_step_params
 from argus_py.report.generator import ReportGenerator, generate_report_safely
+from argus_py.task.lifecycle import TaskLifecycleService
+from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
-from argus_py.task.service import TaskService
+from argus_py.task.read import TaskReadService
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +23,22 @@ class Finalizer:
     """处理评估结果写入、任务收尾和报告生成。"""
 
     def __init__(
-        self, service: TaskService, report_generator: ReportGenerator | None = None
+        self,
+        log_service: TaskLogService,
+        lifecycle: TaskLifecycleService,
+        reader: TaskReadService,
+        report_generator: ReportGenerator | None = None,
     ) -> None:
-        self.service = service
+        self._log = log_service
+        self._lifecycle = lifecycle
+        self._reader = reader
         self.report_generator = report_generator or ReportGenerator()
 
     def append_evaluation(self, task: Task, evaluation: EvaluationResult) -> Task:
         """把评估器发现的问题写回任务。"""
         resolved = task
         for finding in evaluation.findings:
-            resolved = self.service.append_finding(
+            resolved = self._log.append_finding(
                 resolved,
                 title=finding.title,
                 description=finding.description,
@@ -41,7 +49,7 @@ class Finalizer:
                 screenshot_path=finding.screenshot_path,
             )
         if evaluation.completed and not evaluation.success and not evaluation.findings:
-            resolved = self.service.append_finding(
+            resolved = self._log.append_finding(
                 resolved,
                 title="黑盒任务失败",
                 description=evaluation.reason or "评估器判定目标未成功。",
@@ -52,15 +60,15 @@ class Finalizer:
 
     async def finish_success(self, task: Task, owns_status: bool) -> Task:
         """按调用方式完成任务。从存储重载状态避免覆盖外部状态变更（cancel/pause）。"""
-        status = self.service.get_task_status(task.task_id)
+        status = self._reader.get_task_status(task.task_id)
         if status is not TaskStatus.RUNNING:
-            latest = self.service.get_task(task.task_id)
+            latest = self._reader.get_task(task.task_id)
             return await self.generate_report(latest)
         if owns_status:
-            completed = self.service.complete_task(task, result_summary=task.result_summary)
+            completed = self._lifecycle.complete_task(task, result_summary=task.result_summary)
             return await self.generate_report(completed)
-        latest = self.service.get_task(task.task_id)
-        return self.service.save_task(latest)
+        latest = self._reader.get_task(task.task_id)
+        return self._lifecycle.save_task(latest)
 
     async def finalize(self, task: Task, owns_status: bool) -> Task:
         """外部终止（cancel/pause）后的收尾，需要时生成报告。"""
@@ -71,7 +79,7 @@ class Finalizer:
     async def generate_report(self, task: Task) -> Task:
         """生成任务报告并回写 HTML 报告路径（在 IO 线程执行，不阻塞事件循环）。"""
         return await asyncio.to_thread(
-            generate_report_safely, task, self.report_generator, self.service.save_task
+            generate_report_safely, task, self.report_generator, self._lifecycle.save_task
         )
 
     def history(self, task: Task) -> list[dict[str, Any]]:

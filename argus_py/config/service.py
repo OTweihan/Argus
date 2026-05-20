@@ -67,7 +67,7 @@ class ModelConfigService:
         saved = self.storage.save(config)
         audit(
             "model_config.create",
-            modelConfigId=saved.model_config_id,
+            model_config_id=saved.model_config_id,
             name=saved.name,
             provider=saved.provider,
             model=saved.model,
@@ -131,7 +131,7 @@ class ModelConfigService:
         saved = self.storage.save(config)
         audit(
             "model_config.update",
-            modelConfigId=saved.model_config_id,
+            model_config_id=saved.model_config_id,
             fields=sorted(updates.keys()),
         )
         return saved
@@ -139,7 +139,7 @@ class ModelConfigService:
     def delete_model_config(self, model_config_id: str) -> None:
         """删除模型配置。"""
         self.storage.delete(model_config_id)
-        audit("model_config.delete", modelConfigId=model_config_id)
+        audit("model_config.delete", model_config_id=model_config_id)
 
     async def test_model_config(self, config: ModelConfig) -> dict[str, Any]:
         """检查模型配置是否可以完成一次低成本调用。

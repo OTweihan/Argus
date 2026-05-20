@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-
 from argus_py.blackbox.action_executor import ActionExecutor
 from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
 from argus_py.blackbox.events import BlackboxEvents
@@ -33,6 +32,7 @@ from argus_py.browser import BrowserSession
 from argus_py.core.enums import ActionType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.report.generator import ReportGenerator
+from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 from argus_py.task.storage import TaskFileStorage
@@ -108,8 +108,8 @@ class StubActionExecutor:
     - ``("failure_with_log", error_code)``：写一条 FAILED 日志后抛 TaskError（模拟真实 ActionExecutor 内部失败路径）
     """
 
-    def __init__(self, service: TaskService, responses: list[Any]) -> None:
-        self.service = service
+    def __init__(self, log_service: TaskLogService, responses: list[Any]) -> None:
+        self._log = log_service
         self.responses = list(responses)
         self.call_count = 0
 
@@ -125,7 +125,7 @@ class StubActionExecutor:
         kind = item[0]
         if kind == "success":
             _, url_after, observation = item
-            new_task = self.service.append_log(
+            new_task = self._log.append_log(
                 task,
                 action=step.action.value,
                 result=StepResult.SUCCESS,
@@ -136,7 +136,7 @@ class StubActionExecutor:
             return new_task, observation
         if kind == "failure_with_log":
             _, error_code = item
-            self.service.append_log(
+            self._log.append_log(
                 task,
                 action=step.action.value,
                 result=StepResult.FAILED,
@@ -175,14 +175,20 @@ def _build_loop(
     max_recovery_attempts: int = 2,
     check_cancelled_fn=None,
 ) -> tuple[BlackboxExecutionLoop, TaskService, StubActionExecutor]:
-    service = TaskService(TaskFileStorage(tmp_path / "tasks"))
-    executor = StubActionExecutor(service, action_responses)
-    finalizer = Finalizer(service, ReportGenerator(tmp_path / "reports"))
+    storage = TaskFileStorage(tmp_path / "tasks")
+    service = TaskService(storage)
+    log_service = service.log
+    lifecycle = service.lifecycle
+    reader = service.reader
+    timeline = service.timeline
+    executor = StubActionExecutor(log_service, action_responses)
+    finalizer = Finalizer(log_service, lifecycle, reader, ReportGenerator(tmp_path / "reports"))
     evidence = EvidenceCollector()
-    events = BlackboxEvents(service)
+    events = BlackboxEvents(timeline, log_service)  # type: ignore[arg-type]
     policy = RecoveryPolicy(max_attempts=max_recovery_attempts)
     loop = BlackboxExecutionLoop(
-        service=service,
+        lifecycle=lifecycle,
+        reader=reader,
         action_executor=_action_executor(executor),
         finalizer=finalizer,
         evidence=evidence,

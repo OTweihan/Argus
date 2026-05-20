@@ -7,20 +7,20 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import FileResponse
 
-from argus_py.api.dependencies import get_task_query_service
+from argus_py.api.dependencies import get_task_read_service
 from argus_py.api.params import TaskIdPath
 from argus_py.core.exceptions import TaskError
-from argus_py.task.query import TaskQueryService
+from argus_py.task.read import TaskReadService
 
 router = APIRouter(prefix="/tasks", tags=["reports"])
 
 
 async def _resolve_json_report(
-    task_id: str, query: TaskQueryService, download: bool
+    task_id: str, reader: TaskReadService, download: bool
 ) -> FileResponse:
     """解析 JSON 报告路径并返回 FileResponse。"""
     try:
-        report_path = await asyncio.to_thread(query.resolve_report_path_by_id, task_id)
+        report_path = await asyncio.to_thread(reader.resolve_report_path_by_id, task_id)
     except TaskError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -46,14 +46,14 @@ async def get_task_report(
     task_id: TaskIdPath,
     format: str = Query(default="html", pattern="^(html|json)$"),
     download: bool = Query(default=False),
-    query: TaskQueryService = Depends(get_task_query_service),
+    reader: TaskReadService = Depends(get_task_read_service),
 ) -> FileResponse:
     """返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。"""
     if format == "json":
-        return await _resolve_json_report(task_id, query, download)
+        return await _resolve_json_report(task_id, reader, download)
 
     try:
-        report_path = await asyncio.to_thread(query.resolve_report_path_by_id, task_id)
+        report_path = await asyncio.to_thread(reader.resolve_report_path_by_id, task_id)
     except TaskError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -68,27 +68,27 @@ async def get_task_report(
 async def get_task_report_json(
     task_id: TaskIdPath,
     download: bool = Query(default=False),
-    query: TaskQueryService = Depends(get_task_query_service),
+    reader: TaskReadService = Depends(get_task_read_service),
 ) -> FileResponse:
     """返回任务 JSON 报告文件。"""
-    return await _resolve_json_report(task_id, query, download)
+    return await _resolve_json_report(task_id, reader, download)
 
 
 @router.get("/{task_id}/screenshots/{filename:path}")
 async def get_task_screenshot(
     task_id: TaskIdPath,
     filename: str = Path(pattern=r"^[a-zA-Z0-9_.-]+$"),
-    query: TaskQueryService = Depends(get_task_query_service),
+    reader: TaskReadService = Depends(get_task_read_service),
 ) -> FileResponse:
     """返回任务截图文件。"""
-    exists = await asyncio.to_thread(query.task_exists, task_id)
+    exists = await asyncio.to_thread(reader.task_exists, task_id)
     if not exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "TASK_NOT_FOUND", "message": f"任务不存在：{task_id}"},
         )
     try:
-        screenshot_path = await asyncio.to_thread(query.resolve_screenshot_path, task_id, filename)
+        screenshot_path = await asyncio.to_thread(reader.resolve_screenshot_path, task_id, filename)
     except TaskError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return FileResponse(screenshot_path)

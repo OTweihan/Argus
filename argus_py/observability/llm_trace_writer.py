@@ -25,9 +25,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _SENTINEL = object()
-# 单文件批量 flush 阈值：满 32 条立即落盘，缩短崩溃时丢失窗口。
+# 单文件批量 flush 阈值：满 __条立即落盘，缩短崩溃时丢失窗口。
+# 可通过 ServerSettings.llm_trace_writer_batch_size / writer_batch_size 覆盖。
 _BATCH_FLUSH_THRESHOLD = 32
 # 默认空闲 flush 间隔（秒）：保证低 QPS 下也能及时落盘。
+# 可通过 ServerSettings.llm_trace_writer_flush_interval / writer_flush_interval 覆盖。
 _DEFAULT_FLUSH_INTERVAL_SECONDS = 0.5
 
 
@@ -42,11 +44,13 @@ class LLMTraceWriter:
         self,
         max_queue_size: int = 10000,
         flush_interval_seconds: float = _DEFAULT_FLUSH_INTERVAL_SECONDS,
+        batch_size: int = _BATCH_FLUSH_THRESHOLD,
     ) -> None:
         self._queue: queue.Queue[Any] = queue.Queue(maxsize=max_queue_size)
         self._thread: threading.Thread | None = None
         self._running = False
         self._flush_interval = flush_interval_seconds
+        self._batch_size = batch_size
         self._lock = threading.Lock()
         # 监控指标：调用方可读取这两个数字判断是否过载。
         self.dropped_count = 0
@@ -134,7 +138,7 @@ class LLMTraceWriter:
             assert isinstance(path_obj, Path)
             bucket = buffer.setdefault(path_obj, [])
             bucket.append(record)
-            if len(bucket) >= _BATCH_FLUSH_THRESHOLD:
+            if len(bucket) >= self._batch_size:
                 # 单文件阈值满了直接 flush 单 bucket，其它文件继续累积。
                 self._flush_file(path_obj, buffer.pop(path_obj))
 
@@ -144,11 +148,14 @@ class LLMTraceWriter:
         buffer.clear()
 
     def _flush_file(self, path: Path, records: list[Any]) -> None:
-        """在 writer 线程中处理一批 trace 记录：stat / asdict / 脱敏 / 序列化 -> 落盘。"""
+        """在 writer 线程中处理一批 trace 记录：stat / model_dump / 脱敏 / 序列化 -> 落盘。
+
+        JSONL 与 idx 交五写入（同一 ``with`` 块中同时打开两个文件句柄），
+        确保 idx 最多比 JSONL 落后一条，缩小崩溃窗口。
+        """
         if not records:
             return
         # 延迟导入避免与 llm_trace 的循环依赖
-        from dataclasses import asdict
 
         from argus_py.observability.llm_trace import (
             _LLM_TRACE_CONTENT_REDACT,
@@ -161,8 +168,10 @@ class LLMTraceWriter:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             idx_path = path.with_suffix(".idx")
-            idx_entries: list[tuple[str, int]] = []
-            with open(path, "a", encoding="utf-8") as f:
+            with (
+                open(path, "a", encoding="utf-8") as f,
+                open(idx_path, "a", encoding="utf-8") as f_idx,
+            ):
                 for record in records:
                     # 大小上限检查（stat 已在后台线程，不阻塞 event loop）
                     if (
@@ -177,7 +186,7 @@ class LLMTraceWriter:
                             path,
                         )
                         continue
-                    data = asdict(record)
+                    data = record.model_dump(mode="json")
                     if _LLM_TRACE_CONTENT_REDACT:
                         data = redact_trace_data(data)
                     line = _json.dumps(data, ensure_ascii=False, default=str)
@@ -185,10 +194,6 @@ class LLMTraceWriter:
                     f.write(line + "\n")
                     tid = data.get("trace_id", "")
                     if tid:
-                        idx_entries.append((tid, offset))
-            if idx_entries:
-                with open(idx_path, "a", encoding="utf-8") as f_idx:
-                    for tid, offset in idx_entries:
                         f_idx.write(
                             _json.dumps({"trace_id": tid, "offset": offset}, ensure_ascii=False)
                             + "\n"
@@ -218,12 +223,20 @@ def get_trace_writer() -> LLMTraceWriter | None:
     return _global_writer
 
 
-def start_trace_writer(max_queue_size: int = 10000) -> LLMTraceWriter:
+def start_trace_writer(
+    max_queue_size: int = 10000,
+    flush_interval_seconds: float = _DEFAULT_FLUSH_INTERVAL_SECONDS,
+    batch_size: int = _BATCH_FLUSH_THRESHOLD,
+) -> LLMTraceWriter:
     """启动全局 writer（幂等）。返回 writer 实例供调用方直接 enqueue。"""
     global _global_writer
     with _global_lock:
         if _global_writer is None:
-            _global_writer = LLMTraceWriter(max_queue_size=max_queue_size)
+            _global_writer = LLMTraceWriter(
+                max_queue_size=max_queue_size,
+                flush_interval_seconds=flush_interval_seconds,
+                batch_size=batch_size,
+            )
             _global_writer.start()
         return _global_writer
 

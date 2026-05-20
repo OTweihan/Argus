@@ -21,7 +21,7 @@ def _make_stack(tmp_path) -> TaskApplicationService:
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "argus.db"))
     project_service = ProjectService(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
-        task_service=task_service,
+        task_read_service=task_service.reader,
     )
     return TaskApplicationService(
         task_service=task_service,

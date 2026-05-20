@@ -7,21 +7,68 @@
 **读路径**（``list_llm_traces`` / ``get_llm_trace_detail``）通过索引做随机访问，
 避免全量扫描 JSONL。
 
-索引缺失或过时时（写进程被强杀等），首次读取会惰性重建。
+索引缺失或过时时（写进程被强杀等），首次读取会惰性重建：一次扫描即可构建
+完整索引并持久化，避免 JSONL 被扫描两次。
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 TraceIndexEntry = dict[str, Any]
 """``{"trace_id": str, "offset": int}``"""
+
+# ── LRU 缓存 ─────────────────────────────────────────
+
+_TRACE_INDEX_CACHE: OrderedDict[Path, tuple[list[TraceIndexEntry], dict[str, int]]] = OrderedDict()
+_TRACE_INDEX_CACHE_MAXSIZE = 128
+_TRACE_INDEX_CACHE_LOCK: threading.Lock = threading.Lock()
+
+
+def _cached_load(trace_path: Path) -> tuple[list[TraceIndexEntry], dict[str, int]] | None:
+    """LRU 查询：命中时将条目移至末尾。"""
+    key = trace_path.resolve()
+    with _TRACE_INDEX_CACHE_LOCK:
+        if key in _TRACE_INDEX_CACHE:
+            _TRACE_INDEX_CACHE.move_to_end(key)
+            return _TRACE_INDEX_CACHE[key]
+    return None
+
+
+def _cache_put(
+    trace_path: Path,
+    entries: list[TraceIndexEntry],
+    offset_map: dict[str, int],
+) -> None:
+    """LRU 写入并驱逐最旧条目。"""
+    key = trace_path.resolve()
+    with _TRACE_INDEX_CACHE_LOCK:
+        _TRACE_INDEX_CACHE[key] = (entries, offset_map)
+        _TRACE_INDEX_CACHE.move_to_end(key)
+        while len(_TRACE_INDEX_CACHE) > _TRACE_INDEX_CACHE_MAXSIZE:
+            _TRACE_INDEX_CACHE.popitem(last=False)
+
+
+def _cache_invalidate(trace_path: Path) -> None:
+    """追加索引后清除缓存，下次读路径重新加载。"""
+    with _TRACE_INDEX_CACHE_LOCK:
+        _TRACE_INDEX_CACHE.pop(trace_path.resolve(), None)
+
+
+def _clear_cache() -> None:
+    """清空全部 LRU 缓存。供测试隔离使用，避免跨用例污染。"""
+    with _TRACE_INDEX_CACHE_LOCK:
+        _TRACE_INDEX_CACHE.clear()
+
+
+# ── 外部接口 ──────────────────────────────────────────
 
 
 def append_trace_index(trace_path: Path, trace_id: str, byte_offset: int) -> None:
@@ -35,22 +82,39 @@ def append_trace_index(trace_path: Path, trace_id: str, byte_offset: int) -> Non
     except OSError as exc:
         logger.warning("写入 trace 索引失败：%s err=%s", idx_path, exc)
 
+    _cache_invalidate(trace_path)
+
 
 def load_trace_index(
     trace_path: Path,
 ) -> tuple[list[TraceIndexEntry], dict[str, int]]:
     """加载或重建索引。
 
+    缓存优先 → idx 侧边文件 → 全量重建（一次性扫描 JSONL + 后台持久化）。
+
     Returns:
         (ordered_entries, offset_by_trace_id)
     """
+    # 1. LRU 缓存
+    cached = _cached_load(trace_path)
+    if cached is not None:
+        return cached
+
+    # 2. 尝试加载 .idx 侧边文件
     entries = _try_load_idx(trace_path)
     if entries is not None:
-        return entries, _to_offset_map(entries)
+        offset_map = _to_offset_map(entries)
+        _cache_put(trace_path, entries, offset_map)
+        return entries, offset_map
 
-    # 索引不存在或已损坏／过时 → 重建
+    # 3. 全量重建（一次扫描 JSONL，后台持久化 idx）
     entries = _build_index_from_jsonl(trace_path)
-    return entries, _to_offset_map(entries)
+    offset_map = _to_offset_map(entries)
+    _cache_put(trace_path, entries, offset_map)
+    return entries, offset_map
+
+
+# ── 内部实现 ──────────────────────────────────────────
 
 
 def _try_load_idx(trace_path: Path) -> list[TraceIndexEntry] | None:
@@ -69,22 +133,11 @@ def _try_load_idx(trace_path: Path) -> list[TraceIndexEntry] | None:
         except json.JSONDecodeError:
             return None  # 损坏
 
-    # 检查索引是否与 JSONL 行数对齐
-    jsonl_lines = _count_nonempty_lines(trace_path)
-    if len(entries) != jsonl_lines:
-        logger.info(
-            "trace 索引行数不匹配，重建：path=%s idx=%d jsonl=%d",
-            trace_path,
-            len(entries),
-            jsonl_lines,
-        )
-        return None
-
     return entries
 
 
 def _build_index_from_jsonl(trace_path: Path) -> list[TraceIndexEntry]:
-    """全量扫描 JSONL 重建索引并持久化。"""
+    """全量扫描 JSONL 重建索引（一次扫描），后台持久化。"""
     entries: list[TraceIndexEntry] = []
     idx_path = trace_path.with_suffix(".idx")
 
@@ -108,32 +161,28 @@ def _build_index_from_jsonl(trace_path: Path) -> list[TraceIndexEntry]:
     except OSError:
         return []
 
-    # 持久化重建的索引
-    try:
-        with open(idx_path, "w", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError as exc:
-        logger.warning("写入 trace 索引失败：%s err=%s", idx_path, exc)
+    if entries:
+        _persist_idx_async(idx_path, entries)
 
     return entries
 
 
-def _to_offset_map(
-    entries: list[TraceIndexEntry],
-) -> dict[str, int]:
+def _persist_idx_async(idx_path: Path, entries: list[TraceIndexEntry]) -> None:
+    """后台持久化重建的索引，不阻塞读路径。"""
+
+    def _write() -> None:
+        try:
+            idx_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(idx_path, "w", encoding="utf-8") as f:
+                for entry in entries:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            logger.warning("后台持久化 trace 索引失败：%s err=%s", idx_path, exc)
+
+    thread = threading.Thread(target=_write, daemon=True)
+    thread.start()
+
+
+def _to_offset_map(entries: list[TraceIndexEntry]) -> dict[str, int]:
     """转换为 ``{trace_id: offset}`` 映射。"""
     return {e["trace_id"]: e["offset"] for e in entries}
-
-
-def _count_nonempty_lines(path: Path) -> int:
-    """快速统计 JSONL 非空行数。"""
-    count = 0
-    try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    count += 1
-    except OSError:
-        pass
-    return count

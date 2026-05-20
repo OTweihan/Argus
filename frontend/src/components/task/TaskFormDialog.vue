@@ -3,9 +3,9 @@
     :model-value="visible" :title="editing ? '编辑任务' : '创建任务'"
     width="800px" align-center append-to-body @update:model-value="$emit('close')"
   >
-    <el-form :model="form" label-position="top" @submit.prevent="$emit('save')">
+    <el-form :model="localForm" label-position="top" @submit.prevent="$emit('save')">
       <el-form-item label="项目" required>
-        <el-select v-model="form.projectId" style="width:100%">
+        <el-select v-model="localForm.projectId" style="width:100%">
           <el-option
             v-for="project in projects" :key="project.projectId" :label="project.name"
             :value="project.projectId"
@@ -13,31 +13,31 @@
         </el-select>
       </el-form-item>
       <el-form-item label="任务名称">
-        <el-input v-model="form.name" maxlength="50" show-word-limit />
+        <el-input v-model="localForm.name" maxlength="50" show-word-limit />
       </el-form-item>
       <el-form-item label="目标" :error="formErrors.goal" required>
         <el-input
-          v-model="form.goal" type="textarea" :rows="4" maxlength="200" show-word-limit
+          v-model="localForm.goal" type="textarea" :rows="4" maxlength="200" show-word-limit
           @input="clearError('goal')"
         />
       </el-form-item>
       <el-form-item label="起始 URL" :error="formErrors.startUrl" required>
-        <el-input v-model="form.startUrl" placeholder="https://example.com" @input="clearError('startUrl')" />
+        <el-input v-model="localForm.startUrl" placeholder="https://example.com" @input="clearError('startUrl')" />
       </el-form-item>
       <el-row :gutter="12">
         <el-col :span="12">
           <el-form-item label="最大步骤">
-            <el-input-number v-model="form.maxSteps" :min="1" :step="1" :precision="0" style="width:100%" />
+            <el-input-number v-model="localForm.maxSteps" :min="1" :step="1" :precision="0" style="width:100%" />
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="超时秒数">
-            <el-input-number v-model="form.timeoutSeconds" :min="1" :step="1" :precision="0" style="width:100%" />
+            <el-input-number v-model="localForm.timeoutSeconds" :min="1" :step="1" :precision="0" style="width:100%" />
           </el-form-item>
         </el-col>
       </el-row>
       <el-form-item label="模型配置">
-        <el-select v-model="form.modelConfigId" style="width:100%">
+        <el-select v-model="localForm.modelConfigId" style="width:100%">
           <el-option label="默认模型" value="__default__" />
           <el-option
             v-for="model in enabledModels" :key="model.modelConfigId" :label="model.name"
@@ -46,7 +46,7 @@
         </el-select>
       </el-form-item>
       <el-form-item label="截图">
-        <el-select v-model="form.captureScreenshots" style="width:100%">
+        <el-select v-model="localForm.captureScreenshots" style="width:100%">
           <el-option label="使用项目默认" value="__default__" />
           <el-option label="开启" value="true" />
           <el-option label="关闭" value="false" />
@@ -65,7 +65,7 @@
           </template>
           <PromptExtensionEditor
             v-if="promptCollapseActive.includes('prompt')"
-            v-model="form.promptExtensions"
+            v-model="localForm.promptExtensions"
             scope="task"
             :project-extensions="resolvedProjectExtensions"
           />
@@ -73,7 +73,7 @@
       </el-collapse>
       <el-form-item label="参数" :error="formErrors.taskParameters">
         <div class="param-list">
-          <div v-for="(entry, index) in form.parameters" :key="index" class="param-row">
+          <div v-for="(entry, index) in localForm.parameters" :key="index" class="param-row">
             <el-input
               v-model="entry.key" placeholder="键名" class="param-key"
               @input="clearError('taskParameters')"
@@ -101,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import {computed, defineAsyncComponent, ref} from "vue";
+import {computed, defineAsyncComponent, reactive, ref, watch} from "vue";
 import type {ModelConfig, Project} from "../../types";
 import {
   emptyPromptExtensions,
@@ -142,7 +142,16 @@ defineEmits<{
 }>();
 
 const promptCollapseActive = ref<string[]>([]);
-const hasExt = computed(() => hasAnyExtension(props.form.promptExtensions));
+const localForm = reactive<TaskForm>({...props.form});
+const hasExt = computed(() => hasAnyExtension(localForm.promptExtensions));
+
+watch(localForm, () => {
+  Object.assign(props.form, localForm);
+}, {deep: true});
+
+watch(() => props.form, (f) => {
+  Object.assign(localForm, f);
+}, {deep: true});
 
 const resolvedProjectExtensions = computed<PromptExtensions>(() => {
   const project = props.projects.find((p) => p.projectId === props.form.projectId);

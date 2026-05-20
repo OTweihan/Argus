@@ -39,14 +39,8 @@ jobs:
       - name: Sync dependencies (frozen)
         run: uv sync --frozen --extra dev
 
-      - name: Ruff lint
-        run: uv run ruff check argus_py tests scripts
-
-      - name: Black format check
-        run: uv run black --check argus_py tests scripts
-
-      - name: isort check
-        run: uv run isort --check-only argus_py tests scripts
+      - name: Ruff (lint + format check)
+        run: uv run ruff check argus_py tests scripts && uv run ruff format --check argus_py tests scripts
 
       - name: Mypy
         run: uv run mypy argus_py

@@ -4,7 +4,6 @@ import argparse
 from unittest import mock
 
 import pytest
-
 from argus_py.cli import main as cli_main
 from argus_py.cli import utils as cli_utils
 from argus_py.cli.commands import auth as auth_cmd
@@ -49,6 +48,10 @@ def _patch_container(monkeypatch) -> FakeTaskService:
     fake_service = FakeTaskService()
     container = mock.MagicMock(spec=RuntimeContainer)
     container.task_service = fake_service
+    container.lifecycle_service = mock.MagicMock()
+    container.task_read_service = mock.MagicMock()
+    container.log_service = mock.MagicMock()
+    container.timeline_service = mock.MagicMock()
     container.model_config_service = mock.MagicMock()
     container.task_queue = mock.MagicMock()
     container.project_service = mock.MagicMock()
@@ -57,9 +60,18 @@ def _patch_container(monkeypatch) -> FakeTaskService:
 
 
 class FakeTaskRunner:
-    def __init__(self, service, handlers, model_config_service=None) -> None:
-        self.service = service
+    def __init__(
+        self,
+        lifecycle=None,
+        reader=None,
+        handlers=None,
+        report_generator=None,
+        model_config_service=None,
+    ) -> None:
+        self.lifecycle = lifecycle
+        self.reader = reader
         self.handlers = handlers
+        self.report_generator = report_generator
         self._model_config_service = model_config_service
 
     async def run(self, task: Task) -> Task:

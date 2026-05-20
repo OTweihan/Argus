@@ -14,8 +14,8 @@ from argus_py.browser.url_validator import validate_url
 from argus_py.core.enums import ActionType, StepResult
 from argus_py.core.exceptions import TaskError
 from argus_py.observability.context import run_in_thread
+from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
-from argus_py.task.service import TaskService
 from argus_py.utils.jsonx import to_jsonable
 
 logger = logging.getLogger(__name__)
@@ -35,8 +35,8 @@ def resolve_error_code(exc: Exception) -> str | None:
 class ActionExecutor:
     """管理浏览器动作的分发和执行。"""
 
-    def __init__(self, service: TaskService, evidence_collector: EvidenceCollector) -> None:
-        self.service = service
+    def __init__(self, log_service: TaskLogService, evidence_collector: EvidenceCollector) -> None:
+        self._log = log_service
         self.evidence = evidence_collector
         self._action_handlers: dict[ActionType, Callable] = {
             ActionType.GOTO: self._goto,
@@ -63,7 +63,7 @@ class ActionExecutor:
             screenshot_path, _ = await self.evidence.capture_step_evidence(task, session)
             error_code = resolve_error_code(exc)
             await run_in_thread(
-                self.service.append_log,
+                self._log.append_log,
                 task,
                 action=step.action.value,
                 result=StepResult.FAILED,
@@ -84,7 +84,7 @@ class ActionExecutor:
         observation = snapshot.to_prompt_text() if snapshot is not None else ""
 
         task_result = await run_in_thread(
-            self.service.append_log,
+            self._log.append_log,
             task,
             action=step.action.value,
             result=StepResult.SUCCESS,

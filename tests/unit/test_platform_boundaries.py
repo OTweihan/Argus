@@ -1,6 +1,4 @@
 import pytest
-from fastapi import HTTPException
-
 from argus_py.api.dependencies import load_server_settings
 from argus_py.api.routes import projects as project_routes
 from argus_py.api.routes import tasks as task_routes
@@ -16,6 +14,7 @@ from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.application import TaskApplicationService
 from argus_py.task.service import TaskService
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from fastapi import HTTPException
 
 
 @pytest.mark.parametrize(
@@ -136,7 +135,7 @@ async def test_stop_queued_task_clears_scheduler_status(tmp_path):
             queue=queue,
             project_service=ProjectService(
                 ProjectSQLiteStorage(tmp_path / "stop.db"),
-                task_service=task_service,
+                task_read_service=task_service.reader,
             ),
             model_config_service=ModelConfigService(
                 ModelConfigSQLiteStorage(tmp_path / "models.db")
@@ -154,7 +153,7 @@ async def test_web_task_creation_inherits_project_screenshot_default(tmp_path):
     task_service = TaskService(TaskFileStorage(tmp_path / "tasks"))
     project_service = ProjectService(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
-        task_service=task_service,
+        task_read_service=task_service.reader,
     )
     project = await project_routes.create_project(
         ProjectCreateRequest(
@@ -190,10 +189,10 @@ async def test_web_task_creation_inherits_project_screenshot_default(tmp_path):
     ids=["outside_reports_dir", "under_reports_dir"],
 )
 def test_report_path_validation(tmp_path, monkeypatch, outside_reports):
-    from argus_py.task import query as task_query
+    from argus_py.task import read as task_read
 
     reports_dir = tmp_path / "reports"
-    monkeypatch.setattr(task_query, "REPORTS_DIR", reports_dir)
+    monkeypatch.setattr(task_read, "REPORTS_DIR", reports_dir)
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "report_test.db"))
     task = task_service.create_task(goal="报告路径测试", start_url="https://example.com")
 
@@ -222,9 +221,7 @@ async def test_list_task_events_returns_timeline(tmp_path):
     await task_service.emit_timeline(task.task_id, "complete", "task", summary="完成")
     await task_service.flush_events()
 
-    result = await event_routes.list_task_events(
-        task.task_id, query=task_service.query, timeline=task_service.timeline
-    )
+    result = await event_routes.list_task_events(task.task_id, None, timeline=task_service.timeline)
     assert isinstance(result, list)
     assert len(result) == 2
     assert result[0]["eventType"] == "start"
@@ -234,13 +231,12 @@ async def test_list_task_events_returns_timeline(tmp_path):
 
 @pytest.mark.asyncio
 async def test_list_task_events_404_for_missing_task(tmp_path):
-    """不存在的 task_id 返回 404。"""
-    task_service = TaskService(TaskSQLiteStorage(tmp_path / "events404.db"))
+    """不存在的 task_id 返回 404（via require_task_exists dep）。"""
+    from argus_py.api.dependencies import require_task_exists
 
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "events404.db"))
     with pytest.raises(TaskNotFoundError):
-        await event_routes.list_task_events(
-            "no-such", query=task_service.query, timeline=task_service.timeline
-        )
+        await require_task_exists("no-such", reader=task_service.reader)
 
 
 @pytest.mark.asyncio
@@ -249,11 +245,11 @@ async def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm.db"))
     task = task_service.create_task(goal="LLM追踪测试")
 
-    from argus_py.task import query as task_query
+    from argus_py.observability import trace_reader as obs_trace_reader
 
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(obs_trace_reader, "OUTPUT_DIR", tmp_path)
 
     trace_file = traces_dir / f"{task.task_id}.jsonl"
     trace_file.write_text(
@@ -262,7 +258,9 @@ async def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    result = await event_routes.list_llm_traces(task.task_id, query=task_service.query)
+    result = await event_routes.list_llm_traces(
+        task.task_id, None, trace_reader=task_service.trace_reader
+    )
     assert len(result) == 2
     assert result[0]["model"] == "qwen"
     assert result[1]["latencyMs"] == 800
@@ -270,11 +268,12 @@ async def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_list_llm_traces_404_for_missing_task(tmp_path):
-    """不存在的 task_id 返回 404。"""
-    task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm404.db"))
+    """不存在的 task_id 返回 404（via require_task_exists dep）。"""
+    from argus_py.api.dependencies import require_task_exists
 
+    task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm404.db"))
     with pytest.raises(TaskNotFoundError):
-        await event_routes.list_llm_traces("no-such", query=task_service.query)
+        await require_task_exists("no-such", reader=task_service.reader)
 
 
 @pytest.mark.asyncio
@@ -283,7 +282,9 @@ async def test_list_llm_traces_empty_when_no_file(tmp_path):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm_empty.db"))
     task = task_service.create_task(goal="无追踪")
 
-    result = await event_routes.list_llm_traces(task.task_id, query=task_service.query)
+    result = await event_routes.list_llm_traces(
+        task.task_id, None, trace_reader=task_service.trace_reader
+    )
     assert result == []
 
 
@@ -293,11 +294,11 @@ async def test_list_llm_traces_pagination_streaming(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm_page.db"))
     task = task_service.create_task(goal="分页测试")
 
-    from argus_py.task import query as task_query
+    from argus_py.observability import trace_reader as obs_trace_reader
 
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(obs_trace_reader, "OUTPUT_DIR", tmp_path)
 
     lines = [f'{{"trace_id":"m{i}","model":"m{i}","latencyMs":{i}}}' for i in range(5)]
     # 故意插入一行损坏的 JSON，验证索引重建会跳过而不是抛 500
@@ -305,7 +306,7 @@ async def test_list_llm_traces_pagination_streaming(tmp_path, monkeypatch):
     (traces_dir / f"{task.task_id}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     result = await event_routes.list_llm_traces(
-        task.task_id, skip=1, limit=2, query=task_service.query
+        task.task_id, None, skip=1, limit=2, trace_reader=task_service.trace_reader
     )
     # 损坏行在索引重建时被跳过，剩 5 条有效；skip=1, limit=2 应取第 2、3 条
     assert [r["model"] for r in result] == ["m1", "m2"]
@@ -317,11 +318,11 @@ async def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_detail.db"))
     task = task_service.create_task(goal="追踪详情")
 
-    from argus_py.task import query as task_query
+    from argus_py.observability import trace_reader as obs_trace_reader
 
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(obs_trace_reader, "OUTPUT_DIR", tmp_path)
 
     trace_file = traces_dir / f"{task.task_id}.jsonl"
     trace_file.write_text(
@@ -330,21 +331,27 @@ async def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    result = await event_routes.get_trace_detail(task.task_id, "trc-001", query=task_service.query)
+    result = await event_routes.get_trace_detail(
+        task.task_id, None, "trc-001", trace_reader=task_service.trace_reader
+    )
     assert result["traceId"] == "trc-001"
     assert result["phase"] == "planner"
 
     with pytest.raises(HTTPException) as exc_info:
-        await event_routes.get_trace_detail(task.task_id, "no-such", query=task_service.query)
+        await event_routes.get_trace_detail(
+            task.task_id, None, "no-such", trace_reader=task_service.trace_reader
+        )
     assert exc_info.value.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_get_trace_detail_404_for_missing_task(tmp_path):
-    """不存在的 task_id 返回 404。"""
+    """不存在的 task_id 返回 404（via require_task_exists dep）。"""
+    from argus_py.api.dependencies import require_task_exists
+
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_404.db"))
     with pytest.raises(TaskNotFoundError):
-        await event_routes.get_trace_detail("no-such", "trc-001", query=task_service.query)
+        await require_task_exists("no-such", reader=task_service.reader)
 
 
 @pytest.mark.asyncio
@@ -356,18 +363,22 @@ async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "debug.db"))
     task = task_service.create_task(goal="调试包测试")
 
-    from argus_py.task import query as task_query
+    from argus_py.observability import debug_bundle as obs_debug_bundle
 
     traces_dir = tmp_path / "traces"
     traces_dir.mkdir()
-    monkeypatch.setattr(task_query, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(obs_debug_bundle, "OUTPUT_DIR", tmp_path)
 
     (traces_dir / f"{task.task_id}.jsonl").write_text(
         '{"trace_id":"trc-001","phase":"planner"}\n', encoding="utf-8"
     )
 
     response = await event_routes.download_debug_bundle(
-        task.task_id, query=task_service.query, timeline=task_service.timeline
+        task.task_id,
+        None,
+        reader=task_service.reader,
+        timeline=task_service.timeline,
+        builder=task_service.debug_builder,
     )
     assert response.status_code == 200
     assert "application/zip" in response.media_type
@@ -384,9 +395,9 @@ async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_debug_bundle_404_for_missing_task(tmp_path):
-    """不存在的 task_id 返回 404。"""
+    """不存在的 task_id 返回 404（via require_task_exists dep）。"""
+    from argus_py.api.dependencies import require_task_exists
+
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "debug_404.db"))
     with pytest.raises(TaskNotFoundError):
-        await event_routes.download_debug_bundle(
-            "no-such", query=task_service.query, timeline=task_service.timeline
-        )
+        await require_task_exists("no-such", reader=task_service.reader)

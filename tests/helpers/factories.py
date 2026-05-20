@@ -41,7 +41,7 @@ def make_app_stack(
     )
     project_service = ProjectService(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
-        task_service=task_service,
+        task_read_service=task_service.reader,
     )
     queue = TaskQueue()
     app = TaskApplicationService(

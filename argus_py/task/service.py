@@ -1,7 +1,13 @@
-"""TaskService 兼容外观层，委托给职责单一的子服务。"""
+"""TaskService 兼容外观层，委托给职责单一的子服务。
+
+.. deprecated::
+    使用 ``TaskLifecycleService`` / ``TaskReadService`` / ``TaskLogService`` /
+    ``TaskTimelineService`` / ``TraceReadService`` / ``DebugBundleBuilder`` 代替。
+"""
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -9,12 +15,15 @@ from argus_py.core.cancellation import CancellationToken
 from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.observability.aspect import log_operation
+from argus_py.observability.debug_bundle import DebugBundleBuilder
+from argus_py.observability.trace_reader import TraceReadService
 from argus_py.task._base import TaskEventPublisher
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
 from argus_py.task.query import TaskQueryService
+from argus_py.task.read import TaskReadService
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
 __all__ = ["TaskEventPublisher", "TaskService"]
@@ -33,9 +42,19 @@ class TaskService:
         storage: TaskFileStorage | TaskSQLiteStorage | None = None,
         event_publisher: TaskEventPublisher | None = None,
     ) -> None:
+        warnings.warn(
+            "TaskService is deprecated — inject sub-services directly: "
+            "TaskLifecycleService, TaskReadService, TaskLogService, "
+            "TaskTimelineService, TraceReadService, DebugBundleBuilder.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         resolved = storage or TaskSQLiteStorage()
         self.lifecycle = TaskLifecycleService(resolved, event_publisher)
         self.query = TaskQueryService(resolved)
+        self.reader: TaskReadService = self.query.reader
+        self.trace_reader: TraceReadService = self.query.trace_reader
+        self.debug_builder: DebugBundleBuilder = self.query.debug_builder
         self.log = TaskLogService(resolved, event_publisher)
         # 仅 SQLite 后端支持时间线持久化；非 SQLite 后端用 Null Object 占位，
         # 让 facade 与子服务调用方都不再需要写 ``if timeline is None`` 分支。
@@ -225,10 +244,10 @@ class TaskService:
     # ── 报告 / 追踪 / 调试包 ──
 
     def resolve_report_path(self, task: Task) -> Path:
-        return self.query.resolve_report_path(task)
+        return self.reader.resolve_report_path(task)
 
     def resolve_screenshot_path(self, task_id: str, filename: str) -> Path:
-        return self.query.resolve_screenshot_path(task_id, filename)
+        return self.reader.resolve_screenshot_path(task_id, filename)
 
     def list_llm_traces(
         self,
@@ -237,15 +256,15 @@ class TaskService:
         limit: int = 50,
         trace_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.query.list_llm_traces(task_id, skip=skip, limit=limit, trace_id=trace_id)
+        return self.trace_reader.list_llm_traces(task_id, skip=skip, limit=limit, trace_id=trace_id)
 
     def get_llm_trace_detail(self, task_id: str, trace_id: str) -> dict[str, Any] | None:
-        return self.query.get_llm_trace_detail(task_id, trace_id)
+        return self.trace_reader.get_llm_trace_detail(task_id, trace_id)
 
     def build_debug_bundle(
         self, task_id: str, task: Task, events: list[dict[str, Any]] | None = None
     ) -> str:
-        return self.query.build_debug_bundle(task_id, task, events=events)
+        return self.debug_builder.build(task_id, task, events=events)
 
     def flush_logs(self) -> None:
         """批量写入缓冲的步骤日志。"""

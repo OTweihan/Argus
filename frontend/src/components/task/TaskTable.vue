@@ -104,7 +104,7 @@ const props = withDefaults(
       showRunActions?: boolean;
       compactActions?: boolean;
     }>(),
-    {showEdit: true, showReport: true, showDelete: true, showRunActions: true, compactActions: false},
+    {height: undefined, showEdit: true, showReport: true, showDelete: true, showRunActions: true, compactActions: false},
 );
 defineEmits<{
   select: [taskId: string];

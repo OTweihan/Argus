@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import queue
 import sqlite3
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -14,6 +16,196 @@ DEFAULT_DB_PATH = DATA_DIR / "argus.db"
 
 ConnectFn = Callable[[], sqlite3.Connection]
 """无参连接工厂签名（通常为 ``lambda: connect(db_path)``）。"""
+
+# ── 进程级连接池 ───────────────────────────────────────────────────────────────
+
+_DB_POOLS: dict[str, "DbPool"] = {}
+"""按 db_path.resolve() 缓存的 DbPool 单例。"""
+_DEFAULT_POOL_MAX_SIZE: int = 8
+"""进程级默认连接池大小，可由 set_default_pool_max_size() 覆盖。"""
+_DB_POOLS_LOCK = threading.Lock()
+
+
+class DbPool:
+    """线程安全的 SQLite 连接池。
+
+    维护读写（RW）和只读（RO，``mode=ro`` URI）两个独立子池，防止只读查询
+    意外触发写入（SQLite ``mode=ro`` 在文件层面拒绝写入）。
+
+    使用方式
+    --------
+    ::
+
+        pool = DbPool("/path/to/argus.db")
+
+        # 只读查询
+        with pool.ro_conn() as conn:
+            row = conn.execute("SELECT ...").fetchone()
+
+        # 写入（自动 commit / rollback）
+        with pool.tx() as conn:
+            conn.execute("INSERT ...", row)
+
+        # 读写连接（非事务，极少使用）
+        with pool.conn() as conn:
+            ...
+    """
+
+    def __init__(self, db_path: str | Path, max_pool_size: int = 8) -> None:
+        self._db_path = str(Path(db_path).resolve())
+        self._max_size = max_pool_size
+        # 读写连接池
+        self._rw_pool: queue.Queue[sqlite3.Connection] = queue.Queue(maxsize=max_pool_size)
+        self._rw_size = 0
+        # 只读连接池（mode=ro URI）
+        self._ro_pool: queue.Queue[sqlite3.Connection] = queue.Queue(maxsize=max_pool_size)
+        self._ro_size = 0
+        self._lock = threading.Lock()
+
+    # ── 公共接口 ────────────────────────────────────────────────────────────
+
+    @contextmanager
+    def conn(self) -> Iterator[sqlite3.Connection]:
+        """获取读写连接，退出时归还池中。"""
+        connection = self._acquire(self._rw_pool, "_rw_size", read_only=False)
+        try:
+            yield connection
+        finally:
+            self._release(connection, self._rw_pool, "_rw_size")
+
+    @contextmanager
+    def ro_conn(self) -> Iterator[sqlite3.Connection]:
+        """获取只读连接（``mode=ro`` URI），退出时归还池中。
+
+        SQLite ``mode=ro`` 在文件层面拒绝任何写入操作，为只读路径提供
+        安全保障。
+        """
+        connection = self._acquire(self._ro_pool, "_ro_size", read_only=True)
+        try:
+            yield connection
+        finally:
+            self._release(connection, self._ro_pool, "_ro_size")
+
+    @contextmanager
+    def tx(self) -> Iterator[sqlite3.Connection]:
+        """获取连接并在事务上下文中执行，退出时归还池中。
+
+        SQLite Connection 自身的上下文协议在 ``__exit__`` 时根据是否抛异常
+        自动 ``commit`` / ``rollback``。
+        """
+        connection = self._acquire(self._rw_pool, "_rw_size", read_only=False)
+        try:
+            with connection:
+                yield connection
+        finally:
+            self._release(connection, self._rw_pool, "_rw_size")
+
+    def drain(self) -> None:
+        """关闭池中所有连接，重置计数器。"""
+        self._drain_pool(self._rw_pool)
+        self._rw_size = 0
+        self._drain_pool(self._ro_pool)
+        self._ro_size = 0
+
+    def pool_stats(self) -> dict[str, int]:
+        """返回各池的活跃 / 最大连接数。"""
+        return {
+            "rw_active": self._max_size - self._rw_pool.qsize(),
+            "rw_total": self._rw_size,
+            "ro_active": self._max_size - self._ro_pool.qsize(),
+            "ro_total": self._ro_size,
+            "max_size": self._max_size,
+        }
+
+    # ── 内部 ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _drain_pool(pool: queue.Queue[sqlite3.Connection]) -> None:
+        while True:
+            try:
+                pool.get_nowait().close()
+            except queue.Empty:
+                break
+
+    def _new_conn(self, read_only: bool) -> sqlite3.Connection:
+        """创建新连接并设置运行时参数。
+
+        ``check_same_thread=False`` 是连接池所必需：连接创建后被放入
+        ``queue.Queue``，可能在任何工作线程中被取出使用。池通过队列保证
+        同一时刻最多只有一个线程持有该连接，因此跨线程访问是安全的。
+        """
+        if read_only:
+            connection = sqlite3.connect(
+                f"file:{self._db_path}?mode=ro",
+                timeout=5,
+                check_same_thread=False,
+                uri=True,
+            )
+        else:
+            connection = sqlite3.connect(self._db_path, timeout=5, check_same_thread=False)
+            connection.execute("PRAGMA journal_mode = WAL")
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 5000")
+        return connection
+
+    def _acquire(
+        self,
+        pool: queue.Queue[sqlite3.Connection],
+        size_attr: str,
+        read_only: bool,
+    ) -> sqlite3.Connection:
+        """从池中取连接，池空且未达上限时创建新连接。"""
+        try:
+            return pool.get_nowait()
+        except queue.Empty:
+            pass
+        with self._lock:
+            current_size = getattr(self, size_attr)
+            if current_size < self._max_size:
+                setattr(self, size_attr, current_size + 1)
+                return self._new_conn(read_only)
+        # 所有连接都被借出 — 阻塞等待归还
+        return pool.get()
+
+    @staticmethod
+    def _release(
+        connection: sqlite3.Connection,
+        pool: queue.Queue[sqlite3.Connection],
+        size_attr: str,
+    ) -> None:
+        """归还连接至池；池满则关闭。"""
+        try:
+            pool.put_nowait(connection)
+        except queue.Full:
+            connection.close()
+
+
+def set_default_pool_max_size(size: int) -> None:
+    """设置进程级默认连接池大小。
+
+    在首次调用 ``get_db_pool`` 前调用此函数可定制所有 DbPool 的默认大小。
+    """
+    global _DEFAULT_POOL_MAX_SIZE
+    _DEFAULT_POOL_MAX_SIZE = size
+
+
+def get_db_pool(db_path: str | Path = DEFAULT_DB_PATH, max_pool_size: int | None = None) -> DbPool:
+    """获取（或创建）指定数据库文件的进程级 DbPool 单例。
+
+    按 ``db_path.resolve()`` 缓存，相同路径返回同一池。
+    ``max_pool_size`` 仅在首次创建时生效；``None`` 表示使用进程级默认值。
+    """
+    if max_pool_size is None:
+        max_pool_size = _DEFAULT_POOL_MAX_SIZE
+    resolved = str(Path(db_path).resolve())
+    global _DB_POOLS
+    if resolved not in _DB_POOLS:
+        with _DB_POOLS_LOCK:
+            if resolved not in _DB_POOLS:  # double-check
+                _DB_POOLS[resolved] = DbPool(resolved, max_pool_size)
+    return _DB_POOLS[resolved]
+
 
 _MIN_SQLITE_VERSION = (3, 35, 0)
 """ALTER TABLE DROP COLUMN 需要 SQLite 3.35.0+。"""
@@ -289,7 +481,10 @@ class _DefaultDBProbe:
 __all__ = [
     "DEFAULT_DB_PATH",
     "ConnectFn",
+    "DbPool",
     "connect",
+    "get_db_pool",
+    "set_default_pool_max_size",
     "init_database",
     "_DefaultDBProbe",
 ]

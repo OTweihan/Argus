@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -74,24 +73,15 @@ class TaskSQLiteStorage:
     """基于 SQLite 的任务存储（facade，委托 repository 模块）。"""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
-        from argus_py.infra.db import connect as _connect_fn
-        from argus_py.infra.db import init_database
+        from argus_py.infra.db import get_db_pool, init_database
 
         self.db_path = Path(db_path) if db_path else DATA_DIR / "argus.db"
         init_database(self.db_path)
-
-        # 把 connect 抽成嵌套 def 以满足 ruff E731；闭包语义与原 lambda 等价：
-        # 仓储每次取连接都按构造时的 db_path 解析，避免在仓储构造时就建一个长寿
-        # 命的 sqlite3.Connection（连接复用由各 repository 自己控制）。
-        resolved_db_path = self.db_path
-
-        def connect() -> sqlite3.Connection:
-            return _connect_fn(resolved_db_path)
-
-        self._tasks = TaskRepository(connect)
-        self._logs = LogRepository(connect)
-        self._findings = FindingRepository(connect)
-        self._events = EventRepository(connect)
+        pool = get_db_pool(self.db_path)
+        self._tasks = TaskRepository(pool)
+        self._logs = LogRepository(pool)
+        self._findings = FindingRepository(pool)
+        self._events = EventRepository(pool)
 
     # ── 任务 CRUD ───────────────────────────────────────────
 

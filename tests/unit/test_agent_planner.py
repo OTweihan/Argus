@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
 from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
 from argus_py.blackbox.planner import BlackboxPlanner
@@ -52,14 +51,16 @@ class FakeLLMClient:
 
 @pytest.mark.asyncio
 async def test_blackbox_planner_parses_llm_actions():
-    planner = BlackboxPlanner(llm_client=FakeLLMClient("""
+    planner = BlackboxPlanner(
+        llm_client=FakeLLMClient("""
             {
               "summary": "点击表单入口",
               "steps": [
                 {"action": "click", "selector": "text=HTML Forms", "reason": "进入表单页"}
               ]
             }
-            """))
+            """)
+    )
 
     sequence = await planner.plan_next(
         goal="进入表单页",
@@ -75,7 +76,8 @@ async def test_blackbox_planner_parses_llm_actions():
 
 @pytest.mark.asyncio
 async def test_blackbox_evaluator_parses_llm_findings():
-    evaluator = BlackboxEvaluator(llm_client=FakeLLMClient("""
+    evaluator = BlackboxEvaluator(
+        llm_client=FakeLLMClient("""
             {
               "completed": true,
               "success": false,
@@ -89,7 +91,8 @@ async def test_blackbox_evaluator_parses_llm_findings():
                 }
               ]
             }
-            """))
+            """)
+    )
 
     result = await evaluator.evaluate("检查页面", "页面错误", history=[])
 
@@ -149,10 +152,14 @@ class CountingEvaluator:
 
 @pytest.mark.asyncio
 async def test_blackbox_runner_executes_initial_browser_loop(tmp_path):
-    service = TaskService(TaskFileStorage(tmp_path / "tasks"))
+    storage = TaskFileStorage(tmp_path / "tasks")
+    service = TaskService(storage)
     task = service.create_task(goal="打开页面并截图", start_url="https://example.com")
     runner = BlackboxRunner(
-        service=service,
+        lifecycle=service.lifecycle,
+        reader=service.reader,
+        log_service=service.log,
+        timeline_service=service.timeline,
         planner=BlackboxPlanner(),
         evaluator=CountingEvaluator(),
         browser_session_factory=lambda _: FakeBrowserSession(tmp_path),
@@ -211,11 +218,15 @@ class CompleteEvaluator:
 
 @pytest.mark.asyncio
 async def test_blackbox_runner_replans_after_action_failure(tmp_path):
-    service = TaskService(TaskFileStorage(tmp_path / "tasks"))
+    storage = TaskFileStorage(tmp_path / "tasks")
+    service = TaskService(storage)
     task = service.create_task(goal="测试登录界面", start_url="https://example.com/login")
     planner = RecoveryPlanner()
     runner = BlackboxRunner(
-        service=service,
+        lifecycle=service.lifecycle,
+        reader=service.reader,
+        log_service=service.log,
+        timeline_service=service.timeline,
         planner=planner,
         evaluator=CompleteEvaluator(),
         browser_session_factory=lambda _: FailingClickBrowserSession(tmp_path),
@@ -241,14 +252,18 @@ class ScreenshotOnlyPlanner:
 
 @pytest.mark.asyncio
 async def test_blackbox_runner_skips_screenshot_when_disabled(tmp_path):
-    service = TaskService(TaskFileStorage(tmp_path / "tasks"))
+    storage = TaskFileStorage(tmp_path / "tasks")
+    service = TaskService(storage)
     task = service.create_task(
         goal="打开页面",
         start_url="https://example.com",
         capture_screenshots=False,
     )
     runner = BlackboxRunner(
-        service=service,
+        lifecycle=service.lifecycle,
+        reader=service.reader,
+        log_service=service.log,
+        timeline_service=service.timeline,
         planner=ScreenshotOnlyPlanner(),
         evaluator=CompleteEvaluator(),
         browser_session_factory=lambda _: FakeBrowserSession(tmp_path),

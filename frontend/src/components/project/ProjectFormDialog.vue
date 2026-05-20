@@ -5,22 +5,22 @@
   >
     <el-form label-position="top" @submit.prevent="$emit('save')">
       <el-form-item label="名称" :error="formErrors.name" required>
-        <el-input v-model="form.name" maxlength="50" show-word-limit @input="clearError('name')" />
+        <el-input v-model="localForm.name" maxlength="50" show-word-limit @input="clearError('name')" />
       </el-form-item>
       <el-form-item label="描述">
-        <el-input v-model="form.description" type="textarea" :rows="4" maxlength="200" show-word-limit />
+        <el-input v-model="localForm.description" type="textarea" :rows="4" maxlength="200" show-word-limit />
       </el-form-item>
       <el-form-item label="基础 URL" :error="formErrors.baseUrl">
-        <el-input v-model="form.baseUrl" placeholder="https://example.com" @input="clearError('baseUrl')" />
+        <el-input v-model="localForm.baseUrl" placeholder="https://example.com" @input="clearError('baseUrl')" />
       </el-form-item>
       <el-form-item label="Git URL" :error="formErrors.gitUrl">
-        <el-input v-model="form.gitUrl" placeholder="https://github.com/" @input="clearError('gitUrl')" />
+        <el-input v-model="localForm.gitUrl" placeholder="https://github.com/" @input="clearError('gitUrl')" />
       </el-form-item>
       <el-row :gutter="12">
         <el-col :span="12">
           <el-form-item label="默认最大步骤">
             <el-input-number
-              v-model="form.defaultMaxSteps" :min="1" :max="1000" :step="1" :precision="0"
+              v-model="localForm.defaultMaxSteps" :min="1" :max="1000" :step="1" :precision="0"
               style="width:100%"
             />
           </el-form-item>
@@ -28,14 +28,14 @@
         <el-col :span="12">
           <el-form-item label="默认超时秒数">
             <el-input-number
-              v-model="form.defaultTimeoutSeconds" :min="1" :max="3600" :step="1" :precision="0"
+              v-model="localForm.defaultTimeoutSeconds" :min="1" :max="3600" :step="1" :precision="0"
               style="width:100%"
             />
           </el-form-item>
         </el-col>
       </el-row>
       <el-form-item label="截图">
-        <el-radio-group v-model="form.defaultCaptureScreenshots">
+        <el-radio-group v-model="localForm.defaultCaptureScreenshots">
           <el-radio :value="true">
             开启
           </el-radio>
@@ -55,12 +55,12 @@
               未配置
             </el-tag>
           </template>
-          <PromptExtensionEditor v-if="promptCollapseActive.includes('prompt')" v-model="form.promptExtensions" scope="project" />
+          <PromptExtensionEditor v-if="promptCollapseActive.includes('prompt')" v-model="localForm.promptExtensions" scope="project" />
         </el-collapse-item>
       </el-collapse>
       <el-form-item label="参数" :error="formErrors.projectParameters">
         <div class="param-list">
-          <div v-for="(entry, index) in form.parameters" :key="index" class="param-row">
+          <div v-for="(entry, index) in localForm.parameters" :key="index" class="param-row">
             <el-input
               v-model="entry.key" placeholder="键名" class="param-key"
               @input="clearError('projectParameters')"
@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import {computed, defineAsyncComponent, ref} from "vue";
+import {computed, defineAsyncComponent, reactive, ref, watch} from "vue";
 import type {ProjectForm} from "../../composables/useProjects";
 import {hasAnyExtension} from "../../promptExtensions";
 const PromptExtensionEditor = defineAsyncComponent(() => import("../prompt/PromptExtensionEditor.vue"));
@@ -111,7 +111,16 @@ defineEmits<{
 }>();
 
 const promptCollapseActive = ref<string[]>([]);
-const hasExt = computed(() => hasAnyExtension(props.form.promptExtensions));
+const localForm = reactive<ProjectForm>({...props.form});
+const hasExt = computed(() => hasAnyExtension(localForm.promptExtensions));
+
+watch(localForm, () => {
+  Object.assign(props.form, localForm);
+}, {deep: true});
+
+watch(() => props.form, (f) => {
+  Object.assign(localForm, f);
+}, {deep: true});
 
 function clearError(key: string): void {
   delete (props.formErrors as Record<string, string | undefined>)[key];

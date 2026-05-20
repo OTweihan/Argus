@@ -15,19 +15,19 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from argus_py.api.dependencies import (
+    get_debug_bundle_builder,
     get_event_bus,
     get_model_config_service,
     get_project_service,
     get_task_app_service,
     get_task_query_service,
     get_task_queue,
+    get_task_read_service,
     get_task_service,
     get_task_timeline_service,
     get_task_worker,
+    get_trace_reader_service,
 )
 from argus_py.api.middleware import configure_middleware
 from argus_py.api.routes import config, events, health, projects, prompts, reports, tasks, ws
@@ -36,6 +36,9 @@ from argus_py.config.server_settings import ServerSettings
 from argus_py.config.service import ModelConfigService
 from argus_py.infra.events import EventBus
 from argus_py.infra.worker import TaskWorker
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from tests.helpers.factories import AppStack, make_app_stack
 
 API_PREFIX = "/api/v1"
@@ -59,7 +62,9 @@ def _build_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
     """
     stack = make_app_stack(tmp_path)
     model_cfg_service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db"))
-    worker = TaskWorker(queue=stack.queue)
+    worker = TaskWorker(
+        queue=stack.queue, lifecycle=stack.task_service.lifecycle, reader=stack.task_service.reader
+    )
     event_bus = EventBus(history_limit=50)
 
     app = FastAPI(title="Argus API Test")
@@ -83,6 +88,9 @@ def _build_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
         get_task_app_service: lambda: stack.app,
         get_model_config_service: lambda: model_cfg_service,
         get_task_query_service: lambda: stack.task_service.query,
+        get_task_read_service: lambda: stack.task_service.reader,
+        get_trace_reader_service: lambda: stack.task_service.trace_reader,
+        get_debug_bundle_builder: lambda: stack.task_service.debug_builder,
         get_task_timeline_service: lambda: stack.task_service.timeline,
         get_task_worker: lambda: worker,
         get_event_bus: lambda: event_bus,

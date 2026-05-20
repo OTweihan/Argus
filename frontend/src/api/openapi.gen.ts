@@ -693,6 +693,11 @@ export interface components {
             queued_tasks: number;
             /** Worker Alive */
             worker_alive: boolean;
+            /**
+             * Io Executor Queued
+             * @default -1
+             */
+            io_executor_queued: number;
         };
         /**
          * ModelConfigCreateRequest
@@ -2172,7 +2177,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
             /** @description Validation Error */
@@ -2207,7 +2214,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
             /** @description Validation Error */
@@ -2239,7 +2248,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

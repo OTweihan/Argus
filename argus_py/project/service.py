@@ -9,7 +9,8 @@ from argus_py.core.exceptions import ProjectError
 from argus_py.observability import audit
 from argus_py.project.models import Project
 from argus_py.project.storage import ProjectSQLiteStorage
-from argus_py.task.service import TaskService
+from argus_py.task.read import TaskReadService
+from argus_py.task.storage import TaskSQLiteStorage
 
 
 class ProjectService:
@@ -18,10 +19,10 @@ class ProjectService:
     def __init__(
         self,
         storage: ProjectSQLiteStorage | None = None,
-        task_service: TaskService | None = None,
+        task_read_service: TaskReadService | None = None,
     ) -> None:
         self.storage = storage or ProjectSQLiteStorage()
-        self.task_service = task_service or TaskService()
+        self.task_read_service = task_read_service or TaskReadService(TaskSQLiteStorage())
 
     def create_project(
         self,
@@ -54,7 +55,7 @@ class ProjectService:
             parameters=parameters or {},
         )
         saved = self.storage.save(project)
-        audit("project.create", projectId=saved.project_id, name=saved.name)
+        audit("project.create", project_id=saved.project_id, name=saved.name)
         return saved
 
     def get_project(self, project_id: str) -> Project:
@@ -94,7 +95,7 @@ class ProjectService:
         saved = self.storage.save(project)
         audit(
             "project.update",
-            projectId=saved.project_id,
+            project_id=saved.project_id,
             fields=sorted(updates.keys()),
         )
         return saved
@@ -102,11 +103,11 @@ class ProjectService:
     def delete_project(self, project_id: str) -> None:
         """删除项目；存在关联任务时不允许删除。"""
         project = self.get_project(project_id)
-        count = self.task_service.count_tasks(project_id=project.project_id)
+        count = self.task_read_service.count_tasks(project_id=project.project_id)
         if count:
             raise ProjectError(f"项目已关联 {count} 个任务，不能删除。")
         self.storage.delete(project.project_id)
-        audit("project.delete", projectId=project.project_id, name=project.name)
+        audit("project.delete", project_id=project.project_id, name=project.name)
 
     def exists(self, project_id: str) -> bool:
         """判断项目是否存在。"""

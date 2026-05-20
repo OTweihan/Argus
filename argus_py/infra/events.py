@@ -123,10 +123,18 @@ class EventBus:
         # 后者是发布点找不到 loop。
         self.dropped_overflow_count = 0
 
+        # --- tick 级事件合并 ---
+        # 同 tick 内 publish 多次时合并成单次 async dispatch，减少 create_task 开销。
+        self._tick_buffer: list[tuple[str, str, dict[str, Any]]] = []
+        self._flush_task_created = False
+        self._tick_lock = threading.Lock()
+        self.coalesced_batch_count = 0
+        self.coalesced_event_count = 0
+
     def publish(self, event_type: str, task_id: str, data: dict[str, Any] | None = None) -> None:
         """发布事件。
 
-        - 有运行中的事件循环：创建 async task 派发给所有订阅者，同时写 history
+        - 有运行中的事件循环：缓冲到 tick buffer，由 ``_dispatch_batch`` 合并派发
         - 无运行中的事件循环（CLI / 同步路径）：降级为只写 history（订阅者此时
           理论上不存在），同时累加 ``dropped_no_loop_count`` 并周期性 warn
 
@@ -138,8 +146,13 @@ class EventBus:
         except RuntimeError:
             self._publish_sync(event_type, task_id, data or {})
             return
-        task = loop.create_task(self.publish_async(event_type, task_id, data or {}))
-        task.add_done_callback(_log_publish_error)
+
+        with self._tick_lock:
+            self._tick_buffer.append((event_type, task_id, data or {}))
+        if not self._flush_task_created:
+            self._flush_task_created = True
+            task = loop.create_task(self._dispatch_batch())
+            task.add_done_callback(_log_publish_error)
 
     def _publish_sync(
         self,
@@ -198,6 +211,57 @@ class EventBus:
         for queue in targets:
             self._offer(queue, event)
         return event
+
+    async def _dispatch_batch(self) -> None:
+        """合并处理 tick buffer 中的所有事件，单次 async dispatch。"""
+        with self._tick_lock:
+            buffer = self._tick_buffer[:]
+            self._tick_buffer.clear()
+
+        if not buffer:
+            self._flush_task_created = False
+            return
+
+        self.coalesced_batch_count += 1
+        self.coalesced_event_count += len(buffer)
+
+        events: list[TaskEvent] = []
+        async with self._lock:
+            for event_type, task_id, data in buffer:
+                self._sequence += 1
+                event = TaskEvent(
+                    sequence=self._sequence,
+                    event_type=event_type,
+                    task_id=task_id,
+                    data=to_jsonable(data),
+                )
+                events.append(event)
+                if self.history_limit:
+                    self._history.append(event)
+
+            for queue in self._global_subscribers:
+                for evt in events:
+                    self._offer(queue, evt)
+
+            if self._task_subscribers:
+                tid_events: dict[str, list[TaskEvent]] = {}
+                for evt in events:
+                    tid_events.setdefault(evt.task_id, []).append(evt)
+                for tid, evts in tid_events.items():
+                    for queue in self._task_subscribers.get(tid, set()):
+                        for evt in evts:
+                            self._offer(queue, evt)
+
+        self._flush_task_created = False
+
+        if self._tick_buffer and not self._flush_task_created:
+            self._flush_task_created = True
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            task = loop.create_task(self._dispatch_batch())
+            task.add_done_callback(_log_publish_error)
 
     async def subscribe(
         self,
@@ -306,7 +370,8 @@ class EventBus:
         - ``history_size``：history 缓冲中当前事件数；
         - ``global_subscribers`` / ``task_subscribers``：当前活跃订阅者数；
         - ``dropped_no_loop_count``：见 ``publish`` 文档；
-        - ``dropped_overflow_count``：见 ``_offer`` 文档。
+        - ``dropped_overflow_count``：见 ``_offer`` 文档；
+        - ``coalesced_batch_count`` / ``coalesced_event_count``：tick 合并统计。
         """
         return {
             "sequence": self._sequence,
@@ -317,6 +382,8 @@ class EventBus:
             "dropped_no_loop_count": self.dropped_no_loop_count,
             "dropped_overflow_count": self.dropped_overflow_count,
             "rejected_subscriber_count": self.rejected_subscriber_count,
+            "coalesced_batch_count": self.coalesced_batch_count,
+            "coalesced_event_count": self.coalesced_event_count,
         }
 
 

@@ -5,9 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from playwright.async_api import BrowserContext
+from playwright.async_api import BrowserContext, Page
 from playwright.async_api import ConsoleMessage as PwConsoleMessage
-from playwright.async_api import Page
 
 from argus_py.browser.actions import BrowserActions
 from argus_py.browser.constants import (
@@ -30,6 +29,7 @@ class BrowserSession:
         context_options: dict[str, Any] | None = None,
         page_ready_timeout_ms: int = DEFAULT_PAGE_READY_TIMEOUT_MS,
         page_settle_ms: int = DEFAULT_PAGE_SETTLE_MS,
+        stop_browser: bool = True,
     ) -> None:
         self.client = client or PlaywrightClient()
         self.screenshot_dir = Path(screenshot_dir)
@@ -40,6 +40,7 @@ class BrowserSession:
         self.page: Page | None = None
         self.actions: BrowserActions | None = None
         self.console_messages: list[ConsoleMessage] = []
+        self._stop_browser = stop_browser
 
     async def start(self) -> "BrowserSession":
         """启动浏览器会话。"""
@@ -56,7 +57,11 @@ class BrowserSession:
         return self
 
     async def stop(self) -> None:
-        """关闭浏览器会话。"""
+        """关闭浏览器会话。
+
+        当 ``stop_browser=False`` 时（复用进程级单例的场景），只关闭上下文，
+        不会关闭共享的浏览器进程。
+        """
         errors: list[Exception] = []
         try:
             if self.context is not None:
@@ -68,10 +73,11 @@ class BrowserSession:
             self.page = None
             self.actions = None
 
-        try:
-            await self.client.stop()
-        except Exception as exc:
-            errors.append(exc)
+        if self._stop_browser:
+            try:
+                await self.client.stop()
+            except Exception as exc:
+                errors.append(exc)
 
         if errors:
             raise BrowserActionError("stop_session", "; ".join(str(item) for item in errors))

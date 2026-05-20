@@ -14,7 +14,6 @@ import asyncio
 import logging
 
 import pytest
-
 from argus_py.infra.events import EventBus
 
 
@@ -187,6 +186,8 @@ class TestMetrics:
             "dropped_no_loop_count",
             "dropped_overflow_count",
             "rejected_subscriber_count",
+            "coalesced_batch_count",
+            "coalesced_event_count",
         }
 
 
@@ -296,6 +297,113 @@ class TestSubscribeSinceSeq:
         sub = await bus.subscribe(task_id="tk-1", since_seq=1)
         events = _drain(sub.queue)
         assert [e.sequence for e in events] == [2]  # tk-1 的 seq=2
+
+
+class TestTickCoalescing:
+    """publish() 同 tick 合并行为。"""
+
+    @pytest.mark.asyncio
+    async def test_coalesces_multiple_publishes_into_one_batch(self) -> None:
+        """同 tick 多次 publish 合并为单次 dispatch。"""
+        bus = EventBus(history_limit=10)
+        sub = await bus.subscribe(replay=False)
+
+        bus.publish("task.step", "tk-1", {"i": 1})
+        bus.publish("task.step", "tk-1", {"i": 2})
+        bus.publish("task.step", "tk-1", {"i": 3})
+
+        await asyncio.sleep(0)
+
+        assert bus.coalesced_batch_count == 1
+        assert bus.coalesced_event_count == 3
+        events = _drain(sub.queue)
+        assert [e.data["i"] for e in events] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_coalesced_batches_separate_across_ticks(self) -> None:
+        """跨 tick 的 publish 创建独立 batch。"""
+        bus = EventBus(history_limit=10)
+        sub = await bus.subscribe(replay=False)
+
+        bus.publish("task.step", "tk-1", {"i": 1})
+        await asyncio.sleep(0)
+        bus.publish("task.step", "tk-1", {"i": 2})
+        await asyncio.sleep(0)
+
+        assert bus.coalesced_batch_count == 2
+        assert bus.coalesced_event_count == 2
+        events = _drain(sub.queue)
+        assert [e.data["i"] for e in events] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_publish_async_still_works_directly(self) -> None:
+        """publish_async 不走 buffer，直接 dispatch（向后兼容）。"""
+        bus = EventBus(history_limit=10)
+        sub = await bus.subscribe(replay=False)
+
+        await bus.publish_async("task.step", "tk-1", {"i": 1})
+        events = _drain(sub.queue)
+        assert len(events) == 1
+        assert bus.coalesced_batch_count == 0
+
+    @pytest.mark.asyncio
+    async def test_publish_writes_history(self) -> None:
+        """publish() 通过 buffer 后，history 仍有记录。"""
+        bus = EventBus(history_limit=10)
+
+        bus.publish("task.created", "tk-1")
+        await asyncio.sleep(0)
+
+        assert len(bus._history) == 1
+
+    @pytest.mark.asyncio
+    async def test_order_preserved_across_multiple_task_ids(self) -> None:
+        """不同 task_id 的事件在同 batch 中按发布顺序排列。"""
+        bus = EventBus(history_limit=10)
+        sub = await bus.subscribe(replay=False)
+
+        bus.publish("task.step", "tk-a", {"seq": 1})
+        bus.publish("task.step", "tk-b", {"seq": 2})
+        bus.publish("task.step", "tk-a", {"seq": 3})
+
+        await asyncio.sleep(0)
+
+        assert bus.coalesced_batch_count == 1
+        assert bus.coalesced_event_count == 3
+        events = _drain(sub.queue)
+        assert [e.data["seq"] for e in events] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_publish_during_dispatch_schedules_new_batch(self) -> None:
+        """dispatch 期间 publish 的事件由后续 batch 处理，不丢失。"""
+        bus = EventBus(history_limit=10)
+        sub = await bus.subscribe(replay=False)
+
+        # publish 创建 flush task，dispatch 开始前 _flush_task_created=True
+        bus.publish("task.step", "tk-1", {"i": 1})
+        # 在第一个 dispatch 完成前再发一条，应进入 buffer
+        bus.publish("task.step", "tk-1", {"i": 2})
+
+        await asyncio.sleep(0)
+
+        assert bus.coalesced_batch_count == 1
+        assert bus.coalesced_event_count == 2
+        events = _drain(sub.queue)
+        assert [e.data["i"] for e in events] == [1, 2]
+        assert not bus._flush_task_created
+        assert len(bus._tick_buffer) == 0
+
+    @pytest.mark.asyncio
+    async def test_tick_buffer_cleared_after_dispatch(self) -> None:
+        """dispatch 后 tick_buffer 被清空。"""
+        bus = EventBus(history_limit=10)
+        await bus.subscribe(replay=False)
+
+        bus.publish("task.step", "tk-1")
+        await asyncio.sleep(0)
+
+        with bus._tick_lock:
+            assert len(bus._tick_buffer) == 0
 
 
 def _drain(queue: asyncio.Queue) -> list:

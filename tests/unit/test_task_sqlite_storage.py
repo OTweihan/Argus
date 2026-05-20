@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from argus_py.core.enums import (
     FindingSeverity,
     FindingType,
@@ -367,18 +366,18 @@ class TestSummaries:
             if stripped.startswith("SELECT"):
                 select_count += 1
 
-        original_connect = store._tasks._connect
+        original_new_conn = store._tasks._pool._new_conn
 
-        def traced_connect():
-            conn = original_connect()
+        def traced_new_conn(read_only: bool):  # noqa: FBT001
+            conn = original_new_conn(read_only)
             conn.set_trace_callback(_count_select)
             return conn
 
-        store._tasks._connect = traced_connect
+        store._tasks._pool._new_conn = traced_new_conn  # type: ignore[method-assign]
         try:
             summaries, total = store.list_task_summaries()
         finally:
-            store._tasks._connect = original_connect
+            store._tasks._pool._new_conn = original_new_conn  # type: ignore[method-assign]
 
         assert total == 20
         assert len(summaries) == 20

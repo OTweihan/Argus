@@ -17,8 +17,9 @@ from argus_py.browser import BrowserSession
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.redaction import redact_href
+from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.models import Task
-from argus_py.task.service import TaskService
+from argus_py.task.read import TaskReadService
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ class BlackboxExecutionLoop:
 
     def __init__(
         self,
-        service: TaskService,
+        lifecycle: TaskLifecycleService,
+        reader: TaskReadService,
         action_executor: ActionExecutor,
         finalizer: Finalizer,
         evidence: EvidenceCollector,
@@ -37,7 +39,8 @@ class BlackboxExecutionLoop:
         max_plan_steps: int = 3,
         check_cancelled_fn: Callable[[Task], bool] | None = None,
     ) -> None:
-        self.service = service
+        self._lifecycle = lifecycle
+        self._reader = reader
         self.action_executor = action_executor
         self.finalizer = finalizer
         self.evidence = evidence
@@ -70,7 +73,7 @@ class BlackboxExecutionLoop:
             # ── 暂停/取消检测 ──
             if await self._check_cancelled(task):
                 return await self.finalizer.finalize(
-                    self.service.get_latest_task(task), owns_status
+                    self._reader.get_latest_task(task), owns_status
                 )
 
             # ── 规划 ──
@@ -95,7 +98,7 @@ class BlackboxExecutionLoop:
                 # 每个步骤前检查取消，避免长 batch 中停止不响应。
                 if await self._check_cancelled(task):
                     return await self.finalizer.finalize(
-                        self.service.get_latest_task(task), owns_status
+                        self._reader.get_latest_task(task), owns_status
                     )
 
                 await self.events.action(
@@ -113,7 +116,7 @@ class BlackboxExecutionLoop:
                     recovery_attempts = 0
                     _last_error = None
                 except TaskError as exc:
-                    task = self.service.get_latest_task(task)
+                    task = self._reader.get_latest_task(task)
                     _last_error = {
                         "action": action_step.action.value,
                         "error_code": exc.error_code,
@@ -227,12 +230,12 @@ class BlackboxExecutionLoop:
 
         from argus_py.core.cancellation import CancellationToken
 
-        token: CancellationToken = self.service.get_cancellation_token(task.task_id)
+        token: CancellationToken = self._lifecycle.get_cancellation_token(task.task_id)
         if token.is_cancelled:
             return True
         if token.is_paused:
             await token.wait_if_paused()
-            status = self.service.get_task_status(task.task_id)
+            status = self._reader.get_task_status(task.task_id)
             return status is not TaskStatus.RUNNING
         return False
 
@@ -241,9 +244,9 @@ class BlackboxExecutionLoop:
     ) -> Task:
         """达到最大步骤时的收尾处理。"""
         message = f"达到最大步骤 {task_input.max_steps} 后仍未完成目标。"
-        status = self.service.get_task_status(task.task_id)
+        status = self._reader.get_task_status(task.task_id)
         if owns_status and status is TaskStatus.RUNNING:
             await self.events.max_steps(task.task_id, message)
-            failed = self.service.fail_task(task, message)
+            failed = self._lifecycle.fail_task(task, message)
             await self.finalizer.generate_report(failed)
         raise TaskError(message)

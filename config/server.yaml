@@ -24,13 +24,17 @@ request:
   # 默认 5MB，足以容纳常规 task 表单 / prompt 预览 / 模型配置。
   max_body_size_bytes: 5242880
 
+# SQLite 连接池 RW 上限。高并发读多写少场景可适当增大（如 16），
+# 但超过 32 对 SQLite 收益递减（WAL 模式多读不阻塞但 connection 有开销）。
+db_pool_max_size: 8
+
 events:
   history_limit: 200
   subscriber_queue_size: 100
   # 全局并发订阅上限（含所有 WebSocket 客户端）。0 = 不限（向后兼容）。
   # 单订阅独占 1 个 asyncio.Queue（容量 = subscriber_queue_size）；上限存在意义在于
   # 防御异常前端反复重连耗尽内存。私网部署建议至少留 5× 实际并发用户数。
-  max_subscribers: 0
+  max_subscribers: 200
 
 # 限流（P2-15）：进程内 token bucket，默认禁用。
 # 私网部署的限流目的是"防内部脚本失控 / 防 LLM 配额误烧"，不是防外部攻击。
@@ -91,7 +95,9 @@ observability:
     enabled: true
     max_size_mb: 50            # 单文件上限
     content_redact: true
-    async_writer: true         # 集中后台写入（避免阻塞 LLM 调用路径）
-    writer_queue_size: 10000   # 后台 writer 内部队列上限；put_nowait 满时丢新条目（fail-fast）
-    retention_days: 7          # 启动期 TTL：删除 mtime 超出该天数的 trace 文件
-    total_size_mb: 500         # 启动期总量上限：按 mtime 从旧到新清理
+    async_writer: true              # 集中后台写入（避免阻塞 LLM 调用路径）
+    writer_queue_size: 10000        # 后台 writer 内部队列上限；put_nowait 满时丢新条目（fail-fast）
+    writer_batch_size: 32           # 单文件批量 flush 阈值，满 N 条立即落盘
+    writer_flush_interval: 0.5      # 空闲 flush 间隔（秒），低 QPS 下也能及时落盘
+    retention_days: 7               # 启动期 TTL：删除 mtime 超出该天数的 trace 文件
+    total_size_mb: 500              # 启动期总量上限：按 mtime 从旧到新清理

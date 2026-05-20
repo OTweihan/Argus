@@ -29,6 +29,7 @@ class ServerSettings:
     scheduler_concurrency: int = 1
     scheduler_queue_max_size: int = 0
     scheduler_shutdown_timeout_seconds: float = 5.0
+    db_pool_max_size: int = 8
     events_history_limit: int = 200
     events_subscriber_queue_size: int = 100
     # 全局 WebSocket / 事件订阅数硬上限。0 = 不限（向后兼容）。
@@ -48,6 +49,8 @@ class ServerSettings:
     # 独立线程，并在 startup 清理过旧 / 超量文件。
     llm_trace_async_writer: bool = True
     llm_trace_writer_queue_size: int = 10000
+    llm_trace_writer_batch_size: int = 32
+    llm_trace_writer_flush_interval: float = 0.5
     llm_trace_retention_days: int = 7
     llm_trace_total_size_mb: int = 500
     # SSRF 防御白名单：允许 LLM base_url 指向哪些内网/特殊主机
@@ -83,6 +86,7 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         host=str(server.get("host", "127.0.0.1")),
         port=_as_int(server.get("port"), 8000, minimum=1),
         reload=_as_bool(server.get("reload"), False),
+        db_pool_max_size=_as_int(data.get("db_pool_max_size"), 8, minimum=1),
         cors_allow_origins=_as_str_list(cors.get("allow_origins"), ["http://localhost:8000"]),
         cors_allow_credentials=_as_bool(cors.get("allow_credentials"), True),
         cors_allow_methods=_as_str_list(cors.get("allow_methods"), ["*"]),
@@ -119,6 +123,10 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         llm_trace_content_redact=_as_bool(llm_trace.get("content_redact"), True),
         llm_trace_async_writer=_as_bool(llm_trace.get("async_writer"), True),
         llm_trace_writer_queue_size=_as_int(llm_trace.get("writer_queue_size"), 10000, minimum=64),
+        llm_trace_writer_batch_size=_as_int(llm_trace.get("writer_batch_size"), 32, minimum=1),
+        llm_trace_writer_flush_interval=_as_float(
+            llm_trace.get("writer_flush_interval"), 0.5, minimum=0.05
+        ),
         llm_trace_retention_days=_as_int(llm_trace.get("retention_days"), 7, minimum=0),
         llm_trace_total_size_mb=_as_int(llm_trace.get("total_size_mb"), 500, minimum=0),
         llm_allow_private_hosts=_as_str_list(llm.get("allow_private_hosts"), []),

@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-
 from argus_py.blackbox.action_executor import ActionExecutor, resolve_error_code
 from argus_py.blackbox.evidence import EvidenceCollector
 from argus_py.blackbox.models import ActionStep
@@ -28,6 +27,7 @@ from argus_py.browser.errors import (
 )
 from argus_py.core.enums import ActionType, StepResult
 from argus_py.core.exceptions import TaskError
+from argus_py.task.log import TaskLogService
 from argus_py.task.service import TaskService
 from argus_py.task.storage import TaskFileStorage
 
@@ -107,7 +107,8 @@ def _browser_session(session: FakeBrowserSession) -> BrowserSession:
 
 def _build_executor(tmp_path: Path) -> tuple[ActionExecutor, TaskService]:
     service = TaskService(TaskFileStorage(tmp_path / "tasks"))
-    executor = ActionExecutor(service=service, evidence_collector=EvidenceCollector())
+    log_service = TaskLogService(TaskFileStorage(tmp_path / "tasks"))
+    executor = ActionExecutor(log_service=log_service, evidence_collector=EvidenceCollector())
     return executor, service
 
 

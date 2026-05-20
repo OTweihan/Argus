@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 from argus_py.observability.context import run_in_thread
-from argus_py.task.service import TaskService
+from argus_py.task.event import TaskTimelineService
+from argus_py.task.log import TaskLogService
 
 
 class BlackboxEvents:
     """黑盒各阶段统一发射时间线事件。"""
 
-    def __init__(self, service: TaskService) -> None:
-        self.service = service
+    def __init__(
+        self,
+        timeline_service: TaskTimelineService,
+        log_service: TaskLogService,
+    ) -> None:
+        self._timeline = timeline_service
+        self._log = log_service
 
     async def task_start(self, task_id: str, goal: str, start_url: str) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "start",
             "task",
@@ -29,7 +35,7 @@ class BlackboxEvents:
         selector: str | None,
         url: str | None,
     ) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "action",
             "executor",
@@ -39,7 +45,7 @@ class BlackboxEvents:
         )
 
     async def planner_start(self, task_id: str, step: int, goal: str, current_url: str) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "planner_start",
             "planner",
@@ -51,7 +57,7 @@ class BlackboxEvents:
     async def planner_result(
         self, task_id: str, step: int, step_count: int, plan_summary: str
     ) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "planner_result",
             "planner",
@@ -61,7 +67,7 @@ class BlackboxEvents:
         )
 
     async def evaluator_start(self, task_id: str, step: int, goal: str) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "evaluator_start",
             "evaluator",
@@ -79,7 +85,7 @@ class BlackboxEvents:
         reason: str,
         finding_count: int,
     ) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "evaluator_result",
             "evaluator",
@@ -94,10 +100,10 @@ class BlackboxEvents:
         )
 
     async def complete(self, task_id: str) -> None:
-        await self.service.emit_timeline(task_id, "complete", "task", summary="任务完成")
+        await self._timeline.emit(task_id, "complete", "task", summary="任务完成")
 
     async def fail(self, task_id: str, message: str) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "fail",
             "task",
@@ -106,7 +112,7 @@ class BlackboxEvents:
         )
 
     async def max_steps(self, task_id: str, message: str) -> None:
-        await self.service.emit_timeline(
+        await self._timeline.emit(
             task_id,
             "fail",
             "task",
@@ -116,5 +122,5 @@ class BlackboxEvents:
 
     async def flush(self) -> None:
         """批量写入所有缓冲的日志和时间线事件。"""
-        await run_in_thread(self.service.flush_logs)
-        await self.service.flush_events()
+        await run_in_thread(self._log.flush_logs)
+        await self._timeline.flush_events()

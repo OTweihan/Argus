@@ -21,7 +21,6 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.110",
-    "playwright>=1.40",
     "httpx>=0.27",
     "pydantic>=2.0",
     "jinja2>=3.1",
@@ -32,14 +31,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+browser = ["playwright>=1.40"]
 dev = [
+    "playwright>=1.40",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "black>=24.0",
-    "isort>=5.13",
     "mypy>=1.8",
-    # ruff 与 black/isort 共存：black 仍然负责 format，isort 仍然负责 import 排序，
-    # ruff 只跑 lint（pyflakes / pycodestyle / bugbear），不重复处理 import / format。
+    # ruff 负责 format + lint + import 排序，替代原先的 black + isort。
     "ruff>=0.6,<1.0",
     "pre-commit>=3.7",
 ]
@@ -55,14 +53,6 @@ include = ["argus_py*"]
 "argus_py.llm" = ["prompts/*.md"]
 "argus_py.api" = ["static/**/*"]
 
-[tool.black]
-line-length = 100
-target-version = ["py311"]
-
-[tool.isort]
-profile = "black"
-line_length = 100
-
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -77,15 +67,15 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-# 规则选取原则：与现有 black/isort hook 不重叠，只补真正的静态检查能力。
-# - E/W：pycodestyle 错误与告警（绝大多数风格问题已由 black 抹平，仅留语义类）
+# 规则选取原则：ruff 统一承担 format + lint + import 排序，不再依赖 black/isort。
+# - E/W：pycodestyle 错误与告警（绝大多数风格问题由 ruff format 抹平，仅留语义类）
 # - F：pyflakes（未使用 import / 未定义变量等真实 bug）
 # - B：flake8-bugbear（可变默认参数、循环引用陷阱等常见 bug 模式）
 # - PT：pytest 风格规范（assert 形式、fixture 使用）
-# 不启用 I（与 isort hook 重叠）、UP/SIM（会触发大量历史代码 diff，留待后续渐进迁移）。
-select = ["E", "W", "F", "B", "PT"]
+# - I：isort import 排序（替换原先的 isort hook）
+select = ["E", "W", "F", "B", "PT", "I"]
 ignore = [
-    "E501",  # 行长度由 black/line-length 接管，避免 ruff 与 black 争夺
+    "E501",  # 行长度由 ruff format 接管
     "B008",  # FastAPI Depends() / Query() 在函数默认参数中是合法用法
     "B904",  # raise X from exc 在已有大量直接 raise 的兼容代码里渐进推进
     "PT011", # pytest.raises(Exception) 不强制要求 match=

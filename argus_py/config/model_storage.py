@@ -9,7 +9,7 @@ from argus_py.config.models import ModelConfig
 from argus_py.core.crypto import decrypt_api_key, encrypt_api_key
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import ModelConfigNotFoundError
-from argus_py.infra.db import DEFAULT_DB_PATH, connect, init_database, with_conn, with_tx
+from argus_py.infra.db import DEFAULT_DB_PATH, get_db_pool, init_database
 
 
 class ModelConfigSQLiteStorage:
@@ -18,12 +18,11 @@ class ModelConfigSQLiteStorage:
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH) -> None:
         self.db_path = Path(db_path)
         init_database(self.db_path)
-        # 复用同一个连接工厂，与 Repository 层风格统一。
-        self._connect = lambda: connect(self.db_path)
+        self._pool = get_db_pool(self.db_path)
 
     def save(self, config: ModelConfig) -> ModelConfig:
         """保存模型配置，存在时覆盖。"""
-        with with_tx(self._connect) as conn:
+        with self._pool.tx() as conn:
             if config.is_default:
                 self._clear_default(conn, config.task_type, exclude_id=config.model_config_id)
             conn.execute(
@@ -64,7 +63,7 @@ class ModelConfigSQLiteStorage:
 
     def load(self, model_config_id: str) -> ModelConfig:
         """按 ID 读取模型配置。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM model_configs WHERE model_config_id = ?",
                 (model_config_id,),
@@ -80,13 +79,13 @@ class ModelConfigSQLiteStorage:
         if not include_disabled:
             sql += " WHERE enabled = 1"
         sql += " ORDER BY is_default DESC, created_at DESC"
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [self._from_row(row) for row in rows]
 
     def delete(self, model_config_id: str) -> None:
         """删除模型配置。"""
-        with with_tx(self._connect) as conn:
+        with self._pool.tx() as conn:
             cursor = conn.execute(
                 "DELETE FROM model_configs WHERE model_config_id = ?",
                 (model_config_id,),
@@ -96,7 +95,7 @@ class ModelConfigSQLiteStorage:
 
     def find_default(self, task_type: TaskType | None = None) -> ModelConfig | None:
         """查找默认模型配置，优先匹配任务类型。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             if task_type is not None:
                 row = conn.execute(
                     """

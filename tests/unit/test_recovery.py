@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from argus_py.core.enums import TaskStatus
 from argus_py.infra.recovery import INTERRUPTED_MESSAGE, recover_interrupted_tasks
 from argus_py.task.service import TaskService
@@ -23,7 +22,7 @@ def test_recover_sets_running_to_failed(tmp_path):
     t = service.create_task("running task", start_url="https://example.com")
     service.start_task(t)  # running
 
-    count = recover_interrupted_tasks(service)
+    count = recover_interrupted_tasks(lifecycle=service.lifecycle, reader=service.reader)
 
     assert count == 1
     updated = service.get_task(t.task_id)
@@ -59,7 +58,7 @@ def test_recover_skips_non_running(tmp_path, setup_status: TaskStatus | None) ->
         service.update_status(t, setup_status)
         task_id = t.task_id
 
-    assert recover_interrupted_tasks(service) == 0
+    assert recover_interrupted_tasks(lifecycle=service.lifecycle, reader=service.reader) == 0
 
     if task_id is not None:
         assert service.get_task(task_id).status is setup_status
@@ -77,7 +76,7 @@ def test_recover_handles_mixed_states(tmp_path):
     service.start_task(completed)
     service.complete_task(completed)
 
-    count = recover_interrupted_tasks(service)
+    count = recover_interrupted_tasks(lifecycle=service.lifecycle, reader=service.reader)
 
     assert count == 1
     assert service.get_task(running.task_id).status is TaskStatus.FAILED
@@ -94,7 +93,7 @@ def test_recover_continues_after_fail_task_exception(tmp_path, monkeypatch):
     t2 = service.create_task("t2", start_url="https://example.com")
     service.start_task(t2)
 
-    original_fail = service.fail_task
+    original_fail = service.lifecycle.fail_task
     fail_calls: list[str] = []
 
     def counting_fail(task, message: str = ""):
@@ -103,9 +102,9 @@ def test_recover_continues_after_fail_task_exception(tmp_path, monkeypatch):
             raise RuntimeError(f"fail_task 失败了：{task.task_id}")
         return original_fail(task, message)
 
-    monkeypatch.setattr(service, "fail_task", counting_fail)
+    monkeypatch.setattr(service.lifecycle, "fail_task", counting_fail)
 
-    count = recover_interrupted_tasks(service)
+    count = recover_interrupted_tasks(lifecycle=service.lifecycle, reader=service.reader)
 
     # 两个任务都调了 fail_task；t1 失败但 t2 成功
     assert count == 1

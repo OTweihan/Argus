@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from argus_py.api.auth import DEFAULT_PROTECTED_PREFIXES, AuthTokenMiddleware
-from argus_py.api.dependencies import get_task_service, get_task_worker
+from argus_py.api.dependencies import get_task_worker
 from argus_py.api.middleware import configure_middleware
 from argus_py.api.routes import (
     config,
@@ -40,6 +40,7 @@ from argus_py.observability import (
 )
 from argus_py.observability.context import set_io_executor
 from argus_py.observability.events import STATUS_ERROR, log_event
+from argus_py.runtime.container import create_container, shutdown_container
 from argus_py.utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,8 @@ def create_app() -> FastAPI:
         _warn_if_multi_worker()
         ensure_fernet_key(_DefaultDBProbe(DEFAULT_DB_PATH))
         try:
-            recover_interrupted_tasks(get_task_service())
+            c = create_container()
+            recover_interrupted_tasks(lifecycle=c.lifecycle_service, reader=c.task_read_service)
         except Exception:
             log_event(logger, "lifespan.recover_tasks", status=STATUS_ERROR, exc_info=True)
         try:
@@ -105,7 +107,11 @@ def create_app() -> FastAPI:
             except Exception:
                 log_event(logger, "lifespan.cleanup_traces", status=STATUS_ERROR, exc_info=True)
             if settings.llm_trace_async_writer:
-                start_trace_writer(max_queue_size=settings.llm_trace_writer_queue_size)
+                start_trace_writer(
+                    max_queue_size=settings.llm_trace_writer_queue_size,
+                    flush_interval_seconds=settings.llm_trace_writer_flush_interval,
+                    batch_size=settings.llm_trace_writer_batch_size,
+                )
         executor = ThreadPoolExecutor(
             max_workers=min(32, (os.cpu_count() or 1) * 4),
             thread_name_prefix="argus-io",
@@ -117,6 +123,7 @@ def create_app() -> FastAPI:
             yield
         finally:
             await get_task_worker().stop(settings.scheduler_shutdown_timeout_seconds)
+            await shutdown_container()
             # writer 先 stop 以 flush 残留 trace；超时 5s 与 worker 一致。
             stop_trace_writer(timeout=settings.scheduler_shutdown_timeout_seconds)
 

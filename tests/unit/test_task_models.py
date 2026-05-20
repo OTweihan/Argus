@@ -1,5 +1,4 @@
 import pytest
-
 from argus_py.core.enums import StepResult, TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
@@ -69,7 +68,8 @@ async def test_task_runner(tmp_path, has_handler):
         handlers[TaskType.BLACKBOX] = handler
 
     runner = TaskRunner(
-        service=service,
+        lifecycle=service.lifecycle,
+        reader=service.reader,
         handlers=handlers,
         report_generator=ReportGenerator(tmp_path / "reports"),
     )

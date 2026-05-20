@@ -1,8 +1,8 @@
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
-
 from argus_py.api.routes import projects as project_routes
 from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
@@ -12,6 +12,7 @@ from argus_py.infra.events import EventBus
 from argus_py.infra.worker import TaskWorker
 from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.models import Task
+
 from tests.helpers.factories import make_app_stack
 
 
@@ -25,9 +26,9 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
     report_dir = tmp_path / "reports"
 
     class FakeTaskRunner:
-        def __init__(self, service, model_config_service=None):
-            self.service = service
-            self._model_config_service = model_config_service
+        def __init__(self, **kwargs: Any) -> None:
+            self.service = stack.task_service
+            self._model_config_service = None
 
         async def run(self, task: Task) -> Task:
             running = self.service.start_task(task)
@@ -46,7 +47,11 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
 
     monkeypatch.setattr("argus_py.infra.worker.TaskRunner", FakeTaskRunner)
 
-    worker = TaskWorker(queue=stack.queue, service=stack.task_service)
+    worker = TaskWorker(
+        queue=stack.queue,
+        lifecycle=stack.task_service.lifecycle,
+        reader=stack.task_service.reader,
+    )
     await worker.start()
     try:
         project = await project_routes.create_project(

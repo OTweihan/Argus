@@ -215,7 +215,7 @@ class TaskLifecycleService(_StorageEventBase):
         audit(
             "task.restart",
             task_id=new_task.task_id,
-            sourceTaskId=resolved.task_id,
+            source_task_id=resolved.task_id,
             task=_task_summary(new_task),
         )
         return new_task
@@ -255,7 +255,7 @@ class TaskLifecycleService(_StorageEventBase):
             "task.cancel",
             task_id=resolved.task_id,
             status="cancelled",
-            previousStatus=resolved.status.value,
+            previous_status=resolved.status.value,
         )
         return self.update_status(resolved, TaskStatus.CANCELLED)
 

@@ -24,8 +24,11 @@ from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
 from argus_py.observability.context import bind_context
 from argus_py.report.generator import ReportGenerator
+from argus_py.task.event import TaskTimelineService
+from argus_py.task.lifecycle import TaskLifecycleService
+from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
-from argus_py.task.service import TaskService
+from argus_py.task.read import TaskReadService
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,10 @@ class BlackboxRunner:
 
     def __init__(
         self,
-        service: TaskService | None = None,
+        lifecycle: TaskLifecycleService,
+        reader: TaskReadService,
+        log_service: TaskLogService,
+        timeline_service: TaskTimelineService,
         planner: BlackboxPlanner | None = None,
         evaluator: BlackboxEvaluator | None = None,
         browser_session_factory: BrowserSessionFactory | None = None,
@@ -46,7 +52,10 @@ class BlackboxRunner:
         max_recovery_attempts: int = 2,
         model_config_service: ModelConfigService | None = None,
     ) -> None:
-        self.service = service or TaskService()
+        self._lifecycle = lifecycle
+        self._reader = reader
+        self._log = log_service
+        self._timeline = timeline_service
         self.planner = planner or BlackboxPlanner()
         self.evaluator = evaluator or BlackboxEvaluator()
         self.browser_session_factory = browser_session_factory or self._default_browser_session
@@ -54,9 +63,9 @@ class BlackboxRunner:
         self._model_config_service = model_config_service
 
         self.evidence = EvidenceCollector()
-        self.action_executor = ActionExecutor(self.service, self.evidence)
-        self.finalizer = Finalizer(self.service, report_generator)
-        self.events = BlackboxEvents(self.service)
+        self.action_executor = ActionExecutor(log_service, self.evidence)
+        self.finalizer = Finalizer(log_service, lifecycle, reader, report_generator)
+        self.events = BlackboxEvents(timeline_service, log_service)
         self.recovery_policy = RecoveryPolicy(max_attempts=max_recovery_attempts)
         self.llm_boundary = LLMBoundaryFactory(
             default_planner=None if planner is None else planner,
@@ -71,7 +80,7 @@ class BlackboxRunner:
         if resolved.status not in {TaskStatus.PENDING, TaskStatus.RUNNING}:
             raise TaskError(f"黑盒任务状态不允许执行：{resolved.status.value}")
         if owns_status:
-            resolved = self.service.start_task(resolved)
+            resolved = self._lifecycle.start_task(resolved)
 
         await self.events.task_start(resolved.task_id, resolved.goal, resolved.start_url or "")
 
@@ -79,7 +88,8 @@ class BlackboxRunner:
         task_input = self._to_task_input(resolved)
 
         loop = BlackboxExecutionLoop(
-            service=self.service,
+            lifecycle=self._lifecycle,
+            reader=self._reader,
             action_executor=self.action_executor,
             finalizer=self.finalizer,
             evidence=self.evidence,
@@ -98,10 +108,10 @@ class BlackboxRunner:
                 raise
             except Exception as exc:
                 logger.exception("黑盒任务异常：%s", resolved.task_id)
-                latest = self.service.get_latest_task(resolved)
+                latest = self._reader.get_latest_task(resolved)
                 if owns_status and latest.status is TaskStatus.RUNNING:
                     await self.events.fail(resolved.task_id, str(exc))
-                    failed = self.service.fail_task(latest, str(exc))
+                    failed = self._lifecycle.fail_task(latest, str(exc))
                     await self.finalizer.generate_report(failed)
                 raise
             finally:
@@ -118,7 +128,7 @@ class BlackboxRunner:
         parameters: dict[str, str | dict[str, str]] = {}
         if task.prompt_extensions:
             parameters["prompt_extensions"] = dict(task.prompt_extensions)
-        return self.service.create_task(
+        return self._lifecycle.create_task(
             goal=task.goal,
             start_url=task.start_url,
             max_steps=task.max_steps,
@@ -140,6 +150,12 @@ class BlackboxRunner:
         )
 
     def _default_browser_session(self, task: Task) -> BrowserSession:
-        """创建默认浏览器会话。"""
+        """创建默认浏览器会话（复用进程级共享 Playwright 客户端）。"""
+        from argus_py.browser.singleton import shared_client
+
         screenshot_dir: Path = SCREENSHOTS_DIR / task.task_id
-        return BrowserSession(screenshot_dir=screenshot_dir)
+        return BrowserSession(
+            client=shared_client(),
+            screenshot_dir=screenshot_dir,
+            stop_browser=False,
+        )

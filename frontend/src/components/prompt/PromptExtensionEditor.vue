@@ -25,10 +25,12 @@
             <div class="col-title">
               预览
             </div>
+            <!-- eslint-disable vue/no-v-html -->
             <div
               v-if="rendered[role.value]" class="md-preview"
               v-html="rendered[role.value]"
             />
+            <!-- eslint-enable vue/no-v-html -->
             <div v-else class="md-preview placeholder">
               未填写扩展内容
             </div>

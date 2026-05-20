@@ -6,7 +6,7 @@ from typing import Any
 
 from argus_py.core.constants import TASK_SEARCH_MIN_LENGTH
 from argus_py.core.exceptions import TaskNotFoundError
-from argus_py.infra.db import ConnectFn, with_conn, with_tx
+from argus_py.infra.db import DbPool
 from argus_py.task.models import Task
 from argus_py.task.repositories.mappers import row_to_task, task_to_row
 
@@ -23,11 +23,11 @@ def _sql_keyword_where(q: str) -> tuple[str, list[str]]:
 class TaskRepository:
     """tasks 表读写。"""
 
-    def __init__(self, connect: ConnectFn) -> None:
-        self._connect = connect
+    def __init__(self, pool: DbPool) -> None:
+        self._pool = pool
 
     def save(self, task: Task) -> Task:
-        with with_tx(self._connect) as conn:
+        with self._pool.tx() as conn:
             conn.execute(
                 """
                 INSERT INTO tasks (
@@ -56,19 +56,19 @@ class TaskRepository:
         return task
 
     def exists(self, task_id: str) -> bool:
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             row = conn.execute("SELECT 1 FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row is not None
 
     def load_task_header(self, task_id: str) -> dict | None:
         """只加载 tasks 表的一行（不含日志/发现项）。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row
 
     def get_report_path(self, task_id: str) -> str | None:
         """窄查询：只返回 report_path 字段。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             row = conn.execute(
                 "SELECT report_path FROM tasks WHERE task_id = ?", (task_id,)
             ).fetchone()
@@ -76,13 +76,13 @@ class TaskRepository:
 
     def get_task_status(self, task_id: str) -> str | None:
         """只查询任务状态字段，不加载日志/发现项。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             row = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row["status"] if row else None
 
     def load(self, task_id: str) -> Task:
         """读取任务，包含关联的日志和发现项。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             task_row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
             if task_row is None:
                 raise TaskNotFoundError(f"Task not found: {task_id}")
@@ -98,7 +98,7 @@ class TaskRepository:
 
     def delete(self, task_id: str) -> None:
         """删除任务及关联的日志和发现项。"""
-        with with_tx(self._connect) as conn:
+        with self._pool.tx() as conn:
             conn.execute("DELETE FROM task_logs WHERE task_id = ?", (task_id,))
             conn.execute("DELETE FROM findings WHERE task_id = ?", (task_id,))
             cursor = conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
@@ -121,7 +121,7 @@ class TaskRepository:
             return
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [task_id]
-        with with_tx(self._connect) as conn:
+        with self._pool.tx() as conn:
             conn.execute(
                 f"UPDATE tasks SET {set_clause} WHERE task_id = ?",
                 values,
@@ -135,7 +135,7 @@ class TaskRepository:
         project_id: str | None = None,
     ) -> list[Task]:
         """列出任务（含完整日志和发现项），支持过滤和分页。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             where_clauses: list[str] = []
             params: list[Any] = []
             if status is not None:
@@ -198,7 +198,7 @@ class TaskRepository:
         q: str | None = None,
     ) -> int:
         """返回任务总数，支持按状态、项目和关键词过滤。"""
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             query = "SELECT COUNT(*) AS cnt FROM tasks"
             params: list[Any] = []
             where_clauses: list[str] = []
@@ -228,12 +228,11 @@ class TaskRepository:
     ) -> tuple[list[Task], int]:
         """轻量列表查询，返回 (tasks, total_count)。
 
-        分两步查询消除 N+1：第一步取一页 tasks + total（窗口聚合），
-        第二步用 ``task_id IN (...)`` 一次性聚合 findings count，
-        避免原相关子查询每行触发一次索引查找。两次查询共用同一个
-        connection，事务/连接开销可忽略。
+        分两步查询消除 N+1：先查 tasks 列表 + 窗口计数，再批量查 findings
+        计数。若合并为一步 LEFT JOIN 则 SQLite 的 COUNT(*) OVER() 会被
+        JOIN 膨胀，导致 total_count 不准确。
         """
-        with with_conn(self._connect) as conn:
+        with self._pool.ro_conn() as conn:
             where_clauses: list[str] = []
             params: list[Any] = []
             if status is not None:

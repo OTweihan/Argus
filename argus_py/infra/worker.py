@@ -12,7 +12,8 @@ from argus_py.execution.runner import TaskRunner
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.aspect import log_operation
 from argus_py.observability.context import run_in_thread
-from argus_py.task.service import TaskService
+from argus_py.task.lifecycle import TaskLifecycleService
+from argus_py.task.read import TaskReadService
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,14 @@ class TaskWorker:
     def __init__(
         self,
         queue: TaskQueue,
-        service: TaskService | None = None,
+        lifecycle: TaskLifecycleService,
+        reader: TaskReadService,
         concurrency: int = 1,
         model_config_service: ModelConfigService | None = None,
     ) -> None:
         self.queue = queue
-        self.service = service or TaskService()
+        self._lifecycle = lifecycle
+        self._reader = reader
         self._model_config_service = model_config_service
         self.concurrency = max(1, concurrency)
         self._tasks: list[asyncio.Task[None]] = []
@@ -78,7 +81,7 @@ class TaskWorker:
     async def _run_task(self, task_id: str) -> None:
         """执行单个任务。"""
         try:
-            task = await run_in_thread(self.service.get_task, task_id)
+            task = await run_in_thread(self._reader.get_task, task_id)
         except TaskError:
             logger.warning("Worker 获取任务失败：%s", task_id)
             return
@@ -86,7 +89,11 @@ class TaskWorker:
         if task.status is not TaskStatus.PENDING:
             return
 
-        runner = TaskRunner(service=self.service, model_config_service=self._model_config_service)
+        runner = TaskRunner(
+            lifecycle=self._lifecycle,
+            reader=self._reader,
+            model_config_service=self._model_config_service,
+        )
         try:
             await runner.run(task)
         except TaskError:
@@ -94,6 +101,6 @@ class TaskWorker:
             return
         except Exception as exc:
             logger.exception("任务执行异常：%s", task_id)
-            latest = await run_in_thread(self.service.get_latest_task, task)
+            latest = await run_in_thread(self._reader.get_latest_task, task)
             if latest.status in {TaskStatus.PENDING, TaskStatus.RUNNING}:
-                await run_in_thread(self.service.fail_task, latest, str(exc))
+                await run_in_thread(self._lifecycle.fail_task, latest, str(exc))

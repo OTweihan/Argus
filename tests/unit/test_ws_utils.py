@@ -1,6 +1,7 @@
 """验证 ws.py 内部工具函数：
 - _parse_since_seq 的查询参数解析
 - _is_origin_allowed 的 CORS 校验
+- _coalesce_events 白名单式合并正确性
 """
 
 from __future__ import annotations
@@ -10,8 +11,8 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-
-from argus_py.api.routes.ws import _is_origin_allowed, _parse_since_seq
+from argus_py.api.routes.ws import _coalesce_events, _is_origin_allowed, _parse_since_seq
+from argus_py.infra.events import TaskEvent
 
 
 def _fake_ws(
@@ -119,3 +120,80 @@ class TestIsOriginAllowed:
         monkeypatch.setattr("argus_py.api.routes.ws.load_server_settings", _boom)
         ws = _fake_ws(headers={"origin": "http://localhost:8000"})
         assert _is_origin_allowed(ws) is False
+
+
+def _evt(event_type: str, task_id: str = "tk-1", i: int = 0) -> TaskEvent:
+    """快捷创建 TaskEvent 用于 coalesce 测试。"""
+    return TaskEvent(sequence=i, event_type=event_type, task_id=task_id, data={"i": i})
+
+
+class TestCoalesceEvents:
+    """_coalesce_events 白名单式合并正确性（C1 修复后）。"""
+
+    def test_whitelist_coalesces_multiple_events(self) -> None:
+        """白名单类型多个事件合并为最后一条。"""
+        events = [
+            _evt("task.progress", i=1),
+            _evt("task.progress", i=2),
+            _evt("task.progress", i=3),
+        ]
+        result = _coalesce_events(events)
+        assert len(result) == 1
+        assert result[0].data["i"] == 3
+
+    def test_non_whitelist_all_kept(self) -> None:
+        """非白名单类型全部保留，不合并。"""
+        events = [
+            _evt("step.complete", i=1),
+            _evt("finding.added", i=2),
+            _evt("log.append", i=3),
+        ]
+        result = _coalesce_events(events)
+        assert len(result) == 3
+
+    def test_mixed_types_whitelist_coalesced_non_whitelist_kept(self) -> None:
+        """混合时白名单合并，非白名单全部保留。"""
+        events = [
+            _evt("task.progress", i=1),
+            _evt("step.complete", i=2),
+            _evt("task.progress", i=3),
+            _evt("finding.added", i=4),
+        ]
+        result = _coalesce_events(events)
+        assert len(result) == 3
+        assert [e.event_type for e in result] == ["step.complete", "task.progress", "finding.added"]
+        # task.progress 应合并为最后一条（i=3）
+        assert result[1].data["i"] == 3
+
+    def test_different_task_ids_coalesced_separately(self) -> None:
+        """不同 task_id 的白名单事件各自合并。"""
+        events = [
+            _evt("task.progress", task_id="tk-1", i=1),
+            _evt("task.progress", task_id="tk-2", i=1),
+            _evt("task.progress", task_id="tk-1", i=2),
+        ]
+        result = _coalesce_events(events)
+        assert len(result) == 2
+        # tk-1 保留最后一条（i=2），tk-2 保留（i=1）
+        tk1 = [e for e in result if e.task_id == "tk-1"]
+        tk2 = [e for e in result if e.task_id == "tk-2"]
+        assert len(tk1) == 1
+        assert tk1[0].data["i"] == 2
+        assert len(tk2) == 1
+        assert tk2[0].data["i"] == 1
+
+    def test_single_event_unchanged(self) -> None:
+        """单个事件直接通过。"""
+        e = _evt("task.progress")
+        assert _coalesce_events([e]) == [e]
+
+    def test_all_whitelist_types_recognized(self) -> None:
+        """所有白名单类型都生效。"""
+        for typ in ("task.progress", "step.update", "evaluator.thinking"):
+            result = _coalesce_events([_evt(typ, i=1), _evt(typ, i=2)])
+            assert len(result) == 1, f"{typ} 未被合并"
+            assert result[0].data["i"] == 2
+
+    def test_empty_input_returns_empty(self) -> None:
+        """空列表返回空。"""
+        assert _coalesce_events([]) == []

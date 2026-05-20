@@ -15,10 +15,13 @@ from argus_py.infra.queue import TaskQueue
 from argus_py.infra.worker import TaskWorker
 from argus_py.observability.audit import AuditService
 from argus_py.observability.context import run_in_thread
+from argus_py.observability.debug_bundle import DebugBundleBuilder
+from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.runtime.container import create_container
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.query import TaskQueryService
+from argus_py.task.read import TaskReadService
 from argus_py.task.service import TaskService
 
 if TYPE_CHECKING:
@@ -75,22 +78,40 @@ def get_task_app_service() -> "TaskApplicationService":
 
 @lru_cache
 def get_task_query_service() -> TaskQueryService:
-    """返回 TaskQueryService（从容器 TaskService 中提取）。"""
+    """返回 TaskQueryService（从容器直接提取）。"""
     return create_container().task_service.query
 
 
 @lru_cache
 def get_task_timeline_service() -> TaskTimelineService | _NullTimelineService:
-    """返回 TaskTimelineService（从容器 TaskService 中提取）。"""
-    return create_container().task_service.timeline
+    """返回 TaskTimelineService（从容器直接提取）。"""
+    return create_container().timeline_service
+
+
+@lru_cache
+def get_task_read_service() -> TaskReadService:
+    """返回 TaskReadService（从容器直接提取）。"""
+    return create_container().task_read_service
+
+
+@lru_cache
+def get_trace_reader_service() -> TraceReadService:
+    """返回 TraceReadService（从容器直接提取）。"""
+    return create_container().trace_reader_service
+
+
+@lru_cache
+def get_debug_bundle_builder() -> DebugBundleBuilder:
+    """返回 DebugBundleBuilder（从容器直接提取）。"""
+    return create_container().debug_bundle_builder
 
 
 async def require_task_exists(
     task_id: str,
-    query: TaskQueryService = Depends(get_task_query_service),
+    reader: TaskReadService = Depends(get_task_read_service),
 ) -> None:
     """校验任务存在，不存在时 ``TaskNotFoundError`` 由全局 handler 转 404。"""
-    if not await run_in_thread(query.task_exists, task_id):
+    if not await run_in_thread(reader.task_exists, task_id):
         raise TaskNotFoundError(f"任务不存在：{task_id}")
 
 
@@ -113,6 +134,9 @@ def reset_all_dependencies() -> None:
     get_task_worker.cache_clear()
     get_task_query_service.cache_clear()
     get_task_timeline_service.cache_clear()
+    get_task_read_service.cache_clear()
+    get_trace_reader_service.cache_clear()
+    get_debug_bundle_builder.cache_clear()
     get_task_app_service.cache_clear()
     # 运行时容器与 LLM 信号量同样需要在测试间重置，防止 asyncio.Semaphore
     # 跨 event loop 复用导致 ``RuntimeError``。

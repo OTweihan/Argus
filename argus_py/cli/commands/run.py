@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from argus_py.blackbox import BlackboxRunner
-from argus_py.browser import BrowserSession, PlaywrightClient
+from argus_py.browser import BrowserSession
 from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_print, cli_success
 from argus_py.cli.utils import resolve_auth_state_path
 from argus_py.core.enums import TaskType
@@ -19,7 +19,7 @@ from argus_py.task.application import TaskApplicationService
 from argus_py.task.models import Task
 
 if TYPE_CHECKING:
-    from argus_py.task.service import TaskService
+    from argus_py.task.read import TaskReadService
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
@@ -63,7 +63,6 @@ async def run(args: argparse.Namespace) -> int:
         project_service=c.project_service,
         model_config_service=c.model_config_service,
     )
-    service = c.task_service
     auth_state_arg = getattr(args, "auth_state", None)
     auth_state_path = resolve_auth_state_path(auth_state_arg) if auth_state_arg else None
     if auth_state_path is not None and not auth_state_path.exists():
@@ -128,25 +127,28 @@ async def run(args: argparse.Namespace) -> int:
         return 0
 
     def browser_session_factory(current_task: Task) -> BrowserSession:
+        from argus_py.browser.singleton import shared_client
+
         context_options = {"storage_state": str(auth_state_path)} if auth_state_path else None
-        client = PlaywrightClient(
-            headless=not args.headed,
-            browser_type=args.browser,
-            context_options=context_options,
-        )
         return BrowserSession(
-            client=client,
+            client=shared_client(headless=not args.headed, browser_type=args.browser),
             screenshot_dir=SCREENSHOTS_DIR / current_task.task_id,
+            context_options=context_options,
+            stop_browser=False,
         )
 
     model_config = c.model_config_service
     blackbox_runner = BlackboxRunner(
-        service=service,
+        lifecycle=c.lifecycle_service,
+        reader=c.task_read_service,
+        log_service=c.log_service,
+        timeline_service=c.timeline_service,  # type: ignore[arg-type]
         browser_session_factory=browser_session_factory,
         model_config_service=model_config,
     )
     runner = TaskRunner(
-        service=service,
+        lifecycle=c.lifecycle_service,
+        reader=c.task_read_service,
         handlers={TaskType.BLACKBOX: blackbox_runner.run},
         model_config_service=model_config,
     )
@@ -155,15 +157,19 @@ async def run(args: argparse.Namespace) -> int:
     try:
         result = await runner.run(task)
     except TaskError as exc:
-        latest = _load_latest_task(service, task)
+        latest = _load_latest_task(c.task_read_service, task)
         _print_task_result(latest)
         cli_error("任务执行失败", exc)
         return 1
     except KeyboardInterrupt:
-        latest = service.cancel_task(task.task_id)
+        latest = c.lifecycle_service.cancel_task(task.task_id)
         _print_task_result(latest)
         cli_cancelled("任务执行")
         return 130
+    finally:
+        from argus_py.browser.singleton import stop_shared_client
+
+        await stop_shared_client()
 
     _print_task_result(result)
     return 0
@@ -222,10 +228,10 @@ def _read_prompt_extensions(planner_path: str | None, evaluator_path: str | None
     return extensions
 
 
-def _load_latest_task(service: TaskService, task: Task) -> Task:
+def _load_latest_task(reader: TaskReadService, task: Task) -> Task:
     """读取最新任务快照。"""
     try:
-        return service.get_task(task.task_id)
+        return reader.get_task(task.task_id)
     except TaskError:
         return task
 

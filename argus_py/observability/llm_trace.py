@@ -7,10 +7,11 @@ import json
 import logging
 import os
 import re
-from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from argus_py.core.ids import generate_id
 from argus_py.core.paths import OUTPUT_DIR
@@ -163,35 +164,36 @@ def redact_trace_data(data: dict[str, Any]) -> dict[str, Any]:
 _redact_trace_data = redact_trace_data
 
 
-@dataclass
-class LLMTraceRecord:
+class LLMTraceRecord(BaseModel):
     """单次 LLM 调用的完整追踪记录。"""
 
-    trace_id: str = ""
-    task_id: str = ""
-    phase: str = ""  # "planner" | "evaluator"
+    model_config = ConfigDict(populate_by_name=True)
+
+    trace_id: str = Field(default="", alias="traceId")
+    task_id: str = Field(default="", alias="taskId")
+    phase: str = ""
     event: str = ""
 
     # ── 调用方上下文 ──
-    system_prompt: str = ""
-    input_payload: dict[str, Any] = field(default_factory=dict)
+    system_prompt: str = Field(default="", alias="systemPrompt")
+    input_payload: dict[str, Any] = Field(default_factory=dict, alias="inputPayload")
 
     # ── 底层信息（由 LLMClient 填充） ──
     model: str = ""
-    base_url_host: str = ""
-    latency_ms: float = 0.0
-    token_usage: dict[str, int] = field(default_factory=dict)
+    base_url_host: str = Field(default="", alias="baseUrlHost")
+    latency_ms: float = Field(default=0.0, alias="latencyMs")
+    token_usage: dict[str, int] = Field(default_factory=dict, alias="tokenUsage")
 
     # ── 响应与解析结果 ──
-    raw_response: str = ""
-    parsed_result: Any = None
-    parse_error: str = ""
+    raw_response: str = Field(default="", alias="rawResponse")
+    parsed_result: Any = Field(default=None, alias="parsedResult")
+    parse_error: str = Field(default="", alias="parseError")
 
     # ── 错误信息 ──
     error: str = ""
 
     # ── 元信息 ──
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @classmethod
     def from_trace_ctx(cls, ctx: dict[str, Any], event: str) -> "LLMTraceRecord":
@@ -223,7 +225,7 @@ async def write_trace(record: LLMTraceRecord) -> None:
 
     写入路径优先走 ``LLMTraceWriter`` 后台批量写入（已启动时）；未启动或
     enqueue 失败时回退到 ``asyncio.to_thread`` 同步 append，保证 CLI / 测试场景兼容。
-    stat / asdict / 脱敏 / 序列化均在后台线程执行，不阻塞事件循环。
+    model_dump / 脱敏 / 序列化均在后台线程执行，不阻塞事件循环。
     """
     _ensure_config()
 
@@ -261,16 +263,24 @@ def _sync_write_trace(file_path: Path, record: LLMTraceRecord) -> None:
     ):
         return
 
-    data = asdict(record)
+    data = record.model_dump(mode="json")
     if _LLM_TRACE_CONTENT_REDACT:
         data = redact_trace_data(data)
     line = json.dumps(data, ensure_ascii=False, default=str)
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
+    idx_path = file_path.with_suffix(".idx")
     with open(file_path, "a", encoding="utf-8") as f:
         offset = f.tell()
         f.write(line + "\n")
+        f.flush()  # 确保 JSONL 落盘后再写 idx，缩小崩溃窗口
+        if record.trace_id:
+            with open(idx_path, "a", encoding="utf-8") as f_idx:
+                f_idx.write(
+                    json.dumps({"trace_id": record.trace_id, "offset": offset}, ensure_ascii=False)
+                    + "\n"
+                )
 
-    from argus_py.observability.trace_index import append_trace_index
+    from argus_py.observability.trace_index import _cache_invalidate
 
-    append_trace_index(file_path, record.trace_id, offset)
+    _cache_invalidate(file_path)

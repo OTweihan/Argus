@@ -8,11 +8,16 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
-from argus_py.api.dependencies import get_event_bus, get_task_service
+from argus_py.api.dependencies import get_event_bus, get_task_read_service
 from argus_py.config.server_settings import load_server_settings
-from argus_py.infra.events import EventBus, EventBusSubscriberLimitError, EventSubscription
+from argus_py.infra.events import (
+    EventBus,
+    EventBusSubscriberLimitError,
+    EventSubscription,
+    TaskEvent,
+)
 from argus_py.observability.context import run_in_thread
-from argus_py.task.service import TaskService
+from argus_py.task.read import TaskReadService
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +80,7 @@ async def task_events(
     websocket: WebSocket,
     task_id: str,
     event_bus: EventBus = Depends(get_event_bus),
-    service: TaskService = Depends(get_task_service),
+    reader: TaskReadService = Depends(get_task_read_service),
 ) -> None:
     """订阅单个任务的实时事件。"""
     if not _is_origin_allowed(websocket):
@@ -84,7 +89,7 @@ async def task_events(
     await websocket.accept()
     since_seq = _parse_since_seq(websocket)
     # SQLite 读阻塞事件循环时 WebSocket 心跳会被拖慢，挪去线程池。
-    if not await run_in_thread(service.task_exists, task_id):
+    if not await run_in_thread(reader.task_exists, task_id):
         await websocket.send_json(
             _system_event("system.error", task_id=task_id, message=f"任务不存在：{task_id}")
         )
@@ -126,7 +131,11 @@ async def all_task_events(
 
 
 async def _stream_events(websocket: WebSocket, subscription: EventSubscription) -> None:
-    """持续推送事件到 WebSocket。"""
+    """持续推送事件到 WebSocket（含 tick 级 coalesce）。
+
+    每次从队列获取事件后，尝试不阻塞地排空额外堆积事件，按 type 合并后
+    批量发送，减少 WS 帧数。
+    """
     try:
         while True:
             try:
@@ -138,12 +147,44 @@ async def _stream_events(websocket: WebSocket, subscription: EventSubscription) 
                 await websocket.send_json(_system_event("system.keepalive"))
                 continue
 
-            await websocket.send_json(event.to_dict())
-            subscription.queue.task_done()
+            batch: list[TaskEvent] = [event]
+            while True:
+                try:
+                    batch.append(subscription.queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+
+            for _ in batch:
+                subscription.queue.task_done()
+
+            coalesced = _coalesce_events(batch)
+            for evt in coalesced:
+                await websocket.send_json(evt.to_dict())
     except WebSocketDisconnect:
         return
     finally:
         await subscription.close()
+
+
+def _coalesce_events(events: list[TaskEvent]) -> list[TaskEvent]:
+    """白名单式合并：只对幂等可合并事件类型压缩，其余全部保留。
+
+    可合并（白名单内的中间态事件，只有最新值有意义）：
+    - task.progress, step.update, evaluator.thinking
+    不可合并（离散事件，每条都必须推送给前端）：
+    - step.complete, finding.added, log.append, planner_result, evaluator_result, ...
+    """
+    _COALESCE_TYPES = frozenset({"task.progress", "step.update", "evaluator.thinking"})
+    last_idx: dict[tuple[str, str], int] = {}
+    keep = [True] * len(events)
+    for i, evt in enumerate(events):
+        if evt.event_type not in _COALESCE_TYPES:
+            continue
+        key = (evt.task_id, evt.event_type)
+        if key in last_idx:
+            keep[last_idx[key]] = False
+        last_idx[key] = i
+    return [e for e, k in zip(events, keep, strict=True) if k]
 
 
 def _system_event(

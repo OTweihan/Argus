@@ -4,6 +4,7 @@
       <div class="ext-title">
         {{ role.label }}
       </div>
+      <!-- eslint-disable-next-line vue/no-v-html -->
       <div v-if="rendered[role.value]" class="md-body" v-html="rendered[role.value]" />
       <div v-else class="md-body empty">
         未配置
