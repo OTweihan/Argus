@@ -25,8 +25,9 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
     report_dir = tmp_path / "reports"
 
     class FakeTaskRunner:
-        def __init__(self, service):
+        def __init__(self, service, model_config_service=None):
             self.service = service
+            self._model_config_service = model_config_service
 
         async def run(self, task: Task) -> Task:
             running = self.service.start_task(task)

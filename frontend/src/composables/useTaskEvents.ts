@@ -1,7 +1,7 @@
 import type { Ref } from "vue";
 
-import { getTask as apiGetTask, summary as apiSummary } from "../api";
-import type { ConfigSummary, Task, TaskEvent } from "../types";
+import { getTask as apiGetTask } from "../api";
+import type { Task, TaskEvent } from "../types";
 import { errorMessage, upsertById } from "../utils";
 import { useDebounceFn } from "./useDebounceFn";
 
@@ -32,7 +32,6 @@ export function useTaskEvents(
   loadTasks: () => Promise<void>,
   selectedTaskId: Ref<string | null>,
   onError: (msg: string) => void,
-  onSummaryUpdate: (summary: ConfigSummary) => void,
   refreshDashboardStats?: () => Promise<void>,
 ) {
   /* ── 兜底刷新（事件合并失败时 fallback） ── */
@@ -42,8 +41,7 @@ export function useTaskEvents(
     try {
       // 仪表盘指标走独立 stats 接口，避免与分页 allTasks 共算。stats 刷新失败
       // 不应阻断列表更新，所以容错落到 onError 而非 throw。
-      const [summaryResponse] = await Promise.all([
-        apiSummary(),
+      await Promise.all([
         loadTasks(),
         refreshDashboardStats ? refreshDashboardStats() : Promise.resolve(),
       ]);
@@ -51,7 +49,6 @@ export function useTaskEvents(
         const snapshot = await apiGetTask(selectedTaskId.value);
         if (snapshot) allTasks.value = upsertById(allTasks.value, snapshot, "taskId");
       }
-      onSummaryUpdate(summaryResponse);
     } catch (caught) {
       onError(errorMessage(caught));
     }

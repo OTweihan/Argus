@@ -97,6 +97,12 @@ class TaskSQLiteStorage:
     def exists(self, task_id: str) -> bool:
         return self._tasks.exists(task_id)
 
+    def load_task_header(self, task_id: str) -> dict | None:
+        return self._tasks.load_task_header(task_id)
+
+    def get_task_status(self, task_id: str) -> str | None:
+        return self._tasks.get_task_status(task_id)
+
     def save(self, task: Task) -> Task:
         return self._tasks.save(task)
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from argus_py.blackbox.evaluator import BlackboxEvaluator
 from argus_py.blackbox.planner import BlackboxPlanner
+from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import ProjectNotFoundError
 from argus_py.llm.client import LLMClient
 from argus_py.llm.resolver import resolve_llm_client_for_task
@@ -35,10 +36,12 @@ class LLMBoundaryFactory:
         default_planner: BlackboxPlanner | None = None,
         default_evaluator: BlackboxEvaluator | None = None,
         project_storage: ProjectSQLiteStorage | None = None,
+        model_config_service: ModelConfigService | None = None,
     ) -> None:
         self._default_planner = default_planner
         self._default_evaluator = default_evaluator
         self._project_storage = project_storage
+        self._model_config_service = model_config_service or ModelConfigService()
         self._owned_clients: dict[str, list[LLMClient]] = {}
 
     def resolve(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:
@@ -57,7 +60,9 @@ class LLMBoundaryFactory:
             return obj is None or (hasattr(obj, "llm_client") and obj.llm_client is None)
 
         if _needs_client(planner) or _needs_client(evaluator):
-            llm_client = resolve_llm_client_for_task(task)
+            llm_client = resolve_llm_client_for_task(
+                task, model_config_service=self._model_config_service
+            )
             self._owned_clients.setdefault(task.task_id, []).append(llm_client)
             planner_exts, evaluator_exts = self._collect_extensions(task)
 

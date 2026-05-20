@@ -223,8 +223,8 @@ class BlackboxExecutionLoop:
             return True
         if token.is_paused:
             await token.wait_if_paused()
-            latest = self.service.get_latest_task(task)
-            return latest.status is not TaskStatus.RUNNING
+            status = self.service.get_task_status(task.task_id)
+            return status is not TaskStatus.RUNNING
         return False
 
     async def _handle_max_steps(
@@ -232,9 +232,9 @@ class BlackboxExecutionLoop:
     ) -> Task:
         """达到最大步骤时的收尾处理。"""
         message = f"达到最大步骤 {task_input.max_steps} 后仍未完成目标。"
-        latest = self.service.get_latest_task(task)
-        if owns_status and latest.status is TaskStatus.RUNNING:
-            self.events.max_steps(latest.task_id, message)
-            failed = self.service.fail_task(latest, message)
+        status = self.service.get_task_status(task.task_id)
+        if owns_status and status is TaskStatus.RUNNING:
+            self.events.max_steps(task.task_id, message)
+            failed = self.service.fail_task(task, message)
             self.finalizer.generate_report(failed)
         raise TaskError(message)

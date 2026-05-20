@@ -11,6 +11,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # 每天 22:00 CST（14:00 UTC）跑全量测试（含 slow 标记的用例）
+    - cron: "0 14 * * *"
   workflow_dispatch:
 
 # 不需要并行跑多份；同 ref 后到的把先到的取消，节省 CI 时间
@@ -138,6 +141,27 @@ jobs:
         working-directory: frontend
         run: pnpm codegen:check
 
+  nightly-full-suite:
+    name: full suite (including slow)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+          enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --extra dev
+
+      - name: Pytest (full suite including slow tests)
+        run: uv run pytest tests/unit tests/integration -q --tb=short --override-ini="addopts="
+
   docker-build:
     name: docker image builds
     runs-on: ubuntu-latest
@@ -155,7 +179,17 @@ jobs:
         with:
           context: .
           push: false
-          load: false
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: argus:ci
+
+      - name: Smoke - playwright launch
+        run: |
+          docker run --rm argus:ci uv run python -c "
+          from playwright.sync_api import sync_playwright
+          p = sync_playwright().start()
+          b = p.chromium.launch()
+          b.close()
+          p.stop()
+          "

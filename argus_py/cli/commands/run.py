@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession, PlaywrightClient
@@ -13,9 +14,12 @@ from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
 from argus_py.execution.runner import TaskRunner
+from argus_py.runtime.container import create_container
+from argus_py.task.application import TaskApplicationService
 from argus_py.task.models import Task
-from argus_py.task.service import TaskService
-from argus_py.task.strategy import resolve_execution_limits
+
+if TYPE_CHECKING:
+    from argus_py.task.service import TaskService
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
@@ -47,12 +51,19 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
         "--evaluator-extension",
         help="evaluator Prompt 业务扩展片段文件路径（追加到内置 evaluator Prompt 末尾）",
     )
+    parser.add_argument("--project", help="关联项目 ID（合并项目默认 baseUrl、步数、超时等）")
 
 
 async def run(args: argparse.Namespace) -> int:
     """创建并执行黑盒任务。"""
-    service = TaskService()
-    limits = resolve_execution_limits(args.goal, args.url, args.max_steps, args.timeout)
+    c = create_container()
+    app = TaskApplicationService(
+        task_service=c.task_service,
+        queue=c.task_queue,
+        project_service=c.project_service,
+        model_config_service=c.model_config_service,
+    )
+    service = c.task_service
     auth_state_arg = getattr(args, "auth_state", None)
     auth_state_path = resolve_auth_state_path(auth_state_arg) if auth_state_arg else None
     if auth_state_path is not None and not auth_state_path.exists():
@@ -97,19 +108,20 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    create_kwargs: dict = {
-        "goal": args.goal,
-        "start_url": args.url,
-        "max_steps": limits.max_steps,
-        "timeout_seconds": limits.timeout_seconds,
-        "capture_screenshots": not args.no_screenshot,
-    }
-    if prompt_extensions:
-        create_kwargs["parameters"] = {"prompt_extensions": prompt_extensions}
+    params = app.resolve_create_params(
+        goal=args.goal,
+        start_url=args.url,
+        task_type=TaskType.BLACKBOX,
+        project_id=getattr(args, "project", None),
+        max_steps=args.max_steps,
+        timeout_seconds=args.timeout,
+        capture_screenshots=not args.no_screenshot,
+        parameters={"prompt_extensions": prompt_extensions} if prompt_extensions else None,
+    )
 
-    task = service.create_task(**create_kwargs)
+    task = app.create_task(**params)
     cli_success(f"已创建任务：{task.task_id}")
-    cli_info(f"执行限制：最大 {limits.max_steps} 步，超时 {limits.timeout_seconds} 秒")
+    cli_info(f"执行限制：最大 {params['max_steps']} 步，超时 {params['timeout_seconds']} 秒")
 
     if args.create_only:
         cli_info("任务已保存，未执行。")
@@ -127,10 +139,17 @@ async def run(args: argparse.Namespace) -> int:
             screenshot_dir=SCREENSHOTS_DIR / current_task.task_id,
         )
 
+    model_config = c.model_config_service
     blackbox_runner = BlackboxRunner(
-        service=service, browser_session_factory=browser_session_factory
+        service=service,
+        browser_session_factory=browser_session_factory,
+        model_config_service=model_config,
     )
-    runner = TaskRunner(service=service, handlers={TaskType.BLACKBOX: blackbox_runner.run})
+    runner = TaskRunner(
+        service=service,
+        handlers={TaskType.BLACKBOX: blackbox_runner.run},
+        model_config_service=model_config,
+    )
 
     cli_info("开始执行黑盒任务...")
     try:

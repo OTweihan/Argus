@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import Mock
 
+import pytest
+
 from argus_py.api.routes.ws import _is_origin_allowed, _parse_since_seq
 
 
@@ -69,6 +71,11 @@ class TestParseSinceSeq:
 
 class TestIsOriginAllowed:
     """私网部署：WebSocket 必须只接受 CORS 白名单内的 Origin。"""
+
+    @pytest.fixture(autouse=True)
+    def _reset_cors_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """每测试前重置模块级缓存，避免跨测试污染。"""
+        monkeypatch.setattr("argus_py.api.routes.ws._cors_origins_cache", None)
 
     def test_no_origin_header_allowed(self, monkeypatch) -> None:
         """无 Origin（CLI / 服务器到服务器）应放行。"""

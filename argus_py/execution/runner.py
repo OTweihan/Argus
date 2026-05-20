@@ -7,6 +7,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable
 
+from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.observability.aspect import log_operation
@@ -27,9 +28,11 @@ class TaskRunner:
         service: TaskService | None = None,
         handlers: dict[TaskType, TaskHandler] | None = None,
         report_generator: ReportGenerator | None = None,
+        model_config_service: ModelConfigService | None = None,
     ) -> None:
         self.service = service or TaskService()
         self.report_generator = report_generator or ReportGenerator()
+        self._model_config_service = model_config_service
         self.handlers = handlers if handlers is not None else self._default_handlers()
 
     def register_handler(self, task_type: TaskType, handler: TaskHandler) -> None:
@@ -71,7 +74,12 @@ class TaskRunner:
         """默认任务类型处理器。"""
         from argus_py.blackbox.runner import BlackboxRunner
 
-        return {TaskType.BLACKBOX: BlackboxRunner(service=self.service).run}
+        return {
+            TaskType.BLACKBOX: BlackboxRunner(
+                service=self.service,
+                model_config_service=self._model_config_service,
+            ).run,
+        }
 
     def _latest_task(self, task: Task) -> Task:
         """从存储中读取最新任务快照。"""

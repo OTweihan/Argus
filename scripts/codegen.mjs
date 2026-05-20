@@ -2,8 +2,9 @@
  *
  * 用法：node scripts/codegen.mjs
  *
- * Windows 上 pnpm shell 脚本因 cmd.exe vs bash 语义不一致容易失败，
- * 本 script 用 child_process 确保跨平台一致。
+ * 依赖 uv 在 PATH 中可用（CI 上由 astral-sh/setup-uv 提供，本地由 uv
+ * 自身保证）。export_openapi.py 通过 ``uv run python`` 执行，统一本地
+ * Windows venv 与 CI ubuntu-latest 的入口路径。
  */
 
 import { execSync } from "node:child_process";
@@ -13,7 +14,6 @@ import { fileURLToPath } from "node:url";
 
 const _HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(_HERE, "..");
-const PYTHON = resolve(ROOT, ".venv/Scripts/python.exe");
 const EXPORT_SCRIPT = resolve(_HERE, "export_openapi.py");
 const OPENAPI_JSON = resolve(ROOT, "openapi.json");
 const FRONTEND = resolve(ROOT, "frontend");
@@ -24,9 +24,9 @@ function run(cmd, opts = {}) {
   execSync(cmd, { stdio: "inherit", ...opts });
 }
 
-// Step 1: Export OpenAPI JSON
+// Step 1: Export OpenAPI JSON via uv (works on Windows and Linux)
 console.log("Exporting OpenAPI JSON...");
-run(`"${PYTHON}" "${EXPORT_SCRIPT}"`);
+run(`uv run python "${EXPORT_SCRIPT}"`);
 
 if (!existsSync(OPENAPI_JSON)) {
   console.error("openapi.json not found — export failed");

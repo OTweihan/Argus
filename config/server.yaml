@@ -89,6 +89,6 @@ observability:
     max_size_mb: 50            # 单文件上限
     content_redact: true
     async_writer: true         # 集中后台写入（避免阻塞 LLM 调用路径）
-    writer_queue_size: 10000   # 后台 writer 内部队列上限，溢出按 drop_oldest 处理
+    writer_queue_size: 10000   # 后台 writer 内部队列上限；put_nowait 满时丢新条目（fail-fast）
     retention_days: 7          # 启动期 TTL：删除 mtime 超出该天数的 trace 文件
     total_size_mb: 500         # 启动期总量上限：按 mtime 从旧到新清理

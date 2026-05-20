@@ -122,6 +122,7 @@ outputs/traces/<task_id>.jsonl
 | 显示浏览器窗口执行任务 | `argus run --goal "打开页面并截图" --url "https://httpbin.org" --headed` |
 | 只创建任务快照 | `argus run --goal "打开页面并截图" --url "https://httpbin.org" --create-only` |
 | 关闭步骤截图 | `argus run --goal "打开页面并检查标题" --url "https://httpbin.org" --no-screenshot` |
+| 关联项目执行任务 | `argus run --goal "..." --url "..." --project <project_id>` |
 
 ## 配置大模型
 

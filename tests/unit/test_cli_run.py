@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from unittest import mock
 
 import pytest
 
@@ -9,6 +10,7 @@ from argus_py.cli import utils as cli_utils
 from argus_py.cli.commands import auth as auth_cmd
 from argus_py.cli.commands import run as run_cmd
 from argus_py.core.enums import TaskStatus
+from argus_py.runtime.container import RuntimeContainer
 from argus_py.task.models import Task
 from argus_py.task.strategy import TaskExecutionLimits, resolve_execution_limits
 
@@ -41,10 +43,24 @@ class FakeTaskService:
         return self.task
 
 
+@pytest.fixture(autouse=True)
+def _patch_container(monkeypatch) -> FakeTaskService:
+    """把 CLI run() 中的 create_container 替换为返回 FakeTaskService 的容器。"""
+    fake_service = FakeTaskService()
+    container = mock.MagicMock(spec=RuntimeContainer)
+    container.task_service = fake_service
+    container.model_config_service = mock.MagicMock()
+    container.task_queue = mock.MagicMock()
+    container.project_service = mock.MagicMock()
+    monkeypatch.setattr(run_cmd, "create_container", lambda: container)
+    return fake_service
+
+
 class FakeTaskRunner:
-    def __init__(self, service, handlers) -> None:
+    def __init__(self, service, handlers, model_config_service=None) -> None:
         self.service = service
         self.handlers = handlers
+        self._model_config_service = model_config_service
 
     async def run(self, task: Task) -> Task:
         task.status = TaskStatus.COMPLETED
@@ -139,7 +155,6 @@ def test_read_auth_state_sites(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_task_create_only(monkeypatch, capsys):
-    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
     args = argparse.Namespace(
         goal="打开页面",
         url="https://example.com",
@@ -162,7 +177,6 @@ async def test_run_task_create_only(monkeypatch, capsys):
 
 @pytest.mark.asyncio
 async def test_run_task_executes_runner(monkeypatch, capsys):
-    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
     monkeypatch.setattr(run_cmd, "TaskRunner", FakeTaskRunner)
     monkeypatch.setattr(run_cmd, "BlackboxRunner", FakeBlackboxRunner)
     args = argparse.Namespace(
@@ -296,7 +310,6 @@ def test_read_prompt_extensions_directory_raises_read_error(tmp_path):
 async def test_run_translates_decode_error_to_friendly_message(monkeypatch, capsys, tmp_path):
     """端到端：CLI run() 收到非 UTF-8 扩展文件时应 return 1 +
     输出中文提示 + 给出转码命令建议，不能让 UnicodeDecodeError 冒泡。"""
-    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
     bad = tmp_path / "planner.md"
     bad.write_bytes(b"\xff\xfe non-utf8 \x80\xff")
 
@@ -328,7 +341,6 @@ async def test_run_translates_decode_error_to_friendly_message(monkeypatch, caps
 @pytest.mark.asyncio
 async def test_run_translates_read_error_to_friendly_message(monkeypatch, capsys, tmp_path):
     """非编码的 IO 错误（这里用目录路径触发）也应得到友好中文提示。"""
-    monkeypatch.setattr(run_cmd, "TaskService", FakeTaskService)
     sub_dir = tmp_path / "evaluator_dir"
     sub_dir.mkdir()
 

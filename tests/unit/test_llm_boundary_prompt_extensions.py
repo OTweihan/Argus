@@ -63,7 +63,7 @@ def fake_llm_client(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     client = MagicMock()
     monkeypatch.setattr(
         "argus_py.blackbox.llm_boundary.resolve_llm_client_for_task",
-        lambda task: client,
+        lambda task, **kwargs: client,
     )
     return client
 

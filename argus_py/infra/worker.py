@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
@@ -23,9 +24,11 @@ class TaskWorker:
         queue: TaskQueue,
         service: TaskService | None = None,
         concurrency: int = 1,
+        model_config_service: ModelConfigService | None = None,
     ) -> None:
         self.queue = queue
         self.service = service or TaskService()
+        self._model_config_service = model_config_service
         self.concurrency = max(1, concurrency)
         self._tasks: list[asyncio.Task[None]] = []
         self._started = False
@@ -82,7 +85,7 @@ class TaskWorker:
         if task.status is not TaskStatus.PENDING:
             return
 
-        runner = TaskRunner(service=self.service)
+        runner = TaskRunner(service=self.service, model_config_service=self._model_config_service)
         try:
             await runner.run(task)
         except TaskError:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends
 
 from argus_py.api.dependencies import get_event_bus, get_task_query_service, get_task_worker
@@ -9,8 +11,14 @@ from argus_py.api.schemas import HealthResponse, MetricsResponse, ReadinessRespo
 from argus_py.core.constants import PROJECT_NAME, PROJECT_VERSION
 from argus_py.infra.db import DEFAULT_DB_PATH, connect
 from argus_py.infra.worker import TaskWorker
+from argus_py.observability.context import run_in_thread
 
 router = APIRouter(tags=["health"])
+
+# DB 连通性检查缓存，避免 K8s 高频探针反复创建 SQLite 连接。
+_db_last_check: float = 0.0
+_db_last_status: str = "not_ready"
+_DB_CACHE_TTL = 5.0
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -22,7 +30,7 @@ async def health_check() -> HealthResponse:
 @router.get("/ready", response_model=ReadinessResponse)
 async def readiness_check(worker: TaskWorker = Depends(get_task_worker)) -> ReadinessResponse:
     """就绪探针：依次检查 DB、事件总线、Worker。"""
-    db_status = _check_db()
+    db_status = await _check_db_cached()
     worker_status = "ready" if worker.is_started else "not_ready"
     eb = get_event_bus()
     event_bus_status = "ready" if eb is not None else "not_ready"
@@ -50,15 +58,26 @@ async def metrics(
 
     return MetricsResponse(
         event_bus=eb.metrics() if eb else {},
-        total_tasks=query_svc.count_tasks(),
+        total_tasks=await run_in_thread(query_svc.count_tasks),
         running_tasks=running_tasks,
         queued_tasks=queued_tasks,
         worker_alive=worker.is_started,
     )
 
 
-def _check_db() -> str:
-    """检查 SQLite 连通性。"""
+async def _check_db_cached() -> str:
+    """带 5s TTL 缓存的 DB 连通性检查，避免 K8s 高频探针竞争 SQLite 锁。"""
+    global _db_last_check, _db_last_status
+    now = time.monotonic()
+    if now - _db_last_check < _DB_CACHE_TTL:
+        return _db_last_status
+    _db_last_check = now
+    _db_last_status = await run_in_thread(_ping_db)
+    return _db_last_status
+
+
+def _ping_db() -> str:
+    """同步 DB 存活检测。"""
     try:
         conn = connect(DEFAULT_DB_PATH)
         conn.execute("SELECT 1").fetchone()

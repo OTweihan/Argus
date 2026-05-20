@@ -4,8 +4,7 @@ import {
 } from "vue";
 
 import { ElMessage } from "element-plus";
-import { summary as apiSummary } from "../api";
-import type { ConfigSummary, ModelConfig, Project, Task } from "../types";
+import type { ModelConfig, Project, Task } from "../types";
 import { compact, errorMessage } from "../utils";
 import { useDashboardStats } from "./useDashboardStats";
 import { useDialog } from "./useDialog";
@@ -25,7 +24,6 @@ export function useConsoleApp() {
     const loading = ref(false);
     const message = ref("");
     const error = ref("");
-    const summary = ref<ConfigSummary | null>(null);
     const formErrors = reactive<Record<string, string>>({});
     const projects = ref<Project[]>([]);
     const allTasks = ref<Task[]>([]);
@@ -54,7 +52,6 @@ export function useConsoleApp() {
         taskDomain.loadTasks,
         taskDomain.selectedTaskId,
         (msg) => { error.value = msg; },
-        (s) => { summary.value = s; },
         dashboard.loadDashboardStats,
     );
     events.onTaskEvent((event) => taskEvents.applyEvent(event));
@@ -151,14 +148,12 @@ export function useConsoleApp() {
         error.value = "";
         message.value = "";
         try {
-            const [summaryResponse] = await Promise.all([
-                apiSummary(),
+            await Promise.all([
                 projectDomain.loadProjects(),
                 taskDomain.loadTasks(),
                 modelDomain.loadModels(),
                 dashboard.loadDashboardStats(),
             ]);
-            summary.value = summaryResponse;
         } catch (caught) {
             error.value = errorMessage(caught);
         } finally {

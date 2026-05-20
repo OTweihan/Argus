@@ -50,13 +50,15 @@ class Finalizer:
         return resolved
 
     def finish_success(self, task: Task, owns_status: bool) -> Task:
-        """按调用方式完成任务。从存储重载避免覆盖外部状态变更（cancel/pause）。"""
-        latest = self.service.get_latest_task(task)
-        if latest.status is not TaskStatus.RUNNING:
+        """按调用方式完成任务。从存储重载状态避免覆盖外部状态变更（cancel/pause）。"""
+        status = self.service.get_task_status(task.task_id)
+        if status is not TaskStatus.RUNNING:
+            latest = self.service.get_task(task.task_id)
             return self.generate_report(latest)
         if owns_status:
-            completed = self.service.complete_task(latest, result_summary=task.result_summary)
+            completed = self.service.complete_task(task, result_summary=task.result_summary)
             return self.generate_report(completed)
+        latest = self.service.get_task(task.task_id)
         return self.service.save_task(latest)
 
     def finalize(self, task: Task, owns_status: bool) -> Task:

@@ -2,19 +2,17 @@ import type { Mock } from "vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { effectScope, ref, type Ref } from "vue";
 
-import type { ConfigSummary, Task, TaskEvent } from "../../types";
+import type { Task, TaskEvent } from "../../types";
 
-// 对 ../api 做模块级 mock：保证 useTaskEvents 内部的 apiSummary / apiGetTask
+// 对 ../api 做模块级 mock：保证 useTaskEvents 内部的 apiGetTask
 // 走可控的 mock 实现，测试不依赖真实 HTTP 调用。
 vi.mock("../../api", () => ({
-    summary: vi.fn(),
     getTask: vi.fn(),
 }));
 
 import * as apiModule from "../../api";
 import { useTaskEvents } from "../useTaskEvents";
 
-const apiSummaryMock = apiModule.summary as unknown as ReturnType<typeof vi.fn>;
 const apiGetTaskMock = apiModule.getTask as unknown as ReturnType<typeof vi.fn>;
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -47,7 +45,6 @@ interface Harness {
     loadTasks: Mock<[], Promise<void>>;
     refreshStats: Mock<[], Promise<void>>;
     onError: Mock<[string], void>;
-    onSummary: Mock<[ConfigSummary], void>;
     events: ReturnType<typeof useTaskEvents>;
     dispose: () => void;
 }
@@ -58,7 +55,6 @@ function setupHarness(initialTasks: Task[] = []): Harness {
     const loadTasks: Mock<[], Promise<void>> = vi.fn(() => Promise.resolve());
     const refreshStats: Mock<[], Promise<void>> = vi.fn(() => Promise.resolve());
     const onError: Mock<[string], void> = vi.fn();
-    const onSummary: Mock<[ConfigSummary], void> = vi.fn();
 
     // 在 effectScope 里运行 useTaskEvents 以便 useDebounceFn 注册的
     // onScopeDispose 回调可被 stop() 触发，避免测试间相互污染。
@@ -70,7 +66,6 @@ function setupHarness(initialTasks: Task[] = []): Harness {
             loadTasks,
             selectedTaskId,
             onError,
-            onSummary,
             refreshStats,
         );
     });
@@ -81,7 +76,6 @@ function setupHarness(initialTasks: Task[] = []): Harness {
         loadTasks,
         refreshStats,
         onError,
-        onSummary,
         events,
         dispose: () => scope.stop(),
     };
@@ -98,9 +92,7 @@ async function flushPromises(): Promise<void> {
 describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
     beforeEach(() => {
         vi.useFakeTimers();
-        apiSummaryMock.mockReset();
         apiGetTaskMock.mockReset();
-        apiSummaryMock.mockResolvedValue({} as ConfigSummary);
     });
 
     afterEach(() => {
@@ -124,7 +116,6 @@ describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
         await vi.advanceTimersByTimeAsync(1);
         await flushPromises();
         expect(h.loadTasks).toHaveBeenCalledTimes(1);
-        expect(apiSummaryMock).toHaveBeenCalledTimes(1);
         expect(h.refreshStats).toHaveBeenCalledTimes(1);
 
         h.dispose();

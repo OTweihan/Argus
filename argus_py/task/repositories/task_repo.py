@@ -50,6 +50,18 @@ class TaskRepository:
             row = conn.execute("SELECT 1 FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row is not None
 
+    def load_task_header(self, task_id: str) -> dict | None:
+        """只加载 tasks 表的一行（不含日志/发现项）。"""
+        with with_conn(self._connect) as conn:
+            row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+        return row
+
+    def get_task_status(self, task_id: str) -> str | None:
+        """只查询任务状态字段，不加载日志/发现项。"""
+        with with_conn(self._connect) as conn:
+            row = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+        return row["status"] if row else None
+
     def load(self, task_id: str) -> Task:
         """读取任务，包含关联的日志和发现项。"""
         with with_conn(self._connect) as conn:

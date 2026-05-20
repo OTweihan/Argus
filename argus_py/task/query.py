@@ -32,6 +32,20 @@ class TaskQueryService:
     ) -> None:
         self.storage = storage
 
+    def task_exists(self, task_id: str) -> bool:
+        """轻量存在性检查。"""
+        return self.storage.exists(task_id)
+
+    def get_task_status(self, task_id: str) -> TaskStatus | None:
+        """轻量查询任务当前状态，不加载日志/发现项。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            raw = self.storage.get_task_status(task_id)
+            return TaskStatus(raw) if raw else None
+        try:
+            return self.storage.load(task_id).status
+        except TaskNotFoundError:
+            return None
+
     def get_task(self, task_id: str) -> Task:
         """按 ID 获取任务。"""
         if not self.storage.exists(task_id):

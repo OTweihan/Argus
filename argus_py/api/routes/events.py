@@ -34,9 +34,7 @@ async def list_task_events(
     timeline: TaskTimelineService = Depends(get_task_timeline_service),
 ):
     """返回任务的执行时间线事件。"""
-    try:
-        await run_in_thread(query.get_task, task_id)
-    except TaskError:
+    if not await run_in_thread(query.task_exists, task_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
     events = await run_in_thread(timeline.list_by_task, task_id)
     return [e.to_dict() for e in events]
@@ -51,9 +49,7 @@ async def list_llm_traces(
     query: TaskQueryService = Depends(get_task_query_service),
 ):
     """返回任务的 LLM 调用追踪记录。"""
-    try:
-        await run_in_thread(query.get_task, task_id)
-    except TaskError:
+    if not await run_in_thread(query.task_exists, task_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
     records = await run_in_thread(query.list_llm_traces, task_id, skip, limit, trace_id)
     return [_serialize_trace(r) for r in records]
@@ -66,9 +62,7 @@ async def get_trace_detail(
     query: TaskQueryService = Depends(get_task_query_service),
 ):
     """返回单条 LLM 调用的完整追踪记录。"""
-    try:
-        await run_in_thread(query.get_task, task_id)
-    except TaskError:
+    if not await run_in_thread(query.task_exists, task_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
     record = await run_in_thread(query.get_llm_trace_detail, task_id, trace_id)
     if record is None:

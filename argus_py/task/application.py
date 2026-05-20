@@ -74,23 +74,30 @@ class TaskApplicationService:
         model_config_id: str | None = None,
         parameters: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """解析任务参数，合并项目默认值、校验模型配置、推断执行限制。"""
-        project = self._project.get_project(project_id or "")
-        start_url = start_url or project.base_url
+        """解析任务参数：URL 校验 + 项目默认值合并 + 模型配置校验 + 执行限制推断。
+
+        ``project_id`` 为 None 时跳过项目相关合并，纯参数校验后返回。
+        """
+        project = self._project.get_project(project_id) if project_id else None
+        start_url = start_url or (project.base_url if project else None)
         if not start_url:
             raise TaskError("任务需要 startUrl，或项目需要配置 baseUrl。")
         result = validate_url(start_url)
         if not result.is_ok():
             raise TaskError(f"startUrl 校验失败：{result.error_message}")
 
-        max_steps = max_steps or project.default_max_steps
-        timeout_seconds = timeout_seconds or project.default_timeout_seconds
-        capture_screenshots = (
-            capture_screenshots
-            if capture_screenshots is not None
-            else project.default_capture_screenshots
-        )
-        merged_params = {**project.parameters, **(parameters or {})}
+        if project:
+            max_steps = max_steps or project.default_max_steps
+            timeout_seconds = timeout_seconds or project.default_timeout_seconds
+            capture_screenshots = (
+                capture_screenshots
+                if capture_screenshots is not None
+                else project.default_capture_screenshots
+            )
+            merged_params = {**project.parameters, **(parameters or {})}
+        else:
+            merged_params = {**(parameters or {})}
+
         if model_config_id:
             self._model_config.get_model_config(model_config_id)
             merged_params["model_config_id"] = model_config_id
@@ -102,7 +109,7 @@ class TaskApplicationService:
             "name": name,
             "start_url": start_url,
             "task_type": task_type,
-            "project_id": project.project_id,
+            "project_id": project.project_id if project else project_id,
             "max_steps": limits.max_steps,
             "timeout_seconds": limits.timeout_seconds,
             "capture_screenshots": capture_screenshots,
@@ -186,7 +193,8 @@ class TaskApplicationService:
         try:
             result = await self._queue.enqueue(new_task.task_id)
         except (Exception, asyncio.CancelledError):
-            # 入队失败需要回滚新建的任务，同样走线程池。
+            # enqueue 内部 await self._queue.put() 不会抛 QueueFull，但可能因
+            # 协程取消或其它异常终止。无论哪种异常，new_task 已写入 DB，必须回滚。
             await run_in_thread(self._task.delete_pending_task, new_task)
             raise
         if result.already_known:

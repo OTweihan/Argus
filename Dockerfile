@@ -23,10 +23,10 @@ RUN mkdir -p ./argus_py/api/static \
 # ============================================================================
 # Runtime stage
 # Playwright 官方镜像预装 chromium + 所有系统依赖（libnss、字体、xvfb 等）
-# 选 v1.45.0-jammy：包含 Python 3.10，但我们用 uv 自带 Python 装 3.11+
+# 选 v1.58.0-jammy：与 uv.lock 锁定的 playwright==1.58.0 对齐
 # 若需要更新 Playwright 版本，请同步 pyproject.toml 的 playwright>= 约束
 # ============================================================================
-FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
 # stdout 不缓冲；防止 docker logs 看不到实时输出
 ENV PYTHONUNBUFFERED=1 \

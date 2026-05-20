@@ -309,7 +309,7 @@ const failedSteps = computed(() => displaySteps.value.filter((s) => s.result ===
 const failedCount = computed(() => failedSteps.value.length);
 const findingCount = computed(() => props.report?.findings?.length ?? 0);
 const stepCount = computed(() => displaySteps.value.length);
-const reportJson = computed(() => prettyJson(props.report));
+const reportJson = computed(() => rawJsonOpen.value ? prettyJson(props.report) : '');
 
 // --- functions ---
 function screenshotSrc(path: string): string {

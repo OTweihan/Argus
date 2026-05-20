@@ -18,6 +18,7 @@ from argus_py.blackbox.models import BlackboxTaskInput
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.blackbox.recovery import RecoveryPolicy
 from argus_py.browser import BrowserSession
+from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
@@ -43,12 +44,14 @@ class BlackboxRunner:
         report_generator: ReportGenerator | None = None,
         max_plan_steps: int = 3,
         max_recovery_attempts: int = 2,
+        model_config_service: ModelConfigService | None = None,
     ) -> None:
         self.service = service or TaskService()
         self.planner = planner or BlackboxPlanner()
         self.evaluator = evaluator or BlackboxEvaluator()
         self.browser_session_factory = browser_session_factory or self._default_browser_session
         self.max_plan_steps = max_plan_steps
+        self._model_config_service = model_config_service
 
         self.evidence = EvidenceCollector()
         self.action_executor = ActionExecutor(self.service, self.evidence)
@@ -58,6 +61,7 @@ class BlackboxRunner:
         self.llm_boundary = LLMBoundaryFactory(
             default_planner=None if planner is None else planner,
             default_evaluator=None if evaluator is None else evaluator,
+            model_config_service=model_config_service,
         )
 
     async def run(self, task: Task | BlackboxTaskInput) -> Task:

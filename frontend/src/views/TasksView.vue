@@ -47,7 +47,7 @@
       </div>
       <template v-else>
         <el-tabs v-model="selectedTaskTab" type="border-card" class="detail-tabs">
-          <el-tab-pane label="报告" name="report">
+          <el-tab-pane lazy label="报告" name="report">
             <ReportView
               :key="selectedTask.taskId"
               :report="reportData"
@@ -55,10 +55,10 @@
               :task-id="selectedTask.taskId"
             />
           </el-tab-pane>
-          <el-tab-pane label="执行时间线" name="timeline">
+          <el-tab-pane lazy label="执行时间线" name="timeline">
             <TaskTimeline :key="selectedTask.taskId" :task-id="selectedTask.taskId" :on-task-event="onTaskEvent" />
           </el-tab-pane>
-          <el-tab-pane label="LLM 调试" name="llm-debug">
+          <el-tab-pane lazy label="LLM 调试" name="llm-debug">
             <LLMDebugTab :key="selectedTask.taskId" :task-id="selectedTask.taskId" />
           </el-tab-pane>
         </el-tabs>

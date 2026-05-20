@@ -102,9 +102,9 @@ class ProjectService:
     def delete_project(self, project_id: str) -> None:
         """删除项目；存在关联任务时不允许删除。"""
         project = self.get_project(project_id)
-        tasks = self.task_service.list_tasks(project_id=project.project_id)
-        if tasks:
-            raise ProjectError(f"项目已关联 {len(tasks)} 个任务，不能删除。")
+        count = self.task_service.count_tasks(project_id=project.project_id)
+        if count:
+            raise ProjectError(f"项目已关联 {count} 个任务，不能删除。")
         self.storage.delete(project.project_id)
         audit("project.delete", projectId=project.project_id, name=project.name)
 

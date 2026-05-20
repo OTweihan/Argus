@@ -175,6 +175,12 @@ class TaskService:
 
     # ── 查询 ──
 
+    def task_exists(self, task_id: str) -> bool:
+        return self.query.task_exists(task_id)
+
+    def get_task_status(self, task_id: str) -> TaskStatus | None:
+        return self.query.get_task_status(task_id)
+
     def get_task(self, task_id: str) -> Task:
         return self.query.get_task(task_id)
 

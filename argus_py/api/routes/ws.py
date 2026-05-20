@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from argus_py.api.dependencies import get_event_bus, get_task_service
 from argus_py.config.server_settings import load_server_settings
-from argus_py.core.exceptions import TaskError
 from argus_py.infra.events import EventBus, EventBusSubscriberLimitError, EventSubscription
 from argus_py.observability.context import run_in_thread
 from argus_py.task.service import TaskService
@@ -19,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 # 服务端发心跳的间隔（秒）。前端 ws.ts 以 2.5× 此值判定断连，调整时同步更新前端。
 WS_KEEPALIVE_SECONDS = 30.0
+
+# CORS allow list 模块级缓存：避免每次 WS 连接都读磁盘 parse YAML。
+# 生产容器中 server.yaml 在部署后不会变更，一次性加载即可；开发环境
+# 修改 yaml 后重启进程即可刷新。
+_cors_origins_cache: list[str] | None = None
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
@@ -45,21 +49,25 @@ def _is_origin_allowed(websocket: WebSocket) -> bool:
     - 无 Origin 头：放行（CLI / 服务器到服务器调用没有 Origin）
     - allow list 含 ``*``：放行（与 CORS 行为对齐，等价于 "公开" 部署）
     - 否则要求 Origin 精确出现在 ``cors_allow_origins`` 中
+
+    ``cors_allow_origins`` 首次加载后模块级缓存，后续连接不再读磁盘。
     """
+    global _cors_origins_cache
     origin = websocket.headers.get("origin")
     if not origin:
         return True
-    try:
-        allow = load_server_settings().cors_allow_origins
-    except Exception:
-        logger.warning(
-            "WebSocket origin 校验时加载 server settings 失败，按拒绝处理",
-            exc_info=True,
-        )
-        return False
-    if "*" in allow:
+    if _cors_origins_cache is None:
+        try:
+            _cors_origins_cache = load_server_settings().cors_allow_origins
+        except Exception:
+            logger.warning(
+                "WebSocket origin 校验时加载 server settings 失败，按拒绝处理",
+                exc_info=True,
+            )
+            return False
+    if "*" in _cors_origins_cache:
         return True
-    return origin in allow
+    return origin in _cors_origins_cache
 
 
 @router.websocket("/tasks/{task_id}")
@@ -75,11 +83,11 @@ async def task_events(
         return
     await websocket.accept()
     since_seq = _parse_since_seq(websocket)
-    try:
-        # SQLite 读阻塞事件循环时 WebSocket 心跳会被拖慢，挪去线程池。
-        await run_in_thread(service.get_task, task_id)
-    except TaskError as exc:
-        await websocket.send_json(_system_event("system.error", task_id=task_id, message=str(exc)))
+    # SQLite 读阻塞事件循环时 WebSocket 心跳会被拖慢，挪去线程池。
+    if not await run_in_thread(service.task_exists, task_id):
+        await websocket.send_json(
+            _system_event("system.error", task_id=task_id, message=f"任务不存在：{task_id}")
+        )
         await websocket.close(code=1008)
         return
 

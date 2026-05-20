@@ -66,6 +66,7 @@ def create_container() -> RuntimeContainer:
         queue=task_queue,
         service=task_service,
         concurrency=settings.scheduler_concurrency,
+        model_config_service=model_config_service,
     )
 
     return RuntimeContainer(

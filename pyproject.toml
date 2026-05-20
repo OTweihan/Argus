@@ -112,6 +112,7 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = ["-m", "not slow"]
 markers = [
     "slow: 耗时 >1s 的测试（全栈集成），默认跳过，只在 CI 或显式指定时运行。",
     "integration: 跨模块边界的集成测试（DB + API、多服务协作等）。",

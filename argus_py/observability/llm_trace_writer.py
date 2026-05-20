@@ -256,10 +256,15 @@ def cleanup_old_traces(
             if mtime < cutoff:
                 try:
                     f.unlink()
-                    deleted_ttl += 1
                 except OSError as exc:
                     logger.warning("trace TTL 清理失败：%s err=%s", f, exc)
                     survivors.append(f)
+                    continue
+                try:
+                    f.with_suffix(".idx").unlink(missing_ok=True)
+                except OSError:
+                    pass
+                deleted_ttl += 1
             else:
                 survivors.append(f)
         files = survivors
@@ -267,32 +272,42 @@ def cleanup_old_traces(
     # Step 2: 总量裁剪（按 mtime 升序删旧的）
     if total_size_mb > 0:
         budget = total_size_mb * 1024 * 1024
-        # 重新拿一次 stat 避免使用阶段 1 中可能已不存在的引用
-        entries: list[tuple[Path, float, int]] = []
+        entries: list[tuple[Path, float, int, int]] = []
         for f in files:
             try:
                 st = f.stat()
-                entries.append((f, st.st_mtime, st.st_size))
+                idx_path = f.with_suffix(".idx")
+                idx_size = idx_path.stat().st_size if idx_path.is_file() else 0
+                entries.append((f, st.st_mtime, st.st_size, idx_size))
             except OSError:
                 continue
         entries.sort(key=lambda x: x[1])
-        total_size = sum(size for _, _, size in entries)
+        total_size = sum(size + idx_size for _, _, size, idx_size in entries)
         idx = 0
         while total_size > budget and idx < len(entries):
-            path, _, size = entries[idx]
+            path, _, size, idx_size = entries[idx]
             try:
                 path.unlink()
-                total_size -= size
-                deleted_quota += 1
             except OSError as exc:
                 logger.warning("trace 总量清理失败：%s err=%s", path, exc)
+                idx += 1
+                continue
+            try:
+                path.with_suffix(".idx").unlink(missing_ok=True)
+            except OSError:
+                pass
+            total_size -= size + idx_size
+            deleted_quota += 1
             idx += 1
-        files = [path for path, _, _ in entries[idx:]]
+        files = [path for path, _, _, _ in entries[idx:]]
 
     remaining_size = 0
     for f in files:
         try:
             remaining_size += f.stat().st_size
+            idx_path = f.with_suffix(".idx")
+            if idx_path.is_file():
+                remaining_size += idx_path.stat().st_size
         except OSError:
             continue
     summary = {
