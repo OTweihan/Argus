@@ -45,6 +45,7 @@ def create_container() -> RuntimeContainer:
     event_bus = EventBus(
         history_limit=settings.events_history_limit,
         subscriber_queue_size=settings.events_subscriber_queue_size,
+        max_subscribers=settings.events_max_subscribers,
     )
 
     audit_service = AuditService(

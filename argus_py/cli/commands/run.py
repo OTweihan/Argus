@@ -76,7 +76,7 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 1
     except PromptExtensionDecodeError as exc:
-        # P1-14：把 UnicodeDecodeError 翻译成中文友好提示，并附上具体的转码命令，
+        # 把 UnicodeDecodeError 翻译成中文友好提示，并附上具体的转码命令；
         # Windows 用户保存为 GBK 默认编码时最容易遇到这一类问题。
         cli_error(
             "任务执行失败",
@@ -153,8 +153,8 @@ async def run(args: argparse.Namespace) -> int:
 class PromptExtensionDecodeError(Exception):
     """Prompt 扩展文件存在但不是合法 UTF-8。
 
-    P1-14：把底层 ``UnicodeDecodeError`` 翻译成带角色（planner / evaluator）和
-    路径信息的领域异常，便于 CLI 层给出"换 UTF-8 重存"的明确指引。
+    把底层 ``UnicodeDecodeError`` 翻译成带角色（planner / evaluator）和路径信息
+    的领域异常，便于 CLI 层给出"换 UTF-8 重存"的明确指引。
     """
 
     def __init__(self, role: str, path: Path, cause: UnicodeDecodeError) -> None:
@@ -178,9 +178,9 @@ class PromptExtensionReadError(Exception):
 def _read_prompt_extensions(planner_path: str | None, evaluator_path: str | None) -> dict[str, str]:
     """读取 planner / evaluator 的 Prompt 扩展文件并归集。
 
-    P1-14：除了原有的 ``FileNotFoundError``，还会把非 UTF-8 解码失败与其它 IO
-    错误分别翻译为 ``PromptExtensionDecodeError`` / ``PromptExtensionReadError``，
-    避免 ``UnicodeDecodeError`` 直接冒泡到 main 产生不可读的 traceback。
+    除了原有的 ``FileNotFoundError``，还会把非 UTF-8 解码失败与其它 IO 错误分别
+    翻译为 ``PromptExtensionDecodeError`` / ``PromptExtensionReadError``，避免
+    ``UnicodeDecodeError`` 直接冒泡到 main 产生不可读的 traceback。
     """
     extensions: dict[str, str] = {}
     for role, raw_path in (("planner", planner_path), ("evaluator", evaluator_path)):

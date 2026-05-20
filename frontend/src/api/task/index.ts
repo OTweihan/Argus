@@ -60,10 +60,6 @@ export function getTaskEvents(taskId: string): Promise<TimelineEvent[]> {
     return request<TimelineEvent[]>(`/tasks/${encodeURIComponent(taskId)}/events`);
 }
 
-export function getTaskTrace(taskId: string, traceId: string): Promise<LLMTraceRecord> {
-    return request<LLMTraceRecord>(`/tasks/${encodeURIComponent(taskId)}/llm-traces/${encodeURIComponent(traceId)}`);
-}
-
 export function getTaskTraces(taskId: string): Promise<LLMTraceRecord[]> {
     return request<LLMTraceRecord[]>(`/tasks/${encodeURIComponent(taskId)}/llm-traces`);
 }

@@ -95,7 +95,7 @@ async function flushPromises(): Promise<void> {
     await Promise.resolve();
 }
 
-describe("useTaskEvents.applyEvent — fallback 路径收紧（P1-11）", () => {
+describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
     beforeEach(() => {
         vi.useFakeTimers();
         apiSummaryMock.mockReset();

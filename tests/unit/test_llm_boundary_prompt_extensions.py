@@ -137,7 +137,7 @@ def test_resolve_skips_empty_extensions(fake_llm_client: MagicMock):
 def test_resolve_with_missing_project_falls_back_silently(
     fake_llm_client: MagicMock, caplog: pytest.LogCaptureFixture
 ):
-    """P1-9：项目不存在视为"未配置扩展"语义，仅 debug，不应产生 warning。"""
+    """项目不存在视为"未配置扩展"语义，仅 debug，不应产生 warning。"""
     caplog.set_level(logging.DEBUG, logger="argus_py.blackbox.llm_boundary")
 
     factory = LLMBoundaryFactory(project_storage=_fake_storage())
@@ -156,7 +156,7 @@ def test_resolve_with_missing_project_falls_back_silently(
 def test_resolve_with_storage_failure_emits_log_event(
     fake_llm_client: MagicMock, caplog: pytest.LogCaptureFixture
 ):
-    """P1-9：DB / 加密 key 等真实异常应升 warning + 结构化事件。"""
+    """DB / 加密 key 等真实异常应升 warning + 结构化事件。"""
     caplog.set_level(logging.WARNING, logger="argus_py.blackbox.llm_boundary")
 
     factory = LLMBoundaryFactory(
@@ -185,7 +185,7 @@ def test_resolve_with_storage_failure_emits_log_event(
 def test_resolve_with_storage_failure_does_not_break_task_execution(
     fake_llm_client: MagicMock,
 ):
-    """P1-9：即便 storage 抛任意异常，resolve 也不应让任务执行链中断。"""
+    """即便 storage 抛任意异常，resolve 也不应让任务执行链中断。"""
     factory = LLMBoundaryFactory(
         project_storage=_fake_storage(raise_on_load=ValueError("bad data"))
     )

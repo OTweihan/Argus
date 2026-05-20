@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -24,8 +23,6 @@ from argus_py.core.enums import TaskStatus
 from argus_py.observability.context import run_in_thread
 from argus_py.task.application import TaskAppError, TaskApplicationService
 from argus_py.task.strategy import infer_execution_limits
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -141,17 +138,14 @@ async def list_tasks(
     """列出任务（轻量，不含日志和发现项），支持过滤和分页。"""
     # 单 SQL 语句同时返回列表与总量：COUNT(*) OVER() 窗口函数避免
     # 两次往返，也不必再走 count_tasks。
-    try:
-        tasks, total = await run_in_thread(
-            app.list_task_summaries,
-            status=status,
-            project_id=project_id,
-            offset=offset,
-            limit=limit,
-            q=q,
-        )
-    except Exception as exc:
-        raise exc
+    tasks, total = await run_in_thread(
+        app.list_task_summaries,
+        status=status,
+        project_id=project_id,
+        offset=offset,
+        limit=limit,
+        q=q,
+    )
     status_snapshot = await app.snapshot_queue_statuses()
     return TaskSummaryListResponse(
         total=total,

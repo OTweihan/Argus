@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { renderMarkdown } from "../useMarkdown";
 
 /**
- * P0-4 验证：useMarkdown 输出经 DOMPurify 净化，常见 XSS 向量都应被剥离。
+ * 验证：useMarkdown 输出经 DOMPurify 净化，常见 XSS 向量都应被剥离。
  *
  * markdown-it 默认 `html: false` 已经过滤裸 HTML，但 linkify / 未来插件可能
  * 引入新向量；DOMPurify 是出口处第二道防线。

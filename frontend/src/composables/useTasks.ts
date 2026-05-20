@@ -38,9 +38,9 @@ interface TaskForm {
 }
 
 /**
- * P1-13：本 composable 不再接收 `connectEventStream` 回调。任务创建/选中后
- * 由编排层 `useConsoleApp` 通过 `watch([view, selectedTaskId])` 主动驱动 WS 重连，
- * 避免曾经的"holder ref"鸡生蛋 hack。
+ * 本 composable 不接收 `connectEventStream` 回调。任务创建/选中后由编排层
+ * `useConsoleApp` 通过 `watch([view, selectedTaskId])` 主动驱动 WS 重连，
+ * 避免早期版本的"holder ref"鸡生蛋 hack。
  */
 export function useTasks(opts: {
     allTasks: Ref<Task[]>;
@@ -182,7 +182,7 @@ export function useTasks(opts: {
             taskSelection.selectedTaskId.value = task.taskId;
             showTaskDialog.value = false;
             resetTaskForm();
-            // P1-13：WS 重连由编排层 watch(selectedTaskId) 自动触发，无需手动调。
+            // WS 重连由编排层 watch(selectedTaskId) 自动触发，无需手动调。
             message.value = isEditing ? "任务已更新。" : "任务已创建。";
             error.value = "";
         } catch (caught) {

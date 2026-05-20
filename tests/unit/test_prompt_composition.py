@@ -83,7 +83,7 @@ def test_compose_evaluator_appends_extension_at_tail():
 
 
 def test_compose_warns_when_marker_missing(caplog: pytest.LogCaptureFixture) -> None:
-    """P1-8：模板缺 marker 时应 warn 并降级为末尾追加，不静默失语义。"""
+    """模板缺 marker 时应 warn 并降级为末尾追加，不静默失语义。"""
     caplog.set_level(logging.WARNING, logger=prompts_module.__name__)
 
     base_without_marker = "# 内置模板\n\n仅安全边界，没有业务扩展 marker。\n"

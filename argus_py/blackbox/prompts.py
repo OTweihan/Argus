@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 PLANNER_PROMPT = "blackbox_planner.md"
 EVALUATOR_PROMPT = "blackbox_evaluator.md"
 
-# P1-8：内置 Prompt 模板里"业务扩展"区块的 marker。
+# 内置 Prompt 模板里"业务扩展"区块的 marker。
 #
 # 调用方扩展（project + task）必须出现在该 marker **之后**（语义：扩展属于
 # 业务规则区，不能污染上方的"安全边界"区）。当前模板设计中 marker 始终位于

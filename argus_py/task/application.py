@@ -294,11 +294,13 @@ class TaskApplicationService:
         - tasks_total / running_total：跨页准确（COUNT 走 SQLite 索引）
         - findings_total：当前所有任务的发现项数量
         - recent_tasks：按 created_at 降序的前 ``recent_limit`` 条 task summary
+
+        ``list_task_summaries`` 内部用 ``COUNT(*) OVER()`` 窗口函数同 SQL 返回
+        全表 total，所以这里直接复用，省掉一次额外的 ``count_tasks()`` 全表扫描。
         """
-        tasks_total = self._task.count_tasks()
         running_total = self._task.count_tasks(status=TaskStatus.RUNNING)
         findings_total = self._task.count_findings()
-        recent, _ = self._task.list_task_summaries(offset=0, limit=recent_limit)
+        recent, tasks_total = self._task.list_task_summaries(offset=0, limit=recent_limit)
         return {
             "tasks_total": tasks_total,
             "running_total": running_total,

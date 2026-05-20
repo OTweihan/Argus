@@ -63,10 +63,6 @@ class TaskService:
             data=data,
         )
 
-    def list_timeline_events(self, task_id: str) -> list[dict[str, Any]]:
-        """返回任务的时间线事件列表（API 输出格式）。"""
-        return [e.to_dict() for e in self.timeline.list_by_task(task_id)]
-
     # ── 生命周期 ──
 
     @log_operation("task.create")

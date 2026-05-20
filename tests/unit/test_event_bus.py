@@ -1,4 +1,4 @@
-"""EventBus P1-7 行为单测：无 running loop 时不静默丢事件。
+"""EventBus 行为单测：无 running loop 时不静默丢事件。
 
 覆盖：
 - 同步路径 publish 仍然把事件落进 history，并累加 ``dropped_no_loop_count``
@@ -88,7 +88,7 @@ class TestPublishWithLoop:
         assert len(bus._history) == 1
 
 
-# ─── P1-16：drop-oldest 背压策略 ──────────────────────────────────────
+# ─── drop-oldest 背压策略 ──────────────────────────────────────
 
 
 class TestSubscriberQueueOverflow:
@@ -183,9 +183,72 @@ class TestMetrics:
             "history_size",
             "global_subscribers",
             "task_subscribers",
+            "max_subscribers",
             "dropped_no_loop_count",
             "dropped_overflow_count",
+            "rejected_subscriber_count",
         }
+
+
+class TestMaxSubscribers:
+    """订阅并发上限护栏。"""
+
+    @pytest.mark.asyncio
+    async def test_default_unlimited(self) -> None:
+        """max_subscribers=0 → 不限，向后兼容。"""
+        bus = EventBus(history_limit=10)
+        assert bus.max_subscribers == 0
+        for _ in range(50):
+            await bus.subscribe(task_id=None)
+        assert bus.rejected_subscriber_count == 0
+
+    @pytest.mark.asyncio
+    async def test_limit_blocks_excess_subscribers(self) -> None:
+        """超过 max_subscribers → 抛 EventBusSubscriberLimitError。"""
+        from argus_py.infra.events import EventBusSubscriberLimitError
+
+        bus = EventBus(history_limit=10, max_subscribers=2)
+        await bus.subscribe(task_id="tk-1")
+        await bus.subscribe(task_id="tk-2")
+
+        with pytest.raises(EventBusSubscriberLimitError):
+            await bus.subscribe(task_id="tk-3")
+        assert bus.rejected_subscriber_count == 1
+
+    @pytest.mark.asyncio
+    async def test_global_and_task_share_quota(self) -> None:
+        """全局订阅与任务订阅共用同一份配额。"""
+        from argus_py.infra.events import EventBusSubscriberLimitError
+
+        bus = EventBus(history_limit=10, max_subscribers=2)
+        await bus.subscribe(task_id=None)
+        await bus.subscribe(task_id="tk-1")
+
+        with pytest.raises(EventBusSubscriberLimitError):
+            await bus.subscribe(task_id="tk-2")
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_frees_quota(self) -> None:
+        """unsubscribe 后配额释放，可以接受新订阅。"""
+        bus = EventBus(history_limit=10, max_subscribers=1)
+        sub = await bus.subscribe(task_id="tk-1")
+        await sub.close()
+        # 不应再抛异常
+        sub2 = await bus.subscribe(task_id="tk-2")
+        assert sub2 is not None
+
+    @pytest.mark.asyncio
+    async def test_rejected_count_in_metrics(self) -> None:
+        from argus_py.infra.events import EventBusSubscriberLimitError
+
+        bus = EventBus(history_limit=10, max_subscribers=1)
+        await bus.subscribe(task_id="tk-1")
+        for _ in range(3):
+            with pytest.raises(EventBusSubscriberLimitError):
+                await bus.subscribe(task_id="tk-2")
+        m = bus.metrics()
+        assert m["max_subscribers"] == 1
+        assert m["rejected_subscriber_count"] == 3
 
 
 class TestSubscribeSinceSeq:

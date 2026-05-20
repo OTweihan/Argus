@@ -10,7 +10,7 @@ from argus_py.api.schemas.base import ApiModel
 
 PromptRole = Literal["planner", "evaluator"]
 
-# P0-5：单字段长度上限。Prompt 扩展是人工填写的辅助文本，64KB 远超正常使用，
+# 单字段长度上限。Prompt 扩展是人工填写的辅助文本，64KB 远超正常使用，
 # 同时给 DoS / 误粘超大 JSON 一个明确边界。超限时 Pydantic 会抛
 # RequestValidationError，由 middleware 转 422 响应。
 _MAX_EXTENSION_LENGTH = 64 * 1024

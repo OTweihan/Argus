@@ -1,0 +1,161 @@
+name: CI
+
+# 内部部署对锁文件与构建可重现性的要求与公网部署一致：
+# - 后端用 uv sync --frozen 拒绝任何 lock drift
+# - 前端用 pnpm install --frozen-lockfile 拒绝任何 lock drift
+# - codegen:check 防止前端类型与后端 OpenAPI schema 偏移
+# - 跑 Dockerfile build 验证镜像构建链不被破坏（不 push）
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 不需要并行跑多份；同 ref 后到的把先到的取消，节省 CI 时间
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (lint + type + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+          enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --extra dev
+
+      - name: Ruff lint
+        run: uv run ruff check argus_py tests scripts
+
+      - name: Black format check
+        run: uv run black --check argus_py tests scripts
+
+      - name: isort check
+        run: uv run isort --check-only argus_py tests scripts
+
+      - name: Mypy
+        run: uv run mypy argus_py
+        # mypy 在历史代码上还有渐进收口空间；不挂 CI，仅当作告警
+        continue-on-error: true
+
+      - name: Pytest (unit + integration)
+        run: uv run pytest tests/unit tests/integration -q --tb=short
+
+  frontend:
+    name: frontend (typecheck + lint + tests + codegen check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store dir
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install (frozen)
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm exec eslint src/
+
+      - name: Type check
+        run: pnpm exec vue-tsc --noEmit
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  codegen-check:
+    name: openapi codegen no-diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+          enable-cache: true
+
+      - name: Backend deps (for OpenAPI export)
+        run: uv sync --frozen --extra dev
+
+      - name: Frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Codegen and diff check
+        working-directory: frontend
+        run: pnpm codegen:check
+
+  docker-build:
+    name: docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: argus:ci

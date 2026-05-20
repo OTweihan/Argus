@@ -7,6 +7,7 @@ vi.mock("../../../api", async (importOriginal) => {
 });
 
 import LLMDebugTab from "../LLMDebugTab.vue";
+import TraceListPanel from "../debug/TraceListPanel.vue";
 import type { LLMTraceRecord } from "../../../types";
 
 import * as apiModule from "../../../api";
@@ -32,50 +33,63 @@ const mockTraces: LLMTraceRecord[] = [
     makeTrace({ traceId: "tr4", phase: "evaluator", event: "task.llm.parse_failed" }),
 ];
 
+async function flush(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 0));
+}
+
 describe("LLMDebugTab", () => {
     afterEach(() => {
         getTaskTracesMock.mockReset();
     });
 
-    it("加载成功后渲染追踪列表", async () => {
+    it("加载成功后把过滤后的 traces 传给 TraceListPanel（默认隐藏 started）", async () => {
         getTaskTracesMock.mockResolvedValue(mockTraces);
         const wrapper = shallowMount(LLMDebugTab, {
             props: { taskId: "t1" },
         });
 
-        // 等待 onMounted 异步加载完成（微任务队列）
-        await new Promise((r) => setTimeout(r, 0));
+        // useTraceList 在 watch immediate 里触发 loadTraces，要等 mock 的 resolve 微任务
+        await flush();
         await wrapper.vm.$nextTick();
 
-        expect(wrapper.text()).toContain("gpt-4");
-        expect(wrapper.text()).toContain("claude-3");
-        // 默认隐藏 started
-        expect(wrapper.text()).not.toContain("started");
+        const listPanel = wrapper.findComponent(TraceListPanel);
+        expect(listPanel.exists()).toBe(true);
+        const passed = listPanel.props("traces") as LLMTraceRecord[];
+        // 4 条记录 - 1 条 started = 3 条
+        expect(passed).toHaveLength(3);
+        expect(passed.map((t) => t.model)).toContain("gpt-4");
+        expect(passed.map((t) => t.model)).toContain("claude-3");
+        expect(passed.every((t) => t.event !== "task.llm.started")).toBe(true);
     });
 
-    it("显示追踪计数", async () => {
+    it("hideStarted=false 时把 started 项也透传", async () => {
         getTaskTracesMock.mockResolvedValue(mockTraces);
         const wrapper = shallowMount(LLMDebugTab, {
             props: { taskId: "t1" },
         });
-
-        await new Promise((r) => setTimeout(r, 0));
+        await flush();
         await wrapper.vm.$nextTick();
 
-        const countText = wrapper.text();
-        // 4 条记录 - 1 条 started = 3 条显示
-        expect(countText).toContain("3");
+        const listPanel = wrapper.findComponent(TraceListPanel);
+        // 模拟用户在子组件里取消勾选 → emit update:hideStarted=false
+        listPanel.vm.$emit("update:hideStarted", false);
+        await wrapper.vm.$nextTick();
+
+        const passed = listPanel.props("traces") as LLMTraceRecord[];
+        expect(passed).toHaveLength(4);
     });
 
-    it("API 失败时显示错误信息", async () => {
+    it("API 失败时把 errorMessage 透传到 TraceListPanel.loadError", async () => {
         getTaskTracesMock.mockRejectedValue(new Error("连不上服务器"));
         const wrapper = shallowMount(LLMDebugTab, {
             props: { taskId: "t1" },
         });
 
-        await new Promise((r) => setTimeout(r, 0));
+        await flush();
         await wrapper.vm.$nextTick();
 
-        expect(wrapper.text()).toContain("连不上服务器");
+        const listPanel = wrapper.findComponent(TraceListPanel);
+        expect(listPanel.props("loadError")).toBe("连不上服务器");
+        expect(listPanel.props("traces")).toEqual([]);
     });
 });

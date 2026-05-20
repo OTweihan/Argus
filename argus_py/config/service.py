@@ -8,6 +8,7 @@ from typing import Any
 
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.models import ModelConfig
+from argus_py.config.server_settings import load_server_settings
 from argus_py.core.constants import (
     DEFAULT_LLM_MAX_RETRIES,
 )
@@ -15,6 +16,7 @@ from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.llm.models import ChatMessage
 from argus_py.llm.providers import create_llm_client, default_base_url, get_provider_spec
+from argus_py.llm.url_guard import LLMUrlSafetyError, assert_llm_base_url_safe
 from argus_py.observability import audit
 
 
@@ -47,12 +49,14 @@ class ModelConfigService:
             raise ModelConfigError("模型名称不能为空。")
 
         spec = get_provider_spec(provider)
+        resolved_base_url = _normalize_base_url(base_url) or spec.default_base_url
+        _assert_base_url_safe(resolved_base_url)
         config = ModelConfig(
             name=resolved_name,
             provider=provider,
             model=resolved_model,
             api_key=api_key.strip(),
-            base_url=_normalize_base_url(base_url) or spec.default_base_url,
+            base_url=resolved_base_url,
             completions_path=_normalize_completions_path(completions_path or spec.completions_path),
             max_retries=max_retries if max_retries is not None else DEFAULT_LLM_MAX_RETRIES,
             timeout_seconds=timeout_seconds if timeout_seconds is not None else 120.0,
@@ -122,6 +126,7 @@ class ModelConfigService:
                 or config.completions_path == previous_spec.completions_path
             ):
                 config.completions_path = spec.completions_path
+        _assert_base_url_safe(config.base_url)
         config.updated_at = datetime.now(timezone.utc)
         saved = self.storage.save(config)
         audit(
@@ -141,7 +146,11 @@ class ModelConfigService:
 
         使用 ``async with`` 确保底层 httpx 连接池被显式关闭，避免一次性
         连通性检查后留下未关闭的 AsyncClient 触发资源警告。
+        在发起 outbound 请求前先校验 ``base_url`` 是否落在 SSRF 白名单内 ——
+        这是私网部署的关键防线：避免用户从 UI 输入 ``http://10.x.x.x`` 后
+        通过 ``/config/models/test`` 探测内部网络。
         """
+        _assert_base_url_safe(config.base_url)
         started = time.perf_counter()
         async with create_llm_client(config) as client:
             response = await client.chat(
@@ -179,3 +188,20 @@ def _normalize_completions_path(value: str | None) -> str:
     if not stripped:
         stripped = "/chat/completions"
     return stripped if stripped.startswith("/") else f"/{stripped}"
+
+
+def _assert_base_url_safe(base_url: str | None) -> None:
+    """转换 LLMUrlSafetyError 为 ModelConfigError，保持 service 层异常一致性。
+
+    每次调用 ``load_server_settings()`` 读取 YAML 是廉价操作（毫秒级），
+    且 create/update/test 均为低频路径，无需 lru_cache 缓存以避免在
+    配置变更后需要重启进程才能生效。
+    """
+    try:
+        allow_hosts = load_server_settings().llm_allow_private_hosts
+    except Exception:
+        allow_hosts = []
+    try:
+        assert_llm_base_url_safe(base_url, allow_hosts=allow_hosts)
+    except LLMUrlSafetyError as exc:
+        raise ModelConfigError(str(exc)) from exc

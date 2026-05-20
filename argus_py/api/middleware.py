@@ -12,6 +12,11 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from argus_py.api.rate_limit import (
+    RateLimitMiddleware,
+    TokenBucketLimiter,
+    build_rules,
+)
 from argus_py.config.server_settings import ServerSettings
 from argus_py.core.exceptions import (
     ArgusError,
@@ -28,8 +33,40 @@ from argus_py.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """注入基础安全响应头。
+
+    私网部署同样需要这些防护：
+    - ``X-Content-Type-Options: nosniff`` 防止浏览器把响应误识别为可执行类型，
+      杜绝 MIME 注入。
+    - ``X-Frame-Options: DENY`` 防 clickjacking（内部其他后台把 Argus 嵌入
+      iframe 进行 UI 欺诈）。
+    - ``Referrer-Policy: no-referrer`` 避免把内部 URL/任务 ID 通过 Referer
+      泄露到外链域名。
+    - ``Cross-Origin-Opener-Policy: same-origin`` 阻止跨源 window 引用，
+      与 ``X-Frame-Options`` 形成纵深防御。
+
+    暂不加 CSP：FastAPI ``/docs`` 的 Swagger UI 加载 CDN，Element Plus 大量
+    使用 inline 样式，加严格 CSP 会破坏；如未来需要可针对前端静态目录单独
+    挂中间件，避开 ``/docs`` 与 ``/api`` 路径。
+    """
+
+    _DEFAULTS: dict[str, str] = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+        "Cross-Origin-Opener-Policy": "same-origin",
+    }
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        response = await call_next(request)
+        for header, value in self._DEFAULTS.items():
+            response.headers.setdefault(header, value)
+        return response
+
+
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """P0-5：基于 ``Content-Length`` 拦截超大请求 body。
+    """基于 ``Content-Length`` 拦截超大请求 body。
 
     两层拦截策略：
     1. 优先信任客户端 ``Content-Length`` 头：声明值已超限直接 413，避免读取流。
@@ -67,6 +104,11 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
     if settings.observability_request_logging:
         app.add_middleware(RequestLoggingMiddleware)
 
+    # SecurityHeaders 放在最早 add：Starlette 中间件按反向注册顺序构造责任链，
+    # 越早 add 越靠近响应出口，可保证所有路由响应都注入安全头（含 StaticFiles
+    # 和异常响应）。
+    app.add_middleware(SecurityHeadersMiddleware)
+
     # body 大小限制要在 CORS / 业务路由之前生效，所以在这里先 add（Starlette 是
     # 反向注册顺序，越晚 add 越接近 ASGI 入口；body 限制要最早拦，所以放最后 add）。
     app.add_middleware(
@@ -82,7 +124,28 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
             max_bytes=settings.request_max_body_size_bytes,
         )
 
-    # P0-6：用 isinstance 判断具体 NotFound 子类，替代不可靠的
+    # 限流放在 body 限制之后（即责任链上"更内"的位置）：先放行明显超大的请求
+    # 节省 token 桶资源；同时 429 响应不会被 SecurityHeaders 漏掉（它在更外层）。
+    if settings.rate_limit_enabled:
+        rules = build_rules(settings.rate_limit_routes)
+        if rules:
+            limiter = TokenBucketLimiter()
+            app.state.rate_limiter = limiter
+            app.add_middleware(
+                RateLimitMiddleware,
+                limiter=limiter,
+                rules=rules,
+                trust_forwarded=settings.rate_limit_trust_forwarded,
+            )
+            logger.info(
+                "限流已启用：rules=%d trust_forwarded=%s",
+                len(rules),
+                settings.rate_limit_trust_forwarded,
+            )
+        else:
+            logger.warning("rate_limit.enabled=true 但 routes 为空，限流已跳过")
+
+    # 用 isinstance 判断具体 NotFound 子类，替代不可靠的
     # ``"not found" in message`` 字符串匹配。子类继承自基类，注册顺序无关；
     # 只要 raise 时用 ``TaskNotFoundError`` 等，handler 就会走 404 分支。
     @app.exception_handler(TaskError)

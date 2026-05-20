@@ -71,7 +71,7 @@ const ProjectsView = defineAsyncComponent(() => import("./views/ProjectsView.vue
 const TasksView = defineAsyncComponent(() => import("./views/TasksView.vue"));
 const ModelsView = defineAsyncComponent(() => import("./views/ModelsView.vue"));
 
-// P1-12：zh-cn locale 以 dynamic import 形式从主 bundle 拆出，由 Vite 生成
+// zh-cn locale 以 dynamic import 形式从主 bundle 拆出，由 Vite 生成
 // 独立的 async chunk。
 //
 // Element Plus 默认 locale 是英文，仅 DatePicker / Pagination / Cascader 等

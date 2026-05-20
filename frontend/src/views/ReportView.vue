@@ -334,4 +334,4 @@ function closeLightbox(): void {
 </script>
 
 <style scoped src="./report.css"></style>
-<!-- P1-10：原 901 行 CSS 已抽到 ./report.css，保持 scoped 隔离不变。 -->
+<!-- 原 901 行 CSS 已抽到 ./report.css，保持 scoped 隔离不变。 -->

@@ -36,7 +36,7 @@ class TaskError(ArgusError):
 class TaskNotFoundError(TaskError):
     """任务实体不存在。
 
-    P0-6：作为 ``TaskError`` 的精确子类替代 ``"not found" in message`` 的字符串
+    作为 ``TaskError`` 的精确子类替代 ``"not found" in message`` 的字符串
     匹配，从根本上避免错误消息本地化或重写时丢失 404 语义。
     """
 

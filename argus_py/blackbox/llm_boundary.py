@@ -109,7 +109,7 @@ class LLMBoundaryFactory:
     def _load_project_extensions(self, project_id: str | None) -> dict[str, str]:
         """从 project.parameters 读取 prompt 扩展；加载失败时降级为空。
 
-        P1-9：区分两类失败：
+        区分两类失败：
         - ``ProjectNotFoundError``：项目根本不存在。可能是任务历史数据指向已删项目，
           也可能是 task 直接传了无效 ``project_id``；这属于"未配置扩展"语义，
           只 debug 不 warn，避免噪声。

@@ -1,4 +1,4 @@
-"""Middleware 契约单测：覆盖 P0-5 body 大小限制 + P0-6 异常类型映射。
+"""Middleware 契约单测：覆盖 body 大小限制 + 异常类型映射。
 
 为了不引入完整 ASGI server，借助 FastAPI 自带的 ``TestClient``（基于 httpx，
 依赖 ``httpx`` 已在测试栈中可用）。每个用例构造一个最小 FastAPI 应用，注册我们
@@ -59,7 +59,7 @@ def _make_app(settings: ServerSettings) -> FastAPI:
     return app
 
 
-# ── P0-6：异常类型映射到 HTTP 状态码 ──────────────────────────────────────
+# ── 异常类型映射到 HTTP 状态码 ──────────────────────────────────────
 
 
 class TestExceptionHandlerMapping:
@@ -115,7 +115,34 @@ class TestExceptionHandlerMapping:
         assert resp.status_code == 400
 
 
-# ── P0-5：body size limit middleware ──────────────────────────────────────
+# ── SecurityHeadersMiddleware ─────────────────────────────────────
+
+
+class TestSecurityHeaders:
+    """私网部署同样需要 clickjacking / MIME sniffing 防护。"""
+
+    @pytest.fixture
+    def client(self) -> TestClient:
+        settings = ServerSettings(observability_request_logging=False)
+        return TestClient(_make_app(settings))
+
+    def test_headers_present_on_success(self, client: TestClient) -> None:
+        resp = client.post("/echo", json={"x": 1})
+        assert resp.status_code == 200
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["Referrer-Policy"] == "no-referrer"
+        assert resp.headers["Cross-Origin-Opener-Policy"] == "same-origin"
+
+    def test_headers_present_on_error_response(self, client: TestClient) -> None:
+        """异常路径的响应同样要带安全头，避免 error 页面成为攻击面。"""
+        resp = client.get("/raise/task-not-found")
+        assert resp.status_code == 404
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
+
+# ── body size limit middleware ──────────────────────────────────────
 
 
 class TestBodySizeLimitMiddleware:
@@ -156,7 +183,7 @@ class TestBodySizeLimitMiddleware:
         assert resp.status_code == 200
 
 
-# ── P0-5：prompt preview schema 长度上限 ───────────────────────────────────
+# ── prompt preview schema 长度上限 ───────────────────────────────────
 
 
 class TestPromptPreviewSchema:

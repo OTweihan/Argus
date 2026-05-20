@@ -73,6 +73,7 @@ import { ElMessage } from "element-plus";
 import type { LLMTraceRecord } from "../../../types";
 import { errorMessage } from "../../../utils";
 import DebugCodeSection from "./DebugCodeSection.vue";
+import { eventLabel, formatTime } from "./traceFormat";
 
 const props = defineProps<{ trace: LLMTraceRecord }>();
 
@@ -88,28 +89,6 @@ const parsedResultStr = computed(() => {
   if (result == null) return "";
   return JSON.stringify(result, null, 2);
 });
-
-function eventLabel(event: string): string {
-  const labels: Record<string, string> = {
-    "task.llm.started": "started",
-    "task.llm.succeeded": "succeeded",
-    "task.llm.failed": "failed",
-    "task.llm.parse_failed": "parse_failed",
-  };
-  return labels[event] || event;
-}
-
-function formatTime(iso: string): string {
-  if (!iso) return "-";
-  try {
-    return new Intl.DateTimeFormat("zh-CN", {
-      month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
 
 async function copyText(text: string) {
   try {

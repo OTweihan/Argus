@@ -348,6 +348,44 @@ class TestSummaries:
         assert find_map["t1"] == 2
         assert find_map["t2"] == 3
 
+    def test_summary_query_count_is_constant_no_n_plus_one(self, tmp_path: Path) -> None:
+        """N+1 回归：查询次数与任务行数无关。
+
+        旧实现用相关子查询 ``(SELECT COUNT(*) FROM findings ...)``，每行触发
+        一次额外索引查询；新实现两步聚合，无论页大小都恒 2 条 SELECT。
+        """
+        store = TaskSQLiteStorage(tmp_path / "n1_guard.db")
+        for i in range(20):
+            _make_task(store, f"t{i:02d}", f"任务{i}")
+            _append_findings(store, f"t{i:02d}", 3)
+
+        select_count = 0
+
+        def _count_select(sql: str) -> None:
+            nonlocal select_count
+            stripped = sql.strip().lstrip("(").lstrip().upper()
+            if stripped.startswith("SELECT"):
+                select_count += 1
+
+        original_connect = store._tasks._connect
+
+        def traced_connect():
+            conn = original_connect()
+            conn.set_trace_callback(_count_select)
+            return conn
+
+        store._tasks._connect = traced_connect
+        try:
+            summaries, total = store.list_task_summaries()
+        finally:
+            store._tasks._connect = original_connect
+
+        assert total == 20
+        assert len(summaries) == 20
+        # 期望恰好 2 条 SELECT：一页 tasks（含 total）+ 一次聚合 findings count。
+        # 留 1 条容差以适配 sqlite 内部偶发的辅助查询。
+        assert select_count <= 3, f"疑似 N+1：执行了 {select_count} 条 SELECT"
+
 
 class TestCrossInstance:
     """跨实例一致性。"""

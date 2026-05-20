@@ -30,40 +30,10 @@ export function nullableText(value: string): string | null {
   return trimmed || null;
 }
 
-export function nullableNumber(value: string, label: string): number | null {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) return null;
-  const number = Number(trimmed);
-  if (!Number.isFinite(number)) {
-    throw new Error(`${label} 必须是有效数字。`);
-  }
-  return number;
-}
-
-export function parseJsonObject(value: string, label: string): Record<string, unknown> {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed) as unknown;
-  } catch {
-    throw new Error(`${label} 必须是合法 JSON。`);
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`${label} 必须是 JSON 对象。`);
-  }
-  return parsed as Record<string, unknown>;
-}
-
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
   return "未知错误。";
-}
-
-export function errorCode(error: unknown): string | undefined {
-  if (error instanceof ApiError) return error.code;
-  return undefined;
 }
 
 export function nullableBoolean(value: "" | "true" | "false"): boolean | null {

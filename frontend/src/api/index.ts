@@ -24,7 +24,6 @@ export {
     restartTask,
     getTaskReportJson,
     getTaskEvents,
-    getTaskTrace,
     getTaskTraces,
     getDashboardStats,
 } from "./task";

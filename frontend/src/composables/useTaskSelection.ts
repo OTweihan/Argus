@@ -6,7 +6,7 @@ import { errorMessage, upsertById } from "../utils";
 export type TaskDetailTab = "report" | "timeline" | "llm-debug";
 
 /**
- * P1-13：本 composable 只负责"选中态"这一份纯状态（selectedTaskId / selectedTask /
+ * 本 composable 只负责"选中态"这一份纯状态（selectedTaskId / selectedTask /
  * reportData 等），**不再**主动驱动 WebSocket 重连。
  *
  * WS 重连由编排层 `useConsoleApp` 通过 `watch([view, selectedTaskId])` 接管，

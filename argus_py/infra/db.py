@@ -8,6 +8,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 
 from argus_py.core.paths import DATA_DIR
+from argus_py.infra.migrations import apply_migrations
 
 DEFAULT_DB_PATH = DATA_DIR / "argus.db"
 
@@ -237,6 +238,14 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     """初始化数据库表结构。
 
     WAL 是数据库级永久设置，在此处一次性切换；后续 connect() 不再每次写 PRAGMA。
+
+    流程：
+    1. baseline schema 用 ``CREATE TABLE IF NOT EXISTS`` 建好（首次部署 +
+       历史升级用户都安全）。
+    2. ``_migrate_tasks_table`` / ``_migrate_model_configs_table`` 是历史用户
+       的就地 ALTER 兜底；保留但不再扩展。
+    3. ``apply_migrations`` 应用 ``infra/migrations/sql/`` 下的版本化迁移。
+       首次见到 ``schema_migrations`` 表时自动标 baseline=applied。
     """
     _check_sqlite_version()
     with closing(connect(db_path)) as connection:
@@ -251,6 +260,7 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             connection.executescript(TASK_EVENTS_SCHEMA)
             _migrate_tasks_table(connection)
             _migrate_model_configs_table(connection)
+        apply_migrations(connection)
 
 
 class _DefaultDBProbe:

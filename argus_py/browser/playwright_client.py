@@ -6,13 +6,12 @@ from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
-from argus_py.browser.errors import BrowserActionError, BrowserNotStartedError
-from argus_py.core.constants import (
+from argus_py.browser.constants import (
     DEFAULT_ACTION_TIMEOUT_MS,
-    DEFAULT_BROWSER,
-    DEFAULT_HEADLESS,
     DEFAULT_NAVIGATION_TIMEOUT_MS,
 )
+from argus_py.browser.errors import BrowserActionError, BrowserNotStartedError
+from argus_py.core.constants import DEFAULT_BROWSER, DEFAULT_HEADLESS
 
 
 class PlaywrightClient:

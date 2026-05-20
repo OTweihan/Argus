@@ -197,7 +197,13 @@ class TaskRepository:
         project_id: str | None = None,
         q: str | None = None,
     ) -> tuple[list[Task], int]:
-        """轻量列表查询，返回 (tasks, total_count)，单语句完成。"""
+        """轻量列表查询，返回 (tasks, total_count)。
+
+        分两步查询消除 N+1：第一步取一页 tasks + total（窗口聚合），
+        第二步用 ``task_id IN (...)`` 一次性聚合 findings count，
+        避免原相关子查询每行触发一次索引查找。两次查询共用同一个
+        connection，事务/连接开销可忽略。
+        """
         with with_conn(self._connect) as conn:
             where_clauses: list[str] = []
             params: list[Any] = []
@@ -214,12 +220,7 @@ class TaskRepository:
                 )
                 params.extend([pattern] * 6)
 
-            query = """
-                SELECT tasks.*,
-                  (SELECT COUNT(*) FROM findings WHERE task_id = tasks.task_id) AS finding_count,
-                  COUNT(*) OVER() AS total_count
-                FROM tasks
-            """
+            query = "SELECT tasks.*, COUNT(*) OVER() AS total_count FROM tasks"
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
             query += " ORDER BY created_at DESC"
@@ -234,12 +235,21 @@ class TaskRepository:
 
             rows = conn.execute(query, params).fetchall()
 
-        if not rows:
-            return [], 0
+            if not rows:
+                return [], 0
+
+            task_ids = [r["task_id"] for r in rows]
+            placeholders = ",".join("?" for _ in task_ids)
+            count_rows = conn.execute(
+                f"SELECT task_id, COUNT(*) AS cnt FROM findings "
+                f"WHERE task_id IN ({placeholders}) GROUP BY task_id",
+                task_ids,
+            ).fetchall()
+            counts_by_task: dict[str, int] = {r["task_id"]: r["cnt"] for r in count_rows}
 
         total_count = rows[0]["total_count"]
         tasks = [row_to_task(r, [], []) for r in rows]
         for r, t in zip(rows, tasks, strict=True):
             t.current_step = r["current_step"]
-            t.finding_count = r["finding_count"]
+            t.finding_count = counts_by_task.get(r["task_id"], 0)
         return tasks, total_count

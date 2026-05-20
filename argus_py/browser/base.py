@@ -10,14 +10,14 @@ from playwright.async_api import ConsoleMessage as PwConsoleMessage
 from playwright.async_api import Page
 
 from argus_py.browser.actions import BrowserActions
-from argus_py.browser.errors import BrowserActionError, BrowserNotStartedError
-from argus_py.browser.playwright_client import PlaywrightClient
-from argus_py.browser.snapshot import ConsoleMessage, PageSnapshot, capture_snapshot
-from argus_py.core.constants import (
+from argus_py.browser.constants import (
     DEFAULT_PAGE_READY_TIMEOUT_MS,
     DEFAULT_PAGE_SETTLE_MS,
     DEFAULT_SCREENSHOTS_DIR,
 )
+from argus_py.browser.errors import BrowserActionError, BrowserNotStartedError
+from argus_py.browser.playwright_client import PlaywrightClient
+from argus_py.browser.snapshot import ConsoleMessage, PageSnapshot, capture_snapshot
 
 
 class BrowserSession:

@@ -8,7 +8,7 @@ import { useDebounceFn } from "./useDebounceFn";
 /**
  * 运行时事件合并 + 兜底刷新。
  *
- * P1-11：原实现里 `applyEvent` 在以下分支统统走 `scheduleRefresh()` 整表 refetch：
+ * 原实现里 `applyEvent` 在以下分支统统走 `scheduleRefresh()` 整表 refetch：
  *   - 事件无 `taskId`
  *   - 任务不在当前页 / 当前过滤范围（`idx === -1` 且非 `task.created`）
  *   - 事件 taskId 已知但缺失 `summary`

@@ -4,18 +4,14 @@ import {
     canRestartTask,
     canStartTask,
     compact,
-    errorCode,
     errorMessage,
     formatDate,
     nullableBoolean,
-    nullableNumber,
     nullableText,
-    parseJsonObject,
     sortBy,
     taskDisplayStatus,
     upsertById,
 } from "../utils";
-import { ApiError } from "../api/client";
 import type { Task } from "../types";
 
 // 仅给 taskDisplayStatus / canStartTask / canRestartTask 提供它们读取的最小字段集
@@ -80,12 +76,6 @@ describe("utils.nullable*", () => {
         expect(nullableText("")).toBeNull();
     });
 
-    it("nullableNumber 解析数字、空字符串返回 null、非法值抛错", () => {
-        expect(nullableNumber("42", "x")).toBe(42);
-        expect(nullableNumber("  ", "x")).toBeNull();
-        expect(() => nullableNumber("abc", "字段")).toThrow(/字段/);
-    });
-
     it("nullableBoolean 把字符串映射为布尔 / null", () => {
         expect(nullableBoolean("true")).toBe(true);
         expect(nullableBoolean("false")).toBe(false);
@@ -93,37 +83,10 @@ describe("utils.nullable*", () => {
     });
 });
 
-describe("utils.parseJsonObject", () => {
-    it("空字符串返回空对象", () => {
-        expect(parseJsonObject("", "X")).toEqual({});
-        expect(parseJsonObject("   ", "X")).toEqual({});
-    });
-
-    it("合法 JSON 对象按原样返回", () => {
-        expect(parseJsonObject('{"a":1,"b":"c"}', "X")).toEqual({ a: 1, b: "c" });
-    });
-
-    it("非法 JSON 抛带 label 的错误", () => {
-        expect(() => parseJsonObject("{not json", "参数")).toThrow(/参数/);
-    });
-
-    it("数组 / 标量都被拒绝", () => {
-        expect(() => parseJsonObject("[1,2]", "X")).toThrow(/JSON 对象/);
-        expect(() => parseJsonObject("123", "X")).toThrow(/JSON 对象/);
-    });
-});
-
-describe("utils.errorMessage / errorCode", () => {
-    it("ApiError 带 code 和 message", () => {
-        const err = new ApiError("boom", 400, "TASK_NOT_PENDING", { taskId: "x" });
-        expect(errorMessage(err)).toBe("boom");
-        expect(errorCode(err)).toBe("TASK_NOT_PENDING");
-    });
-
+describe("utils.errorMessage", () => {
     it("普通 Error 走 message，未知 error 返回兜底文案", () => {
         expect(errorMessage(new Error("oops"))).toBe("oops");
         expect(errorMessage("nothing")).toBe("未知错误。");
-        expect(errorCode(new Error("x"))).toBeUndefined();
     });
 });
 

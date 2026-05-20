@@ -6,7 +6,7 @@
  * 与 ReportView / LLMDebugTab 历史输出保持一致，不与列表页的 `YYYY-MM-DD HH:mm:ss`
  * 共用以避免 UI 视觉漂移。
  *
- * P1-10：从 ReportView.vue 抽出 `REPORT_NAV_ITEMS` / `getStatusLabel` 等，
+ * 从 ReportView.vue 抽出 `REPORT_NAV_ITEMS` / `getStatusLabel` 等，
  * 减少 view 文件体积、便于单元测试。
  */
 export function formatDate(value: string | null): string {

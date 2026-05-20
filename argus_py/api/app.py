@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from argus_py.api.auth import DEFAULT_PROTECTED_PREFIXES, AuthTokenMiddleware
 from argus_py.api.dependencies import get_task_service, get_task_worker
 from argus_py.api.middleware import configure_middleware
 from argus_py.api.routes import (
@@ -40,6 +42,35 @@ from argus_py.utils.logger import setup_logging
 logger = logging.getLogger(__name__)
 
 API_PREFIX = "/api/v1"
+# 启用可选 API Token 鉴权的环境变量名。
+# 未设置或为空字符串 → 中间件不挂载，向后兼容。
+AUTH_TOKEN_ENV = "ARGUS_API_TOKEN"
+
+
+def _warn_if_multi_worker() -> None:
+    """如果检测到多 worker env，打 ERROR 日志（无法阻止多进程启动，但会被运维注意到）。
+
+    CLI ``argus serve`` 会在更早一步拒启；这里是兜底，防止有人直接
+    ``uvicorn argus_py.api.app:app --workers N`` 绕过 CLI。多 worker 下
+    每个进程都会执行一次本日志，运维一定能从启动日志里发现。
+    """
+    for env_name in ("WEB_CONCURRENCY", "UVICORN_WORKERS"):
+        raw = os.getenv(env_name)
+        if not raw:
+            continue
+        try:
+            count = int(raw)
+        except ValueError:
+            continue
+        if count > 1:
+            logger.error(
+                "检测到 %s=%s，Argus 不支持多 worker 部署："
+                "进程内任务队列与 EventBus 不跨进程共享，会出现任务双发和 WS 事件丢失。"
+                "请改用单 worker，通过 config/server.yaml 的 scheduler.concurrency 调大并发。",
+                env_name,
+                count,
+            )
+            return
 
 
 def create_app() -> FastAPI:
@@ -51,6 +82,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         """管理后台任务 Worker 与 LLM trace writer 生命周期。"""
+        _warn_if_multi_worker()
         ensure_fernet_key(_DefaultDBProbe(DEFAULT_DB_PATH))
         try:
             recover_interrupted_tasks(get_task_service())
@@ -86,6 +118,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     configure_middleware(application, settings)
+
+    auth_token = (os.getenv(AUTH_TOKEN_ENV) or "").strip()
+    if auth_token:
+        # token 中间件放在最末 add → 最外层执行：未通过校验时不消耗下游限流桶。
+        application.add_middleware(AuthTokenMiddleware, token=auth_token)
+        logger.info(
+            "API Token 鉴权已启用（受保护前缀：%s）",
+            ",".join(DEFAULT_PROTECTED_PREFIXES),
+        )
 
     application.include_router(health.router)
     application.include_router(projects.router, prefix=API_PREFIX)

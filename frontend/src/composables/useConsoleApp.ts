@@ -31,7 +31,7 @@ export function useConsoleApp() {
     const allTasks = ref<Task[]>([]);
     const models = ref<ModelConfig[]>([]);
 
-    // P1-13：dashboard 相关 ref / loader / computed 抽到 useDashboardStats。
+    // dashboard 相关 ref / loader / computed 抽到 useDashboardStats。
     const dashboard = useDashboardStats({ error });
 
     const nav = useNavigation();
@@ -61,7 +61,7 @@ export function useConsoleApp() {
 
     /* ── 视图与 WebSocket 编排 ──
      *
-     * P1-13：之前 `useTasks → useTaskSelection.selectTask` 主动回调 `connectEventStream`，
+     * 之前 `useTasks → useTaskSelection.selectTask` 主动回调 `connectEventStream`，
      * 而 `connectEventStream` 闭包又需要 `taskDomain.selectedTaskId`，形成"鸡生蛋"，
      * 用 holder ref 后期填充绕过。现在反向：让 useTasks 只更新状态，编排层 watch
      * `[view, selectedTaskId]` 任一变化都触发 WS 重连，Vue 批量更新机制保证两者

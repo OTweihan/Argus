@@ -12,7 +12,6 @@ from argus_py.core.constants import (
     DEFAULT_BROWSER,
     DEFAULT_HEADLESS,
     DEFAULT_MAX_STEPS,
-    DEFAULT_OUTPUT_DIR,
     DEFAULT_TASK_TIMEOUT_S,
 )
 from argus_py.core.paths import OUTPUT_DIR, resolve_project_path
@@ -85,5 +84,5 @@ def load_settings(env_file: str | Path = ".env") -> Settings:
         browser_type=os.getenv("BROWSER_TYPE", DEFAULT_BROWSER),
         max_steps=_env_int("MAX_STEPS", DEFAULT_MAX_STEPS),
         task_timeout_s=_env_int("TASK_TIMEOUT_S", DEFAULT_TASK_TIMEOUT_S),
-        output_dir=resolve_project_path(os.getenv("OUTPUT_DIR", DEFAULT_OUTPUT_DIR)),
+        output_dir=resolve_project_path(os.getenv("OUTPUT_DIR", str(OUTPUT_DIR))),
     )

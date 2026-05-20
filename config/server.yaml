@@ -27,6 +27,58 @@ request:
 events:
   history_limit: 200
   subscriber_queue_size: 100
+  # 全局并发订阅上限（含所有 WebSocket 客户端）。0 = 不限（向后兼容）。
+  # 单订阅独占 1 个 asyncio.Queue（容量 = subscriber_queue_size）；上限存在意义在于
+  # 防御异常前端反复重连耗尽内存。私网部署建议至少留 5× 实际并发用户数。
+  max_subscribers: 0
+
+# 限流（P2-15）：进程内 token bucket，默认禁用。
+# 私网部署的限流目的是"防内部脚本失控 / 防 LLM 配额误烧"，不是防外部攻击。
+# 启用后只对下列 routes 中匹配的路径生效；其它路径不受影响。
+# Argus 强制单 worker，进程内状态足够。
+rate_limit:
+  enabled: false
+  # 反代后部署时改 true，从 X-Forwarded-For 取真实客户端 IP。
+  # 直接暴露时务必保持 false，否则客户端可伪造 IP 绕过限流。
+  trust_forwarded: false
+  # path 支持 '*' 通配单个 path segment（不含 '/'）。
+  # 匹配按列表顺序首条命中，建议把更精确的规则放前面。
+  routes: []
+    # - name: create_task
+    #   method: POST
+    #   path: /tasks
+    #   requests_per_minute: 60   # 持续速率
+    #   burst: 20                 # 突发上限（同时也是桶容量）
+    # - name: start_task
+    #   method: POST
+    #   path: /tasks/*/start
+    #   requests_per_minute: 60
+    #   burst: 20
+    # - name: restart_task
+    #   method: POST
+    #   path: /tasks/*/restart
+    #   requests_per_minute: 60
+    #   burst: 20
+    # - name: test_model
+    #   method: POST
+    #   path: /config/models/test
+    #   requests_per_minute: 20
+    #   burst: 5
+    # - name: preview_prompt
+    #   method: POST
+    #   path: /prompts/preview
+    #   requests_per_minute: 30
+    #   burst: 10
+
+llm:
+  # SSRF 防御白名单：允许 /config/models/test 与持久化的模型配置指向哪些内网主机。
+  # 默认拒绝 RFC1918 私网（10.* / 172.16-31.* / 192.168.*）、链路本地（169.254.*，
+  # 含云 metadata 169.254.169.254）、保留段、组播；默认放行 localhost 与 127.0.0.1
+  # 以兼容本机 Ollama。如部署了内网 LLM（vLLM / 内部 Ollama 集群），把目标主机/IP
+  # 加入此列表。匹配大小写不敏感。
+  allow_private_hosts: []
+    # - 10.10.20.5
+    # - llm.internal.example.com
 
 observability:
   request_logging: true

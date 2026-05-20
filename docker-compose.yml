@@ -1,0 +1,67 @@
+# Argus 私网部署的最小 docker-compose 模板
+#
+# 启动：
+#   docker compose up -d --build
+#
+# 升级到新版本：
+#   git pull && docker compose build && docker compose up -d
+#
+# 备份数据库（在 host 上执行）：
+#   docker compose exec argus python scripts/backup_db.py --keep 7
+#
+# 注意：
+# - 显式 deploy.replicas: 1 配合 CLI 的多 worker 护栏，防止运维误调副本数
+#   导致任务双发、WebSocket 事件丢失（任务队列与 EventBus 是进程内）。
+# - config/ 通过 bind mount 让运维直接修改 server.yaml；
+#   .fernet_key 也写在这里（首次启动自动生成），切勿误删。
+# - outputs 用 named volume，避免 host 权限错乱。
+
+services:
+  argus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: argus:latest
+    container_name: argus
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      PYTHONUNBUFFERED: "1"
+      # 显式 1：与 CLI guard 一致，K8s 注入 WEB_CONCURRENCY > 1 会被拒启
+      WEB_CONCURRENCY: "1"
+      # 若内部 LLM 用域名访问 SSO，可在此追加：
+      # ARGUS_PROJECT_ROOT: "/app"
+
+    volumes:
+      # 配置目录：rw，因为首次启动会自动生成 config/.fernet_key
+      - ./config:/app/config
+      # 运行时产物：DB、screenshots、reports、traces、备份
+      - argus-outputs:/app/outputs
+
+    healthcheck:
+      # 与 Dockerfile HEALTHCHECK 一致；compose v2 health 透传到 stack 健康度
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import urllib.request, sys
+          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    # 单副本是硬约束（见上文）；以下显式声明便于 swarm / k8s 转换时一目了然
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+volumes:
+  argus-outputs:
+    name: argus-outputs

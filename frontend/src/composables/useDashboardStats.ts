@@ -7,7 +7,7 @@ import { errorMessage } from "../utils";
 /**
  * 仪表盘汇总统计。
  *
- * P1-13：从 `useConsoleApp` 中抽出 dashboard 相关的 ref / loader / computed，
+ * 从 `useConsoleApp` 中抽出 dashboard 相关的 ref / loader / computed，
  * 让 useConsoleApp 编排层更聚焦。stats 通过独立的 `/tasks/stats` 接口拉取，
  * 与分页 `allTasks` 解耦，避免被分页范围误导。
  *

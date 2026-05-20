@@ -227,7 +227,7 @@ def test_main_run_handles_generic_error_with_unified_format(monkeypatch, capsys)
     assert "详情：boom" in error_output
 
 
-# ─── P1-14: Prompt 扩展文件编码 / IO 错误友好提示 ──────────────────────────
+# ─── Prompt 扩展文件编码 / IO 错误友好提示 ──────────────────────────
 
 
 def test_read_prompt_extensions_utf8_success(tmp_path):

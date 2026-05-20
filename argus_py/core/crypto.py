@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -43,14 +44,50 @@ def _generate_key_file() -> None:
     key_path = Path(FERNET_KEY_FILE)
     key_path.parent.mkdir(parents=True, exist_ok=True)
     key_path.write_bytes(key)
+    _restrict_key_permissions(key_path)
+
+
+def _restrict_key_permissions(key_path: Path) -> None:
+    """收紧密钥文件权限到仅 owner 可读写。
+
+    POSIX 系统通过 ``chmod 0o600`` 阻止同机其他用户读取（私网部署常见多人
+    SSH 同机器的运维风险）。Windows 上 ``os.chmod`` 仅影响只读位，等同 no-op；
+    NTFS ACL 应由部署文档约束。
+    """
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError:
+        logger.warning(
+            "Fernet 密钥文件权限设置失败：%s",
+            key_path,
+            exc_info=True,
+        )
+
+
+def _warn_if_world_readable(key_path: Path) -> None:
+    """POSIX 下若 key 文件 group/other 可读则告警，提示风险。"""
+    if os.name != "posix":
+        return
+    try:
+        mode = key_path.stat().st_mode & 0o777
+    except OSError:
+        return
+    if mode & 0o077:
+        logger.warning(
+            "Fernet 密钥文件 %s 权限过宽 (0o%o)，建议执行 `chmod 600 %s`"
+            "，避免同机其他用户读取并解密所有 API Key。",
+            key_path,
+            mode,
+            key_path,
+        )
 
 
 def ensure_fernet_key(db_probe: DBProbe | None = None) -> None:
     """启动时校验 Fernet 密钥，避免运行时才发现 key 丢失。
 
     规则：
-    - key 存在：正常返回
-    - key 不存在且数据库无加密记录：自动生成新 key
+    - key 存在：正常返回（并对 POSIX 上权限过宽给出告警）
+    - key 不存在且数据库无加密记录：自动生成新 key（权限收紧 0o600）
     - key 不存在但数据库有加密记录：抛出 ConfigError
 
     ``db_probe`` 由上层注入（如 ``infra.db._DefaultDBProbe``），
@@ -58,6 +95,7 @@ def ensure_fernet_key(db_probe: DBProbe | None = None) -> None:
     """
     key_path = Path(FERNET_KEY_FILE)
     if key_path.exists():
+        _warn_if_world_readable(key_path)
         return
 
     if db_probe is not None and db_probe.has_encrypted_api_keys():

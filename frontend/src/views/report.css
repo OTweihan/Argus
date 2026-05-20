@@ -1,6 +1,6 @@
 /* ReportView 样式。
  *
- * P1-10：从 ReportView.vue 抽离出来，作为 SFC 的 ``<style scoped src="./report.css">``
+ * 从 ReportView.vue 抽离出来，作为 SFC 的 ``<style scoped src="./report.css">``
  * 引用，保持 scoped 隔离（Vue 仍按本文件所属组件 ID 加 data-v-xxx 属性），同时让
  * 大体量样式从 1300+ 行的单文件中独立出来，便于浏览器/IDE 局部加载与协作改动。
  *

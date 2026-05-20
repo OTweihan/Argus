@@ -14,12 +14,12 @@ from argus_py.utils.jsonx import to_jsonable
 
 logger = logging.getLogger(__name__)
 
-# P1-7：无 running loop 时降级 publish 的告警频控阈值。
-# 第一次出现立即 warn 一次；之后每 100 次 warn 一次。避免日志风暴又不淹没问题。
+# 无 running loop 时降级 publish 的告警频控阈值：第一次出现立即 warn 一次；
+# 之后每 100 次 warn 一次。避免日志风暴又不淹没问题。
 _NO_LOOP_WARN_FIRST = 1
 _NO_LOOP_WARN_EVERY = 100
 
-# P1-16：订阅队列满时 drop-oldest 的告警频控阈值（与 no-loop 一致）。
+# 订阅队列满时 drop-oldest 的告警频控阈值（与 no-loop 一致）。
 _OVERFLOW_WARN_FIRST = 1
 _OVERFLOW_WARN_EVERY = 100
 
@@ -60,6 +60,14 @@ class EventSubscription:
         await self.bus.unsubscribe(self)
 
 
+class EventBusSubscriberLimitError(RuntimeError):
+    """当前订阅者数已达 ``max_subscribers`` 上限，新订阅被拒绝。
+
+    用于让 WebSocket 路由识别"系统已满载"并返回 1013（service overload），
+    与正常业务错误（1008 policy violation）区分开。
+    """
+
+
 class EventBus:
     """内存事件总线，支持任务级和全局订阅。
 
@@ -83,15 +91,26 @@ class EventBus:
     ``events.subscriber_queue_size`` / ``events.history_limit`` 调整。
     """
 
-    def __init__(self, history_limit: int = 200, subscriber_queue_size: int = 100) -> None:
+    def __init__(
+        self,
+        history_limit: int = 200,
+        subscriber_queue_size: int = 100,
+        max_subscribers: int = 0,
+    ) -> None:
         self.history_limit = max(0, history_limit)
         self.subscriber_queue_size = max(1, subscriber_queue_size)
+        # max_subscribers=0 表示不限制（向后兼容）；>0 时作为全局并发订阅上限，
+        # 防止恶意/异常前端反复重连耗尽 asyncio.Queue 内存（每订阅独占一队列）。
+        self.max_subscribers = max(0, max_subscribers)
         self._sequence = 0
         self._global_subscribers: set[asyncio.Queue[TaskEvent]] = set()
         self._task_subscribers: dict[str, set[asyncio.Queue[TaskEvent]]] = defaultdict(set)
         self._history: deque[TaskEvent] = deque(maxlen=self.history_limit or None)
         self._lock = asyncio.Lock()
-        # P1-7：CLI / 同步路径在没有 event loop 时也能写入 history。
+        # 累计：因 max_subscribers 上限被拒的订阅次数。暴露给监控，方便发现
+        # "前端反复重连且容量需要调大" 或 "存在异常调用方" 的隐患。
+        self.rejected_subscriber_count = 0
+        # CLI / 同步路径在没有 event loop 时也能写入 history。
         # 此 lock 与 ``self._lock`` 是独立的：同步路径与 async 路径不会同时运行
         # （无 running loop 才走 sync 分支），但同步路径自己可能多线程，因此用
         # threading.Lock 保护 ``_sequence`` 与 ``_history``。
@@ -99,7 +118,7 @@ class EventBus:
         # 累计：无 loop 时降级到 sync 写 history 的事件数（不通知订阅者）。
         # 暴露给监控用，方便发现"有事件被产生但没人收到"的隐患。
         self.dropped_no_loop_count = 0
-        # P1-16：订阅队列满时 drop-oldest 丢弃的最旧事件累计数。
+        # 订阅队列满时 drop-oldest 丢弃的最旧事件累计数。
         # 与 dropped_no_loop_count 分开统计，因为根因不同：前者是慢消费者，
         # 后者是发布点找不到 loop。
         self.dropped_overflow_count = 0
@@ -111,7 +130,7 @@ class EventBus:
         - 无运行中的事件循环（CLI / 同步路径）：降级为只写 history（订阅者此时
           理论上不存在），同时累加 ``dropped_no_loop_count`` 并周期性 warn
 
-        旧实现 (P0)：无 loop 时静默 return，CLI 路径下的所有事件都被吞掉，导致
+        早期实现里无 loop 时静默 return，CLI 路径下的所有事件都被吞掉，导致
         审计闭环缺数据。现在至少 history 有记录，且可观测。
         """
         try:
@@ -193,9 +212,27 @@ class EventBus:
             replay: 是否回放 history 中已有事件。
             since_seq: 只回放 sequence > since_seq 的事件，用于重连补齐。
                       为 None 时回放全部 history。
+
+        Raises:
+            EventBusSubscriberLimitError: 当 ``max_subscribers>0`` 且当前订阅总数
+                已达上限。WebSocket 路由应捕获该异常并回 1013（service overload）
+                而不是 1008，让前端区分"限流可重试"和"业务规则拒绝"。
         """
         queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=self.subscriber_queue_size)
         async with self._lock:
+            if self.max_subscribers > 0:
+                current_total = len(self._global_subscribers) + sum(
+                    len(s) for s in self._task_subscribers.values()
+                )
+                if current_total >= self.max_subscribers:
+                    self.rejected_subscriber_count += 1
+                    logger.warning(
+                        "事件总线订阅已达上限，拒绝新订阅：current=%d max=%d rejected_total=%d",
+                        current_total,
+                        self.max_subscribers,
+                        self.rejected_subscriber_count,
+                    )
+                    raise EventBusSubscriberLimitError(f"事件订阅已达上限 {self.max_subscribers}")
             if task_id is None:
                 self._global_subscribers.add(queue)
             else:
@@ -263,7 +300,7 @@ class EventBus:
     def metrics(self) -> dict[str, int]:
         """返回 EventBus 关键运行指标，供 healthz / 监控接口聚合。
 
-        P1-16 新增：把分散的计数器集中暴露，避免上层直接探属性。字段含义：
+        把分散的计数器集中暴露，避免上层直接探属性。字段含义：
 
         - ``sequence``：自启动以来发布的事件总数；
         - ``history_size``：history 缓冲中当前事件数；
@@ -276,8 +313,10 @@ class EventBus:
             "history_size": len(self._history),
             "global_subscribers": len(self._global_subscribers),
             "task_subscribers": sum(len(s) for s in self._task_subscribers.values()),
+            "max_subscribers": self.max_subscribers,
             "dropped_no_loop_count": self.dropped_no_loop_count,
             "dropped_overflow_count": self.dropped_overflow_count,
+            "rejected_subscriber_count": self.rejected_subscriber_count,
         }
 
 

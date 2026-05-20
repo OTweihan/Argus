@@ -31,22 +31,35 @@ class ServerSettings:
     scheduler_shutdown_timeout_seconds: float = 5.0
     events_history_limit: int = 200
     events_subscriber_queue_size: int = 100
+    # 全局 WebSocket / 事件订阅数硬上限。0 = 不限（向后兼容）。
+    # 私网部署建议设为 200 左右，防止异常前端反复重连耗尽 asyncio.Queue 内存。
+    events_max_subscribers: int = 0
     observability_request_logging: bool = True
     observability_operation_logging: bool = True
     observability_audit_logging: bool = True
-    # P0-5：全局请求 body 大小上限（字节），0 表示不限制。默认 5MB 足以覆盖
-    # 正常 task 表单/prompt 预览/模型配置等场景，又能拦住误粘超大 payload。
+    # 全局请求 body 大小上限（字节），0 表示不限制。默认 5MB 足以覆盖正常 task
+    # 表单 / prompt 预览 / 模型配置等场景，又能拦住误粘超大 payload。
     request_max_body_size_bytes: int = 5 * 1024 * 1024
     llm_trace_enabled: bool = True
     llm_trace_max_size_mb: int = 50
     llm_trace_content_redact: bool = True
-    # P0-3：集中后台写入（默认开启）+ 启动期 TTL/总量清理。
-    # 旧版本同步 append 是性能与磁盘膨胀的双重风险：长期跑下来 outputs/traces
-    # 会无限增长。这里把写入排队给独立线程，并在 startup 清理过旧/超量文件。
+    # 集中后台写入（默认开启）+ 启动期 TTL / 总量清理。早期同步 append 是性能与
+    # 磁盘膨胀的双重风险：长期跑下来 outputs/traces 会无限增长。这里把写入排队给
+    # 独立线程，并在 startup 清理过旧 / 超量文件。
     llm_trace_async_writer: bool = True
     llm_trace_writer_queue_size: int = 10000
     llm_trace_retention_days: int = 7
     llm_trace_total_size_mb: int = 500
+    # SSRF 防御白名单：允许 LLM base_url 指向哪些内网/特殊主机
+    # 默认 localhost / 127.0.0.1 由 url_guard 内置放行（同机 Ollama 场景）
+    # 其余 RFC1918 私网、metadata 等默认拒绝
+    llm_allow_private_hosts: list[str] = field(default_factory=list)
+    # 限流：进程内 token bucket，默认禁用。
+    # rate_limit_routes 每项 dict 形如：
+    #   {name, method, path, requests_per_minute, burst}
+    rate_limit_enabled: bool = False
+    rate_limit_trust_forwarded: bool = False
+    rate_limit_routes: list[dict[str, Any]] = field(default_factory=list)
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -59,6 +72,10 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
     events = data.get("events") or {}
     observability = data.get("observability") or {}
     llm_trace = observability.get("llm_trace") or {}
+    llm = data.get("llm") or {}
+    rate_limit = data.get("rate_limit") or {}
+    rate_limit_routes_raw = rate_limit.get("routes") or []
+    rate_limit_routes = [item for item in rate_limit_routes_raw if isinstance(item, dict)]
     return ServerSettings(
         host=str(server.get("host", "127.0.0.1")),
         port=_as_int(server.get("port"), 8000, minimum=1),
@@ -76,6 +93,7 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         ),
         events_history_limit=_as_int(events.get("history_limit"), 200, minimum=0),
         events_subscriber_queue_size=_as_int(events.get("subscriber_queue_size"), 100, minimum=1),
+        events_max_subscribers=_as_int(events.get("max_subscribers"), 0, minimum=0),
         observability_request_logging=_as_bool(
             observability.get("request_logging"),
             True,
@@ -100,6 +118,10 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         llm_trace_writer_queue_size=_as_int(llm_trace.get("writer_queue_size"), 10000, minimum=64),
         llm_trace_retention_days=_as_int(llm_trace.get("retention_days"), 7, minimum=0),
         llm_trace_total_size_mb=_as_int(llm_trace.get("total_size_mb"), 500, minimum=0),
+        llm_allow_private_hosts=_as_str_list(llm.get("allow_private_hosts"), []),
+        rate_limit_enabled=_as_bool(rate_limit.get("enabled"), False),
+        rate_limit_trust_forwarded=_as_bool(rate_limit.get("trust_forwarded"), False),
+        rate_limit_routes=rate_limit_routes,
     )
 
 

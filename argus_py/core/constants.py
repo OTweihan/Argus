@@ -4,14 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus_py.core.paths import (
-    LOGS_DIR,
-    OUTPUT_DIR,
-    REPORTS_DIR,
-    SCREENSHOTS_DIR,
-    TEMP_DIR,
-)
-
 PROJECT_NAME = "Argus"
 PROJECT_TAGLINE = "Every bug has nowhere to hide."
 
@@ -36,18 +28,10 @@ def _resolve_version() -> str:
 
 PROJECT_VERSION = _resolve_version()
 
-DEFAULT_OUTPUT_DIR = str(OUTPUT_DIR)
-DEFAULT_LOGS_DIR = str(LOGS_DIR)
-DEFAULT_SCREENSHOTS_DIR = str(SCREENSHOTS_DIR)
-DEFAULT_REPORTS_DIR = str(REPORTS_DIR)
-DEFAULT_TEMP_DIR = str(TEMP_DIR)
-
+# DEFAULT_BROWSER / DEFAULT_HEADLESS 留在 core：除 browser 子树外，
+# argus_py.config.settings 也读它们填充全局 Settings.
 DEFAULT_BROWSER = "chromium"
 DEFAULT_HEADLESS = False
-DEFAULT_ACTION_TIMEOUT_MS = 10000
-DEFAULT_NAVIGATION_TIMEOUT_MS = 30000
-DEFAULT_PAGE_READY_TIMEOUT_MS = 8000
-DEFAULT_PAGE_SETTLE_MS = 500
 
 DEFAULT_LLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_LLM_MODEL = "qwen3.5-plus"
@@ -57,5 +41,3 @@ DEFAULT_LLM_MAX_RETRIES = 5
 
 DEFAULT_MAX_STEPS = 20
 DEFAULT_TASK_TIMEOUT_S = 300
-
-WS_KEEPALIVE_SECONDS = 30.0

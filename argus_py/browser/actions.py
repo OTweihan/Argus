@@ -12,16 +12,16 @@ from typing import Any, Literal, TypeVar
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from argus_py.browser.errors import BrowserActionError, BrowserError, BrowserTimeoutError
-from argus_py.browser.selectors import SelectorQuery, require_visible
-from argus_py.browser.snapshot import PageSnapshot, capture_snapshot
-from argus_py.core.constants import (
+from argus_py.browser.constants import (
     DEFAULT_ACTION_TIMEOUT_MS,
     DEFAULT_NAVIGATION_TIMEOUT_MS,
     DEFAULT_PAGE_READY_TIMEOUT_MS,
     DEFAULT_PAGE_SETTLE_MS,
     DEFAULT_SCREENSHOTS_DIR,
 )
+from argus_py.browser.errors import BrowserActionError, BrowserError, BrowserTimeoutError
+from argus_py.browser.selectors import SelectorQuery, require_visible
+from argus_py.browser.snapshot import PageSnapshot, capture_snapshot
 
 _T = TypeVar("_T")
 
