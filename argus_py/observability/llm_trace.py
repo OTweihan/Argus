@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from argus_py.core.ids import generate_id
@@ -213,14 +215,15 @@ class LLMTraceRecord:
         )
 
 
-def write_trace(record: LLMTraceRecord) -> None:
+async def write_trace(record: LLMTraceRecord) -> None:
     """追加一条追踪记录到 outputs/traces/{task_id}.jsonl。
 
     task_id 为空时跳过写入，避免产生无归属的 .jsonl 文件。
     受 server.yaml observability.llm_trace 和环境变量 LLM_TRACE_ENABLED / LLM_TRACE_MAX_SIZE_MB 控制。
 
     写入路径优先走 ``LLMTraceWriter`` 后台批量写入（已启动时）；未启动或
-    enqueue 失败时回退到本进程同步 append，保证 CLI / 测试场景兼容。
+    enqueue 失败时回退到 ``asyncio.to_thread`` 同步 append，保证 CLI / 测试场景兼容。
+    stat / asdict / 脱敏 / 序列化均在后台线程执行，不阻塞事件循环。
     """
     _ensure_config()
 
@@ -235,34 +238,35 @@ def write_trace(record: LLMTraceRecord) -> None:
     traces_dir = OUTPUT_DIR / "traces"
     file_path = traces_dir / f"{record.task_id}.jsonl"
 
-    # 大小上限检查仍在主线程做：和后台 writer 之间存在最长 0.5s 的竞争窗口，
-    # 实际只会让单个文件略微超过上限（误差量级 < 单批 32 条），可接受。
+    # 走后台 writer，stat 与序列化在 writer 线程执行。
+    from argus_py.observability.llm_trace_writer import get_trace_writer
+
+    writer = get_trace_writer()
+    if writer is not None and writer.enqueue(file_path, record):
+        return
+
+    # Fallback: 在 IO 线程中同步写入（CLI / 测试 / writer 队列满）。
+    await asyncio.to_thread(_sync_write_trace, file_path, record)
+
+
+def _sync_write_trace(file_path: Path, record: LLMTraceRecord) -> None:
+    """在 IO 线程中同步写入单条 trace（fallback 路径）。"""
+    _ensure_config()
+
     if (
         _LLM_TRACE_MAX_SIZE_BYTES is not None
         and _LLM_TRACE_MAX_SIZE_BYTES > 0
         and file_path.exists()
         and file_path.stat().st_size >= _LLM_TRACE_MAX_SIZE_BYTES
     ):
-        logger.warning(
-            "LLM 追踪文件超出大小上限 (%d MB)，跳过写入：%s",
-            _LLM_TRACE_MAX_SIZE_BYTES // (1024 * 1024),
-            file_path,
-        )
         return
 
     data = asdict(record)
-    redacted = redact_trace_data(data) if _LLM_TRACE_CONTENT_REDACT else data
-    line = json.dumps(redacted, ensure_ascii=False, default=str)
+    if _LLM_TRACE_CONTENT_REDACT:
+        data = redact_trace_data(data)
+    line = json.dumps(data, ensure_ascii=False, default=str)
 
-    # 走后台 writer，失败时再同步 fallback；后台 writer 自行处理 mkdir。
-    from argus_py.observability.llm_trace_writer import get_trace_writer
-
-    writer = get_trace_writer()
-    if writer is not None and writer.enqueue(file_path, line):
-        return
-
-    # Fallback: 单条同步 append（CLI / 测试 / writer 队列满）。
-    traces_dir.mkdir(parents=True, exist_ok=True)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "a", encoding="utf-8") as f:
         offset = f.tell()
         f.write(line + "\n")

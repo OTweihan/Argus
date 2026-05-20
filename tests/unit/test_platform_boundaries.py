@@ -8,7 +8,7 @@ from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
 from argus_py.api.schemas.config import ModelConfigUpdateRequest
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
-from argus_py.core.exceptions import TaskError
+from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.infra.queue import TaskQueue
 from argus_py.llm.providers import default_base_url
 from argus_py.project.service import ProjectService
@@ -218,8 +218,9 @@ async def test_list_task_events_returns_timeline(tmp_path):
     """GET /tasks/{id}/events 返回已持久化的时间线事件。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "events.db"))
     task = task_service.create_task(goal="事件测试", start_url="https://example.com")
-    task_service.emit_timeline(task.task_id, "start", "task", summary="开始")
-    task_service.emit_timeline(task.task_id, "complete", "task", summary="完成")
+    await task_service.emit_timeline(task.task_id, "start", "task", summary="开始")
+    await task_service.emit_timeline(task.task_id, "complete", "task", summary="完成")
+    await task_service.flush_events()
 
     result = await event_routes.list_task_events(
         task.task_id, query=task_service.query, timeline=task_service.timeline
@@ -236,11 +237,10 @@ async def test_list_task_events_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "events404.db"))
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TaskNotFoundError):
         await event_routes.list_task_events(
             "no-such", query=task_service.query, timeline=task_service.timeline
         )
-    assert exc_info.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -273,9 +273,8 @@ async def test_list_llm_traces_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "llm404.db"))
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TaskNotFoundError):
         await event_routes.list_llm_traces("no-such", query=task_service.query)
-    assert exc_info.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -344,9 +343,8 @@ async def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
 async def test_get_trace_detail_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "trace_404.db"))
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TaskNotFoundError):
         await event_routes.get_trace_detail("no-such", "trc-001", query=task_service.query)
-    assert exc_info.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -388,8 +386,7 @@ async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
 async def test_debug_bundle_404_for_missing_task(tmp_path):
     """不存在的 task_id 返回 404。"""
     task_service = TaskService(TaskSQLiteStorage(tmp_path / "debug_404.db"))
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TaskNotFoundError):
         await event_routes.download_debug_bundle(
             "no-such", query=task_service.query, timeline=task_service.timeline
         )
-    assert exc_info.value.status_code == 404

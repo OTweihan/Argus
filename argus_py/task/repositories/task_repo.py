@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from argus_py.core.constants import TASK_SEARCH_MIN_LENGTH
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.db import ConnectFn, with_conn, with_tx
 from argus_py.task.models import Task
 from argus_py.task.repositories.mappers import row_to_task, task_to_row
+
+_KEYWORD_FIELDS = ("name", "goal", "task_id", "start_url", "result_summary", "error_message")
+
+
+def _sql_keyword_where(q: str) -> tuple[str, list[str]]:
+    """返回 (where_clause, params) 用于 6 字段 LIKE 搜索。"""
+    pattern = f"%{q}%"
+    clause = "(" + " OR ".join(f"{f} LIKE ?" for f in _KEYWORD_FIELDS) + ")"
+    return clause, [pattern] * len(_KEYWORD_FIELDS)
 
 
 class TaskRepository:
@@ -55,6 +65,14 @@ class TaskRepository:
         with with_conn(self._connect) as conn:
             row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row
+
+    def get_report_path(self, task_id: str) -> str | None:
+        """窄查询：只返回 report_path 字段。"""
+        with with_conn(self._connect) as conn:
+            row = conn.execute(
+                "SELECT report_path FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        return row["report_path"] if row else None
 
     def get_task_status(self, task_id: str) -> str | None:
         """只查询任务状态字段，不加载日志/发现项。"""
@@ -191,11 +209,10 @@ class TaskRepository:
                 where_clauses.append("project_id = ?")
                 params.append(project_id)
             if q:
-                pattern = f"%{q}%"
-                where_clauses.append(
-                    "(name LIKE ? OR goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
-                )
-                params.extend([pattern] * 6)
+                if len(q) >= TASK_SEARCH_MIN_LENGTH:
+                    clause, kw_params = _sql_keyword_where(q)
+                    where_clauses.append(clause)
+                    params.extend(kw_params)
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
             row = conn.execute(query, params).fetchone()
@@ -226,11 +243,10 @@ class TaskRepository:
                 where_clauses.append("project_id = ?")
                 params.append(project_id)
             if q:
-                pattern = f"%{q}%"
-                where_clauses.append(
-                    "(name LIKE ? OR goal LIKE ? OR task_id LIKE ? OR start_url LIKE ? OR result_summary LIKE ? OR error_message LIKE ?)"
-                )
-                params.extend([pattern] * 6)
+                if len(q) >= TASK_SEARCH_MIN_LENGTH:
+                    clause, kw_params = _sql_keyword_where(q)
+                    where_clauses.append(clause)
+                    params.extend(kw_params)
 
             query = "SELECT tasks.*, COUNT(*) OVER() AS total_count FROM tasks"
             if where_clauses:

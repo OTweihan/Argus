@@ -8,7 +8,7 @@ from argus_py.core.enums import FindingSeverity, FindingType, StepResult
 from argus_py.redaction import redact_finding_entry, redact_log_entry
 from argus_py.task._base import TaskEventPublisher, _StorageEventBase
 from argus_py.task.models import Finding, Task, TaskLog
-from argus_py.task.storage import TaskSQLiteStorage
+from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
 
 __all__ = ["TaskEventPublisher", "TaskLogService"]
@@ -16,6 +16,16 @@ __all__ = ["TaskEventPublisher", "TaskLogService"]
 
 class TaskLogService(_StorageEventBase):
     """管理任务步骤日志和问题记录。"""
+
+    _LOG_BUFFER_THRESHOLD = 10
+
+    def __init__(
+        self,
+        storage: TaskFileStorage | TaskSQLiteStorage,
+        event_publisher: TaskEventPublisher | None = None,
+    ) -> None:
+        super().__init__(storage, event_publisher)
+        self._pending_logs: list[tuple[str, TaskLog]] = []
 
     def append_log(
         self,
@@ -48,10 +58,7 @@ class TaskLogService(_StorageEventBase):
         )
         resolved.logs.append(log)
         resolved.current_step = max(resolved.current_step, next_step)
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.append_log(resolved.task_id, log)
-        else:
-            self.storage.save(resolved)
+        self._pending_logs.append((resolved.task_id, log))
         self._publish(
             "task.log",
             resolved,
@@ -60,7 +67,21 @@ class TaskLogService(_StorageEventBase):
                 "currentStep": resolved.current_step,
             },
         )
+        # FileStorage 无增量追加，立即保存全量 task；SQLite 走缓冲批量写入
+        if not isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.save(resolved)
+        elif len(self._pending_logs) >= self._LOG_BUFFER_THRESHOLD:
+            self.flush_logs()
         return resolved
+
+    def flush_logs(self) -> None:
+        """将缓冲的日志批量写入存储（单事务 executemany）。"""
+        if not self._pending_logs:
+            return
+        entries = self._pending_logs[:]
+        self._pending_logs.clear()
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.append_log_batch(entries)
 
     def append_finding(
         self,

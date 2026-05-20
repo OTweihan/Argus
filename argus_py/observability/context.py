@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import Any
@@ -14,24 +15,44 @@ _task_id: ContextVar[str | None] = ContextVar("argus_task_id", default=None)
 _operation: ContextVar[str | None] = ContextVar("argus_operation", default=None)
 _actor: ContextVar[str | None] = ContextVar("argus_actor", default=None)
 
+# 进程级 IO 线程池（由容器/ lifespan 设置）。None = 使用 event loop 默认 executor。
+_io_executor: ThreadPoolExecutor | None = None
+
+
+def set_io_executor(executor: ThreadPoolExecutor) -> None:
+    """设置全局 IO 线程池。"""
+    global _io_executor
+    _io_executor = executor
+
+
+def io_executor_stats() -> dict[str, int]:
+    """返回 IO 线程池排队深度。"""
+    if _io_executor is None:
+        return {"queued": -1}
+    return {"queued": _io_executor._work_queue.qsize()}
+
 
 def new_request_id() -> str:
     """生成请求链路 ID。"""
     return f"req_{uuid4().hex}"
 
 
-async def run_in_thread(func, *args, **kwargs):
+async def run_in_thread(func: Callable[..., object], *args: Any, **kwargs: Any) -> Any:
     """在线程池中执行 func，传播 request 上下文（request_id / task_id 等）。
 
-    ``asyncio.to_thread`` 不会自动复制 ``ContextVar`` 到线程池线程，
-    导致线程内日志取不到 ``request_id``。本函数在切换前捕获当前上下文，
-    在线程入口处通过 ``bind_context`` 恢复。
+    使用专用 IO 线程池（``io_executor`` 非空时），否则回退到 event loop 默认 executor。
+    线程切换前捕获当前上下文，在目标线程通过 ``bind_context`` 恢复。
     """
     ctx = current_context()
-    return await asyncio.to_thread(_run_with_context, ctx, func, *args, **kwargs)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _io_executor, lambda: _run_with_context(ctx, func, *args, **kwargs)
+    )
 
 
-def _run_with_context(ctx: dict[str, str | None], func, *args, **kwargs) -> object:
+def _run_with_context(
+    ctx: dict[str, str | None], func: Callable[..., object], *args: Any, **kwargs: Any
+) -> object:
     with bind_context(**ctx):
         return func(*args, **kwargs)
 

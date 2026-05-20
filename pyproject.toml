@@ -109,6 +109,10 @@ ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 
+[[tool.mypy.overrides]]
+module = ["argus_py.api.*", "argus_py.task.*", "argus_py.llm.*", "argus_py.observability.*"]
+disallow_untyped_defs = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

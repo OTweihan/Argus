@@ -77,7 +77,6 @@ repos:
         language: system
         types: [python]
         require_serial: true
-        args: ["--ignore-missing-imports"]
 
       - id: sensitive-file-check
         name: 检查敏感文件

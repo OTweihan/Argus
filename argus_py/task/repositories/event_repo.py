@@ -21,19 +21,31 @@ class EventRepository:
 
         if not isinstance(event, TimelineEvent):
             return
+        self.append_batch([event])
+
+    def append_batch(self, events: list[Any]) -> None:
+        """批量追加时间线事件，单事务 executemany。"""
+        from argus_py.task.event import TimelineEvent
+
+        entries = [e for e in events if isinstance(e, TimelineEvent)]
+        if not entries:
+            return
         with with_tx(self._connect) as conn:
-            conn.execute(
+            conn.executemany(
                 "INSERT OR IGNORE INTO task_events (event_id, task_id, event_type, phase, step_number, summary, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    event.event_id,
-                    event.task_id,
-                    event.event_type,
-                    event.phase,
-                    event.step_number,
-                    event.summary,
-                    json.dumps(event.data, ensure_ascii=False),
-                    event.created_at.isoformat(),
-                ),
+                [
+                    (
+                        event.event_id,
+                        event.task_id,
+                        event.event_type,
+                        event.phase,
+                        event.step_number,
+                        event.summary,
+                        json.dumps(event.data, ensure_ascii=False),
+                        event.created_at.isoformat(),
+                    )
+                    for event in entries
+                ],
             )
 
     def load(self, task_id: str) -> list[Any]:

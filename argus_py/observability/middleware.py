@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from time import perf_counter
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -47,7 +47,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             tuple(quiet_prefixes) if quiet_prefixes is not None else DEFAULT_QUIET_PREFIXES
         )
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         request_id = request.headers.get("x-request-id") or new_request_id()
         started = perf_counter()
         with bind_context(request_id=request_id, operation=EVENT_HTTP_REQUEST):

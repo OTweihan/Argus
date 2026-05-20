@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_py.observability.llm_trace import LLMTraceRecord
 from argus_py.observability.llm_trace_writer import (
     LLMTraceWriter,
     cleanup_old_traces,
@@ -36,10 +37,10 @@ class TestLLMTraceWriter:
         writer.start()
         target = tmp_path / "trace.jsonl"
         for i in range(5):
-            assert writer.enqueue(target, json.dumps({"i": i})) is True
+            assert writer.enqueue(target, LLMTraceRecord(trace_id=f"trc-{i}")) is True
         writer.stop(timeout=2.0)
         records = _read_jsonl(target)
-        assert [r["i"] for r in records] == [0, 1, 2, 3, 4]
+        assert [r["trace_id"] for r in records] == [f"trc-{i}" for i in range(5)]
         assert writer.written_count == 5
 
     def test_batch_threshold_flush(self, tmp_path: Path) -> None:
@@ -48,7 +49,7 @@ class TestLLMTraceWriter:
         writer.start()
         target = tmp_path / "trace.jsonl"
         for i in range(40):
-            writer.enqueue(target, json.dumps({"i": i}))
+            writer.enqueue(target, LLMTraceRecord(trace_id=f"trc-{i}", task_id=f"t{i}"))
         # 等阈值触发的批量 flush 落盘
         time.sleep(0.2)
         writer.stop(timeout=2.0)
@@ -57,12 +58,12 @@ class TestLLMTraceWriter:
 
     def test_queue_full_drops_records(self, tmp_path: Path) -> None:
         """队列满时应返回 False 并累加 dropped_count，不阻塞调用方。"""
-        # 用最小队列 + 不启动 worker，使 enqueue 立刻把队列填满
         writer = LLMTraceWriter(max_queue_size=2)
         target = tmp_path / "trace.jsonl"
-        assert writer.enqueue(target, "a") is True
-        assert writer.enqueue(target, "b") is True
-        assert writer.enqueue(target, "c") is False
+        rec = LLMTraceRecord()
+        assert writer.enqueue(target, rec) is True
+        assert writer.enqueue(target, rec) is True
+        assert writer.enqueue(target, rec) is False
         assert writer.dropped_count == 1
 
     def test_stop_is_idempotent(self, tmp_path: Path) -> None:
@@ -145,7 +146,7 @@ class TestCleanupOldTraces:
 class TestWriteTraceFallback:
     """write_trace 在 writer 未启动时应同步 fallback 写入。"""
 
-    def test_sync_fallback_when_writer_disabled(
+    async def test_sync_fallback_when_writer_disabled(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """无 writer 时直接 append 文件，行为与旧实现一致。"""
@@ -164,7 +165,7 @@ class TestWriteTraceFallback:
             phase="planner",
             event=llm_trace.EVENT_LLM_STARTED,
         )
-        llm_trace.write_trace(record)
+        await llm_trace.write_trace(record)
         # reset 一次，下个测试拿到干净状态
         llm_trace.reset_config_for_tests()
 

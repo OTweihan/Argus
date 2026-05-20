@@ -11,7 +11,7 @@ from argus_py.api.schemas import HealthResponse, MetricsResponse, ReadinessRespo
 from argus_py.core.constants import PROJECT_NAME, PROJECT_VERSION
 from argus_py.infra.db import DEFAULT_DB_PATH, connect
 from argus_py.infra.worker import TaskWorker
-from argus_py.observability.context import run_in_thread
+from argus_py.observability.context import io_executor_stats, run_in_thread
 
 router = APIRouter(tags=["health"])
 
@@ -56,12 +56,14 @@ async def metrics(
     running_tasks = counts["active"]
     queued_tasks = counts["queued"]
 
+    io_stats = io_executor_stats()
     return MetricsResponse(
         event_bus=eb.metrics() if eb else {},
         total_tasks=await run_in_thread(query_svc.count_tasks),
         running_tasks=running_tasks,
         queued_tasks=queued_tasks,
         worker_alive=worker.is_started,
+        io_executor_queued=io_stats["queued"],
     )
 
 

@@ -7,13 +7,16 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.background import BackgroundTask
 
-from argus_py.api.dependencies import get_task_query_service, get_task_timeline_service
+from argus_py.api.dependencies import (
+    get_task_query_service,
+    get_task_timeline_service,
+    require_task_exists,
+)
 from argus_py.api.params import TaskIdPath
 from argus_py.api.schemas.llm_trace import LLMTraceResponse
-from argus_py.core.exceptions import TaskError
 from argus_py.observability.context import run_in_thread
 from argus_py.task.event import TaskTimelineService
 from argus_py.task.query import TaskQueryService
@@ -32,10 +35,9 @@ async def list_task_events(
     task_id: TaskIdPath,
     query: TaskQueryService = Depends(get_task_query_service),
     timeline: TaskTimelineService = Depends(get_task_timeline_service),
-):
+) -> list[dict[str, Any]]:
     """返回任务的执行时间线事件。"""
-    if not await run_in_thread(query.task_exists, task_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+    await require_task_exists(task_id, query)
     events = await run_in_thread(timeline.list_by_task, task_id)
     return [e.to_dict() for e in events]
 
@@ -43,14 +45,13 @@ async def list_task_events(
 @router.get("/{task_id}/llm-traces")
 async def list_llm_traces(
     task_id: TaskIdPath,
+    query: TaskQueryService = Depends(get_task_query_service),
     skip: int = 0,
     limit: int = 50,
     trace_id: str | None = None,
-    query: TaskQueryService = Depends(get_task_query_service),
-):
+) -> list[dict[str, Any]]:
     """返回任务的 LLM 调用追踪记录。"""
-    if not await run_in_thread(query.task_exists, task_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+    await require_task_exists(task_id, query)
     records = await run_in_thread(query.list_llm_traces, task_id, skip, limit, trace_id)
     return [_serialize_trace(r) for r in records]
 
@@ -60,10 +61,9 @@ async def get_trace_detail(
     task_id: TaskIdPath,
     trace_id: str = Path(pattern=r"^[a-zA-Z0-9_-]+$"),
     query: TaskQueryService = Depends(get_task_query_service),
-):
+) -> dict[str, Any]:
     """返回单条 LLM 调用的完整追踪记录。"""
-    if not await run_in_thread(query.task_exists, task_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+    await require_task_exists(task_id, query)
     record = await run_in_thread(query.get_llm_trace_detail, task_id, trace_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="追踪记录不存在")
@@ -75,12 +75,9 @@ async def download_debug_bundle(
     task_id: TaskIdPath,
     query: TaskQueryService = Depends(get_task_query_service),
     timeline: TaskTimelineService = Depends(get_task_timeline_service),
-):
+) -> Response:
     """下载任务调试包（task.json + traces + 事件 + 截图）。"""
-    try:
-        task = await run_in_thread(query.get_task, task_id)
-    except TaskError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+    task = await run_in_thread(query.get_task, task_id)
 
     events = await run_in_thread(timeline.list_by_task, task_id)
     events_dicts = [e.to_dict() for e in events]

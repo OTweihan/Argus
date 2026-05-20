@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -26,6 +27,16 @@ from argus_py.llm.models import ChatCompletionRequest, ChatMessage, ChatResponse
 from argus_py.llm.retry import RetryConfig, retry_async
 
 logger = logging.getLogger(__name__)
+
+
+# 进程级 LLM 并发信号量（由容器在 startup 设置）。None = 不限。
+_llm_semaphore: asyncio.Semaphore | None = None
+
+
+def set_llm_semaphore(sem: asyncio.Semaphore) -> None:
+    """设置全局 LLM 并发信号量。"""
+    global _llm_semaphore
+    _llm_semaphore = sem
 
 
 class LLMClient:
@@ -115,7 +126,9 @@ class LLMClient:
     async def __aenter__(self) -> "LLMClient":
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object
+    ) -> None:
         await self.aclose()
 
     async def chat(
@@ -130,6 +143,22 @@ class LLMClient:
         _trace_ctx — 若传入，会在调用完成后补充底层信息
         （model、base_url_host、latency_ms、token_usage、error）。
         """
+        sem = _llm_semaphore
+        if sem is not None:
+            await sem.acquire()
+        try:
+            return await self._chat(messages, response_format, extra_body, _trace_ctx)
+        finally:
+            if sem is not None:
+                sem.release()
+
+    async def _chat(
+        self,
+        messages: list[ChatMessage],
+        response_format: dict[str, Any] | None = None,
+        extra_body: dict[str, Any] | None = None,
+        _trace_ctx: dict[str, Any] | None = None,
+    ) -> ChatResponse:
         request = ChatCompletionRequest(
             model=self.model or DEFAULT_LLM_MODEL,
             messages=messages,

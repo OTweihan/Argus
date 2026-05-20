@@ -30,3 +30,4 @@ class MetricsResponse(ApiModel):
     running_tasks: int
     queued_tasks: int
     worker_alive: bool
+    io_executor_queued: int = -1

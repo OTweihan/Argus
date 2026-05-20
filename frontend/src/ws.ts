@@ -1,7 +1,9 @@
 import type { TaskEvent } from "./types";
 
 type EventHandler = (event: TaskEvent) => void;
-type StatusHandler = (status: "connected" | "disconnected" | "error" | "reconnecting") => void;
+type StatusHandler = (
+  status: "connected" | "disconnected" | "error" | "reconnecting" | "reconnected",
+) => void;
 
 // 后端 WS_KEEPALIVE_SECONDS = 30，前端以 2.5 倍间隔判定断连
 const HEARTBEAT_TIMEOUT_MS = 30_000 * 2.5;
@@ -71,8 +73,9 @@ export class TaskEventStream {
 
     socket.addEventListener("open", () => {
       if (this.socket !== socket || this.endpoint !== endpoint) return;
+      const isReconnect = this.reconnectAttempt > 0;
       this.reconnectAttempt = 0;
-      this.emitStatus("connected");
+      this.emitStatus(isReconnect ? "reconnected" : "connected");
     });
     socket.addEventListener("close", () => {
       if (this.socket === socket) {
@@ -117,7 +120,9 @@ export class TaskEventStream {
     this.socket = null;
   }
 
-  private emitStatus(status: "connected" | "disconnected" | "error" | "reconnecting"): void {
+  private emitStatus(
+    status: "connected" | "disconnected" | "error" | "reconnecting" | "reconnected",
+  ): void {
     this.statusHandlers.forEach((handler) => handler(status));
   }
 

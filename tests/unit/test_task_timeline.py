@@ -31,11 +31,14 @@ def service(store: TaskSQLiteStorage) -> TaskTimelineService:
 class TestEmit:
     """emit() 方法。"""
 
-    def test_emit_creates_event_with_fields(
+    @pytest.mark.asyncio
+    async def test_emit_creates_event_with_fields(
         self, service: TaskTimelineService, store: TaskSQLiteStorage
     ) -> None:
         _make_task_in_db(store, "t1")
-        event = service.emit("t1", "planner_start", "planner", step_number=1, summary="开始规划")
+        event = await service.emit(
+            "t1", "planner_start", "planner", step_number=1, summary="开始规划"
+        )
         assert event.task_id == "t1"
         assert event.event_type == "planner_start"
         assert event.phase == "planner"
@@ -43,30 +46,38 @@ class TestEmit:
         assert event.summary == "开始规划"
         assert event.event_id.startswith("evt-")
 
-    def test_emit_persists_to_storage(
+    @pytest.mark.asyncio
+    async def test_emit_persists_to_storage(
         self, service: TaskTimelineService, store: TaskSQLiteStorage
     ) -> None:
         _make_task_in_db(store, "t1")
-        service.emit("t1", "action", "executor", summary="点击按钮")
+        await service.emit("t1", "action", "executor", summary="点击按钮")
+        await service.flush_events()
         events = store.load_events("t1")
         assert len(events) == 1
         assert events[0].event_type == "action"
 
-    def test_emit_with_data(self, service: TaskTimelineService, store: TaskSQLiteStorage) -> None:
+    @pytest.mark.asyncio
+    async def test_emit_with_data(
+        self, service: TaskTimelineService, store: TaskSQLiteStorage
+    ) -> None:
         _make_task_in_db(store, "t1")
         data = {"stepCount": 3, "planSummary": "测试"}
-        service.emit("t1", "planner_result", "planner", step_number=2, data=data)
+        await service.emit("t1", "planner_result", "planner", step_number=2, data=data)
+        await service.flush_events()
         events = store.load_events("t1")
         assert events[0].data == data
         assert events[0].step_number == 2
 
-    def test_emit_multiple_events_order(
+    @pytest.mark.asyncio
+    async def test_emit_multiple_events_order(
         self, service: TaskTimelineService, store: TaskSQLiteStorage
     ) -> None:
         _make_task_in_db(store, "t1")
-        service.emit("t1", "start", "task", summary="开始")
-        service.emit("t1", "action", "executor", step_number=1, summary="动作1")
-        service.emit("t1", "complete", "task", summary="完成")
+        await service.emit("t1", "start", "task", summary="开始")
+        await service.emit("t1", "action", "executor", step_number=1, summary="动作1")
+        await service.emit("t1", "complete", "task", summary="完成")
+        await service.flush_events()
         events = store.load_events("t1")
         assert [e.event_type for e in events] == ["start", "action", "complete"]
 
@@ -74,7 +85,8 @@ class TestEmit:
 class TestPublish:
     """emit() 通过 event_publisher 发布。"""
 
-    def test_publisher_called_with_correct_args(self, store: TaskSQLiteStorage) -> None:
+    @pytest.mark.asyncio
+    async def test_publisher_called_with_correct_args(self, store: TaskSQLiteStorage) -> None:
         received: list[tuple[str, str, dict[str, Any]]] = []
 
         def publisher(event_type: str, task_id: str, data: dict[str, Any]) -> None:
@@ -82,7 +94,7 @@ class TestPublish:
 
         svc = TaskTimelineService(store, event_publisher=publisher)
         _make_task_in_db(store, "t1")
-        svc.emit(
+        await svc.emit(
             "t1",
             "planner_start",
             "planner",
@@ -101,14 +113,16 @@ class TestPublish:
         assert data["summary"] == "开始规划"
         assert data["data"] == {"goal": "测试"}
 
-    def test_publisher_not_called_when_none(
+    @pytest.mark.asyncio
+    async def test_publisher_not_called_when_none(
         self, service: TaskTimelineService, store: TaskSQLiteStorage
     ) -> None:
         _make_task_in_db(store, "t1")
         # should not raise
-        service.emit("t1", "start", "task", summary="无发布器")
+        await service.emit("t1", "start", "task", summary="无发布器")
 
-    def test_publisher_called_multiple_times(self, store: TaskSQLiteStorage) -> None:
+    @pytest.mark.asyncio
+    async def test_publisher_called_multiple_times(self, store: TaskSQLiteStorage) -> None:
         count = 0
 
         def publisher(event_type: str, task_id: str, data: dict[str, Any]) -> None:
@@ -117,12 +131,13 @@ class TestPublish:
 
         svc = TaskTimelineService(store, event_publisher=publisher)
         _make_task_in_db(store, "t1")
-        svc.emit("t1", "start", "task")
-        svc.emit("t1", "action", "executor")
-        svc.emit("t1", "complete", "task")
+        await svc.emit("t1", "start", "task")
+        await svc.emit("t1", "action", "executor")
+        await svc.emit("t1", "complete", "task")
         assert count == 3
 
-    def test_publisher_receives_task_timeline_prefix(self, store: TaskSQLiteStorage) -> None:
+    @pytest.mark.asyncio
+    async def test_publisher_receives_task_timeline_prefix(self, store: TaskSQLiteStorage) -> None:
         received_types: list[str] = []
 
         def publisher(event_type: str, task_id: str, data: dict[str, Any]) -> None:
@@ -130,9 +145,9 @@ class TestPublish:
 
         svc = TaskTimelineService(store, event_publisher=publisher)
         _make_task_in_db(store, "t1")
-        svc.emit("t1", "planner_start", "planner")
-        svc.emit("t1", "action", "executor")
-        svc.emit("t1", "complete", "task")
+        await svc.emit("t1", "planner_start", "planner")
+        await svc.emit("t1", "action", "executor")
+        await svc.emit("t1", "complete", "task")
 
         assert received_types == [
             "task.timeline.planner",
@@ -144,38 +159,50 @@ class TestPublish:
 class TestListAndDelete:
     """list_by_task / delete_by_task。"""
 
-    def test_list_by_task(self, service: TaskTimelineService, store: TaskSQLiteStorage) -> None:
+    @pytest.mark.asyncio
+    async def test_list_by_task(
+        self, service: TaskTimelineService, store: TaskSQLiteStorage
+    ) -> None:
         _make_task_in_db(store, "t1")
-        service.emit("t1", "start", "task")
-        service.emit("t1", "complete", "task")
+        await service.emit("t1", "start", "task")
+        await service.emit("t1", "complete", "task")
+        await service.flush_events()
         events = service.list_by_task("t1")
         assert len(events) == 2
 
     def test_list_empty(self, service: TaskTimelineService) -> None:
         assert service.list_by_task("no-such") == []
 
-    def test_list_isolated_by_task(
+    @pytest.mark.asyncio
+    async def test_list_isolated_by_task(
         self, service: TaskTimelineService, store: TaskSQLiteStorage
     ) -> None:
         _make_task_in_db(store, "t1")
         _make_task_in_db(store, "t2")
-        service.emit("t1", "start", "task")
-        service.emit("t2", "start", "task")
+        await service.emit("t1", "start", "task")
+        await service.emit("t2", "start", "task")
+        await service.flush_events()
         assert len(service.list_by_task("t1")) == 1
         assert len(service.list_by_task("t2")) == 1
 
-    def test_delete_by_task(self, service: TaskTimelineService, store: TaskSQLiteStorage) -> None:
+    @pytest.mark.asyncio
+    async def test_delete_by_task(
+        self, service: TaskTimelineService, store: TaskSQLiteStorage
+    ) -> None:
         _make_task_in_db(store, "t1")
-        service.emit("t1", "start", "task")
+        await service.emit("t1", "start", "task")
+        await service.flush_events()
         service.delete_by_task("t1")
         assert service.list_by_task("t1") == []
 
-    def test_delete_isolated_by_task(
+    @pytest.mark.asyncio
+    async def test_delete_isolated_by_task(
         self, service: TaskTimelineService, store: TaskSQLiteStorage
     ) -> None:
         _make_task_in_db(store, "t1")
         _make_task_in_db(store, "t2")
-        service.emit("t1", "start", "task")
-        service.emit("t2", "start", "task")
+        await service.emit("t1", "start", "task")
+        await service.emit("t2", "start", "task")
+        await service.flush_events()
         service.delete_by_task("t1")
         assert len(service.list_by_task("t2")) == 1

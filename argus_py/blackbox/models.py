@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S
 from argus_py.core.enums import ActionType
 
 
@@ -59,7 +60,7 @@ class BlackboxTaskInput:
 
     goal: str
     start_url: str
-    max_steps: int = 20
-    timeout_seconds: int = 300
+    max_steps: int = DEFAULT_MAX_STEPS
+    timeout_seconds: int = DEFAULT_TASK_TIMEOUT_S
     capture_screenshots: bool = True
     prompt_extensions: dict[str, str] = field(default_factory=dict)

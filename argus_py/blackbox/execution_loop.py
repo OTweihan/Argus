@@ -69,7 +69,9 @@ class BlackboxExecutionLoop:
         while executed_steps < task_input.max_steps:
             # ── 暂停/取消检测 ──
             if await self._check_cancelled(task):
-                return self.finalizer.finalize(self.service.get_latest_task(task), owns_status)
+                return await self.finalizer.finalize(
+                    self.service.get_latest_task(task), owns_status
+                )
 
             # ── 规划 ──
             if not sequence.steps:
@@ -92,9 +94,11 @@ class BlackboxExecutionLoop:
 
                 # 每个步骤前检查取消，避免长 batch 中停止不响应。
                 if await self._check_cancelled(task):
-                    return self.finalizer.finalize(self.service.get_latest_task(task), owns_status)
+                    return await self.finalizer.finalize(
+                        self.service.get_latest_task(task), owns_status
+                    )
 
-                self.events.action(
+                await self.events.action(
                     task.task_id,
                     executed_steps,
                     action_step.action.value,
@@ -139,7 +143,7 @@ class BlackboxExecutionLoop:
                 continue
 
             # ── 评估 ──
-            self.events.evaluator_start(task.task_id, executed_steps, task.goal)
+            await self.events.evaluator_start(task.task_id, executed_steps, task.goal)
 
             evaluation = await evaluator.evaluate(
                 task.goal,
@@ -147,7 +151,7 @@ class BlackboxExecutionLoop:
                 history=self.finalizer.history(task),
             )
 
-            self.events.evaluator_result(
+            await self.events.evaluator_result(
                 task.task_id,
                 executed_steps,
                 evaluation.success,
@@ -156,20 +160,25 @@ class BlackboxExecutionLoop:
                 len(evaluation.findings),
             )
 
+            await self.events.flush()
+
             task = self.finalizer.append_evaluation(task, evaluation)
             if evaluation.completed:
                 task.result_summary = evaluation.reason
                 if evaluation.success:
-                    self.events.complete(task.task_id)
-                    return self.finalizer.finish_success(task, owns_status)
+                    await self.events.complete(task.task_id)
+                    await self.events.flush()
+                    return await self.finalizer.finish_success(task, owns_status)
 
-                self.events.fail(task.task_id, evaluation.reason or "评估判定失败")
+                await self.events.fail(task.task_id, evaluation.reason or "评估判定失败")
+                await self.events.flush()
                 raise TaskError(evaluation.reason or "黑盒任务已完成，但评估结果为失败。")
 
             # 把评估器的 next_action 暂存为下一次 plan_next 的提示
             _next_hint = evaluation.next_action or ""
 
             if executed_steps >= task_input.max_steps:
+                await self.events.flush()
                 break
 
             # ── 重新规划 ──
@@ -196,7 +205,7 @@ class BlackboxExecutionLoop:
             current_url = redact_href(task.start_url or "")
 
         step = task.current_step + 1
-        self.events.planner_start(task.task_id, step, task.goal, current_url)
+        await self.events.planner_start(task.task_id, step, task.goal, current_url)
 
         result = await planner.plan_next(
             goal=task.goal,
@@ -208,7 +217,7 @@ class BlackboxExecutionLoop:
             evaluator_next_action=evaluator_next_action,
         )
 
-        self.events.planner_result(task.task_id, step, len(result.steps), result.summary)
+        await self.events.planner_result(task.task_id, step, len(result.steps), result.summary)
         return result, None  # last_error cleared after planning
 
     async def _check_cancelled(self, task: Task) -> bool:
@@ -234,7 +243,7 @@ class BlackboxExecutionLoop:
         message = f"达到最大步骤 {task_input.max_steps} 后仍未完成目标。"
         status = self.service.get_task_status(task.task_id)
         if owns_status and status is TaskStatus.RUNNING:
-            self.events.max_steps(task.task_id, message)
+            await self.events.max_steps(task.task_id, message)
             failed = self.service.fail_task(task, message)
-            self.finalizer.generate_report(failed)
+            await self.finalizer.generate_report(failed)
         raise TaskError(message)

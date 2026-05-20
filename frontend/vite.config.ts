@@ -24,6 +24,7 @@ export default defineConfig({
         manualChunks: {
           "vendor-vue": ["vue"],
           "vendor-element-plus": ["element-plus"],
+          "vendor-markdown": ["markdown-it", "dompurify"],
         },
       },
     },

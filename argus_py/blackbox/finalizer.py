@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -49,27 +50,29 @@ class Finalizer:
             )
         return resolved
 
-    def finish_success(self, task: Task, owns_status: bool) -> Task:
+    async def finish_success(self, task: Task, owns_status: bool) -> Task:
         """按调用方式完成任务。从存储重载状态避免覆盖外部状态变更（cancel/pause）。"""
         status = self.service.get_task_status(task.task_id)
         if status is not TaskStatus.RUNNING:
             latest = self.service.get_task(task.task_id)
-            return self.generate_report(latest)
+            return await self.generate_report(latest)
         if owns_status:
             completed = self.service.complete_task(task, result_summary=task.result_summary)
-            return self.generate_report(completed)
+            return await self.generate_report(completed)
         latest = self.service.get_task(task.task_id)
         return self.service.save_task(latest)
 
-    def finalize(self, task: Task, owns_status: bool) -> Task:
+    async def finalize(self, task: Task, owns_status: bool) -> Task:
         """外部终止（cancel/pause）后的收尾，需要时生成报告。"""
         if owns_status and task.status in (TaskStatus.CANCELLED, TaskStatus.PAUSED):
-            return self.generate_report(task)
+            return await self.generate_report(task)
         return task
 
-    def generate_report(self, task: Task) -> Task:
-        """生成任务报告并回写 HTML 报告路径。"""
-        return generate_report_safely(task, self.report_generator, self.service.save_task)
+    async def generate_report(self, task: Task) -> Task:
+        """生成任务报告并回写 HTML 报告路径（在 IO 线程执行，不阻塞事件循环）。"""
+        return await asyncio.to_thread(
+            generate_report_safely, task, self.report_generator, self.service.save_task
+        )
 
     def history(self, task: Task) -> list[dict[str, Any]]:
         """生成给 LLM 使用的紧凑历史，对 URL 和文本参数进行脱敏。"""

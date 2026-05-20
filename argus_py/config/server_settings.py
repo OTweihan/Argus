@@ -54,6 +54,9 @@ class ServerSettings:
     # 默认 localhost / 127.0.0.1 由 url_guard 内置放行（同机 Ollama 场景）
     # 其余 RFC1918 私网、metadata 等默认拒绝
     llm_allow_private_hosts: list[str] = field(default_factory=list)
+    # LLM 全局并发上限：asyncio.Semaphore 控制并行 planner+evaluator 总请求数，
+    # 防止 scheduler.concurrency > 1 时瞬间打满外部 LLM 限流。0 = 不限。
+    llm_max_inflight: int = 8
     # 限流：进程内 token bucket，默认禁用。
     # rate_limit_routes 每项 dict 形如：
     #   {name, method, path, requests_per_minute, burst}
@@ -119,6 +122,7 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         llm_trace_retention_days=_as_int(llm_trace.get("retention_days"), 7, minimum=0),
         llm_trace_total_size_mb=_as_int(llm_trace.get("total_size_mb"), 500, minimum=0),
         llm_allow_private_hosts=_as_str_list(llm.get("allow_private_hosts"), []),
+        llm_max_inflight=_as_int(llm.get("max_inflight"), 8, minimum=0),
         rate_limit_enabled=_as_bool(rate_limit.get("enabled"), False),
         rate_limit_trust_forwarded=_as_bool(rate_limit.get("trust_forwarded"), False),
         rate_limit_routes=rate_limit_routes,

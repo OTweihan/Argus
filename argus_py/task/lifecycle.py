@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from argus_py.core.cancellation import CancellationToken
+from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.observability import audit
 from argus_py.redaction import redact_href, redact_sensitive_text
 from argus_py.task._base import TaskEventPublisher, _StorageEventBase
 from argus_py.task.models import Task
+from argus_py.task.policies import can_delete, can_edit, can_retry
 from argus_py.task.status import assert_transition
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
@@ -37,8 +39,8 @@ class TaskLifecycleService(_StorageEventBase):
         start_url: str | None = None,
         task_type: TaskType = TaskType.BLACKBOX,
         project_id: str | None = None,
-        max_steps: int = 20,
-        timeout_seconds: int = 300,
+        max_steps: int = DEFAULT_MAX_STEPS,
+        timeout_seconds: int = DEFAULT_TASK_TIMEOUT_S,
         capture_screenshots: bool = True,
         parameters: dict[str, Any] | None = None,
     ) -> Task:
@@ -80,7 +82,7 @@ class TaskLifecycleService(_StorageEventBase):
     ) -> Task:
         """更新待执行任务的基础信息。"""
         resolved = self._resolve_task(task)
-        if resolved.status is not TaskStatus.PENDING:
+        if not can_edit(resolved.status):
             raise TaskError(f"只有 pending 任务可以编辑，当前状态：{resolved.status.value}。")
 
         resolved.goal = goal
@@ -100,7 +102,7 @@ class TaskLifecycleService(_StorageEventBase):
     def delete_pending_task(self, task: Task | str) -> None:
         """删除未启动的 pending 任务。"""
         resolved = self._resolve_task(task)
-        if resolved.status is not TaskStatus.PENDING:
+        if not can_delete(resolved.status):
             raise TaskError(f"只有 pending 任务可以删除，当前状态：{resolved.status.value}。")
         self.storage.delete(resolved.task_id)
         self.remove_cancellation_token(resolved.task_id)
@@ -188,11 +190,7 @@ class TaskLifecycleService(_StorageEventBase):
     def restart_task(self, task: Task | str) -> Task:
         """复制已结束的任务为新 pending 任务（重试）。"""
         resolved = self._resolve_task(task)
-        if resolved.status not in (
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-            TaskStatus.CANCELLED,
-        ):
+        if not can_retry(resolved.status):
             raise TaskError(
                 f"只有失败/超时/取消的任务可以重试，当前状态：{resolved.status.value}。"
             )

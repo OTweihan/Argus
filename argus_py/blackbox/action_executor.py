@@ -13,6 +13,7 @@ from argus_py.browser.errors import BrowserTimeoutError, ElementNotFoundError
 from argus_py.browser.url_validator import validate_url
 from argus_py.core.enums import ActionType, StepResult
 from argus_py.core.exceptions import TaskError
+from argus_py.observability.context import run_in_thread
 from argus_py.task.models import Task
 from argus_py.task.service import TaskService
 from argus_py.utils.jsonx import to_jsonable
@@ -61,7 +62,8 @@ class ActionExecutor:
         except Exception as exc:
             screenshot_path, _ = await self.evidence.capture_step_evidence(task, session)
             error_code = resolve_error_code(exc)
-            self.service.append_log(
+            await run_in_thread(
+                self.service.append_log,
                 task,
                 action=step.action.value,
                 result=StepResult.FAILED,
@@ -81,19 +83,18 @@ class ActionExecutor:
         )
         observation = snapshot.to_prompt_text() if snapshot is not None else ""
 
-        return (
-            self.service.append_log(
-                task,
-                action=step.action.value,
-                result=StepResult.SUCCESS,
-                params=self._step_params(step),
-                url_before=result.get("url_before"),
-                url_after=result.get("url_after"),
-                screenshot_path=screenshot_path,
-                message=self._step_message(step, result),
-            ),
-            observation,
+        task_result = await run_in_thread(
+            self.service.append_log,
+            task,
+            action=step.action.value,
+            result=StepResult.SUCCESS,
+            params=self._step_params(step),
+            url_before=result.get("url_before"),
+            url_after=result.get("url_after"),
+            screenshot_path=screenshot_path,
+            message=self._step_message(step, result),
         )
+        return task_result, observation
 
     async def dispatch_action(
         self,

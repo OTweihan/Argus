@@ -55,6 +55,7 @@ export function useConsoleApp() {
         dashboard.loadDashboardStats,
     );
     events.onTaskEvent((event) => taskEvents.applyEvent(event));
+    events.onReconnect(() => taskEvents.scheduleStatsRefresh());
 
     /* ── 视图与 WebSocket 编排 ──
      *

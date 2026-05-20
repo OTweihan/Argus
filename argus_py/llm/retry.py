@@ -7,7 +7,7 @@ import functools
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from argus_py.core.constants import DEFAULT_LLM_MAX_RETRIES
 from argus_py.core.exceptions import LLMError, LLMTransientError
@@ -54,12 +54,12 @@ def with_retry(
     max_retries: int = DEFAULT_LLM_MAX_RETRIES,
     retryable_errors: tuple[type[Exception], ...] = (LLMTransientError,),
     base_delay: float = 1.0,
-):
+) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """异步函数重试装饰器。"""
 
     def decorator(fn: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @functools.wraps(fn)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             config = RetryConfig(max_retries=max_retries, base_delay_seconds=base_delay)
             return await retry_async(
                 lambda: fn(*args, **kwargs),

@@ -73,7 +73,7 @@ class BlackboxRunner:
         if owns_status:
             resolved = self.service.start_task(resolved)
 
-        self.events.task_start(resolved.task_id, resolved.goal, resolved.start_url or "")
+        await self.events.task_start(resolved.task_id, resolved.goal, resolved.start_url or "")
 
         planner, evaluator = self.llm_boundary.resolve(resolved)
         task_input = self._to_task_input(resolved)
@@ -100,9 +100,9 @@ class BlackboxRunner:
                 logger.exception("黑盒任务异常：%s", resolved.task_id)
                 latest = self.service.get_latest_task(resolved)
                 if owns_status and latest.status is TaskStatus.RUNNING:
-                    self.events.fail(resolved.task_id, str(exc))
+                    await self.events.fail(resolved.task_id, str(exc))
                     failed = self.service.fail_task(latest, str(exc))
-                    self.finalizer.generate_report(failed)
+                    await self.finalizer.generate_report(failed)
                 raise
             finally:
                 # 关闭本任务期间由 LLMBoundaryFactory 自建的 LLMClient，

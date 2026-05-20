@@ -64,6 +64,7 @@
             </el-tag>
           </template>
           <PromptExtensionEditor
+            v-if="promptCollapseActive.includes('prompt')"
             v-model="form.promptExtensions"
             scope="task"
             :project-extensions="resolvedProjectExtensions"
@@ -100,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, defineAsyncComponent, ref} from "vue";
 import type {ModelConfig, Project} from "../../types";
 import {
   emptyPromptExtensions,
@@ -108,7 +109,7 @@ import {
   hasAnyExtension,
   type PromptExtensions,
 } from "../../promptExtensions";
-import PromptExtensionEditor from "../prompt/PromptExtensionEditor.vue";
+const PromptExtensionEditor = defineAsyncComponent(() => import("../prompt/PromptExtensionEditor.vue"));
 
 interface TaskForm {
   editingId: string | null;

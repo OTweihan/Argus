@@ -55,7 +55,7 @@
               未配置
             </el-tag>
           </template>
-          <PromptExtensionEditor v-model="form.promptExtensions" scope="project" />
+          <PromptExtensionEditor v-if="promptCollapseActive.includes('prompt')" v-model="form.promptExtensions" scope="project" />
         </el-collapse-item>
       </el-collapse>
       <el-form-item label="参数" :error="formErrors.projectParameters">
@@ -91,10 +91,10 @@
 </template>
 
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, defineAsyncComponent, ref} from "vue";
 import type {ProjectForm} from "../../composables/useProjects";
 import {hasAnyExtension} from "../../promptExtensions";
-import PromptExtensionEditor from "../prompt/PromptExtensionEditor.vue";
+const PromptExtensionEditor = defineAsyncComponent(() => import("../prompt/PromptExtensionEditor.vue"));
 
 const props = defineProps<{
   visible: boolean;

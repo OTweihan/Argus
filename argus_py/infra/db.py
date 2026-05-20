@@ -80,8 +80,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   task_type TEXT NOT NULL,
   status TEXT NOT NULL,
   project_id TEXT,
-  max_steps INTEGER NOT NULL DEFAULT 20,
-  timeout_seconds INTEGER NOT NULL DEFAULT 300,
+  max_steps INTEGER NOT NULL DEFAULT 20,   -- 默认值同步 argus_py.core.constants.DEFAULT_MAX_STEPS
+  timeout_seconds INTEGER NOT NULL DEFAULT 300,  -- 默认值同步 argus_py.core.constants.DEFAULT_TASK_TIMEOUT_S
   capture_screenshots INTEGER NOT NULL DEFAULT 1,
   current_step INTEGER NOT NULL DEFAULT 0,
   parameters_json TEXT NOT NULL DEFAULT '{}',

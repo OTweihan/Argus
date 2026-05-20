@@ -178,12 +178,13 @@ const detailTask = ref<Task | null>(null);
 async function showTaskDetail(taskId: string): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
-  detailTask.value = null;
+  const cached = allTasks.value.find((t) => t.taskId === taskId) ?? null;
+  detailTask.value = cached;
   try {
     detailTask.value = await getTask(taskId);
   } catch (caught) {
     error.value = errorMessage(caught);
-    detailVisible.value = false;
+    if (!cached) detailVisible.value = false;
   } finally {
     detailLoading.value = false;
   }

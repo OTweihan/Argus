@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,7 @@ class TaskSQLiteStorage:
         # 命的 sqlite3.Connection（连接复用由各 repository 自己控制）。
         resolved_db_path = self.db_path
 
-        def connect():
+        def connect() -> sqlite3.Connection:
             return _connect_fn(resolved_db_path)
 
         self._tasks = TaskRepository(connect)
@@ -99,6 +100,9 @@ class TaskSQLiteStorage:
 
     def load_task_header(self, task_id: str) -> dict | None:
         return self._tasks.load_task_header(task_id)
+
+    def get_report_path(self, task_id: str) -> str | None:
+        return self._tasks.get_report_path(task_id)
 
     def get_task_status(self, task_id: str) -> str | None:
         return self._tasks.get_task_status(task_id)
@@ -147,6 +151,10 @@ class TaskSQLiteStorage:
     def append_log(self, task_id: str, log: TaskLog) -> None:
         self._logs.append(task_id, log)
 
+    def append_log_batch(self, entries: list[tuple[str, TaskLog]]) -> None:
+        """批量追加步骤日志（单事务 executemany）。"""
+        self._logs.append_batch(entries)
+
     # ── 发现项 ───────────────────────────────────────────────
 
     def append_finding(self, task_id: str, finding: Finding) -> None:
@@ -160,6 +168,10 @@ class TaskSQLiteStorage:
 
     def append_event(self, event: Any) -> None:
         self._events.append(event)
+
+    def append_event_batch(self, events: list[Any]) -> None:
+        """批量追加时间线事件（单事务 executemany）。"""
+        self._events.append_batch(events)
 
     def load_events(self, task_id: str) -> list[Any]:
         return self._events.load(task_id)

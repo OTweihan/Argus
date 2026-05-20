@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from argus_py.config.llm_settings import load_llm_settings
-from argus_py.config.service import ModelConfigService
 from argus_py.llm.client import LLMClient
 from argus_py.llm.providers import create_llm_client
 from argus_py.task.models import Task
+
+if TYPE_CHECKING:
+    from argus_py.config.service import ModelConfigService
 
 
 def resolve_llm_client_for_task(

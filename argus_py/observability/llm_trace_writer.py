@@ -14,11 +14,13 @@
 
 from __future__ import annotations
 
+import json as _json
 import logging
 import queue
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ class LLMTraceWriter:
         max_queue_size: int = 10000,
         flush_interval_seconds: float = _DEFAULT_FLUSH_INTERVAL_SECONDS,
     ) -> None:
-        self._queue: queue.Queue[tuple[object, str]] = queue.Queue(maxsize=max_queue_size)
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=max_queue_size)
         self._thread: threading.Thread | None = None
         self._running = False
         self._flush_interval = flush_interval_seconds
@@ -87,13 +89,14 @@ class LLMTraceWriter:
 
     # ── 投递 ──────────────────────────────────────
 
-    def enqueue(self, file_path: Path, line: str) -> bool:
-        """非阻塞投递一条 trace 行。
+    def enqueue(self, file_path: Path, record: Any) -> bool:
+        """非阻塞投递一条待处理的 trace 记录。
 
-        队列满时返回 ``False``（不抛异常），调用方可降级为本地 logger。
+        ``record`` 在 writer 线程中执行 asdict / 脱敏 / 序列化，不阻塞事件循环。
+        队列满时返回 ``False``（不抛异常），调用方可降级为本地写入。
         """
         try:
-            self._queue.put_nowait((file_path, line))
+            self._queue.put_nowait((file_path, record))
             return True
         except queue.Full:
             self.dropped_count += 1
@@ -109,7 +112,7 @@ class LLMTraceWriter:
 
     def _run(self) -> None:
         """后台线程主循环：聚合 buffer，定时或按阈值 flush。"""
-        buffer: dict[Path, list[str]] = {}
+        buffer: dict[Path, list[Any]] = {}
         while True:
             try:
                 item = self._queue.get(timeout=self._flush_interval)
@@ -121,7 +124,7 @@ class LLMTraceWriter:
                     break
                 continue
 
-            path_obj, line = item
+            path_obj, record = item
             if path_obj is _SENTINEL:
                 # 停机哨兵：把剩余 buffer flush 完再退出。
                 if buffer:
@@ -130,36 +133,59 @@ class LLMTraceWriter:
 
             assert isinstance(path_obj, Path)
             bucket = buffer.setdefault(path_obj, [])
-            bucket.append(line)
+            bucket.append(record)
             if len(bucket) >= _BATCH_FLUSH_THRESHOLD:
                 # 单文件阈值满了直接 flush 单 bucket，其它文件继续累积。
                 self._flush_file(path_obj, buffer.pop(path_obj))
 
-    def _flush_all(self, buffer: dict[Path, list[str]]) -> None:
-        for path, lines in list(buffer.items()):
-            self._flush_file(path, lines)
+    def _flush_all(self, buffer: dict[Path, list[Any]]) -> None:
+        for path, records in list(buffer.items()):
+            self._flush_file(path, records)
         buffer.clear()
 
-    def _flush_file(self, path: Path, lines: list[str]) -> None:
-        if not lines:
+    def _flush_file(self, path: Path, records: list[Any]) -> None:
+        """在 writer 线程中处理一批 trace 记录：stat / asdict / 脱敏 / 序列化 -> 落盘。"""
+        if not records:
             return
+        # 延迟导入避免与 llm_trace 的循环依赖
+        from dataclasses import asdict
+
+        from argus_py.observability.llm_trace import (
+            _LLM_TRACE_CONTENT_REDACT,
+            _LLM_TRACE_MAX_SIZE_BYTES,
+            _ensure_config,
+            redact_trace_data,
+        )
+
+        _ensure_config()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             idx_path = path.with_suffix(".idx")
             idx_entries: list[tuple[str, int]] = []
             with open(path, "a", encoding="utf-8") as f:
-                for line in lines:
+                for record in records:
+                    # 大小上限检查（stat 已在后台线程，不阻塞 event loop）
+                    if (
+                        _LLM_TRACE_MAX_SIZE_BYTES is not None
+                        and _LLM_TRACE_MAX_SIZE_BYTES > 0
+                        and path.exists()
+                        and path.stat().st_size >= _LLM_TRACE_MAX_SIZE_BYTES
+                    ):
+                        logger.warning(
+                            "LLM 追踪文件超出大小上限 (%d MB)，跳过写入：%s",
+                            _LLM_TRACE_MAX_SIZE_BYTES // (1024 * 1024),
+                            path,
+                        )
+                        continue
+                    data = asdict(record)
+                    if _LLM_TRACE_CONTENT_REDACT:
+                        data = redact_trace_data(data)
+                    line = _json.dumps(data, ensure_ascii=False, default=str)
                     offset = f.tell()
                     f.write(line + "\n")
-                    import json as _json
-
-                    try:
-                        rec = _json.loads(line)
-                        tid = rec.get("trace_id", "")
-                        if tid:
-                            idx_entries.append((tid, offset))
-                    except _json.JSONDecodeError:
-                        continue
+                    tid = data.get("trace_id", "")
+                    if tid:
+                        idx_entries.append((tid, offset))
             if idx_entries:
                 with open(idx_path, "a", encoding="utf-8") as f_idx:
                     for tid, offset in idx_entries:
@@ -167,11 +193,13 @@ class LLMTraceWriter:
                             _json.dumps({"trace_id": tid, "offset": offset}, ensure_ascii=False)
                             + "\n"
                         )
-            self.written_count += len(lines)
+            self.written_count += len(records)
         except OSError as exc:
-            # 写盘失败不应崩 worker：记一条并丢这批 lines。
             logger.warning(
-                "LLM trace flush failed: path=%s err=%s, dropped %d lines", path, exc, len(lines)
+                "LLM trace flush failed: path=%s err=%s, dropped %d records",
+                path,
+                exc,
+                len(records),
             )
 
 

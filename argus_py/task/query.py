@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from argus_py.core.constants import TASK_SEARCH_MIN_LENGTH
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.core.paths import OUTPUT_DIR, REPORTS_DIR, SCREENSHOTS_DIR
@@ -18,6 +19,14 @@ from argus_py.task.models import Task
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
 logger = logging.getLogger(__name__)
+
+_KEYWORD_FIELDS = ("name", "goal", "task_id", "start_url", "result_summary", "error_message")
+
+
+def _task_matches_keyword(task: Task, kw: str) -> bool:
+    """Python 端 6 字段关键词匹配（FileStorage 回退）。"""
+    return any(kw in (getattr(task, f, None) or "").lower() for f in _KEYWORD_FIELDS)
+
 
 # 调试包大小上限：100 MB（近似，按源文件未压缩大小计算）
 _BUNDLE_MAX_SIZE_BYTES = 100 * 1024 * 1024
@@ -121,18 +130,9 @@ class TaskQueryService:
         if status is None and project_id is None and q is None:
             return self.storage.count_tasks()
         tasks = self.list_tasks(status=status, project_id=project_id)
-        if q:
+        if q and len(q) >= TASK_SEARCH_MIN_LENGTH:
             kw = q.lower()
-            tasks = [
-                t
-                for t in tasks
-                if kw in (t.name or "").lower()
-                or kw in (t.goal or "").lower()
-                or kw in (t.task_id or "").lower()
-                or kw in (t.start_url or "").lower()
-                or kw in (t.result_summary or "").lower()
-                or kw in (t.error_message or "").lower()
-            ]
+            tasks = [t for t in tasks if _task_matches_keyword(t, kw)]
         return len(tasks)
 
     def list_task_summaries(
@@ -154,18 +154,9 @@ class TaskQueryService:
             )
         # FileStorage 回退：无法做 SQL 聚合，手动计算总量
         tasks = self.list_tasks(status=status, project_id=project_id)
-        if q:
+        if q and len(q) >= TASK_SEARCH_MIN_LENGTH:
             kw = q.lower()
-            tasks = [
-                t
-                for t in tasks
-                if kw in (t.name or "").lower()
-                or kw in (t.goal or "").lower()
-                or kw in (t.task_id or "").lower()
-                or kw in (t.start_url or "").lower()
-                or kw in (t.result_summary or "").lower()
-                or kw in (t.error_message or "").lower()
-            ]
+            tasks = [t for t in tasks if _task_matches_keyword(t, kw)]
         total = len(tasks)
         if offset:
             tasks = tasks[offset:]
@@ -174,6 +165,29 @@ class TaskQueryService:
         return tasks, total
 
     # ── 报告路径解析 ──────────────────────────────────────────
+
+    def get_report_path(self, task_id: str) -> str | None:
+        """窄查询：只返回 report_path 字段，不加载日志/发现项。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            return self.storage.get_report_path(task_id)
+        try:
+            task = self.storage.load(task_id)
+            return task.report_path
+        except TaskNotFoundError:
+            return None
+
+    def resolve_report_path_by_id(self, task_id: str) -> Path:
+        """窄查询版本：通过 task_id 直接解析并校验 HTML 报告路径。"""
+        report_path_str = self.get_report_path(task_id)
+        if not report_path_str:
+            raise TaskError(f"任务尚未生成报告：{task_id}")
+        report_path = Path(report_path_str).expanduser().resolve()
+        reports_dir = REPORTS_DIR.resolve()
+        if not report_path.is_relative_to(reports_dir):
+            raise TaskError(f"报告路径不在允许的报告目录下：{report_path}")
+        if not report_path.exists():
+            raise TaskError(f"HTML 报告文件不存在：{report_path}")
+        return report_path
 
     def resolve_report_path(self, task: Task) -> Path:
         """解析并校验 HTML 报告路径。"""

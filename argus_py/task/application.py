@@ -16,6 +16,15 @@ from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.context import run_in_thread
 from argus_py.project.service import ProjectService
+from argus_py.task.policies import (
+    can_delete,
+    can_edit,
+    can_pause,
+    can_resume,
+    can_retry,
+    can_start,
+    is_terminal,
+)
 from argus_py.task.service import TaskService
 from argus_py.task.strategy import resolve_execution_limits
 from argus_py.utils.casing import camel_keys
@@ -127,7 +136,7 @@ class TaskApplicationService:
         # SQLite 读写都走线程池：协程中并发请求互不阻塞。
         task = await run_in_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
-        if task.status is not TaskStatus.PENDING or scheduler_status is not None:
+        if not can_edit(task.status) or scheduler_status is not None:
             raise TaskAppError(
                 "TASK_NOT_EDITABLE",
                 f"只有 pending 且未入队的任务可以编辑，当前状态：{task.status.value}。",
@@ -146,7 +155,7 @@ class TaskApplicationService:
         """删除 pending 且未入队的任务。"""
         task = await run_in_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
-        if task.status is not TaskStatus.PENDING or scheduler_status is not None:
+        if not can_delete(task.status) or scheduler_status is not None:
             raise TaskAppError(
                 "TASK_NOT_DELETABLE",
                 f"只有 pending 且未入队的任务可以删除，当前状态：{task.status.value}。",
@@ -163,7 +172,7 @@ class TaskApplicationService:
     async def start_task(self, task_id: str) -> tuple[Any, str]:
         """将 pending 任务加入执行队列。"""
         task = await run_in_thread(self._task.get_task, task_id)
-        if task.status is not TaskStatus.PENDING:
+        if not can_start(task.status):
             raise TaskAppError(
                 "TASK_NOT_PENDING",
                 f"只有 pending 任务可以启动，当前状态：{task.status.value}。",
@@ -183,7 +192,7 @@ class TaskApplicationService:
     async def restart_task(self, task_id: str) -> tuple[Any, str]:
         """重试失败/超时/取消的任务，创建新任务并立即入队。"""
         task = await run_in_thread(self._task.get_task, task_id)
-        if task.status not in (TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED):
+        if not can_retry(task.status):
             raise TaskAppError(
                 "TASK_NOT_RETRYABLE",
                 f"只有失败/超时/取消的任务可以重试，当前状态：{task.status.value}。",
@@ -212,12 +221,7 @@ class TaskApplicationService:
         """获取任务并校验未处于终态。返回 (task, scheduler_status)。"""
         task = await run_in_thread(self._task.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
-        if task.status in (
-            TaskStatus.CANCELLED,
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-        ):
+        if is_terminal(task.status):
             raise TaskAppError(
                 "TASK_ALREADY_FINISHED",
                 f"任务已处于终态，不能操作：{task.status.value}。",
@@ -241,7 +245,7 @@ class TaskApplicationService:
 
     async def pause_task(self, task_id: str) -> Any:
         task = await run_in_thread(self._task.get_task, task_id)
-        if task.status is not TaskStatus.RUNNING:
+        if not can_pause(task.status):
             raise TaskAppError(
                 "TASK_NOT_RUNNING",
                 f"只有运行中的任务可以暂停，当前状态：{task.status.value}。",
@@ -253,7 +257,7 @@ class TaskApplicationService:
 
     async def resume_task(self, task_id: str) -> Any:
         task = await run_in_thread(self._task.get_task, task_id)
-        if task.status is not TaskStatus.PAUSED:
+        if not can_resume(task.status):
             raise TaskAppError(
                 "TASK_NOT_PAUSED",
                 f"只有暂停的任务可以恢复，当前状态：{task.status.value}。",

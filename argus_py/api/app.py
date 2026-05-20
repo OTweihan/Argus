@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -36,6 +38,7 @@ from argus_py.observability import (
     start_trace_writer,
     stop_trace_writer,
 )
+from argus_py.observability.context import set_io_executor
 from argus_py.observability.events import STATUS_ERROR, log_event
 from argus_py.utils.logger import setup_logging
 
@@ -103,6 +106,12 @@ def create_app() -> FastAPI:
                 log_event(logger, "lifespan.cleanup_traces", status=STATUS_ERROR, exc_info=True)
             if settings.llm_trace_async_writer:
                 start_trace_writer(max_queue_size=settings.llm_trace_writer_queue_size)
+        executor = ThreadPoolExecutor(
+            max_workers=min(32, (os.cpu_count() or 1) * 4),
+            thread_name_prefix="argus-io",
+        )
+        asyncio.get_running_loop().set_default_executor(executor)
+        set_io_executor(executor)
         await get_task_worker().start()
         try:
             yield

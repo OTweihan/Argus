@@ -106,7 +106,7 @@ class BlackboxEvaluator:
             "input_payload": payload,
         }
 
-        write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_STARTED))
+        await write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_STARTED))
 
         try:
             response = await self._client().complete(
@@ -115,9 +115,9 @@ class BlackboxEvaluator:
                 response_format={"type": "json_object"},
                 _trace_ctx=trace_ctx,
             )
-        except Exception as exc:
+        except LLMError as exc:
             trace_ctx.setdefault("error", str(exc))
-            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_FAILED))
+            await write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_FAILED))
             raise
 
         trace_ctx["raw_response"] = response.content
@@ -126,11 +126,11 @@ class BlackboxEvaluator:
             data = extract_json(response.content)
             validate_required_keys(data, ["completed", "success", "reason"])
             trace_ctx["parsed_result"] = data
-            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_SUCCEEDED))
+            await write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_SUCCEEDED))
             return EvaluationResult.from_dict(data)
-        except Exception as exc:
+        except (ValueError, KeyError, TypeError) as exc:
             trace_ctx["parse_error"] = str(exc)
-            write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_PARSE_FAILED))
+            await write_trace(LLMTraceRecord.from_trace_ctx(trace_ctx, EVENT_LLM_PARSE_FAILED))
             raise LLMError(f"黑盒评估器响应解析失败：{exc}") from exc
 
     def _client(self) -> LLMClient:

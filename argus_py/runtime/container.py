@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -14,6 +15,7 @@ from argus_py.config.service import ModelConfigService
 from argus_py.infra.events import EventBus
 from argus_py.infra.queue import TaskQueue
 from argus_py.infra.worker import TaskWorker
+from argus_py.llm.client import set_llm_semaphore
 from argus_py.observability.audit import AuditService, set_audit_service
 from argus_py.project.service import ProjectService
 from argus_py.task.service import TaskService
@@ -31,6 +33,7 @@ class RuntimeContainer:
     model_config_service: ModelConfigService
     task_queue: TaskQueue
     task_worker: TaskWorker
+    llm_semaphore: asyncio.Semaphore | None
 
 
 @lru_cache
@@ -69,6 +72,12 @@ def create_container() -> RuntimeContainer:
         model_config_service=model_config_service,
     )
 
+    llm_semaphore = (
+        asyncio.Semaphore(settings.llm_max_inflight) if settings.llm_max_inflight > 0 else None
+    )
+    if llm_semaphore is not None:
+        set_llm_semaphore(llm_semaphore)
+
     return RuntimeContainer(
         settings=settings,
         event_bus=event_bus,
@@ -78,4 +87,5 @@ def create_container() -> RuntimeContainer:
         model_config_service=model_config_service,
         task_queue=task_queue,
         task_worker=task_worker,
+        llm_semaphore=llm_semaphore,
     )

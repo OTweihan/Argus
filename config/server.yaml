@@ -79,6 +79,9 @@ llm:
   allow_private_hosts: []
     # - 10.10.20.5
     # - llm.internal.example.com
+  # 全局并发请求上限（Semaphore），防止 scheduler.concurrency > 1 时打满 LLM 限流。
+  # planner + evaluator 共用此配额。0 = 不限。
+  max_inflight: 8
 
 observability:
   request_logging: true

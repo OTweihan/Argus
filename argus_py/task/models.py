@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.core.ids import generate_finding_id, generate_step_id, generate_task_id
 
@@ -114,8 +115,8 @@ class Task:
     status: TaskStatus = TaskStatus.PENDING
     task_id: str = field(default_factory=generate_task_id)
     project_id: str | None = None
-    max_steps: int = 20
-    timeout_seconds: int = 300
+    max_steps: int = DEFAULT_MAX_STEPS
+    timeout_seconds: int = DEFAULT_TASK_TIMEOUT_S
     capture_screenshots: bool = True
     parameters: dict[str, Any] = field(default_factory=dict)
     logs: list[TaskLog] = field(default_factory=list)
@@ -167,8 +168,8 @@ class Task:
             status=_parse_enum(TaskStatus, data.get("status", TaskStatus.PENDING.value)),
             task_id=str(data.get("task_id") or generate_task_id()),
             project_id=data.get("project_id"),
-            max_steps=int(data.get("max_steps", 20)),
-            timeout_seconds=int(data.get("timeout_seconds", 300)),
+            max_steps=int(data.get("max_steps", DEFAULT_MAX_STEPS)),
+            timeout_seconds=int(data.get("timeout_seconds", DEFAULT_TASK_TIMEOUT_S)),
             capture_screenshots=bool(data.get("capture_screenshots", True)),
             parameters=dict(data.get("parameters") or {}),
             logs=[TaskLog.from_dict(item) for item in data.get("logs", [])],

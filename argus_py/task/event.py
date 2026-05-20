@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from argus_py.core.ids import generate_id
+from argus_py.observability.context import run_in_thread
 from argus_py.task.storage import TaskSQLiteStorage
 
 TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
@@ -71,6 +72,8 @@ class TimelineEvent:
 class TaskTimelineService:
     """时间线事件管理：持久化 + 实时发布。"""
 
+    _EVENT_BUFFER_THRESHOLD = 20
+
     def __init__(
         self,
         storage: TaskSQLiteStorage,
@@ -78,8 +81,9 @@ class TaskTimelineService:
     ) -> None:
         self.storage = storage
         self.event_publisher = event_publisher
+        self._pending_events: list[TimelineEvent] = []
 
-    def emit(
+    async def emit(
         self,
         task_id: str,
         event_type: str,
@@ -98,14 +102,24 @@ class TaskTimelineService:
             summary=summary,
             data=data or {},
         )
-        self.storage.append_event(event)
+        self._pending_events.append(event)
         if self.event_publisher is not None:
             self.event_publisher(
                 f"task.timeline.{phase}",
                 task_id,
                 event.to_dict(),
             )
+        if len(self._pending_events) >= self._EVENT_BUFFER_THRESHOLD:
+            await self.flush_events()
         return event
+
+    async def flush_events(self) -> None:
+        """将缓冲的时间线事件批量写入存储（单事务 executemany）。"""
+        if not self._pending_events:
+            return
+        events = self._pending_events[:]
+        self._pending_events.clear()
+        await run_in_thread(self.storage.append_event_batch, events)
 
     def list_by_task(self, task_id: str) -> list[TimelineEvent]:
         """按创建时间升序返回任务的时间线事件。"""
@@ -123,7 +137,7 @@ class _NullTimelineService:
     时占位，使 facade 不必每次都 ``if self.timeline is None: return``。
     """
 
-    def emit(
+    async def emit(
         self,
         task_id: str,  # noqa: ARG002 - Null Object 接口对齐
         event_type: str,  # noqa: ARG002
@@ -132,6 +146,9 @@ class _NullTimelineService:
         summary: str = "",  # noqa: ARG002
         data: dict[str, Any] | None = None,  # noqa: ARG002
     ) -> None:
+        return None
+
+    async def flush_events(self) -> None:
         return None
 
     def list_by_task(self, task_id: str) -> list[TimelineEvent]:  # noqa: ARG002

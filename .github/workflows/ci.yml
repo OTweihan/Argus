@@ -50,8 +50,6 @@ jobs:
 
       - name: Mypy
         run: uv run mypy argus_py
-        # mypy 在历史代码上还有渐进收口空间；不挂 CI，仅当作告警
-        continue-on-error: true
 
       - name: Pytest (unit + integration)
         run: uv run pytest tests/unit tests/integration -q --tb=short
@@ -140,6 +138,39 @@ jobs:
       - name: Codegen and diff check
         working-directory: frontend
         run: pnpm codegen:check
+
+  playwright-smoke:
+    name: e2e (playwright smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend]
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+          enable-cache: true
+
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen --extra dev
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ hashFiles('uv.lock') }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: uv run playwright install chromium
+
+      - name: Run Playwright smoke tests
+        run: uv run pytest tests/e2e/ -v --tb=short --override-ini="addopts="
 
   nightly-full-suite:
     name: full suite (including slow)

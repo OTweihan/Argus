@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from argus_py.core.cancellation import CancellationToken
+from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.observability.aspect import log_operation
 from argus_py.task._base import TaskEventPublisher
@@ -44,7 +45,7 @@ class TaskService:
             else _NullTimelineService()
         )
 
-    def emit_timeline(
+    async def emit_timeline(
         self,
         task_id: str,
         event_type: str,
@@ -54,7 +55,7 @@ class TaskService:
         data: dict[str, Any] | None = None,
     ) -> None:
         """发射时间线事件（存储 + WebSocket 广播）。"""
-        self.timeline.emit(
+        await self.timeline.emit(
             task_id=task_id,
             event_type=event_type,
             phase=phase,
@@ -73,8 +74,8 @@ class TaskService:
         start_url: str | None = None,
         task_type: TaskType = TaskType.BLACKBOX,
         project_id: str | None = None,
-        max_steps: int = 20,
-        timeout_seconds: int = 300,
+        max_steps: int = DEFAULT_MAX_STEPS,
+        timeout_seconds: int = DEFAULT_TASK_TIMEOUT_S,
         capture_screenshots: bool = True,
         parameters: dict[str, Any] | None = None,
     ) -> Task:
@@ -245,6 +246,14 @@ class TaskService:
         self, task_id: str, task: Task, events: list[dict[str, Any]] | None = None
     ) -> str:
         return self.query.build_debug_bundle(task_id, task, events=events)
+
+    def flush_logs(self) -> None:
+        """批量写入缓冲的步骤日志。"""
+        self.log.flush_logs()
+
+    async def flush_events(self) -> None:
+        """批量写入缓冲的时间线事件。"""
+        await self.timeline.flush_events()
 
     # ── 日志与问题 ──
 

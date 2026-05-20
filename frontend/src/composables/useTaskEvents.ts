@@ -117,10 +117,7 @@ export function useTaskEvents(
     if (event.eventType === "task.deleted") {
       const idx = allTasks.value.findIndex((t) => t.taskId === taskId);
       if (idx !== -1) {
-        allTasks.value = [
-          ...allTasks.value.slice(0, idx),
-          ...allTasks.value.slice(idx + 1),
-        ];
+        allTasks.value.splice(idx, 1);
       }
       // 删除会改变 total / dashboard 计数；列表行结构已本地处理。
       scheduleStatsRefresh();
@@ -167,11 +164,7 @@ export function useTaskEvents(
       if (data.resultSummary) patch.resultSummary = data.resultSummary as string;
     }
 
-    allTasks.value = [
-      ...allTasks.value.slice(0, idx),
-      { ...existing, ...patch },
-      ...allTasks.value.slice(idx + 1),
-    ];
+    allTasks.value[idx] = { ...existing, ...patch };
 
     // 关键变更（状态翻转 / finding 数变化）会影响 dashboard：触发轻量刷新。
     const statusChanged =

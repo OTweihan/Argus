@@ -1,14 +1,20 @@
 """FastAPI 依赖注入 — 仅做框架适配，组合逻辑在 runtime.container。"""
 
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
+
+from fastapi import Depends
 
 from argus_py.config.server_settings import load_server_settings  # noqa: F401
 from argus_py.config.service import ModelConfigService
+from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.events import EventBus
 from argus_py.infra.queue import TaskQueue
 from argus_py.infra.worker import TaskWorker
 from argus_py.observability.audit import AuditService
+from argus_py.observability.context import run_in_thread
 from argus_py.project.service import ProjectService
 from argus_py.runtime.container import create_container
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
@@ -77,6 +83,19 @@ def get_task_query_service() -> TaskQueryService:
 def get_task_timeline_service() -> TaskTimelineService | _NullTimelineService:
     """返回 TaskTimelineService（从容器 TaskService 中提取）。"""
     return create_container().task_service.timeline
+
+
+async def require_task_exists(
+    task_id: str,
+    query: TaskQueryService = Depends(get_task_query_service),
+) -> None:
+    """校验任务存在，不存在时 ``TaskNotFoundError`` 由全局 handler 转 404。"""
+    if not await run_in_thread(query.task_exists, task_id):
+        raise TaskNotFoundError(f"任务不存在：{task_id}")
+
+
+TaskExistsDep = Annotated[None, Depends(require_task_exists)]
+"""注入后自动校验任务是否存在。"""
 
 
 def reset_all_dependencies() -> None:
