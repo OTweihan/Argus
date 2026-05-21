@@ -63,3 +63,7 @@ config/llm.env
 config/llm.local.env
 config/.fernet_key
 config/browser-states/*.json
+
+# GitNexus
+AGENTS.md
+CLAUDE.md
