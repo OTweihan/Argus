@@ -197,7 +197,7 @@ class TaskLifecycleService(_StorageEventBase):
 
         name = resolved.name
         if name:
-            name = f"{name} - 重试"
+            name = f"{name}-重试"
 
         new_task = Task(
             goal=resolved.goal,

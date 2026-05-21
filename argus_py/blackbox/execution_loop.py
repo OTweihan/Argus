@@ -247,6 +247,6 @@ class BlackboxExecutionLoop:
         status = self._reader.get_task_status(task.task_id)
         if owns_status and status is TaskStatus.RUNNING:
             await self.events.max_steps(task.task_id, message)
-            failed = self._lifecycle.fail_task(task, message)
-            await self.finalizer.generate_report(failed)
+            task = await self.finalizer.generate_report(task)
+            self._lifecycle.fail_task(task, message)
         raise TaskError(message)

@@ -109,8 +109,8 @@ class TaskRunner:
     async def _handle_no_handler(self, task: Task) -> None:
         """无 handler 时标记失败并生成报告。"""
         message = f"任务类型 {task.task_type.value} 尚未注册执行器。"
-        failed_task = self.lifecycle.fail_task(task, message)
-        await self._generate_report(failed_task)
+        task = await self._generate_report(task)
+        self.lifecycle.fail_task(task, message)
         raise TaskError(message)
 
     async def _handle_timeout(self, task: Task, exc: TimeoutError) -> Task:
@@ -119,7 +119,8 @@ class TaskRunner:
         if latest.status is not TaskStatus.RUNNING:
             return await self._generate_report(latest)
         logger.warning("任务超时：%s（%ds）", task.task_id, task.timeout_seconds)
-        timeout_task = await self._generate_report(self.lifecycle.timeout_task(latest))
+        latest = await self._generate_report(latest)
+        timeout_task = self.lifecycle.timeout_task(latest)
         raise TaskError(timeout_task.error_message or "任务执行超时。") from exc
 
     async def _handle_exception(self, task: Task, exc: Exception) -> Task:
@@ -128,12 +129,18 @@ class TaskRunner:
         if latest.status is not TaskStatus.RUNNING:
             return await self._generate_report(latest)
         logger.exception("任务执行异常：%s", task.task_id)
-        failed_task = await self._generate_report(self.lifecycle.fail_task(latest, str(exc)))
+        latest = await self._generate_report(latest)
+        failed_task = self.lifecycle.fail_task(latest, str(exc))
         raise TaskError(failed_task.error_message or "任务执行失败。") from exc
 
     async def _finalize_run(self, task: Task, result: Task | None) -> Task:
-        """最终报告生成：完成未终态的任务并生成报告。"""
+        """最终报告生成：完成未终态的任务并生成报告。
+
+        先生成报告再完成任务，确保 ``task.complete`` 事件携带 ``reportPath``，
+        避免前端报告按钮因字段缺失保持禁用状态。
+        """
         completed = result or task
         if completed.status is TaskStatus.RUNNING:
+            completed = await self._generate_report(completed)
             completed = self.lifecycle.complete_task(completed)
-        return await self._generate_report(completed)
+        return completed

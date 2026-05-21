@@ -111,8 +111,8 @@ class BlackboxRunner:
                 latest = self._reader.get_latest_task(resolved)
                 if owns_status and latest.status is TaskStatus.RUNNING:
                     await self.events.fail(resolved.task_id, str(exc))
-                    failed = self._lifecycle.fail_task(latest, str(exc))
-                    await self.finalizer.generate_report(failed)
+                    latest = await self.finalizer.generate_report(latest)
+                    self._lifecycle.fail_task(latest, str(exc))
                 raise
             finally:
                 # 关闭本任务期间由 LLMBoundaryFactory 自建的 LLMClient，

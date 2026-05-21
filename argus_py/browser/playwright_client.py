@@ -96,19 +96,17 @@ class PlaywrightClient:
         if self._browser is not None:
             try:
                 await self._browser.close()
-            except Exception as exc:
-                errors.append(exc)
+            except Exception:
+                pass
             finally:
                 self._browser = None
         if self._playwright is not None:
             try:
                 await self._playwright.stop()
-            except Exception as exc:
-                errors.append(exc)
+            except Exception:
+                pass
             finally:
                 self._playwright = None
-        if errors:
-            raise BrowserActionError("stop_browser", "; ".join(str(item) for item in errors))
 
     async def new_context(self, **context_options: Any) -> BrowserContext:
         """创建浏览器上下文。"""

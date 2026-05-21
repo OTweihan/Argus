@@ -159,7 +159,6 @@ export function useTaskEvents(
     if (eventSummary.errorMessage !== undefined) patch.errorMessage = eventSummary.errorMessage as string | null;
 
     if (event.eventType === "task.complete") {
-      patch.status = "completed";
       if (data.reportPath) patch.reportPath = data.reportPath as string;
       if (data.resultSummary) patch.resultSummary = data.resultSummary as string;
     }

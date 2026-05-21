@@ -65,8 +65,11 @@ class Finalizer:
             latest = self._reader.get_task(task.task_id)
             return await self.generate_report(latest)
         if owns_status:
-            completed = self._lifecycle.complete_task(task, result_summary=task.result_summary)
-            return await self.generate_report(completed)
+            completed = await self.generate_report(task)
+            completed = self._lifecycle.complete_task(
+                completed, result_summary=completed.result_summary
+            )
+            return completed
         latest = self._reader.get_task(task.task_id)
         return self._lifecycle.save_task(latest)
 

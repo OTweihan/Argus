@@ -102,9 +102,8 @@ export function useTasks(opts: {
 
     async function retryTask(taskId: string): Promise<void> {
         try {
-            const result = await apiRestartTask(taskId);
+            await apiRestartTask(taskId);
             await taskList.loadTasks();
-            await taskSelection.selectTask(result.task.taskId);
             message.value = "任务已重新入队。";
             error.value = "";
         } catch (caught) {
