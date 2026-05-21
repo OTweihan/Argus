@@ -6,8 +6,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from argus_py.blackbox._client import create_llm_client
 from argus_py.blackbox.prompts import compose_evaluator_prompt
-from argus_py.config.llm_settings import load_llm_settings
 from argus_py.core.enums import FindingSeverity, FindingType
 from argus_py.core.exceptions import LLMError
 from argus_py.core.ids import generate_id
@@ -80,9 +80,11 @@ class BlackboxEvaluator:
         self,
         llm_client: LLMClient | None = None,
         prompt_extensions: list[str] | None = None,
+        task_parameters: dict[str, str] | None = None,
     ) -> None:
         self.llm_client = llm_client
         self._extensions: list[str] = list(prompt_extensions or [])
+        self._task_parameters: dict[str, str] = dict(task_parameters or {})
 
     async def evaluate(
         self,
@@ -92,11 +94,13 @@ class BlackboxEvaluator:
     ) -> EvaluationResult:
         """调用 LLM 判断目标是否完成。"""
         sys_prompt = compose_evaluator_prompt(*self._extensions)
-        payload = {
+        payload: dict[str, Any] = {
             "goal": goal,
             "observation": observation,
             "history": history or [],
         }
+        if self._task_parameters:
+            payload["task_parameters"] = self._task_parameters
         prompt = "\n\n输入：\n" + json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2)
 
         trace_ctx: dict[str, Any] = {
@@ -136,13 +140,5 @@ class BlackboxEvaluator:
     def _client(self) -> LLMClient:
         """懒加载 LLM 客户端。"""
         if self.llm_client is None:
-            settings = load_llm_settings()
-            self.llm_client = LLMClient(
-                api_key=settings.api_key,
-                base_url=settings.base_url,
-                model=settings.model,
-                max_tokens=settings.max_tokens,
-                temperature=settings.temperature,
-                max_retries=settings.max_retries,
-            )
+            self.llm_client = create_llm_client()
         return self.llm_client

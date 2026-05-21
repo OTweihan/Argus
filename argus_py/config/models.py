@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from argus_py.core.constants import (
     DEFAULT_LLM_MAX_RETRIES,
     DEFAULT_LLM_MODEL,
+    utc_now,
 )
 from argus_py.core.enums import TaskType
 from argus_py.core.ids import generate_model_config_id
 from argus_py.project.models import parse_datetime
 
 ModelProvider = str
-
-
-def utc_now() -> datetime:
-    """返回 UTC 当前时间。"""
-    return datetime.now(timezone.utc)
 
 
 @dataclass

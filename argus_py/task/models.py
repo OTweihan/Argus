@@ -7,14 +7,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S
+from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S, utc_now
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.core.ids import generate_finding_id, generate_step_id, generate_task_id
-
-
-def utc_now() -> datetime:
-    """返回 UTC 当前时间。"""
-    return datetime.now(timezone.utc)
 
 
 def _parse_datetime(value: str | datetime | None) -> datetime | None:

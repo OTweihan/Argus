@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 
+from argus_py.core.constants import utc_now
 from argus_py.core.ids import generate_report_id
 from argus_py.task.models import Finding, Task, TaskLog
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 @dataclass

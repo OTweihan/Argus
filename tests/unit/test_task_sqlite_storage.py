@@ -95,7 +95,7 @@ class TestCRUD:
     def test_all_fields_round_trip(self, store: TaskSQLiteStorage) -> None:
         import datetime
 
-        from argus_py.task.models import utc_now
+        from argus_py.core.constants import utc_now
 
         now = utc_now()
         later = now + datetime.timedelta(seconds=10)

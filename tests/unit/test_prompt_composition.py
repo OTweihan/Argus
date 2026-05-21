@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 import pytest
-
 from argus_py.blackbox import prompts as prompts_module
 from argus_py.blackbox.evaluator import BlackboxEvaluator
 from argus_py.blackbox.planner import BlackboxPlanner
@@ -82,9 +81,13 @@ def test_compose_evaluator_appends_extension_at_tail():
     assert composed.rstrip().endswith(extension)
 
 
-def test_compose_warns_when_marker_missing(caplog: pytest.LogCaptureFixture) -> None:
+def test_compose_warns_when_marker_missing(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """模板缺 marker 时应 warn 并降级为末尾追加，不静默失语义。"""
     caplog.set_level(logging.WARNING, logger=prompts_module.__name__)
+    # 根日志配置中 argus_py logger 的 propagate=false 阻止记录传播到 caplog，需临时开启
+    monkeypatch.setattr(logging.getLogger("argus_py"), "propagate", True)
 
     base_without_marker = "# 内置模板\n\n仅安全边界，没有业务扩展 marker。\n"
     composed = _compose(base_without_marker, ["EXT_TOKEN"], prompt_name="test.md")

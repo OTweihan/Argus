@@ -24,7 +24,7 @@ def _candidate_texts(text: str) -> Iterable[str]:
             yield stripped[start : end + 1]
 
 
-def extract_json_value(text: str) -> Any:
+def _extract_json_value(text: str) -> Any:
     """从 LLM 文本中提取 JSON 值，支持对象或数组。"""
     decoder = json.JSONDecoder()
     errors: list[str] = []
@@ -50,7 +50,7 @@ def extract_json_value(text: str) -> Any:
 
 def extract_json(text: str) -> dict[str, Any]:
     """从 LLM 文本中提取 JSON 对象。"""
-    value = extract_json_value(text)
+    value = _extract_json_value(text)
     if not isinstance(value, dict):
         raise ValueError("LLM JSON 响应不是对象。")
     return value

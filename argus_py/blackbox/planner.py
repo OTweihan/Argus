@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from argus_py.blackbox._client import create_llm_client
 from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
 from argus_py.blackbox.prompts import compose_planner_prompt
-from argus_py.config.llm_settings import load_llm_settings
 from argus_py.core.enums import ActionType
 from argus_py.core.exceptions import LLMError
 from argus_py.core.ids import generate_id
@@ -30,9 +30,11 @@ class BlackboxPlanner:
         self,
         llm_client: LLMClient | None = None,
         prompt_extensions: list[str] | None = None,
+        task_parameters: dict[str, str] | None = None,
     ) -> None:
         self.llm_client = llm_client
         self._extensions: list[str] = list(prompt_extensions or [])
+        self._task_parameters: dict[str, str] = dict(task_parameters or {})
 
     async def plan_initial(self, task_input: BlackboxTaskInput) -> ActionSequence:
         """生成初始动作序列，先确定性打开起始 URL。"""
@@ -60,6 +62,8 @@ class BlackboxPlanner:
             "history": history,
             "max_steps": max_steps,
         }
+        if self._task_parameters:
+            payload["task_parameters"] = self._task_parameters
         if last_error:
             payload["last_error"] = last_error
         if evaluator_next_action:
@@ -103,13 +107,5 @@ class BlackboxPlanner:
     def _client(self) -> LLMClient:
         """懒加载 LLM 客户端，避免导入或构造时读取敏感配置。"""
         if self.llm_client is None:
-            settings = load_llm_settings()
-            self.llm_client = LLMClient(
-                api_key=settings.api_key,
-                base_url=settings.base_url,
-                model=settings.model,
-                max_tokens=settings.max_tokens,
-                temperature=settings.temperature,
-                max_retries=settings.max_retries,
-            )
+            self.llm_client = create_llm_client()
         return self.llm_client

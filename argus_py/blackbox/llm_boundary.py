@@ -18,6 +18,7 @@ from argus_py.task.models import Task
 logger = logging.getLogger(__name__)
 
 PROMPT_EXTENSION_KEY = "prompt_extensions"
+_INTERNAL_PARAM_KEYS = frozenset({PROMPT_EXTENSION_KEY, "modelConfigId"})
 
 
 class LLMBoundaryFactory:
@@ -65,15 +66,22 @@ class LLMBoundaryFactory:
             )
             self._owned_clients.setdefault(task.task_id, []).append(llm_client)
             planner_exts, evaluator_exts = self._collect_extensions(task)
+            task_params = _extract_task_parameters(task.parameters)
 
             if planner is None:
-                planner = BlackboxPlanner(llm_client=llm_client, prompt_extensions=planner_exts)
+                planner = BlackboxPlanner(
+                    llm_client=llm_client,
+                    prompt_extensions=planner_exts,
+                    task_parameters=task_params,
+                )
             elif hasattr(planner, "llm_client") and planner.llm_client is None:
                 planner.llm_client = llm_client
 
             if evaluator is None:
                 evaluator = BlackboxEvaluator(
-                    llm_client=llm_client, prompt_extensions=evaluator_exts
+                    llm_client=llm_client,
+                    prompt_extensions=evaluator_exts,
+                    task_parameters=task_params,
                 )
             elif hasattr(evaluator, "llm_client") and evaluator.llm_client is None:
                 evaluator.llm_client = llm_client
@@ -161,8 +169,19 @@ def _extract_extension_map(parameters: dict[str, Any] | None) -> dict[str, str]:
     return result
 
 
+def _extract_task_parameters(parameters: dict[str, Any] | None) -> dict[str, str]:
+    """提取用户定义参数，排除内部键（prompt_extensions、modelConfigId 等）。"""
+    if not parameters:
+        return {}
+    return {
+        k: str(v)
+        for k, v in parameters.items()
+        if k not in _INTERNAL_PARAM_KEYS and isinstance(v, str)
+    }
+
+
 def _ordered_extensions(
     role: str, project_ext: dict[str, str], task_ext: dict[str, str]
 ) -> list[str]:
-    """按 [project, task] 顺序返回非空扩展。"""
-    return [ext for ext in (project_ext.get(role, ""), task_ext.get(role, "")) if ext]
+    """按 [project, task] 顺序返回扩展（保持 2 元素，空串用于站位）。"""
+    return [project_ext.get(role, ""), task_ext.get(role, "")]

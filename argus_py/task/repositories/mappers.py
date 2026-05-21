@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from argus_py.core.constants import utc_now
 from argus_py.task.models import Finding, Task, TaskLog
 
 
@@ -70,7 +71,7 @@ def finding_to_row(task_id: str, finding: Finding) -> tuple[Any, ...]:
 def row_to_event(row: Any) -> Any:
     """将 SQLite 行还原为 TimelineEvent。"""
     from argus_py.task.event import TimelineEvent as TE
-    from argus_py.task.models import _parse_datetime, utc_now
+    from argus_py.task.models import _parse_datetime
 
     return TE(
         event_id=row["event_id"],
@@ -91,7 +92,7 @@ def row_to_task(
 ) -> Task:
     """将 SQLite 行还原为 Task 实体。"""
     from argus_py.core.enums import TaskStatus, TaskType
-    from argus_py.task.models import _parse_datetime, utc_now
+    from argus_py.task.models import _parse_datetime
 
     return Task(
         task_id=task_row["task_id"],
@@ -119,7 +120,7 @@ def row_to_task(
 def row_to_log(row: Any) -> TaskLog:
     """将 SQLite 行还原为 TaskLog 实体。"""
     from argus_py.core.enums import StepResult
-    from argus_py.task.models import _parse_datetime, utc_now
+    from argus_py.task.models import _parse_datetime
 
     return TaskLog(
         task_log_id=row["task_log_id"],
@@ -140,7 +141,7 @@ def row_to_log(row: Any) -> TaskLog:
 def row_to_finding(row: Any) -> Finding:
     """将 SQLite 行还原为 Finding 实体。"""
     from argus_py.core.enums import FindingSeverity, FindingType
-    from argus_py.task.models import _parse_datetime, utc_now
+    from argus_py.task.models import _parse_datetime
 
     return Finding(
         finding_id=row["finding_id"],

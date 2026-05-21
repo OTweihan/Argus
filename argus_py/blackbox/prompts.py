@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from typing import Any
 
-from argus_py.llm.prompts import load_prompt, render_prompt
+from argus_py.llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
 PLANNER_PROMPT = "blackbox_planner.md"
+
+# 扩展片段来源标题，按 [project, task] 顺序索引。
+_EXTENSION_LABELS = ["### 项目级自定义提示词", "### 任务级自定义提示词"]
 EVALUATOR_PROMPT = "blackbox_evaluator.md"
 
 # 内置 Prompt 模板里"业务扩展"区块的 marker。
@@ -34,17 +36,12 @@ def load_evaluator_prompt() -> str:
     return load_prompt(EVALUATOR_PROMPT)
 
 
-def render_planner_prompt(**kwargs: Any) -> str:
-    """渲染内置 planner prompt 占位符。"""
-    return render_prompt(PLANNER_PROMPT, **kwargs)
-
-
-def render_evaluator_prompt(**kwargs: Any) -> str:
-    """渲染内置 evaluator prompt 占位符。"""
-    return render_prompt(EVALUATOR_PROMPT, **kwargs)
-
-
-def _compose(base: str, extensions: Iterable[str], *, prompt_name: str = "<inline>") -> str:
+def _compose(
+    base: str,
+    extensions: Iterable[str],
+    *,
+    prompt_name: str = "<inline>",
+) -> str:
     """把非空扩展按顺序追加到 ``## 业务扩展`` marker 区块之后。
 
     当前模板设计中 marker 始终在文件末尾，因此实现等价于"末尾追加"；但显式
@@ -61,11 +58,13 @@ def _compose(base: str, extensions: Iterable[str], *, prompt_name: str = "<inlin
         用于告警时定位是哪个模板缺 marker（planner / evaluator）。
     """
     cleaned_blocks: list[str] = []
-    for ext in extensions:
+    for i, ext in enumerate(extensions):
         if ext is None:
             continue
         cleaned = ext.strip()
         if cleaned:
+            if i < len(_EXTENSION_LABELS):
+                cleaned = _EXTENSION_LABELS[i] + "\n" + cleaned
             cleaned_blocks.append(cleaned)
 
     if not cleaned_blocks:

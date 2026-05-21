@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
+from argus_py.core.constants import utc_now
 from argus_py.core.ids import generate_id
 from argus_py.observability.context import run_in_thread
 from argus_py.task.storage import TaskSQLiteStorage
@@ -38,10 +39,6 @@ TIMELINE_EVENT_TYPES = [
 ]
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 @dataclass
 class TimelineEvent:
     """执行时间线事件。"""
@@ -53,7 +50,7 @@ class TimelineEvent:
     step_number: int = 0
     summary: str = ""
     data: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=_utc_now)
+    created_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         """JSON 序列化（用于 API 输出）。"""

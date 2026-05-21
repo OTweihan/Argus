@@ -7,9 +7,8 @@ from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
-
 from argus_py.blackbox.evaluator import BlackboxEvaluator
-from argus_py.blackbox.llm_boundary import LLMBoundaryFactory
+from argus_py.blackbox.llm_boundary import LLMBoundaryFactory, _extract_task_parameters
 from argus_py.blackbox.planner import BlackboxPlanner
 from argus_py.core.exceptions import ProjectNotFoundError
 from argus_py.project.models import Project
@@ -84,8 +83,8 @@ def test_resolve_without_project_or_task_extensions_uses_no_extensions(
 
     assert isinstance(planner, BlackboxPlanner)
     assert isinstance(evaluator, BlackboxEvaluator)
-    assert planner._extensions == []
-    assert evaluator._extensions == []
+    assert planner._extensions == ["", ""]
+    assert evaluator._extensions == ["", ""]
 
 
 def test_resolve_uses_task_extensions_only(fake_llm_client: MagicMock):
@@ -94,8 +93,8 @@ def test_resolve_uses_task_extensions_only(fake_llm_client: MagicMock):
 
     planner, evaluator = factory.resolve(task)
 
-    assert planner._extensions == ["TASK_PLAN"]
-    assert evaluator._extensions == ["TASK_EVAL"]
+    assert planner._extensions == ["", "TASK_PLAN"]
+    assert evaluator._extensions == ["", "TASK_EVAL"]
 
 
 def test_resolve_concatenates_project_then_task_extensions(fake_llm_client: MagicMock):
@@ -130,8 +129,8 @@ def test_resolve_skips_empty_extensions(fake_llm_client: MagicMock):
 
     planner, evaluator = factory.resolve(task)
 
-    assert planner._extensions == ["TASK_PLAN"]
-    assert evaluator._extensions == ["PROJ_EVAL"]
+    assert planner._extensions == ["", "TASK_PLAN"]
+    assert evaluator._extensions == ["PROJ_EVAL", ""]
 
 
 def test_resolve_with_missing_project_falls_back_silently(
@@ -148,16 +147,18 @@ def test_resolve_with_missing_project_falls_back_silently(
 
     planner, _ = factory.resolve(task)
 
-    assert planner._extensions == ["TASK_PLAN"]
+    assert planner._extensions == ["", "TASK_PLAN"]
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert warnings == []
 
 
 def test_resolve_with_storage_failure_emits_log_event(
-    fake_llm_client: MagicMock, caplog: pytest.LogCaptureFixture
+    fake_llm_client: MagicMock, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ):
     """DB / 加密 key 等真实异常应升 warning + 结构化事件。"""
     caplog.set_level(logging.WARNING, logger="argus_py.blackbox.llm_boundary")
+    # 根日志配置中 argus_py logger 的 propagate=false 阻止记录传播到 caplog，需临时开启
+    monkeypatch.setattr(logging.getLogger("argus_py"), "propagate", True)
 
     factory = LLMBoundaryFactory(
         project_storage=_fake_storage(raise_on_load=RuntimeError("decrypt failed"))
@@ -170,7 +171,7 @@ def test_resolve_with_storage_failure_emits_log_event(
     planner, _ = factory.resolve(task)
 
     # 行为：任务扩展仍生效，项目侧降级为空
-    assert planner._extensions == ["TASK_PLAN"]
+    assert planner._extensions == ["", "TASK_PLAN"]
     # 可观测性：必须出现 warning + 结构化字段
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(warnings) == 1
@@ -195,8 +196,8 @@ def test_resolve_with_storage_failure_does_not_break_task_execution(
 
     assert isinstance(planner, BlackboxPlanner)
     assert isinstance(evaluator, BlackboxEvaluator)
-    assert planner._extensions == []
-    assert evaluator._extensions == []
+    assert planner._extensions == ["", ""]
+    assert evaluator._extensions == ["", ""]
 
 
 def test_resolve_ignores_extensions_when_default_planner_injected(
@@ -217,3 +218,40 @@ def test_resolve_ignores_extensions_when_default_planner_injected(
     assert evaluator is injected_evaluator
     assert planner._extensions == ["EXISTING"]
     assert evaluator._extensions == ["EXISTING_EVAL"]
+
+
+def test_extract_task_parameters_filters_internal_keys():
+    """_extract_task_parameters 应排除 prompt_extensions 和 modelConfigId。"""
+    params = {
+        "username": "admin",
+        "password": "secret123",
+        "prompt_extensions": {"planner": "xxx"},
+        "modelConfigId": "cfg-1",
+    }
+    result = _extract_task_parameters(params)
+
+    assert result == {"username": "admin", "password": "secret123"}
+
+
+def test_extract_task_parameters_returns_empty_for_none():
+    assert _extract_task_parameters(None) == {}
+    assert _extract_task_parameters({}) == {}
+
+
+def test_resolve_passes_task_parameters_to_planner_and_evaluator(
+    fake_llm_client: MagicMock,
+):
+    factory = LLMBoundaryFactory(project_storage=_fake_storage())
+    task = _make_task(
+        project_id=None,
+        prompt_extensions={"planner": "TASK_PLAN", "evaluator": "TASK_EVAL"},
+        username="admin",
+        password="secret123",
+    )
+
+    planner, evaluator = factory.resolve(task)
+
+    assert isinstance(planner, BlackboxPlanner)
+    assert isinstance(evaluator, BlackboxEvaluator)
+    assert planner._task_parameters == {"username": "admin", "password": "secret123"}
+    assert evaluator._task_parameters == {"username": "admin", "password": "secret123"}

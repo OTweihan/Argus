@@ -1,7 +1,8 @@
-"""应用级常量。"""
+"""应用级常量与工具函数。"""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_NAME = "Argus"
@@ -52,3 +53,10 @@ DEFAULT_COMPLEX_TASK_TIMEOUT_S = 600
 
 # Task search — 最小搜索关键词长度，低于此值跳过 LIKE 匹配以避免全表扫描
 TASK_SEARCH_MIN_LENGTH = 2
+# 任务搜索涉及的字段列表（同时用于 Python 端内存搜索和 SQL LIKE 查询）
+KEYWORD_FIELDS = ("name", "goal", "task_id", "start_url", "result_summary", "error_message")
+
+
+def utc_now() -> datetime:
+    """返回 UTC 当前时间。"""
+    return datetime.now(timezone.utc)

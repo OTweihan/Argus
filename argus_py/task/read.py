@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from argus_py.core.constants import TASK_SEARCH_MIN_LENGTH
+from argus_py.core.constants import KEYWORD_FIELDS, TASK_SEARCH_MIN_LENGTH
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.core.paths import REPORTS_DIR, SCREENSHOTS_DIR
@@ -15,12 +15,10 @@ from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
 logger = logging.getLogger(__name__)
 
-_KEYWORD_FIELDS = ("name", "goal", "task_id", "start_url", "result_summary", "error_message")
-
 
 def _task_matches_keyword(task: Task, kw: str) -> bool:
     """Python 端 6 字段关键词匹配（FileStorage 回退）。"""
-    return any(kw in (getattr(task, f, None) or "").lower() for f in _KEYWORD_FIELDS)
+    return any(kw in (getattr(task, f, None) or "").lower() for f in KEYWORD_FIELDS)
 
 
 class TaskReadService:

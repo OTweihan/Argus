@@ -2,7 +2,7 @@
 
 from argus_py.llm.client import LLMClient
 from argus_py.llm.models import ChatCompletionRequest, ChatMessage, ChatResponse, TokenUsage
-from argus_py.llm.parser import extract_json, extract_json_value, validate_required_keys
+from argus_py.llm.parser import extract_json, validate_required_keys
 from argus_py.llm.prompts import PromptTemplate, load_prompt, load_prompt_template, render_prompt
 from argus_py.llm.providers import (
     ProviderSpec,
@@ -24,7 +24,6 @@ __all__ = [
     "load_prompt_template",
     "render_prompt",
     "extract_json",
-    "extract_json_value",
     "validate_required_keys",
     "ProviderSpec",
     "create_llm_client",

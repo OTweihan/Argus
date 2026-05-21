@@ -6,12 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from argus_py.core.constants import utc_now
 from argus_py.core.ids import generate_project_id
-
-
-def utc_now() -> datetime:
-    """返回 UTC 当前时间。"""
-    return datetime.now(timezone.utc)
 
 
 def parse_datetime(value: str | datetime | None) -> datetime | None:

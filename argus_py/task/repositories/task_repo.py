@@ -4,20 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from argus_py.core.constants import TASK_SEARCH_MIN_LENGTH
+from argus_py.core.constants import KEYWORD_FIELDS, TASK_SEARCH_MIN_LENGTH
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.db import DbPool
 from argus_py.task.models import Task
 from argus_py.task.repositories.mappers import row_to_task, task_to_row
 
-_KEYWORD_FIELDS = ("name", "goal", "task_id", "start_url", "result_summary", "error_message")
-
 
 def _sql_keyword_where(q: str) -> tuple[str, list[str]]:
     """返回 (where_clause, params) 用于 6 字段 LIKE 搜索。"""
     pattern = f"%{q}%"
-    clause = "(" + " OR ".join(f"{f} LIKE ?" for f in _KEYWORD_FIELDS) + ")"
-    return clause, [pattern] * len(_KEYWORD_FIELDS)
+    clause = "(" + " OR ".join(f"{f} LIKE ?" for f in KEYWORD_FIELDS) + ")"
+    return clause, [pattern] * len(KEYWORD_FIELDS)
 
 
 class TaskRepository:
