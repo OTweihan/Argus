@@ -1,113 +1,114 @@
-# Argus 私网部署指南
+# Argus Deployment Guide
 
-本文档面向公司内部 / 私网部署场景。覆盖容器化、配置基线、SSRF / Origin / Fernet
-key 等安全防御、备份与升级、多副本约束。
+[中文文档](deployment.zh.md)
 
-> 浏览自动化用 Playwright，必须用官方 Playwright Python 镜像（已预装 Chromium
-> + libnss / 字体 / xvfb），不要自己拼 base 镜像。
+This guide covers private network deployment of Argus: containerization, security hardening (SSRF, CORS, Fernet key), backup and recovery, schema upgrades, and the single-replica constraint.
 
-## 1. 部署形态
+> Browser automation uses Playwright. Always use the official Playwright Python image (pre-installed with Chromium + libnss / fonts / xvfb). Do not build from a plain base image.
+
+---
+
+## 1. Architecture
 
 ```
                       ┌─────────────────┐
-            (HTTPS)   │  Reverse Proxy  │   公司 SSO / 网关（可选）
-   浏览器 ──────────► │  Nginx / Caddy  │
+            (HTTPS)   │  Reverse Proxy  │   Corporate SSO / Gateway (optional)
+    Browser ──────────► │  Nginx / Caddy  │
                       └────────┬────────┘
                                │ (HTTP, internal)
                       ┌────────▼────────┐
-                      │  Argus container│   单副本（硬约束，见 §6）
+                      │  Argus container│   Single replica (hard constraint, see §6)
                       │  uv + uvicorn   │
                       └────────┬────────┘
                                │ volume
                   ┌────────────┴────────────┐
-                  │  outputs/data/argus.db  │  WAL 模式 SQLite
+                  │  outputs/data/argus.db  │  WAL mode SQLite
                   │  outputs/screenshots/   │
                   │  outputs/traces/        │
                   │  outputs/backups/       │
                   └─────────────────────────┘
 ```
 
-## 2. 快速启动（docker compose）
+---
 
-```pwsh
-# 首次构建并启动
+## 2. Quick Start (Docker Compose)
+
+```bash
+# First build and start
 docker compose up -d --build
 
-# 查看运行状态
+# Check status
 docker compose ps
 docker compose logs -f argus
 
-# 升级
+# Upgrade
 git pull
 docker compose build
 docker compose up -d
 ```
 
-启动后访问 `http://<host>:8000/` 打开 Console，`/docs` 是 OpenAPI / Swagger。
+After starting, visit `http://<host>:8000/` for the Console, or `/docs` for the OpenAPI / Swagger UI.
 
-## 3. 配置基线（[`config/server.yaml`](../config/server.yaml)）
+---
 
-> 修改后无需重建镜像；compose 通过 bind mount 实时生效，重启容器即可。
+## 3. Configuration Baseline (`config/server.yaml`)
+
+> Changes take effect immediately via bind mount — restart the container, no rebuild needed.
 
 ### CORS
 
 ```yaml
 cors:
   allow_origins:
-    - https://argus.internal.example.com   # 反代域名
-    - http://localhost:8000                # 本地直连
+    - https://argus.internal.example.com   # Reverse proxy domain
+    - http://localhost:8000                # Local direct access
 ```
 
-`allow_origins` 同时决定 **WebSocket Origin 白名单**：浏览器从其他内网页面发起
-跨域 WS 不会被接受（私网钓鱼防御）。CLI / 服务器到服务器（无 Origin）放行。
+`allow_origins` also determines the **WebSocket Origin whitelist**: cross-origin WS connections from other intranet pages are rejected (intranet phishing defense). CLI / server-to-server requests (no Origin header) are always allowed.
 
-### LLM SSRF 防御
+### LLM SSRF Defense
 
 ```yaml
 llm:
-  # 默认拒绝 RFC1918 私网 / cloud metadata；放行 localhost、127.0.0.1
-  # 把内网自部署 LLM 主机加入白名单
+  # Denies RFC1918 private networks / cloud metadata by default
+  # Allows localhost, 127.0.0.1
+  # Add self-hosted LLM hosts to the whitelist
   allow_private_hosts:
     - 10.10.20.5
     - llm.internal.example.com
 ```
 
-未列入的内网地址在 `/config/models/test` 与持久化创建 / 更新模型配置时都会被
-拒绝，错误码 `MODEL_CONFIG_ERROR`，message 提示主机不在白名单。
+Unlisted private addresses are rejected on both `/config/models/test` and model config create/update, with error code `MODEL_CONFIG_ERROR`.
 
-### Body 大小限制
+### Request Body Size Limit
 
 ```yaml
 request:
-  max_body_size_bytes: 5242880   # 默认 5 MB，对正常 prompt / 表单足够
+  max_body_size_bytes: 5242880   # Default 5 MB, sufficient for normal prompts/forms
 ```
 
-### 调度并发
+### Scheduler Concurrency
 
 ```yaml
 scheduler:
-  concurrency: 4                 # 单进程内的并发任务数；不是副本数
+  concurrency: 4                 # Concurrent tasks per process (not replica count)
 ```
 
-### WebSocket 并发上限（P2-16）
+### WebSocket Subscriber Limit
 
 ```yaml
 events:
-  max_subscribers: 0   # 0 = 不限（向后兼容），建议设为 5× 预期并发用户数
+  max_subscribers: 0   # 0 = unlimited (backwards compatible), recommend 5× expected concurrent users
 ```
 
-每个 WS 订阅独占一个 `asyncio.Queue`（容量 = `subscriber_queue_size`），异常
-前端反复重连可能耗尽内存。命中上限后新订阅会被 `EventBusSubscriberLimitError`
-拒绝，前端会收到 WebSocket close code **1013（service overload）**而非 1008，
-方便客户端实现指数退避重试。被拒次数累计到
-`event_bus.metrics().rejected_subscriber_count`。
+Each WS subscription occupies an `asyncio.Queue`. Excessive frontend reconnections may exhaust memory. When the limit is hit, new subscriptions are rejected with `EventBusSubscriberLimitError`, and the frontend receives WebSocket close code **1013 (service overload)** instead of 1008, enabling exponential backoff retry.
 
-### 限流（P2-15，可选）
+### Rate Limiting
 
 ```yaml
 rate_limit:
   enabled: true
-  trust_forwarded: true            # 反代后部署时打开（取 X-Forwarded-For）
+  trust_forwarded: true            # Enable when behind reverse proxy (reads X-Forwarded-For)
   routes:
     - name: create_task
       method: POST
@@ -116,147 +117,145 @@ rate_limit:
       burst: 20
     - name: start_task
       method: POST
-      path: /tasks/*/start         # * 匹配单个 path segment
+      path: /tasks/*/start
       requests_per_minute: 60
       burst: 20
 ```
 
-实现是进程内 token bucket，按 `(client_ip, rule.name)` 分桶。命中限流后返回
-**HTTP 429** + `Retry-After`，前端会收到 `error.code = "RATE_LIMITED"`。
+Implementation is an in-process token bucket, keyed by `(client_ip, rule.name)`. Exceeded requests return **HTTP 429** with `Retry-After` header. The frontend receives `error.code = "RATE_LIMITED"`.
 
-> 单 worker 假设下进程内状态足够。多副本部署前需要切到 Redis / 共享存储。
+> Single-worker assumption: in-memory state is sufficient. Must switch to Redis / shared storage before multi-replica deployment.
 
-### 可选 API Token 鉴权（P2-13）
+### Optional API Token Authentication
 
-适用场景：私网内 Argus 没有放在 SSO 反代后面、又想给 API 加一层口令。设置
-环境变量即可启用：
+Use when Argus is not behind an SSO reverse proxy but still needs API access control. Set the environment variable:
 
-```pwsh
-# docker compose .env 或 K8s Secret
-ARGUS_API_TOKEN=请生成一个32字节以上的随机串
+```bash
+ARGUS_API_TOKEN=<generate a 32+ byte random string>
 ```
 
-启用后：
+When enabled:
 
-| 路径前缀 | 是否需要 token |
-|---------|---------------|
-| `/health` | 否（反代/容器健康检查匿名探测） |
-| `/`、`/assets/...` SPA 静态 | 否（浏览器加载 HTML 无法带 header） |
-| `/api/*` | **是**（`Authorization: Bearer <token>`） |
-| `/ws/*` | **是**（浏览器走 `?token=<token>`，CLI 可走 Bearer 头） |
+| Path Prefix | Token Required |
+|-------------|---------------|
+| `/health` | No (for reverse proxy / container health checks) |
+| `/`, `/assets/...` (SPA static) | No (browser loads HTML without headers) |
+| `/api/*` | **Yes** (`Authorization: Bearer <token>`) |
+| `/ws/*` | **Yes** (browser uses `?token=<token>`, CLI can use Bearer header) |
 
-校验使用 `hmac.compare_digest` 防时序侧信道。**不要把 token 写进 git**。
-更强的访问控制（多用户、SSO、token 轮换）请走反代 + SSO，不要扩这套实现。
+Validation uses `hmac.compare_digest` for timing-attack resistance. **Do not commit the token to git.** For stronger access control (multi-user, SSO, token rotation), use a reverse proxy.
 
-## 4. 敏感文件
+---
 
-| 路径 | 用途 | 备份 | 权限 |
-|------|------|------|------|
-| `config/.fernet_key` | model_configs 的 API Key 加解密 | **必须** | POSIX `chmod 600`（Argus 启动时自动收紧） |
-| `config/llm.env` | LLM 提供商默认凭据（可选） | 视密级 | 600 |
-| `outputs/data/argus.db` | SQLite 全量数据 | 每日 | 600 |
-| `outputs/data/argus.db-wal` | WAL 日志 | 由 backup 工具一并 copy | 600 |
+## 4. Sensitive Files
 
-> Argus 启动时会检查 `config/.fernet_key` 文件权限：POSIX 下若 group/other
-> 可读，会打 WARN 日志提示 `chmod 600`。Linux 多人 SSH 服务器尤其需要注意。
+| Path | Purpose | Backup | Permission |
+|------|---------|--------|------------|
+| `config/.fernet_key` | Model API key encryption/decryption | **Required** | POSIX `chmod 600` (auto-set on startup) |
+| `config/llm.env` | Default LLM provider credentials (optional) | Per security level | 600 |
+| `outputs/data/argus.db` | SQLite full data | Daily | 600 |
+| `outputs/data/argus.db-wal` | WAL journal | Copied by backup tool | 600 |
 
-## 5. 备份与恢复
+> Argus checks `config/.fernet_key` permissions on startup: if group/others are readable on POSIX, it logs a WARN recommending `chmod 600`. Pay special attention on multi-user Linux SSH servers.
 
-### 日常备份（推荐每日）
+---
 
-```pwsh
-# 容器内执行，--keep 7 自动只保留 7 份
+## 5. Backup & Recovery
+
+### Daily Backup
+
+```bash
+# Inside container, --keep 7 retains only 7 most recent
 docker compose exec argus python scripts/backup_db.py --keep 7
 
-# 或 host 上挂载相同 volume 后执行
+# Or from host with same volume mounted
 python scripts/backup_db.py --keep 7
 ```
 
-备份产物结构：
+Backup structure:
 
 ```
 outputs/backups/20260519T161003Z/
-├── argus.db        # 在线热备（事务一致）
-└── .fernet_key     # 同时备份解密密钥
+├── argus.db        # Online hot backup (transaction-consistent)
+└── .fernet_key     # Decryption key backup (required to decrypt model configs)
 ```
 
-### 灾难恢复
+### Disaster Recovery
 
-1. 停服：`docker compose down`
-2. 把目标时间戳目录的 `argus.db` 与 `.fernet_key` 还原到原位（容器内 `/app/outputs/data/` 与 `/app/config/`）
-3. 启服：`docker compose up -d`
+1. Stop: `docker compose down`
+2. Restore the target timestamp directory's `argus.db` and `.fernet_key` to their original locations (container `/app/outputs/data/` and `/app/config/`)
+3. Start: `docker compose up -d`
 
-### 过期产物清理
+### Expired Artifact Cleanup
 
-```pwsh
+```bash
 docker compose exec argus python scripts/cleanup_outputs.py --days 30
 ```
 
-默认清 `screenshots / logs / temp / reports / traces` 30 天前文件；`data / backups`
-是受保护目录，本脚本拒绝清。
+Default: cleans files older than 30 days from `screenshots / logs / temp / reports / traces`. The `data` and `backups` directories are protected and never cleaned.
 
-## 6. 多副本约束（重要）
+---
 
-Argus 当前使用 **进程内 asyncio.Queue + 进程内 EventBus**，多 worker / 多副本
-会导致：
+## 6. Single-Replica Constraint (Important)
 
-- 同一任务被两个进程同时消费（任务双发）
-- WebSocket 事件只能广播到当前进程的订阅者（前端事件丢失 N-1/N）
-- `lru_cache` 单例分裂，依赖注入状态不一致
+Argus currently uses **in-process asyncio.Queue + in-process EventBus**. Multiple workers or replicas cause:
 
-防御措施：
+- The same task being consumed by two processes (task duplication)
+- WebSocket events only broadcasting to subscribers in the current process (N-1/N event loss)
+- `lru_cache` singletons splitting, DI state inconsistencies
 
-1. `argus serve` 启动时检测 `WEB_CONCURRENCY` / `UVICORN_WORKERS` env，
-   若 > 1 直接拒启
-2. lifespan 兜底告警（防止有人绕过 CLI 用 `uvicorn ... --workers N`）
-3. `docker-compose.yml` 显式 `deploy.replicas: 1` 与 env `WEB_CONCURRENCY=1`
-4. K8s Deployment 必须 `replicas: 1`，HPA 关闭
+Defense measures:
 
-> 如未来需要横向扩展，第一步是把 queue / EventBus 切外置（Redis Streams、
-> NATS 等），再放开副本数。
+1. `argus serve` checks `WEB_CONCURRENCY` / `UVICORN_WORKERS` env on startup — refuses to start if > 1
+2. Lifespan fallback warning (prevents `uvicorn ... --workers N` workarounds)
+3. `docker-compose.yml` explicitly sets `deploy.replicas: 1` and env `WEB_CONCURRENCY=1`
+4. K8s Deployment must use `replicas: 1`, HPA disabled
 
-## 7. Schema 升级
+> For horizontal scaling, the queue and EventBus must first be externalized (Redis Streams, NATS, etc.), then replica count can be increased.
 
-`argus_py/infra/migrations/` 是版本化 schema 迁移目录，启动期 `apply_migrations()`
-自动按 `0001_xxx.sql`、`0002_xxx.sql` 顺序应用未执行的迁移，
-`schema_migrations` 表记录已应用版本。
+---
 
-升级版本时无需手动操作：
+## 7. Schema Upgrades
 
-```pwsh
+`argus_py/infra/migrations/` contains versioned SQL migration scripts. On startup, `apply_migrations()` automatically applies pending migrations in order (`0001_xxx.sql`, `0002_xxx.sql`...). The `schema_migrations` table tracks applied versions.
+
+Upgrade procedure:
+
+```bash
 docker compose down
 git pull
 docker compose up -d --build
-# 启动日志可看到 "schema 迁移已应用：version=N name=..." 行
+# Startup logs show: "schema migration applied: version=N name=..."
 ```
 
-撰写新迁移见 [`argus_py/infra/migrations/sql/README.md`](../argus_py/infra/migrations/sql/README.md)。
+For writing new migrations, see `argus_py/infra/migrations/sql/README.md`.
 
-## 8. 安全响应头
+---
 
-middleware 自动注入：
+## 8. Security Headers
 
-| Header | 值 | 防御 |
-|--------|----|------|
-| `X-Content-Type-Options` | `nosniff` | MIME sniffing 攻击 |
-| `X-Frame-Options` | `DENY` | clickjacking |
-| `Referrer-Policy` | `no-referrer` | 内部 URL 泄露 |
-| `Cross-Origin-Opener-Policy` | `same-origin` | 跨源 window 引用 |
+Middleware automatically injects:
 
-> 暂未加 CSP：FastAPI `/docs` 与 Element Plus inline 样式与严格 CSP 冲突。
-> 若需要可针对前端静态目录单独配置，避开 `/docs`、`/api`。
+| Header | Value | Defense |
+|--------|-------|---------|
+| `X-Content-Type-Options` | `nosniff` | MIME sniffing attacks |
+| `X-Frame-Options` | `DENY` | Clickjacking |
+| `Referrer-Policy` | `no-referrer` | Internal URL leakage |
+| `Cross-Origin-Opener-Policy` | `same-origin` | Cross-origin window references |
 
-## 9. 验证清单（上线前必跑）
+> CSP is not yet added: FastAPI `/docs` and Element Plus inline styles conflict with strict CSP. Configure CSP per static directory if needed.
 
-- [ ] `config/server.yaml` 的 `cors.allow_origins` 包含所有合法 Origin
-- [ ] `config/server.yaml` 的 `llm.allow_private_hosts` 列出内网 LLM（若有）
-- [ ] `config/.fernet_key` 权限 600（Linux），且已备份至少一份到外置
-- [ ] `docker compose up` 后访问 `/health` 返回 200
-- [ ] `/docs` 能打开，能创建模型配置并 `/test` 成功（验证 LLM 连通性）
-- [ ] 备份脚本通过定时任务每日跑一次
-- [ ] WEB_CONCURRENCY 没被 K8s / Helm chart 设成 > 1
-- [ ] 若启用 `ARGUS_API_TOKEN`：前端构建带上 token 注入，定时 rotate 流程已就绪
-- [ ] 若启用 `rate_limit.enabled` 且部署在反代后：`trust_forwarded: true` 已开
-- [ ] 若启用 `events.max_subscribers`：值不低于预期并发用户数的 5 倍
-- [ ] 若启用 `ARGUS_API_TOKEN`：前端构建带上 token 注入，定时 rotate 流程已就绪
-- [ ] 若启用 `rate_limit.enabled` 且部署在反代后：`trust_forwarded: true` 已开
+---
+
+## 9. Pre-Launch Checklist
+
+- [ ] `config/server.yaml` → `cors.allow_origins` includes all legitimate Origins
+- [ ] `config/server.yaml` → `llm.allow_private_hosts` lists internal LLM hosts (if any)
+- [ ] `config/.fernet_key` permissions 600 (Linux), and backed up externally
+- [ ] `docker compose up` → `/health` returns 200
+- [ ] `/docs` opens, model config can be created and `/test` succeeds
+- [ ] Backup script scheduled daily
+- [ ] `WEB_CONCURRENCY` not set > 1 by K8s / Helm chart
+- [ ] If `ARGUS_API_TOKEN` enabled: frontend build includes token injection, rotation workflow ready
+- [ ] If `rate_limit.enabled` and behind reverse proxy: `trust_forwarded: true` is set
+- [ ] If `events.max_subscribers` set: value >= 5× expected concurrent users
