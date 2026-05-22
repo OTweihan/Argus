@@ -62,20 +62,27 @@ RUN mkdir -p /app/outputs/data \
              /app/outputs/backups
 
 # 切换到 non-root 用户（playwright 镜像内置 pwuser:1000）
-# config 与 outputs 都需要写权限：fernet key 自动生成、DB 写入
-# .venv/bin/python3 是到系统 Python 的符号链接，用 chmod 而非 chown -R
-# 避免 chown -R 跟随 symlink 改写系统文件权限
-RUN find /app/.venv -type d -exec chmod a+rx {} \; \
- && find /app/.venv -type f -exec chmod a+r {} \; \
- && chown -R pwuser:pwuser /app/config /app/outputs /tmp/uv-cache
+# ── 权限策略 ──
+# 1) .venv/bin/python3 是指向系统 Python（如 /usr/bin/python3）的符号链接。
+#    chown -R 会跟随 symlink 污染系统文件，必须用 -h（no-dereference）。
+# 2) uv run 在运行时可能往 /app 写入 .uv/ 元数据或同步 .venv，
+#    因此 /app 和 .venv 整体必须归 pwuser 可写。
+# 3) outputs / tmp/uv-cache 持久化目录直接 chown -R。
+# 4) /app/config 可能含运行时生成的 fernet key，也归 pwuser。
+RUN chown -Rh pwuser:pwuser /app/.venv \
+ && find /app -mindepth 1 -maxdepth 1 ! -name .venv -exec chown -R pwuser:pwuser {} + \
+ && chown pwuser:pwuser /app \
+ && chown -R pwuser:pwuser /tmp/uv-cache
 USER pwuser
 
 EXPOSE 8000
 
-# /health 由 argus_py.api.routes.health 提供；只用 stdlib，无需装 curl
+# ── 健康检查 ──
+# 直接使用 .venv 中的 Python，不绕 uv run（避免 uv 的 Python 解释器探测开销与权限问题）
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python3 -c "import urllib.request,sys; \
-urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3); sys.exit(0)" || exit 1
+    CMD .venv/bin/python3 -c "import urllib.request,sys; \
+urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5); sys.exit(0)" || exit 1
 
-# CLI 启动会跑 _detect_multi_worker_env 护栏，挡住 K8s 误调 WEB_CONCURRENCY > 1
-CMD ["uv", "run", "argus", "serve", "--host", "0.0.0.0", "--port", "8000"]
+# ── 启动 ──
+# 同样直接使用 .venv Python，跳过 uv run 的 Python 探测环节
+CMD [".venv/bin/python3", "-m", "argus_py.cli.main", "serve", "--host", "0.0.0.0", "--port", "8000"]
