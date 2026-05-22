@@ -33,11 +33,14 @@ def render_html_report(
     return template.render(report=report_to_dict(report))
 
 
-def write_html_report(report: Report, path: str | Path) -> Path:
+def write_html_report(report: Report, path: str | Path, template_name: str = "blackbox_report.html.j2") -> Path:
     """写入 HTML 报告。"""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render_html_report(report, output_path=target), encoding="utf-8")
+    target.write_text(
+        render_html_report(report, output_path=target, template_name=template_name),
+        encoding="utf-8",
+    )
     return target
 
 

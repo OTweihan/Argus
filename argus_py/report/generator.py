@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from argus_py.core.enums import TaskType
 from argus_py.core.paths import REPORTS_DIR
 from argus_py.report.html_report import write_html_report
 from argus_py.report.json_report import write_json_report
@@ -45,7 +46,8 @@ class ReportGenerator:
         try:
             report = Report.from_task(task, summary=summary or "")
             write_json_report(report, json_path)
-            write_html_report(report, html_path)
+            template_name = "whitebox_report.html.j2" if task.task_type == TaskType.WHITEBOX else "blackbox_report.html.j2"
+            write_html_report(report, html_path, template_name=template_name)
             return GeneratedReport(report=report, html_path=html_path, json_path=json_path)
         except Exception:
             task.report_path = original_report_path
