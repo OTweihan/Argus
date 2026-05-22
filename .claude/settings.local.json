@@ -32,7 +32,8 @@
       "Bash(git -C \"D:/PythonProjects/Argus\" show HEAD:frontend/src/views/ReportView.vue)",
       "Bash(npx vitest *)",
       "Bash(npx gitnexus *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(uv sync *)"
     ]
   }
 }
