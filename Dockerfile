@@ -63,7 +63,8 @@ RUN mkdir -p /app/outputs/data \
 
 # 切换到 non-root 用户（playwright 镜像内置 pwuser:1000）
 # config 与 outputs 都需要写权限：fernet key 自动生成、DB 写入
-RUN chown -R pwuser:pwuser /app
+# uv cache 目录在 build 阶段由 root 创建，运行时 pwuser 必须可写
+RUN chown -R pwuser:pwuser /app /tmp/uv-cache
 USER pwuser
 
 EXPOSE 8000
