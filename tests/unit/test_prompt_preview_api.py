@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from argus_py.api.routes import prompts as prompt_routes
 from argus_py.api.schemas import PromptPreviewRequest
 

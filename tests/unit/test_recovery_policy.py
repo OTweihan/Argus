@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from argus_py.blackbox.recovery import RecoveryAction, RecoveryPolicy
 from argus_py.core.exceptions import TaskError
 

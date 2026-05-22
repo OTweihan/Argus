@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from argus_py.observability.context import (
     _request_id,
     _task_id,

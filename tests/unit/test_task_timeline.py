@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from argus_py.task.event import TaskTimelineService
 from argus_py.task.storage import TaskSQLiteStorage
 

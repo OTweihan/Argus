@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from argus_py.core.crypto import ensure_fernet_key
 from argus_py.core.exceptions import ConfigError
 from argus_py.infra.db import _DefaultDBProbe, init_database

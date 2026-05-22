@@ -10,7 +10,6 @@ from __future__ import annotations
 import importlib
 
 import pytest
-
 from argus_py.api.app import _warn_if_multi_worker
 from argus_py.cli.commands.serve import _detect_multi_worker_env
 

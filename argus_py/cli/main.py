@@ -5,9 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from argus_py.cli.commands import auth, browser, config
+from argus_py.cli.commands import auth, browser, config, run, serve
 from argus_py.cli.commands import llm as llm_cmd
-from argus_py.cli.commands import run, serve
 from argus_py.cli.io import setup_cli_logging
 from argus_py.core.constants import PROJECT_NAME, PROJECT_VERSION
 

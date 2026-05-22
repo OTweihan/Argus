@@ -8,9 +8,6 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from argus_py.api.middleware import configure_middleware
 from argus_py.config.server_settings import ServerSettings
 from argus_py.core.exceptions import (
@@ -21,6 +18,8 @@ from argus_py.core.exceptions import (
     TaskError,
     TaskNotFoundError,
 )
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 def _make_app(settings: ServerSettings) -> FastAPI:

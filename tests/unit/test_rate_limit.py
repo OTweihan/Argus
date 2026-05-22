@@ -6,15 +6,14 @@ import time
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from argus_py.api.rate_limit import (
     RateLimitMiddleware,
     RateLimitRule,
     TokenBucketLimiter,
     build_rules,
 )
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 class TestRateLimitRule:

@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 
 import pytest
-
 from argus_py.observability.llm_trace import LLMTraceRecord
 from argus_py.observability.llm_trace_writer import (
     LLMTraceWriter,

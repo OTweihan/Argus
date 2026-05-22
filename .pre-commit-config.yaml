@@ -47,6 +47,13 @@ repos:
         types: [text]
         exclude: '\.md$'
 
+      - id: ruff-import-sort
+        name: ruff (import sorting — I001)
+        entry: python -m ruff check --fix --select I001
+        language: system
+        types: [python]
+        require_serial: true
+
       - id: ruff
         name: ruff (lint + import sorting)
         entry: python -m ruff check --fix

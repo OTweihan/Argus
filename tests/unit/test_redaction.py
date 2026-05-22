@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from argus_py.redaction import (
     redact_finding_entry,
     redact_href,

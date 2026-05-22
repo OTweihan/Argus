@@ -17,7 +17,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from argus_py.config.server_settings import ServerSettings
 from argus_py.core.constants import (
     DEFAULT_BROWSER,
@@ -124,9 +123,9 @@ def test_env_example_matches_server_settings(
     "魔法数字。
     """
     actual = env_example[env_key]
-    assert (
-        actual == expected
-    ), f".env.example[{env_key}] = {actual!r}，但 ServerSettings 默认值是 {expected!r}。"
+    assert actual == expected, (
+        f".env.example[{env_key}] = {actual!r}，但 ServerSettings 默认值是 {expected!r}。"
+    )
 
 
 def test_env_example_api_key_is_placeholder(env_example: dict[str, str]) -> None:
@@ -138,9 +137,9 @@ def test_env_example_api_key_is_placeholder(env_example: dict[str, str]) -> None
         return
     lowered = value.lower()
     suspicious = ("sk-", "key-", "tk-")
-    assert not any(
-        lowered.startswith(p) for p in suspicious
-    ), f".env.example[LLM_API_KEY] 不应包含真实 key（值={value!r}）。"
+    assert not any(lowered.startswith(p) for p in suspicious), (
+        f".env.example[LLM_API_KEY] 不应包含真实 key（值={value!r}）。"
+    )
 
 
 def test_env_example_output_dir_is_relative(env_example: dict[str, str]) -> None:
@@ -148,7 +147,7 @@ def test_env_example_output_dir_is_relative(env_example: dict[str, str]) -> None
     出去，也方便其它人直接 copy 到自己机器。"""
     value = env_example["OUTPUT_DIR"]
     path = Path(value)
-    assert (
-        not path.is_absolute()
-    ), f".env.example[OUTPUT_DIR] 应为相对路径，但实际是绝对路径：{value!r}。"
+    assert not path.is_absolute(), (
+        f".env.example[OUTPUT_DIR] 应为相对路径，但实际是绝对路径：{value!r}。"
+    )
     assert value == "outputs", f".env.example[OUTPUT_DIR] 习惯写法为 'outputs'，当前是 {value!r}。"

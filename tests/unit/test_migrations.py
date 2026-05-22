@@ -13,7 +13,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from argus_py.infra.migrations import apply_migrations
 
 

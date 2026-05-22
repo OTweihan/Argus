@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import msvcrt
 import sys
 from pathlib import Path
 
@@ -163,6 +162,11 @@ def _prompt_text(label: str, default: str) -> str:
 
 def _read_masked_input(prompt: str, mask: str = "*") -> str:
     """读取敏感输入，并用掩码字符显示输入进度。"""
+    try:
+        import msvcrt  # Windows-only
+    except ImportError:
+        return getpass.getpass(prompt)
+
     if not sys.stdin.isatty():
         return getpass.getpass(prompt)
 

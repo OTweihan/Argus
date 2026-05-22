@@ -31,6 +31,7 @@ from argus_py.api.schemas import (
 )
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import ProjectError, TaskError
+
 from tests.helpers.factories import make_app_stack
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

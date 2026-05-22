@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import pytest
-
 from argus_py.llm.url_guard import LLMUrlSafetyError, assert_llm_base_url_safe
 
 

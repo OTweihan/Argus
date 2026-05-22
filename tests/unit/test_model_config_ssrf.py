@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import pytest
-
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.server_settings import ServerSettings
 from argus_py.config.service import ModelConfigService

@@ -12,7 +12,6 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
-
 from argus_py.browser.base import BrowserSession
 from argus_py.browser.playwright_client import PlaywrightClient
 

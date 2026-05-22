@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-
 from argus_py.api.dependencies import reset_all_dependencies
+
 from tests.helpers.factories import AppStack, make_app_stack
 
 

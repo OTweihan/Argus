@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI, WebSocket
-from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
-
 from argus_py.api.auth import (
     DEFAULT_PROTECTED_PREFIXES,
     AuthTokenMiddleware,
     build_auth_middleware,
 )
+from fastapi import FastAPI, WebSocket
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 
 def _make_app(token: str) -> FastAPI:
