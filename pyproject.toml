@@ -37,6 +37,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "mypy>=1.8",
+    "types-PyYAML>=6.0",
     # ruff 负责 format + lint + import 排序，替代原先的 black + isort。
     "ruff>=0.6,<1.0",
     "pre-commit>=3.7",
@@ -102,6 +103,10 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = ["argus_py.api.*", "argus_py.task.*", "argus_py.llm.*", "argus_py.observability.*"]
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "argus_py.cli.commands.config"
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

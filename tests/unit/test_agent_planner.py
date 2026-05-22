@@ -135,6 +135,29 @@ class FakeBrowserSession:
         return FakeSnapshot()
 
 
+class FakePlanner:
+    """不携带 llm_client 的规划器桩，避免 LLMBoundaryFactory 触发 LLM client 解析。"""
+
+    async def plan_initial(self, task_input: BlackboxTaskInput) -> ActionSequence:
+        return ActionSequence(
+            steps=[
+                ActionStep(action=ActionType.GOTO, url=task_input.start_url, reason="打开起始 URL")
+            ]
+        )
+
+    async def plan_next(
+        self,
+        goal: str,
+        current_url: str,
+        page_snapshot: str,
+        history: list[dict],
+        max_steps: int = 3,
+        last_error: dict | None = None,
+        evaluator_next_action: str = "",
+    ) -> ActionSequence:
+        return ActionSequence(steps=[], summary="完成")
+
+
 class CountingEvaluator:
     def __init__(self) -> None:
         self.count = 0
@@ -160,7 +183,7 @@ async def test_blackbox_runner_executes_initial_browser_loop(tmp_path):
         reader=service.reader,
         log_service=service.log,
         timeline_service=service.timeline,
-        planner=BlackboxPlanner(),
+        planner=FakePlanner(),
         evaluator=CountingEvaluator(),
         browser_session_factory=lambda _: FakeBrowserSession(tmp_path),
         report_generator=ReportGenerator(tmp_path / "reports"),

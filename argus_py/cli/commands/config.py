@@ -175,7 +175,7 @@ def _read_masked_input(prompt: str, mask: str = "*") -> str:
     chars: list[str] = []
 
     while True:
-        char = msvcrt.getwch()
+        char = msvcrt.getwch()  # type: ignore[attr-defined]
         if char in {"\r", "\n"}:
             sys.stdout.write("\n")
             sys.stdout.flush()
@@ -189,7 +189,7 @@ def _read_masked_input(prompt: str, mask: str = "*") -> str:
                 sys.stdout.flush()
             continue
         if char in {"\x00", "\xe0"}:
-            msvcrt.getwch()
+            msvcrt.getwch()  # type: ignore[attr-defined]
             continue
         chars.append(char)
         sys.stdout.write(mask)
