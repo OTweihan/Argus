@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from argus_py.api.schemas.base import ApiModel, blank_to_none, strip_text
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
@@ -86,6 +86,12 @@ class TaskCreateRequest(ApiModel):
         """必填文本去掉两端空白后再校验。"""
         return strip_text(value)
 
+    @field_validator("start_url", mode="before")
+    @classmethod
+    def strip_start_url(cls, value: object) -> object:
+        """start_url 去掉两端空白；白盒任务不要求必填。"""
+        return strip_text(value) if value is not None else None
+
     @field_validator("name", "start_url", "model_config_id", mode="before")
     @classmethod
     def blank_optional_text_to_none(cls, value: object) -> object:
@@ -102,6 +108,19 @@ class TaskCreateRequest(ApiModel):
             if isinstance(val, str) and len(val) > _PARAMS_MAX_VALUE_STR_LEN:
                 raise ValueError(f"参数值过长：{key[:80]}（最多 {_PARAMS_MAX_VALUE_STR_LEN} 字符）")
         return value
+
+    @model_validator(mode="after")
+    def validate_by_task_type(self) -> "TaskCreateRequest":
+        """按任务类型校验必填字段。
+
+        白盒任务：parameters 需要 ``repo_url`` 或 ``source_path``。
+        黑盒任务在本层不做强制校验（CLI/前端自行保证），保持与原有行为兼容。
+        """
+        if self.task_type == TaskType.WHITEBOX:
+            params = self.parameters or {}
+            if not params.get("repo_url") and not params.get("source_path"):
+                raise ValueError("白盒任务的 parameters 必须包含 repo_url 或 source_path")
+        return self
 
 
 class TaskUpdateRequest(TaskCreateRequest):
