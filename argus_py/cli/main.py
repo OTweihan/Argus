@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from argus_py.cli.commands import auth, browser, config, run, serve
+from argus_py.cli.commands import analyze, auth, browser, config, run, serve
 from argus_py.cli.commands import llm as llm_cmd
 from argus_py.cli.io import setup_cli_logging
 from argus_py.core.constants import PROJECT_NAME, PROJECT_VERSION
@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
     serve.build_parser(subparsers)
     run.build_parser(subparsers)
+    analyze.build_parser(subparsers)
     browser.build_parser(subparsers)
     auth.build_parser(subparsers)
     llm_cmd.build_parser(subparsers)
@@ -60,6 +61,22 @@ def main(argv: list[str] | None = None) -> int:
             from argus_py.cli.utils import print_cli_error
 
             print_cli_error("任务执行失败", exc)
+            return 1
+
+    if args.command == "analyze":
+        import asyncio
+
+        try:
+            return asyncio.run(analyze.run(args))
+        except KeyboardInterrupt:
+            from argus_py.cli.utils import print_cli_cancelled
+
+            print_cli_cancelled("白盒分析")
+            return 130
+        except Exception as exc:
+            from argus_py.cli.utils import print_cli_error
+
+            print_cli_error("白盒分析失败", exc)
             return 1
 
     if args.command == "browser":

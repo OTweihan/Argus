@@ -11,7 +11,7 @@ from typing import Any
 
 from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import ModelConfigService
-from argus_py.core.enums import TaskStatus
+from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.context import run_in_thread
@@ -91,12 +91,24 @@ class TaskApplicationService:
         ``project_id`` 为 None 时跳过项目相关合并，纯参数校验后返回。
         """
         project = self._project.get_project(project_id) if project_id else None
-        start_url = start_url or (project.base_url if project else None)
-        if not start_url:
-            raise TaskError("任务需要 startUrl，或项目需要配置 baseUrl。")
-        result = validate_url(start_url)
-        if not result.is_ok():
-            raise TaskError(f"startUrl 校验失败：{result.error_message}")
+        is_whitebox = task_type == TaskType.WHITEBOX
+
+        if not is_whitebox:
+            start_url = start_url or (project.base_url if project else None)
+            if not start_url:
+                raise TaskError("任务需要 startUrl，或项目需要配置 baseUrl。")
+            result = validate_url(start_url)
+            if not result.is_ok():
+                raise TaskError(f"startUrl 校验失败：{result.error_message}")
+
+            limits = resolve_execution_limits(goal, start_url, max_steps, timeout_seconds)
+        else:
+            from argus_py.task.strategy import TaskExecutionLimits
+
+            limits = TaskExecutionLimits(
+                max_steps=max_steps or 1,
+                timeout_seconds=timeout_seconds or 3600,
+            )
 
         if project:
             max_steps = max_steps or project.default_max_steps
@@ -113,8 +125,6 @@ class TaskApplicationService:
         if model_config_id:
             self._model_config.get_model_config(model_config_id)
             merged_params["model_config_id"] = model_config_id
-
-        limits = resolve_execution_limits(goal, start_url, max_steps, timeout_seconds)
 
         return {
             "goal": goal,

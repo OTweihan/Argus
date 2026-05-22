@@ -79,6 +79,7 @@ class TaskRunner:
         """默认任务类型处理器。"""
         from argus_py.blackbox.runner import BlackboxRunner
         from argus_py.task.storage import TaskSQLiteStorage
+        from argus_py.whitebox.runner import WhiteboxRunner
 
         storage = TaskSQLiteStorage()
 
@@ -90,6 +91,7 @@ class TaskRunner:
                 timeline_service=TaskTimelineService(storage),
                 model_config_service=self._model_config_service,
             ).run,
+            TaskType.WHITEBOX: WhiteboxRunner().run,
         }
 
     def _latest_task(self, task: Task) -> Task:

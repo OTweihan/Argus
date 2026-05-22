@@ -1,0 +1,283 @@
+{% extends "base.html.j2" %}
+{% block content %}
+{% set status = report.task.status %}
+{% set summary = report.summary or report.task.resultSummary or "未记录结果摘要。" %}
+{% set wb = report.task.parameters._whitebox_result or {} %}
+{% set endpoints = wb.endpoints or [] %}
+{% set call_graph = wb.callGraph or {} %}
+{% set findings = report.findings %}
+{% set finding_count = findings | length %}
+{% set endpoint_count = endpoints | length %}
+{% set callgraph_count = call_graph | length %}
+
+<header class="report-hero" id="top">
+  <div class="hero-inner">
+    <div>
+      <div class="eyebrow">Argus Whitebox Analysis</div>
+      <h1>{{ report.title }}</h1>
+      <p class="hero-desc">{{ summary }}</p>
+      <div class="hero-status">
+        <span class="badge {{ status }}">{{ status }}</span>
+        <span class="badge info">端点 {{ endpoint_count }}</span>
+        <span class="badge info">调用图节点 {{ callgraph_count }}</span>
+        <span class="badge {{ 'success' if finding_count == 0 else 'failed' }}">缺陷 {{ finding_count }}</span>
+      </div>
+    </div>
+
+    <aside class="hero-meta" aria-label="报告元信息">
+      <div class="meta-row">
+        <span class="meta-label">报告 ID</span>
+        <span class="meta-value">{{ report.reportId }}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">任务 ID</span>
+        <span class="meta-value">{{ report.task.taskId }}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">生成时间</span>
+        <span class="meta-value">{{ report.generatedAt | datetime_short }}</span>
+      </div>
+    </aside>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <nav class="nav-card" aria-label="报告导航">
+      <p class="nav-title">Report Sections</p>
+      <a class="nav-link" href="#overview"><span>概览</span><span>01</span></a>
+      <a class="nav-link" href="#task"><span>任务信息</span><span>02</span></a>
+      <a class="nav-link" href="#endpoints"><span>端点清单</span><span>03</span></a>
+      <a class="nav-link" href="#callgraph"><span>调用图</span><span>04</span></a>
+      <a class="nav-link" href="#findings"><span>代码缺陷</span><span>05</span></a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <section class="section" id="overview">
+      <div class="metrics">
+        <div class="metric">
+          <span>任务状态</span>
+          <strong><span class="badge {{ status }}">{{ status }}</span></strong>
+        </div>
+        <div class="metric">
+          <span>REST 端点</span>
+          <strong>{{ endpoint_count }}</strong>
+        </div>
+        <div class="metric">
+          <span>调用图节点</span>
+          <strong>{{ callgraph_count }}</strong>
+        </div>
+        <div class="metric">
+          <span>代码缺陷</span>
+          <strong>{{ finding_count }}</strong>
+        </div>
+        <div class="metric">
+          <span>分析范围</span>
+          <strong><span class="badge info">{{ wb.summary.scope if wb.summary else "all" }}</span></strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="section card" id="task">
+      <div class="section-head">
+        <div>
+          <h2>任务信息</h2>
+          <p class="section-subtitle">分析源码路径、分支与执行结果。</p>
+        </div>
+        <span class="badge {{ status }}">{{ status }}</span>
+      </div>
+
+      <table class="info-table">
+        <tr>
+          <th>任务 ID</th>
+          <td><code>{{ report.task.taskId }}</code></td>
+        </tr>
+        <tr>
+          <th>结果摘要</th>
+          <td>{{ summary }}</td>
+        </tr>
+        <tr>
+          <th>报告路径</th>
+          <td>{{ report.task.reportPath or "" }}</td>
+        </tr>
+        <tr>
+          <th>错误信息</th>
+          <td>
+            {% if report.task.errorMessage %}
+              {{ report.task.errorMessage }}
+            {% else %}
+              <span class="muted">无</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th>创建时间</th>
+          <td>{{ report.task.createdAt | datetime_short }}</td>
+        </tr>
+        <tr>
+          <th>开始时间</th>
+          <td>{{ report.task.startedAt | datetime_short }}</td>
+        </tr>
+        <tr>
+          <th>完成时间</th>
+          <td>{{ report.task.completedAt | datetime_short }}</td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="section card" id="endpoints">
+      <div class="section-head">
+        <div>
+          <h2>端点清单</h2>
+          <p class="section-subtitle">扫描到的 Controller REST 端点。</p>
+        </div>
+        <span class="badge info">{{ endpoint_count }} endpoints</span>
+      </div>
+
+      {% if endpoints %}
+        <table class="info-table">
+          <thead>
+            <tr>
+              <th>HTTP 方法</th>
+              <th>路径</th>
+              <th>Controller</th>
+              <th>方法</th>
+              <th>参数</th>
+              <th>返回类型</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ep in endpoints %}
+              <tr>
+                <td><span class="badge info">{{ ep.httpMethod or "ANY" }}</span></td>
+                <td><code>{{ ep.path }}</code></td>
+                <td>{{ ep.controllerClass }}</td>
+                <td><code>{{ ep.controllerMethod }}</code></td>
+                <td>
+                  {% if ep.parameters %}
+                    {{ ep.parameters | join(", ") }}
+                  {% else %}
+                    <span class="muted">无</span>
+                  {% endif %}
+                </td>
+                <td><code>{{ ep.returnType }}</code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>未发现 REST 端点</strong>
+            <span>未扫描到 @RestController 或 @RequestMapping 注解。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="section card" id="callgraph">
+      <div class="section-head">
+        <div>
+          <h2>调用图</h2>
+          <p class="section-subtitle">Controller → Service → Repository 方法调用关系。</p>
+        </div>
+        <span class="badge info">{{ callgraph_count }} nodes</span>
+      </div>
+
+      {% if call_graph %}
+        <table class="info-table">
+          <thead>
+            <tr>
+              <th>节点</th>
+              <th>签名</th>
+              <th>被调用方法</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for key, node in call_graph.items() %}
+              <tr>
+                <td><code>{{ key }}</code></td>
+                <td><code>{{ node.methodSignature }}</code></td>
+                <td>
+                  {% if node.callees %}
+                    {% for callee in node.callees %}
+                      <code>{{ callee }}</code>{% if not loop.last %}<br>{% endif %}
+                    {% endfor %}
+                  {% else %}
+                    <span class="muted">无</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>未生成调用图</strong>
+            <span>分析范围未包含调用图或项目中无法建立调用链。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="section card" id="findings">
+      <div class="section-head">
+        <div>
+          <h2>代码缺陷</h2>
+          <p class="section-subtitle">静态分析发现的代码坏味道、安全风险和潜在缺陷。</p>
+        </div>
+        <span class="badge {{ 'success' if finding_count == 0 else 'failed' }}">{{ finding_count }} findings</span>
+      </div>
+
+      {% if findings %}
+        <div class="timeline">
+          {% for finding in findings %}
+            <article class="step result-{{ finding.severity }}" id="finding-{{ loop.index }}" data-step="{{ loop.index }}">
+              <div class="finding-head">
+                <div>
+                  <div class="step-title">
+                    <h3>{{ finding.title }}</h3>
+                    <span class="action-pill">{{ finding.findingType }}</span>
+                  </div>
+                  <p class="muted">{{ finding.description }}</p>
+                </div>
+                <span class="badge {{ finding.severity }}">{{ finding.severity }}</span>
+              </div>
+
+              <div class="step-body">
+                <table class="info-table">
+                  <tr>
+                    <th>问题 ID</th>
+                    <td><code>{{ finding.findingId }}</code></td>
+                  </tr>
+                  <tr>
+                    <th>类型</th>
+                    <td>{{ finding.findingType }}</td>
+                  </tr>
+                  <tr>
+                    <th>位置</th>
+                    <td>{{ finding.location or "" }}</td>
+                  </tr>
+                  <tr>
+                    <th>时间</th>
+                    <td>{{ finding.createdAt | datetime_short }}</td>
+                  </tr>
+                </table>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>未发现代码缺陷</strong>
+            <span>代码质量良好，未检测到明显坏味道或安全问题。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+  </main>
+</div>
+{% endblock %}
