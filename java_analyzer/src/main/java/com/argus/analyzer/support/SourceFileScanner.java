@@ -1,7 +1,12 @@
 package com.argus.analyzer.support;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -13,33 +18,57 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
-/**
- * 共享的源码文件扫描器。
- *
- * 统一负责 walk 源码目录 → 过滤 .java → 排除 target/ → 解析为 CompilationUnit，
- * 避免 {@code ControllerExtractor}、{@code CallGraphBuilder}、{@code FindingDetector}
- * 各自重复文件遍历逻辑。
- */
 @Component
 public class SourceFileScanner {
 
     private static final Logger log = LoggerFactory.getLogger(SourceFileScanner.class);
 
-    private final JavaParser parser;
+    private final JavaParser defaultParser;
+    private String lastSourcePath;
+    private ParserConfiguration.LanguageLevel lastLevel;
+    private String lastSourceDirsPath;
+    private List<Path> lastSourceDirs;
 
-    public SourceFileScanner(JavaParser parser) {
-        this.parser = parser;
+    public SourceFileScanner(JavaParser defaultParser) {
+        this.defaultParser = defaultParser;
     }
 
     /**
-     * 扫描源码目录，返回 (相对路径, CompilationUnit) 列表。
-     *
-     * @param sourcePath 源码根目录
-     * @return 可解析的 Java 文件列表，解析失败的自动跳过并记 warn 日志
+     * 使用默认配置（JAVA_21）扫描源码目录。
      */
     public List<Map.Entry<Path, CompilationUnit>> scan(Path sourcePath) {
+        return scan(sourcePath, null);
+    }
+
+    /**
+     * 扫描源码目录，自动检测项目 Java 版本并配置符号解析器。
+     *
+     * @param sourcePath      源码根目录
+     * @param languageLevel   可选的语言级别，为 null 时自动检测
+     * @return 可解析的 Java 文件列表，解析失败的自动跳过并记 warn 日志
+     */
+    public List<Map.Entry<Path, CompilationUnit>> scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel) {
         List<Map.Entry<Path, CompilationUnit>> results = new ArrayList<>();
+
+        ParserConfiguration.LanguageLevel level = languageLevel != null
+                ? languageLevel
+                : detectLanguageLevel(sourcePath);
+
+        // 配置类型解析器：JDK + 项目源码目录（支持多模块 Maven 项目）
+        CombinedTypeSolver typeSolver = new CombinedTypeSolver();
+        typeSolver.add(new ReflectionTypeSolver());
+        if (sourcePath != null && Files.isDirectory(sourcePath)) {
+            for (Path srcDir : getSourceDirectories(sourcePath)) {
+                typeSolver.add(new JavaParserTypeSolver(srcDir));
+            }
+        }
+
+        ParserConfiguration config = new ParserConfiguration();
+        config.setLanguageLevel(level);
+        config.setSymbolResolver(new JavaSymbolSolver(typeSolver));
+        JavaParser parser = new JavaParser(config);
 
         try (var files = Files.walk(sourcePath)) {
             List<Path> javaFiles = files
@@ -53,8 +82,8 @@ public class SourceFileScanner {
                             .getResult()
                             .orElseThrow(() -> new IOException("Failed to parse: " + javaFile));
                     results.add(new AbstractMap.SimpleEntry<>(javaFile, cu));
-                } catch (IOException e) {
-                    log.warn("Failed to parse file: {}", javaFile, e);
+                } catch (Exception e) {
+                    log.warn("Failed to parse file: {} — {}", javaFile, e.getMessage());
                 }
             }
         } catch (IOException e) {
@@ -65,8 +94,55 @@ public class SourceFileScanner {
     }
 
     /**
-     * 返回相对于 sourcePath 的路径字符串。
+     * 解析项目源码目录列表。支持：
+     * - 单模块项目：直接返回 sourcePath
+     * - 多模块 Maven 项目：扫描各模块下的 src/main/java
      */
+    static List<Path> resolveSourceDirectories(Path sourcePath) {
+        List<Path> dirs = new ArrayList<>();
+        Path mainSrc = sourcePath.resolve("src/main/java");
+        if (Files.isDirectory(mainSrc)) {
+            dirs.add(mainSrc);
+            return dirs; // 单模块，直接返回
+        }
+
+        // 多模块 Maven 项目：查找各模块的 src/main/java
+        try (Stream<Path> entries = Files.list(sourcePath)) {
+            entries.filter(Files::isDirectory)
+                    .map(module -> module.resolve("src/main/java"))
+                    .filter(Files::isDirectory)
+                    .forEach(dirs::add);
+        } catch (IOException e) {
+            log.warn("Failed to scan for module source directories: {}", e.getMessage());
+        }
+
+        if (dirs.isEmpty()) {
+            // 兜底：使用 sourcePath 本身
+            dirs.add(sourcePath);
+        } else {
+            log.info("Discovered {} Maven module source directories", dirs.size());
+        }
+        return dirs;
+    }
+
+    private synchronized List<Path> getSourceDirectories(Path sourcePath) {
+        String pathStr = sourcePath.toAbsolutePath().normalize().toString();
+        if (!pathStr.equals(lastSourceDirsPath)) {
+            lastSourceDirs = resolveSourceDirectories(sourcePath);
+            lastSourceDirsPath = pathStr;
+        }
+        return lastSourceDirs;
+    }
+
+    private synchronized ParserConfiguration.LanguageLevel detectLanguageLevel(Path sourcePath) {
+        String pathStr = sourcePath.toAbsolutePath().normalize().toString();
+        if (!pathStr.equals(lastSourcePath)) {
+            lastLevel = JavaVersionDetector.detect(sourcePath);
+            lastSourcePath = pathStr;
+        }
+        return lastLevel;
+    }
+
     public static String relativize(Path sourcePath, Path filePath) {
         return sourcePath.relativize(filePath).toString();
     }
