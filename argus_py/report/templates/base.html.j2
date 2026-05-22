@@ -610,6 +610,69 @@
       font-size: 12px;
     }
 
+    .flow-card { margin-top: 10px; }
+
+    .flow-card summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .flow-tree {
+      padding: 8px 12px 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 13px;
+    }
+
+    .flow-step + .flow-step {
+      border-top: 1px dashed var(--line);
+    }
+
+    .flow-depth-indicator {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      border-radius: 99px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .clusters-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .cluster-card { margin-top: 0; }
+
+    .cluster-card summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .cluster-members {
+      margin: 0;
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+      list-style: none;
+    }
+
+    .cluster-members li {
+      padding: 3px 0;
+      font-size: 13px;
+    }
+
     @media (max-width: 1024px) {
       .hero-inner { grid-template-columns: 1fr; }
       .layout { grid-template-columns: 1fr; }

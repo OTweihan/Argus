@@ -5,10 +5,14 @@
 {% set wb = report.task.parameters._whitebox_result or {} %}
 {% set endpoints = wb.endpoints or [] %}
 {% set call_graph = wb.callGraph or {} %}
+{% set execution_flows = wb.executionFlows or [] %}
+{% set clusters = wb.clusters or [] %}
 {% set findings = report.findings %}
 {% set finding_count = findings | length %}
 {% set endpoint_count = endpoints | length %}
 {% set callgraph_count = call_graph | length %}
+{% set flow_count = execution_flows | length %}
+{% set cluster_count = clusters | length %}
 
 <header class="report-hero" id="top">
   <div class="hero-inner">
@@ -48,8 +52,10 @@
       <a class="nav-link" href="#overview"><span>概览</span><span>01</span></a>
       <a class="nav-link" href="#task"><span>任务信息</span><span>02</span></a>
       <a class="nav-link" href="#endpoints"><span>端点清单</span><span>03</span></a>
-      <a class="nav-link" href="#callgraph"><span>调用图</span><span>04</span></a>
-      <a class="nav-link" href="#findings"><span>代码缺陷</span><span>05</span></a>
+      <a class="nav-link" href="#execution-flows"><span>执行流</span><span>04</span></a>
+      <a class="nav-link" href="#callgraph"><span>调用图</span><span>05</span></a>
+      <a class="nav-link" href="#clusters"><span>功能聚类</span><span>06</span></a>
+      <a class="nav-link" href="#findings"><span>代码缺陷</span><span>07</span></a>
     </nav>
   </aside>
 
@@ -65,8 +71,16 @@
           <strong>{{ endpoint_count }}</strong>
         </div>
         <div class="metric">
+          <span>执行流</span>
+          <strong>{{ flow_count }}</strong>
+        </div>
+        <div class="metric">
           <span>调用图节点</span>
           <strong>{{ callgraph_count }}</strong>
+        </div>
+        <div class="metric">
+          <span>功能聚类</span>
+          <strong>{{ cluster_count }}</strong>
         </div>
         <div class="metric">
           <span>代码缺陷</span>
@@ -176,6 +190,42 @@
       {% endif %}
     </section>
 
+    <section class="section card" id="execution-flows">
+      <div class="section-head">
+        <div>
+          <h2>执行流</h2>
+          <p class="section-subtitle">从 Controller 入口出发的完整调用链追踪。</p>
+        </div>
+        <span class="badge info">{{ flow_count }} flows</span>
+      </div>
+
+      {% if execution_flows %}
+        {% for flow in execution_flows %}
+          <details class="flow-card" {% if loop.first %}open{% endif %}>
+            <summary>
+              <strong>{{ flow.entryPoint }}</strong>
+              <span class="badge info">深度 {{ flow.callDepth }}</span>
+            </summary>
+            <div class="flow-tree">
+              {% for step in flow.steps %}
+                <div class="flow-step" style="padding-left: {{ step.depth * 24 }}px;">
+                  <span class="flow-depth-indicator">{{ step.depth }}</span>
+                  <code>{{ step.methodKey }}</code>
+                </div>
+              {% endfor %}
+            </div>
+          </details>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>未生成执行流</strong>
+            <span>分析范围未包含执行流或 Controller 端点无调用链。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
     <section class="section card" id="callgraph">
       <div class="section-head">
         <div>
@@ -217,6 +267,41 @@
           <div>
             <strong>未生成调用图</strong>
             <span>分析范围未包含调用图或项目中无法建立调用链。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="section card" id="clusters">
+      <div class="section-head">
+        <div>
+          <h2>功能聚类</h2>
+          <p class="section-subtitle">基于调用关系的功能模块自动分组。</p>
+        </div>
+        <span class="badge info">{{ cluster_count }} clusters</span>
+      </div>
+
+      {% if clusters %}
+        <div class="clusters-grid">
+          {% for cluster in clusters %}
+            <details class="cluster-card">
+              <summary>
+                <strong>{{ cluster.suggestedLabel }}</strong>
+                <span class="badge info">{{ cluster.memberCount }} members</span>
+              </summary>
+              <ul class="cluster-members">
+                {% for member in cluster.memberKeys %}
+                  <li><code>{{ member }}</code></li>
+                {% endfor %}
+              </ul>
+            </details>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>未生成功能聚类</strong>
+            <span>分析范围未包含聚类或调用图为空。</span>
           </div>
         </div>
       {% endif %}

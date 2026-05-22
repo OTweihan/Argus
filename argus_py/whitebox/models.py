@@ -49,12 +49,43 @@ class WhiteboxFinding:
 
 
 @dataclass
+class FlowStep:
+    """执行流中的一步。"""
+
+    depth: int = 0
+    method_key: str = ""
+    class_name: str = ""
+    method_name: str = ""
+
+
+@dataclass
+class ExecutionFlow:
+    """从端点入口开始的完整调用链。"""
+
+    entry_point: str = ""
+    steps: list[FlowStep] = field(default_factory=list)
+    call_depth: int = 0
+
+
+@dataclass
+class ClusterInfo:
+    """功能聚类分组。"""
+
+    cluster_id: str = ""
+    suggested_label: str = ""
+    member_keys: list[str] = field(default_factory=list)
+    member_count: int = 0
+
+
+@dataclass
 class WhiteboxResult:
     """白盒分析结果。"""
 
     endpoints: list[Endpoint] = field(default_factory=list)
     call_graph: CallGraph = field(default_factory=CallGraph)
     findings: list[WhiteboxFinding] = field(default_factory=list)
+    execution_flows: list[ExecutionFlow] = field(default_factory=list)
+    clusters: list[ClusterInfo] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxResult:
@@ -95,4 +126,37 @@ class WhiteboxResult:
             for f in data.get("findings", [])
         ]
 
-        return cls(endpoints=endpoints, call_graph=call_graph, findings=findings)
+        execution_flows = [
+            ExecutionFlow(
+                entry_point=ef.get("entryPoint", ""),
+                steps=[
+                    FlowStep(
+                        depth=s.get("depth", 0),
+                        method_key=s.get("methodKey", ""),
+                        class_name=s.get("className", ""),
+                        method_name=s.get("methodName", ""),
+                    )
+                    for s in ef.get("steps", [])
+                ],
+                call_depth=ef.get("callDepth", 0),
+            )
+            for ef in data.get("executionFlows", [])
+        ]
+
+        clusters = [
+            ClusterInfo(
+                cluster_id=c.get("clusterId", ""),
+                suggested_label=c.get("suggestedLabel", ""),
+                member_keys=c.get("memberKeys", []),
+                member_count=c.get("memberCount", 0),
+            )
+            for c in data.get("clusters", [])
+        ]
+
+        return cls(
+            endpoints=endpoints,
+            call_graph=call_graph,
+            findings=findings,
+            execution_flows=execution_flows,
+            clusters=clusters,
+        )

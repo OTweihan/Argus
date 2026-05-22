@@ -116,20 +116,49 @@ class WhiteboxRunner:
                         }
                         for key, node in result.call_graph.nodes.items()
                     },
+                    "executionFlows": [
+                        {
+                            "entryPoint": ef.entry_point,
+                            "callDepth": ef.call_depth,
+                            "steps": [
+                                {
+                                    "depth": s.depth,
+                                    "methodKey": s.method_key,
+                                    "className": s.class_name,
+                                    "methodName": s.method_name,
+                                }
+                                for s in ef.steps
+                            ],
+                        }
+                        for ef in result.execution_flows
+                    ],
+                    "clusters": [
+                        {
+                            "clusterId": c.cluster_id,
+                            "suggestedLabel": c.suggested_label,
+                            "memberKeys": c.member_keys,
+                            "memberCount": c.member_count,
+                        }
+                        for c in result.clusters
+                    ],
                     "summary": {
                         "endpoint_count": endpoint_count,
                         "call_graph_node_count": len(result.call_graph.nodes),
                         "finding_count": finding_count,
+                        "execution_flow_count": len(result.execution_flows),
+                        "cluster_count": len(result.clusters),
                         "scope": scope,
                     },
                 },
             }
 
             logger.info(
-                "白盒分析完成: endpoints=%d callgraph_nodes=%d findings=%d",
+                "白盒分析完成: endpoints=%d callgraph_nodes=%d findings=%d flows=%d clusters=%d",
                 endpoint_count,
                 len(result.call_graph.nodes),
                 finding_count,
+                len(result.execution_flows),
+                len(result.clusters),
             )
         finally:
             await asyncio.to_thread(self._source_resolver.cleanup)
