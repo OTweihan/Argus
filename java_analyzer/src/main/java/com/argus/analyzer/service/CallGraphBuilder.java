@@ -5,6 +5,7 @@ import com.argus.analyzer.support.SourceFileScanner;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import org.slf4j.Logger;
@@ -47,11 +48,16 @@ public class CallGraphBuilder {
                     for (MethodCallExpr call : method.findAll(MethodCallExpr.class)) {
                         try {
                             ResolvedMethodDeclaration resolved = call.resolve();
-                            String calleeKey = resolved.getClassName() + "#" + resolved.getName();
+                            String packageName = resolved.getPackageName();
+                            String qualifiedClassName = packageName.isEmpty()
+                                    ? resolved.getClassName()
+                                    : packageName + "." + resolved.getClassName();
+                            String calleeKey = qualifiedClassName + "#" + resolved.getName();
                             callees.add(calleeKey);
                         } catch (Exception e) {
-                            // Method resolution may fail for external libraries
-                            callees.add(call.getNameAsString());
+                            // 回退：尝试解析 scope 类型（如 service.findById → 解析 service 的类型）
+                            String fallback = resolveScopeType(call);
+                            callees.add(fallback != null ? fallback + "#" + call.getNameAsString() : call.getNameAsString());
                         }
                     }
 
@@ -63,5 +69,23 @@ public class CallGraphBuilder {
         }
 
         return graph;
+    }
+
+    /**
+     * 当 call.resolve() 失败时，尝试解析 scope 表达式的类型。
+     * 例如 service.findById(id) 可解析出 service 的类型名。
+     */
+    private String resolveScopeType(MethodCallExpr call) {
+        try {
+            Optional<Expression> scope = call.getScope();
+            if (scope.isEmpty()) return null;
+            String typeName = scope.get().calculateResolvedType().describe();
+            // 去掉泛型信息（如 List<Foo> → List）
+            int genericStart = typeName.indexOf('<');
+            if (genericStart > 0) typeName = typeName.substring(0, genericStart);
+            return typeName;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }
