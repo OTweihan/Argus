@@ -29,14 +29,14 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldReturnCachedValue() {
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of());
+        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of());
         cache.put("test-key", response);
         assertThat(cache.get("test-key")).isSameAs(response);
     }
 
     @Test
     void shouldInvalidateKey() {
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of());
+        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of());
         cache.put("test-key", response);
         cache.invalidate("test-key");
         assertThat(cache.get("test-key")).isNull();
@@ -44,7 +44,7 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldClearAll() {
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of());
+        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of());
         cache.put("key1", response);
         cache.put("key2", response);
         cache.clear();

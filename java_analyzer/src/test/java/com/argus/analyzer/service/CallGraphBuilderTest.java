@@ -38,9 +38,9 @@ class CallGraphBuilderTest {
         // Controller → Service 调用链
         CallGraphNode controllerNode = graph.get("com.example.demo.UserController#getUser");
         assertThat(controllerNode).isNotNull();
-        // 无 classpath 时 resolution 回退到方法名
+        // 符号解析器可解析同文件内的跨类调用
         assertThat(controllerNode.getCallees())
-                .contains("findById");
+                .contains("com.example.demo.UserService#findById");
     }
 
     @Test
