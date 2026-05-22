@@ -211,7 +211,7 @@ jobs:
 
       - name: Smoke - playwright launch
         run: |
-          docker run --rm argus:ci uv run python -c "
+          docker run --rm argus:ci .venv/bin/python3 -c "
           from playwright.sync_api import sync_playwright
           p = sync_playwright().start()
           b = p.chromium.launch()

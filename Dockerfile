@@ -40,17 +40,25 @@ WORKDIR /app
 # 固定 0.4.x 兼容当前 uv.lock 格式；升级时需要重新生成锁
 RUN pip install --no-cache-dir "uv>=0.4,<1.0"
 
-# 复制依赖描述，先 sync 命中 layer 缓存
+# ── 安装依赖（以 pwuser 身份创建 .venv，避免运行时符号链接权限问题）──
+# 策略说明：
+#   uv run 在运行时需要 canonicalize .venv/bin/python3（指向系统 Python 的
+#   符号链接）。如果 .venv 由 root 创建再 chown，符号链接本身虽可改属主，
+#   但 uv 的实际文件操作（stat/open）仍会在某些内核版本 / overlay 配置下
+#   触发 EACCES。让 pwuser 自始至终拥有 .venv 是最可靠的方案。
+RUN mkdir -p /tmp/uv-cache && chown -R pwuser:pwuser /tmp/uv-cache
+RUN chown pwuser:pwuser /app
+
+# 先切 pwuser → 安装依赖（创建 .venv），再切回 root 复制源码
+USER pwuser
 COPY pyproject.toml uv.lock README.md /app/
 RUN uv sync --frozen --no-install-project
 
+USER root
 # 复制源码 + 配置 + 前端构建产物
 COPY argus_py /app/argus_py
 COPY config /app/config
 COPY --from=frontend /workspace/argus_py/api/static /app/argus_py/api/static
-
-# 安装项目自身（链接到现有 .venv）
-RUN uv sync --frozen
 
 # 持久化挂载点：DB、截图、trace、日志全部在此
 RUN mkdir -p /app/outputs/data \
@@ -59,26 +67,17 @@ RUN mkdir -p /app/outputs/data \
              /app/outputs/reports \
              /app/outputs/traces \
              /app/outputs/temp \
-             /app/outputs/backups
+             /app/outputs/backups \
+ && chown -R pwuser:pwuser /app/outputs
 
-# 切换到 non-root 用户（playwright 镜像内置 pwuser:1000）
-# ── 权限策略 ──
-# 1) .venv/bin/python3 是指向系统 Python（如 /usr/bin/python3）的符号链接。
-#    chown -R 会跟随 symlink 污染系统文件，必须用 -h（no-dereference）。
-# 2) uv run 在运行时可能往 /app 写入 .uv/ 元数据或同步 .venv，
-#    因此 /app 和 .venv 整体必须归 pwuser 可写。
-# 3) outputs / tmp/uv-cache 持久化目录直接 chown -R。
-# 4) /app/config 可能含运行时生成的 fernet key，也归 pwuser。
-RUN chown -Rh pwuser:pwuser /app/.venv \
- && find /app -mindepth 1 -maxdepth 1 ! -name .venv -exec chown -R pwuser:pwuser {} + \
- && chown pwuser:pwuser /app \
- && chown -R pwuser:pwuser /tmp/uv-cache
+# 安装项目自身到 .venv（pwuser 已有的 .venv 中注册项目包）
 USER pwuser
+RUN uv sync --frozen
 
 EXPOSE 8000
 
 # ── 健康检查 ──
-# 直接使用 .venv 中的 Python，不绕 uv run（避免 uv 的 Python 解释器探测开销与权限问题）
+# 直接使用 .venv 中的 Python，不绕 uv run
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD .venv/bin/python3 -c "import urllib.request,sys; \
 urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5); sys.exit(0)" || exit 1
