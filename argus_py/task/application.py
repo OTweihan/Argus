@@ -16,6 +16,7 @@ from argus_py.core.exceptions import TaskError
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.context import run_in_thread
 from argus_py.project.service import ProjectService
+from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.policies import (
     can_delete,
     can_edit,
@@ -25,7 +26,7 @@ from argus_py.task.policies import (
     can_start,
     is_terminal,
 )
-from argus_py.task.service import TaskService
+from argus_py.task.read import TaskReadService
 from argus_py.task.strategy import resolve_execution_limits
 from argus_py.utils.casing import camel_keys
 
@@ -58,12 +59,14 @@ class TaskApplicationService:
 
     def __init__(
         self,
-        task_service: TaskService,
+        lifecycle: TaskLifecycleService,
+        task_read: TaskReadService,
         queue: TaskQueue,
         project_service: ProjectService,
         model_config_service: ModelConfigService,
     ) -> None:
-        self._task = task_service
+        self._lifecycle = lifecycle
+        self._read = task_read
         self._queue = queue
         self._project = project_service
         self._model_config = model_config_service
@@ -129,12 +132,12 @@ class TaskApplicationService:
 
     def create_task(self, **params: Any) -> Any:
         """创建任务快照。"""
-        return self._task.create_task(**params)
+        return self._lifecycle.create_task(**params)
 
     async def update_task(self, task_id: str, params: dict[str, Any]) -> Any:
         """更新 pending 且未入队的任务。"""
         # SQLite 读写都走线程池：协程中并发请求互不阻塞。
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if not can_edit(task.status) or scheduler_status is not None:
             raise TaskAppError(
@@ -146,14 +149,14 @@ class TaskApplicationService:
                     "scheduler_status": scheduler_status,
                 },
             )
-        updated = await run_in_thread(self._task.update_task_info, task, **params)
+        updated = await run_in_thread(self._lifecycle.update_task_info, task, **params)
         return updated, await self._queue.scheduler_status(updated.task_id)
 
     # ── 删除 ──
 
     async def delete_task(self, task_id: str) -> None:
         """删除 pending 且未入队的任务。"""
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if not can_delete(task.status) or scheduler_status is not None:
             raise TaskAppError(
@@ -165,13 +168,13 @@ class TaskApplicationService:
                     "scheduler_status": scheduler_status,
                 },
             )
-        await run_in_thread(self._task.delete_pending_task, task)
+        await run_in_thread(self._lifecycle.delete_pending_task, task)
 
     # ── 启动 ──
 
     async def start_task(self, task_id: str) -> tuple[Any, str]:
         """将 pending 任务加入执行队列。"""
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         if not can_start(task.status):
             raise TaskAppError(
                 "TASK_NOT_PENDING",
@@ -191,23 +194,23 @@ class TaskApplicationService:
 
     async def restart_task(self, task_id: str) -> tuple[Any, str]:
         """重试失败/超时/取消的任务，创建新任务并立即入队。"""
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         if not can_retry(task.status):
             raise TaskAppError(
                 "TASK_NOT_RETRYABLE",
                 f"只有失败/超时/取消的任务可以重试，当前状态：{task.status.value}。",
                 details={"task_id": task.task_id, "status": task.status.value},
             )
-        new_task = await run_in_thread(self._task.restart_task, task)
+        new_task = await run_in_thread(self._lifecycle.restart_task, task)
         try:
             result = await self._queue.enqueue(new_task.task_id)
         except (Exception, asyncio.CancelledError):
             # enqueue 内部 await self._queue.put() 不会抛 QueueFull，但可能因
             # 协程取消或其它异常终止。无论哪种异常，new_task 已写入 DB，必须回滚。
-            await run_in_thread(self._task.delete_pending_task, new_task)
+            await run_in_thread(self._lifecycle.delete_pending_task, new_task)
             raise
         if result.already_known:
-            await run_in_thread(self._task.delete_pending_task, new_task)
+            await run_in_thread(self._lifecycle.delete_pending_task, new_task)
             raise TaskAppError(
                 "TASK_ALREADY_SCHEDULED",
                 f"新创建的任务意外处于已调度状态：{result.scheduler_status}。",
@@ -219,7 +222,7 @@ class TaskApplicationService:
 
     async def _check_not_finished(self, task_id: str) -> tuple[Any, str | None]:
         """获取任务并校验未处于终态。返回 (task, scheduler_status)。"""
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         scheduler_status = await self._queue.scheduler_status(task_id)
         if is_terminal(task.status):
             raise TaskAppError(
@@ -237,14 +240,14 @@ class TaskApplicationService:
             await self._queue.cancel(task_id)
         # CancellationToken 线程不安全；必须在 event loop 线程修改信号量，
         # 否则线程池写入与执行循环读取形成不可观测的 data race。
-        self._task.get_cancellation_token(task.task_id).cancel()
-        task = await run_in_thread(self._task.cancel_task, task)
+        self._lifecycle.get_cancellation_token(task.task_id).cancel()
+        task = await run_in_thread(self._lifecycle.cancel_task, task)
         return task, await self._queue.scheduler_status(task.task_id)
 
     # ── 暂停/恢复 ──
 
     async def pause_task(self, task_id: str) -> Any:
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         if not can_pause(task.status):
             raise TaskAppError(
                 "TASK_NOT_RUNNING",
@@ -252,11 +255,11 @@ class TaskApplicationService:
                 details={"task_id": task.task_id, "status": task.status.value},
             )
         # CancellationToken 线程不安全；必须在 event loop 线程修改信号量。
-        self._task.get_cancellation_token(task.task_id).pause()
-        return await run_in_thread(self._task.pause_task, task)
+        self._lifecycle.get_cancellation_token(task.task_id).pause()
+        return await run_in_thread(self._lifecycle.pause_task, task)
 
     async def resume_task(self, task_id: str) -> Any:
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         if not can_resume(task.status):
             raise TaskAppError(
                 "TASK_NOT_PAUSED",
@@ -264,16 +267,16 @@ class TaskApplicationService:
                 details={"task_id": task.task_id, "status": task.status.value},
             )
         # CancellationToken 线程不安全；必须在 event loop 线程修改信号量。
-        self._task.get_cancellation_token(task.task_id).resume()
-        return await run_in_thread(self._task.resume_task, task)
+        self._lifecycle.get_cancellation_token(task.task_id).resume()
+        return await run_in_thread(self._lifecycle.resume_task, task)
 
     # ── 查询（委托） ──
 
     def get_task(self, task_id: str) -> Any:
-        return self._task.get_task(task_id)
+        return self._read.get_task(task_id)
 
     async def get_task_with_scheduler(self, task_id: str) -> tuple[Any, str | None]:
-        task = await run_in_thread(self._task.get_task, task_id)
+        task = await run_in_thread(self._read.get_task, task_id)
         sched = await self._queue.scheduler_status(task_id)
         return task, sched
 
@@ -285,7 +288,7 @@ class TaskApplicationService:
         limit: int | None = None,
         q: str | None = None,
     ) -> tuple[list[Any], int]:
-        return self._task.list_task_summaries(
+        return self._read.list_task_summaries(
             status=status, project_id=project_id, offset=offset, limit=limit, q=q
         )
 
@@ -295,7 +298,7 @@ class TaskApplicationService:
         project_id: str | None = None,
         q: str | None = None,
     ) -> int:
-        return self._task.count_tasks(status=status, project_id=project_id, q=q)
+        return self._read.count_tasks(status=status, project_id=project_id, q=q)
 
     async def snapshot_queue_statuses(self) -> dict[str, str]:
         return await self._queue.snapshot_statuses()
@@ -310,9 +313,9 @@ class TaskApplicationService:
         ``list_task_summaries`` 内部用 ``COUNT(*) OVER()`` 窗口函数同 SQL 返回
         全表 total，所以这里直接复用，省掉一次额外的 ``count_tasks()`` 全表扫描。
         """
-        running_total = self._task.count_tasks(status=TaskStatus.RUNNING)
-        findings_total = self._task.count_findings()
-        recent, tasks_total = self._task.list_task_summaries(offset=0, limit=recent_limit)
+        running_total = self._read.count_tasks(status=TaskStatus.RUNNING)
+        findings_total = self._read.count_findings()
+        recent, tasks_total = self._read.list_task_summaries(offset=0, limit=recent_limit)
         return {
             "tasks_total": tasks_total,
             "running_total": running_total,

@@ -11,7 +11,9 @@ from argus_py.core.enums import TaskStatus
 from argus_py.infra.events import EventBus
 from argus_py.infra.worker import TaskWorker
 from argus_py.report.generator import ReportGenerator, generate_report_safely
+from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.models import Task
+from argus_py.task.read import TaskReadService
 
 from tests.helpers.factories import make_app_stack
 
@@ -27,30 +29,30 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
 
     class FakeTaskRunner:
         def __init__(self, **kwargs: Any) -> None:
-            self.service = stack.task_service
+            self._lifecycle: TaskLifecycleService = kwargs["lifecycle"]
             self._model_config_service = None
 
         async def run(self, task: Task) -> Task:
-            running = self.service.start_task(task)
-            logged = self.service.append_log(
+            running = self._lifecycle.start_task(task)
+            logged = stack.log.append_log(
                 running,
                 action="goto",
                 url_after=running.start_url,
                 message="端到端契约测试步骤。",
             )
-            completed = self.service.complete_task(logged, result_summary="端到端契约测试完成。")
+            completed = self._lifecycle.complete_task(logged, result_summary="端到端契约测试完成。")
             return generate_report_safely(
                 completed,
                 ReportGenerator(report_dir),
-                self.service.save_task,
+                self._lifecycle.save_task,
             )
 
     monkeypatch.setattr("argus_py.infra.worker.TaskRunner", FakeTaskRunner)
 
     worker = TaskWorker(
         queue=stack.queue,
-        lifecycle=stack.task_service.lifecycle,
-        reader=stack.task_service.reader,
+        lifecycle=stack.lifecycle,
+        reader=stack.reader,
     )
     await worker.start()
     try:
@@ -78,9 +80,7 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
         start_result = await task_routes.start_task(task.task_id, app=stack.app)
 
         assert start_result.scheduler_status == "queued"
-        completed = await _wait_for_task_status(
-            stack.task_service, task.task_id, TaskStatus.COMPLETED
-        )
+        completed = await _wait_for_task_status(stack.reader, task.task_id, TaskStatus.COMPLETED)
         assert completed.current_step == 1
         assert completed.report_path is not None
         assert Path(completed.report_path).exists()
@@ -104,7 +104,7 @@ def test_submitted_project_and_task_survive_service_recreation(tmp_path):
     project = stack.project_service.create_project(
         name="持久化项目", base_url="https://example.com"
     )
-    task = stack.task_service.create_task(
+    task = stack.lifecycle.create_task(
         project_id=project.project_id,
         goal="服务重启后任务不丢失",
         start_url=project.base_url,
@@ -113,7 +113,7 @@ def test_submitted_project_and_task_survive_service_recreation(tmp_path):
     recreated = make_app_stack(tmp_path)
 
     assert recreated.project_service.get_project(project.project_id).name == "持久化项目"
-    assert recreated.task_service.get_task(task.task_id).goal == "服务重启后任务不丢失"
+    assert recreated.reader.get_task(task.task_id).goal == "服务重启后任务不丢失"
 
 
 @pytest.mark.integration
@@ -142,7 +142,7 @@ def test_cli_run_and_serve_commands_can_coexist():
 
 
 async def _wait_for_task_status(
-    service,
+    service: TaskReadService,
     task_id: str,
     status: TaskStatus,
     timeout_seconds: float = 2.0,

@@ -141,7 +141,7 @@ async def test_start_task_409_when_already_running(tmp_path: Path) -> None:
     project_id = await _create_project(stack.project_service)
     pending = await _create_pending_task(stack.app, project_id)
     # 直接把任务推进到 RUNNING（绕过队列），模拟 worker 已经接管
-    stack.task_service.start_task(stack.task_service.get_task(pending.task_id))
+    stack.lifecycle.start_task(stack.reader.get_task(pending.task_id))
 
     with pytest.raises(HTTPException) as exc_info:
         await task_routes.start_task(pending.task_id, app=stack.app)
@@ -183,8 +183,8 @@ async def test_cancel_task_400_when_already_finished(tmp_path: Path) -> None:
     project_id = await _create_project(stack.project_service)
     pending = await _create_pending_task(stack.app, project_id)
     # 直接把任务设为 COMPLETED
-    running = stack.task_service.start_task(stack.task_service.get_task(pending.task_id))
-    stack.task_service.complete_task(running, result_summary="人工标记完成")
+    running = stack.lifecycle.start_task(stack.reader.get_task(pending.task_id))
+    stack.lifecycle.complete_task(running, result_summary="人工标记完成")
 
     with pytest.raises(HTTPException) as exc_info:
         await task_routes.cancel_task(pending.task_id, app=stack.app)
@@ -211,7 +211,7 @@ async def test_update_task_409_when_not_pending(tmp_path: Path) -> None:
     stack = make_app_stack(tmp_path)
     project_id = await _create_project(stack.project_service)
     pending = await _create_pending_task(stack.app, project_id)
-    stack.task_service.start_task(stack.task_service.get_task(pending.task_id))
+    stack.lifecycle.start_task(stack.reader.get_task(pending.task_id))
 
     with pytest.raises(HTTPException) as exc_info:
         await task_routes.update_task(
@@ -233,7 +233,7 @@ async def test_delete_task_204_for_pending_and_409_for_running(tmp_path: Path) -
     assert response.status_code == 204
 
     blocked = await _create_pending_task(stack.app, project_id, goal="阻塞删除任务")
-    stack.task_service.start_task(stack.task_service.get_task(blocked.task_id))
+    stack.lifecycle.start_task(stack.reader.get_task(blocked.task_id))
 
     with pytest.raises(HTTPException) as exc_info:
         await task_routes.delete_task(blocked.task_id, app=stack.app)

@@ -24,7 +24,6 @@ from argus_py.api.dependencies import (
     get_task_query_service,
     get_task_queue,
     get_task_read_service,
-    get_task_service,
     get_task_timeline_service,
     get_task_worker,
     get_trace_reader_service,
@@ -62,9 +61,7 @@ def _build_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
     """
     stack = make_app_stack(tmp_path)
     model_cfg_service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db"))
-    worker = TaskWorker(
-        queue=stack.queue, lifecycle=stack.task_service.lifecycle, reader=stack.task_service.reader
-    )
+    worker = TaskWorker(queue=stack.queue, lifecycle=stack.lifecycle, reader=stack.reader)
     event_bus = EventBus(history_limit=50)
 
     app = FastAPI(title="Argus API Test")
@@ -82,16 +79,15 @@ def _build_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
     app.include_router(ws.router, prefix=API_PREFIX)
 
     overrides: dict[Any, Any] = {
-        get_task_service: lambda: stack.task_service,
         get_project_service: lambda: stack.project_service,
         get_task_queue: lambda: stack.queue,
         get_task_app_service: lambda: stack.app,
         get_model_config_service: lambda: model_cfg_service,
-        get_task_query_service: lambda: stack.task_service.query,
-        get_task_read_service: lambda: stack.task_service.reader,
-        get_trace_reader_service: lambda: stack.task_service.trace_reader,
-        get_debug_bundle_builder: lambda: stack.task_service.debug_builder,
-        get_task_timeline_service: lambda: stack.task_service.timeline,
+        get_task_query_service: lambda: stack.query,
+        get_task_read_service: lambda: stack.reader,
+        get_trace_reader_service: lambda: stack.trace_reader,
+        get_debug_bundle_builder: lambda: stack.debug_builder,
+        get_task_timeline_service: lambda: stack.timeline,
         get_task_worker: lambda: worker,
         get_event_bus: lambda: event_bus,
     }

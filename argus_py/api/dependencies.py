@@ -69,7 +69,8 @@ def get_task_app_service() -> "TaskApplicationService":
 
     c = create_container()
     return TaskApplicationService(
-        task_service=c.task_service,
+        lifecycle=c.lifecycle_service,
+        task_read=c.task_read_service,
         queue=c.task_queue,
         project_service=c.project_service,
         model_config_service=c.model_config_service,

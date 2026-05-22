@@ -93,7 +93,7 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                     return _error_response(
                         "REQUEST_TOO_LARGE",
                         f"请求体超出限制 {self._max_bytes} 字节。",
-                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        status.HTTP_413_CONTENT_TOO_LARGE,
                         {"limitBytes": self._max_bytes, "receivedBytes": size},
                     )
         return await call_next(request)
@@ -175,7 +175,7 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
         return _error_response(
             "INVALID_REQUEST",
             "请求参数无效。",
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             {"errors": exc.errors()},
         )
 

@@ -58,7 +58,8 @@ async def run(args: argparse.Namespace) -> int:
     """创建并执行黑盒任务。"""
     c = create_container()
     app = TaskApplicationService(
-        task_service=c.task_service,
+        lifecycle=c.lifecycle_service,
+        task_read=c.task_read_service,
         queue=c.task_queue,
         project_service=c.project_service,
         model_config_service=c.model_config_service,

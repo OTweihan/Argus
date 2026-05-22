@@ -9,17 +9,29 @@ from typing import Callable
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
 from argus_py.infra.queue import TaskQueue
+from argus_py.observability.debug_bundle import DebugBundleBuilder
+from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.application import TaskApplicationService
-from argus_py.task.service import TaskService
+from argus_py.task.event import _NullTimelineService
+from argus_py.task.lifecycle import TaskLifecycleService
+from argus_py.task.log import TaskLogService
+from argus_py.task.query import TaskQueryService
+from argus_py.task.read import TaskReadService
 from argus_py.task.storage import TaskFileStorage
 
 
 @dataclass
 class AppStack:
     app: TaskApplicationService
-    task_service: TaskService
+    lifecycle: TaskLifecycleService
+    reader: TaskReadService
+    log: TaskLogService
+    query: TaskQueryService
+    trace_reader: TraceReadService
+    debug_builder: DebugBundleBuilder
+    timeline: _NullTimelineService
     project_service: ProjectService
     queue: TaskQueue
 
@@ -35,21 +47,35 @@ def make_app_stack(
         tmp_path: pytest 提供的临时目录，各测试隔离。
         event_publisher: 可选的事件发布回调，e2e 测试传入 EventBus.publish。
     """
-    task_service = TaskService(
-        TaskFileStorage(tmp_path / "tasks"),
-        event_publisher=event_publisher,
-    )
+    storage = TaskFileStorage(tmp_path / "tasks")
+    lifecycle = TaskLifecycleService(storage, event_publisher=event_publisher)
+    reader = TaskReadService(storage)
+    log = TaskLogService(storage, event_publisher=event_publisher)
+    query = TaskQueryService(storage)
+    trace_reader = TraceReadService()
+    debug_builder = DebugBundleBuilder()
+    timeline = _NullTimelineService()
     project_service = ProjectService(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
-        task_read_service=task_service.reader,
+        task_read_service=reader,
     )
     queue = TaskQueue()
     app = TaskApplicationService(
-        task_service=task_service,
+        lifecycle=lifecycle,
+        task_read=reader,
         queue=queue,
         project_service=project_service,
         model_config_service=ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db")),
     )
     return AppStack(
-        app=app, task_service=task_service, project_service=project_service, queue=queue
+        app=app,
+        lifecycle=lifecycle,
+        reader=reader,
+        log=log,
+        query=query,
+        trace_reader=trace_reader,
+        debug_builder=debug_builder,
+        timeline=timeline,
+        project_service=project_service,
+        queue=queue,
     )

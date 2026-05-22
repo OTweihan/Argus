@@ -32,9 +32,11 @@ from argus_py.browser import BrowserSession
 from argus_py.core.enums import ActionType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.report.generator import ReportGenerator
+from argus_py.task.event import _NullTimelineService
+from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
-from argus_py.task.service import TaskService
+from argus_py.task.read import TaskReadService
 from argus_py.task.storage import TaskFileStorage
 
 # ── Stubs ────────────────────────────────────────────────────────────────────
@@ -174,13 +176,12 @@ def _build_loop(
     action_responses: list[Any],
     max_recovery_attempts: int = 2,
     check_cancelled_fn=None,
-) -> tuple[BlackboxExecutionLoop, TaskService, StubActionExecutor]:
+) -> tuple[BlackboxExecutionLoop, TaskLifecycleService, TaskReadService, StubActionExecutor]:
     storage = TaskFileStorage(tmp_path / "tasks")
-    service = TaskService(storage)
-    log_service = service.log
-    lifecycle = service.lifecycle
-    reader = service.reader
-    timeline = service.timeline
+    lifecycle = TaskLifecycleService(storage, event_publisher=None)
+    reader = TaskReadService(storage)
+    log_service = TaskLogService(storage, event_publisher=None)
+    timeline = _NullTimelineService()
     executor = StubActionExecutor(log_service, action_responses)
     finalizer = Finalizer(log_service, lifecycle, reader, ReportGenerator(tmp_path / "reports"))
     evidence = EvidenceCollector()
@@ -197,17 +198,17 @@ def _build_loop(
         max_plan_steps=3,
         check_cancelled_fn=check_cancelled_fn,
     )
-    return loop, service, executor
+    return loop, lifecycle, reader, executor
 
 
-def _start_task(service: TaskService, **overrides: Any) -> Task:
-    task = service.create_task(
+def _start_task(lifecycle: TaskLifecycleService, **overrides: Any) -> Task:
+    task = lifecycle.create_task(
         goal=overrides.pop("goal", "g"),
         start_url=overrides.pop("start_url", "https://example.com"),
         max_steps=overrides.pop("max_steps", 5),
         capture_screenshots=overrides.pop("capture_screenshots", False),
     )
-    return service.start_task(task)
+    return lifecycle.start_task(task)
 
 
 def _input(task: Task) -> BlackboxTaskInput:
@@ -225,8 +226,8 @@ def _input(task: Task) -> BlackboxTaskInput:
 
 async def test_initial_plan_empty_raises_task_error(tmp_path: Path) -> None:
     """plan_initial 返回空 sequence → 抛 ``规划器未返回可执行动作。``"""
-    loop, service, _ = _build_loop(tmp_path, action_responses=[])
-    task = _start_task(service)
+    loop, lifecycle, _, _ = _build_loop(tmp_path, action_responses=[])
+    task = _start_task(lifecycle)
     planner = StubPlanner(initial=ActionSequence(steps=[]))
     evaluator = StubEvaluator(results=[])
 
@@ -243,11 +244,11 @@ async def test_initial_plan_empty_raises_task_error(tmp_path: Path) -> None:
 
 async def test_single_step_then_evaluator_success_completes_task(tmp_path: Path) -> None:
     """一次成功执行 + evaluator(completed, success) → 任务进入 COMPLETED。"""
-    loop, service, executor = _build_loop(
+    loop, lifecycle, _, executor = _build_loop(
         tmp_path,
         action_responses=[("success", "https://example.com/after", "obs-1")],
     )
-    task = _start_task(service)
+    task = _start_task(lifecycle)
     planner = StubPlanner(
         initial=ActionSequence(
             steps=[ActionStep(action=ActionType.GOTO, url="https://example.com")],
@@ -276,11 +277,11 @@ async def test_single_step_then_evaluator_success_completes_task(tmp_path: Path)
 
 async def test_evaluator_completed_but_failed_raises_task_error(tmp_path: Path) -> None:
     """evaluator(completed=True, success=False) → 抛 ``TaskError`` + 不会标记完成。"""
-    loop, service, _ = _build_loop(
+    loop, lifecycle, _, _ = _build_loop(
         tmp_path,
         action_responses=[("success", "https://example.com/after", "obs-1")],
     )
-    task = _start_task(service)
+    task = _start_task(lifecycle)
     planner = StubPlanner(
         initial=ActionSequence(
             steps=[ActionStep(action=ActionType.GOTO, url="https://example.com")]
@@ -305,7 +306,7 @@ async def test_replan_error_code_triggers_replan_without_consuming_attempts(
     tmp_path: Path,
 ) -> None:
     """``param_invalid`` 命中 ``RecoveryPolicy.REPLAN`` → 触发 plan_next 而非中止。"""
-    loop, service, executor = _build_loop(
+    loop, lifecycle, _, executor = _build_loop(
         tmp_path,
         action_responses=[
             ("failure_with_log", "param_invalid"),  # 第 1 次执行 click 失败
@@ -313,7 +314,7 @@ async def test_replan_error_code_triggers_replan_without_consuming_attempts(
         ],
         max_recovery_attempts=2,
     )
-    task = _start_task(service)
+    task = _start_task(lifecycle)
     planner = StubPlanner(
         initial=ActionSequence(steps=[ActionStep(action=ActionType.CLICK, selector="#x")]),
         nexts=[
@@ -353,7 +354,7 @@ async def test_replan_error_code_triggers_replan_without_consuming_attempts(
 
 async def test_recovery_attempts_exhausted_aborts(tmp_path: Path) -> None:
     """普通错误码达到 ``max_attempts`` 时直接 ABORT，向外抛出 ``TaskError``。"""
-    loop, service, _ = _build_loop(
+    loop, lifecycle, _, _ = _build_loop(
         tmp_path,
         action_responses=[
             ("failure_with_log", "transient"),
@@ -362,7 +363,7 @@ async def test_recovery_attempts_exhausted_aborts(tmp_path: Path) -> None:
         ],
         max_recovery_attempts=2,
     )
-    task = _start_task(service)
+    task = _start_task(lifecycle)
     planner = StubPlanner(
         initial=ActionSequence(steps=[ActionStep(action=ActionType.CLICK, selector="#x")]),
         # plan_next 一直返回相同失败动作，迫使 RETRY 计数累加
@@ -386,14 +387,14 @@ async def test_recovery_attempts_exhausted_aborts(tmp_path: Path) -> None:
 
 async def test_max_steps_reached_fails_task_and_raises(tmp_path: Path) -> None:
     """步骤数达到 ``max_steps`` → ``_handle_max_steps`` 调用 fail_task 并抛错。"""
-    loop, service, _ = _build_loop(
+    loop, lifecycle, reader, _ = _build_loop(
         tmp_path,
         action_responses=[
             ("success", "https://example.com/a", "obs-1"),
             ("success", "https://example.com/b", "obs-2"),
         ],
     )
-    task = _start_task(service, max_steps=2)
+    task = _start_task(lifecycle, max_steps=2)
     planner = StubPlanner(
         initial=ActionSequence(
             steps=[
@@ -421,20 +422,20 @@ async def test_max_steps_reached_fails_task_and_raises(tmp_path: Path) -> None:
             owns_status=True,
         )
 
-    latest = service.get_task(task.task_id)
+    latest = reader.get_task(task.task_id)
     assert latest.status is TaskStatus.FAILED
 
 
 async def test_check_cancelled_short_circuits_to_finalize(tmp_path: Path) -> None:
     """``check_cancelled_fn`` 返回 True 时直接 finalize，不会执行任何动作。"""
-    loop, service, executor = _build_loop(
+    loop, lifecycle, _, executor = _build_loop(
         tmp_path,
         action_responses=[],
         check_cancelled_fn=lambda task: True,
     )
-    task = _start_task(service)
+    task = _start_task(lifecycle)
     # 强制把 status 改为 CANCELLED 以触发 Finalizer.finalize 的 generate_report 分支
-    task = service.cancel_task(task)
+    task = lifecycle.cancel_task(task)
     planner = StubPlanner(
         initial=ActionSequence(
             steps=[ActionStep(action=ActionType.GOTO, url="https://example.com")]
