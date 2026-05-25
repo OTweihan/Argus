@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from argus_py.whitebox.models import WhiteboxResult
+from argus_py.whitebox.models import WhiteboxJobStatus, WhiteboxResult
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +45,22 @@ class WhiteboxClient:
         """懒初始化 httpx 客户端。"""
         if self._client is None:
             limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            transport = httpx.AsyncHTTPTransport(limits=limits)
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=self._timeout,
                 limits=limits,
+                transport=transport,
             )
         return self._client
 
-    async def analyze(self, source_path: str, scope: str = "all") -> WhiteboxResult:
+    async def analyze(
+        self,
+        source_path: str,
+        scope: str = "all",
+        maven: dict | None = None,
+        target_modules: list[str] | None = None,
+    ) -> WhiteboxResult:
         """向 Java 分析服务发起分析请求。
 
         Parameters
@@ -61,6 +69,11 @@ class WhiteboxClient:
             本地源码目录路径。
         scope : str
             分析范围：``"endpoints"`` | ``"callgraph"`` | ``"all"``。
+        maven : dict | None
+            Maven 配置字典，可选字段：autoDetect, generateClasspath,
+            classpathFile, executable, settingsXml, localRepository, offline。
+        target_modules : list[str] | None
+            Maven 目标模块，可传 artifactId 或相对路径，如 ``han-modules/han-admin``。
 
         Returns
         -------
@@ -72,7 +85,11 @@ class WhiteboxClient:
         WhiteboxClientError
             连接失败、服务错误或重试耗尽。
         """
-        payload = {"sourcePath": source_path, "scope": scope}
+        payload: dict[str, object] = {"sourcePath": source_path, "scope": scope}
+        if maven:
+            payload["maven"] = maven
+        if target_modules:
+            payload["targetModules"] = target_modules
         last_error: Exception | None = None
 
         for attempt in range(1, self._max_retries + 1):
@@ -102,6 +119,60 @@ class WhiteboxClient:
         raise WhiteboxClientError(
             f"白盒分析请求在 {self._max_retries} 次重试后仍失败: {last_error}"
         ) from last_error
+
+    async def submit_analyze_job(
+        self,
+        source_path: str,
+        scope: str = "all",
+        maven: dict | None = None,
+        target_modules: list[str] | None = None,
+    ) -> WhiteboxJobStatus:
+        """提交异步 Java 分析作业。"""
+        payload: dict[str, object] = {"sourcePath": source_path, "scope": scope}
+        if maven:
+            payload["maven"] = maven
+        if target_modules:
+            payload["targetModules"] = target_modules
+
+        try:
+            client = await self._get_client()
+            response = await client.post("/argus/api/analyze/jobs", json=payload)
+            response.raise_for_status()
+            return WhiteboxJobStatus.from_dict(response.json())
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            body = exc.response.text[:500]
+            raise WhiteboxClientError(f"Java 分析作业提交失败 {status}: {body}") from exc
+        except httpx.RequestError as exc:
+            raise WhiteboxClientError(f"Java 分析作业提交失败: {exc}") from exc
+
+    async def get_analyze_job(self, job_id: str) -> WhiteboxJobStatus:
+        """查询异步 Java 分析作业状态。"""
+        try:
+            client = await self._get_client()
+            response = await client.get(f"/argus/api/analyze/jobs/{job_id}")
+            response.raise_for_status()
+            return WhiteboxJobStatus.from_dict(response.json())
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            body = exc.response.text[:500]
+            raise WhiteboxClientError(f"Java 分析作业查询失败 {status}: {body}") from exc
+        except httpx.RequestError as exc:
+            raise WhiteboxClientError(f"Java 分析作业查询失败: {exc}") from exc
+
+    async def get_analyze_job_result(self, job_id: str) -> WhiteboxResult:
+        """获取已完成异步 Java 分析作业的结果。"""
+        try:
+            client = await self._get_client()
+            response = await client.get(f"/argus/api/analyze/jobs/{job_id}/result")
+            response.raise_for_status()
+            return WhiteboxResult.from_dict(response.json())
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            body = exc.response.text[:500]
+            raise WhiteboxClientError(f"Java 分析作业结果获取失败 {status}: {body}") from exc
+        except httpx.RequestError as exc:
+            raise WhiteboxClientError(f"Java 分析作业结果获取失败: {exc}") from exc
 
     async def health(self) -> bool:
         """检查 Java 分析服务健康状态。"""

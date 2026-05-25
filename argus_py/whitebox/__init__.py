@@ -7,6 +7,8 @@ from argus_py.whitebox.models import (
     CallGraph,
     CallGraphNode,
     Endpoint,
+    WhiteboxJobEvent,
+    WhiteboxJobStatus,
     WhiteboxFinding,
     WhiteboxResult,
 )
@@ -22,4 +24,6 @@ __all__ = [
     "CallGraphNode",
     "WhiteboxResult",
     "WhiteboxFinding",
+    "WhiteboxJobEvent",
+    "WhiteboxJobStatus",
 ]
