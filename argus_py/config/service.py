@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -191,17 +192,23 @@ def _normalize_completions_path(value: str | None) -> str:
 
 
 def _assert_base_url_safe(base_url: str | None) -> None:
-    """转换 LLMUrlSafetyError 为 ModelConfigError，保持 service 层异常一致性。
-
-    每次调用 ``load_server_settings()`` 读取 YAML 是廉价操作（毫秒级），
-    且 create/update/test 均为低频路径，无需 lru_cache 缓存以避免在
-    配置变更后需要重启进程才能生效。
-    """
+    """转换 LLMUrlSafetyError 为 ModelConfigError，保持 service 层异常一致性。"""
     try:
-        allow_hosts = load_server_settings().llm_allow_private_hosts
+        allow_hosts = _load_server_settings_cached().llm_allow_private_hosts
     except Exception:
         allow_hosts = []
     try:
         assert_llm_base_url_safe(base_url, allow_hosts=allow_hosts)
     except LLMUrlSafetyError as exc:
         raise ModelConfigError(str(exc)) from exc
+
+
+@functools.lru_cache(maxsize=1)
+def _load_server_settings_cached():
+    """带缓存的 server settings 加载，避免重复 YAML 文件 I/O。"""
+    return load_server_settings()
+
+
+def _clear_server_settings_cache() -> None:
+    """清空 server settings 缓存（测试用）。"""
+    _load_server_settings_cached.cache_clear()

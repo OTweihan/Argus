@@ -135,6 +135,7 @@ class TaskLifecycleService(_StorageEventBase):
             TaskStatus.CANCELLED,
         }:
             task.completed_at = now
+            self.remove_cancellation_token(task.task_id)
         task.status = target
         task.error_message = error_message
 

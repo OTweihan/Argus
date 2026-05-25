@@ -93,6 +93,9 @@ class TestUpdateBlocksSSRF:
 class TestAllowHostsBypass:
     def test_create_allowed_via_whitelist(self, service: ModelConfigService, monkeypatch) -> None:
         """配置了 allow_private_hosts 的内网 LLM 应能创建。"""
+        from argus_py.config.service import _clear_server_settings_cache
+
+        _clear_server_settings_cache()
         monkeypatch.setattr(
             "argus_py.config.service.load_server_settings",
             lambda: ServerSettings(llm_allow_private_hosts=["10.10.20.5"]),
@@ -112,6 +115,9 @@ class TestSettingsLoadFailureIsSafe:
         self, service: ModelConfigService, monkeypatch
     ) -> None:
         """settings 读取失败时 fallback 为空白名单（拒绝内网，安全默认）。"""
+        from argus_py.config.service import _clear_server_settings_cache
+
+        _clear_server_settings_cache()
 
         def _boom() -> ServerSettings:
             raise RuntimeError("yaml broken")

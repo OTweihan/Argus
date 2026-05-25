@@ -6,7 +6,34 @@ import json
 from typing import Any
 
 from argus_py.core.constants import utc_now
+from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.task.models import Finding, Task, TaskLog
+
+# list_task_summaries 所需的 task 列（排除 parameters_json 等大字段）
+_TASK_SUMMARY_COLUMNS = (
+    "task_id",
+    "goal",
+    "name",
+    "start_url",
+    "task_type",
+    "status",
+    "project_id",
+    "max_steps",
+    "timeout_seconds",
+    "capture_screenshots",
+    "current_step",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "report_path",
+    "result_summary",
+    "error_message",
+)
+
+
+def task_summary_columns() -> str:
+    """返回 list_task_summaries 查询用的列名列表。"""
+    return ", ".join(_TASK_SUMMARY_COLUMNS)
 
 
 def task_to_row(task: Task) -> tuple[Any, ...]:
@@ -91,7 +118,6 @@ def row_to_task(
     finding_rows: list[Any],
 ) -> Task:
     """将 SQLite 行还原为 Task 实体。"""
-    from argus_py.core.enums import TaskStatus, TaskType
     from argus_py.task.models import _parse_datetime
 
     return Task(
@@ -119,7 +145,6 @@ def row_to_task(
 
 def row_to_log(row: Any) -> TaskLog:
     """将 SQLite 行还原为 TaskLog 实体。"""
-    from argus_py.core.enums import StepResult
     from argus_py.task.models import _parse_datetime
 
     return TaskLog(
@@ -138,9 +163,35 @@ def row_to_log(row: Any) -> TaskLog:
     )
 
 
+def row_to_task_summary(task_row: Any) -> Task:
+    """从摘要列集还原轻量 Task（不含日志/发现项/参数）。"""
+    from argus_py.task.models import _parse_datetime
+
+    return Task(
+        task_id=task_row["task_id"],
+        goal=task_row["goal"],
+        name=task_row["name"],
+        start_url=task_row["start_url"],
+        task_type=TaskType(task_row["task_type"]),
+        status=TaskStatus(task_row["status"]),
+        project_id=task_row["project_id"],
+        max_steps=task_row["max_steps"],
+        timeout_seconds=task_row["timeout_seconds"],
+        capture_screenshots=bool(task_row["capture_screenshots"]),
+        parameters={},
+        logs=[],
+        findings=[],
+        created_at=_parse_datetime(task_row["created_at"]) or utc_now(),
+        started_at=_parse_datetime(task_row["started_at"]),
+        completed_at=_parse_datetime(task_row["completed_at"]),
+        report_path=task_row["report_path"],
+        result_summary=task_row["result_summary"],
+        error_message=task_row["error_message"],
+    )
+
+
 def row_to_finding(row: Any) -> Finding:
     """将 SQLite 行还原为 Finding 实体。"""
-    from argus_py.core.enums import FindingSeverity, FindingType
     from argus_py.task.models import _parse_datetime
 
     return Finding(

@@ -22,18 +22,31 @@ def render_html_report(
     output_path: str | Path | None = None,
 ) -> str:
     """渲染 HTML 报告。"""
-    env = Environment(
-        loader=FileSystemLoader(str(template_dir)),
-        autoescape=select_autoescape(["html", "xml"]),
-    )
+    env = _get_env(template_dir)
     env.filters["screenshot_src"] = _screenshot_src_filter(output_path)
-    env.filters["pretty_json"] = _pretty_json
-    env.filters["datetime_short"] = _datetime_short
     template = env.get_template(template_name)
     return template.render(report=report_to_dict(report))
 
 
-def write_html_report(report: Report, path: str | Path, template_name: str = "blackbox_report.html.j2") -> Path:
+_ENV: Environment | None = None
+
+
+def _get_env(template_dir: str | Path) -> Environment:
+    """惰性创建并缓存 Jinja2 Environment，避免重复构建模板加载器和过滤器。"""
+    global _ENV
+    if _ENV is None:
+        _ENV = Environment(
+            loader=FileSystemLoader(str(template_dir)),
+            autoescape=select_autoescape(["html", "xml"]),
+        )
+        _ENV.filters["pretty_json"] = _pretty_json
+        _ENV.filters["datetime_short"] = _datetime_short
+    return _ENV
+
+
+def write_html_report(
+    report: Report, path: str | Path, template_name: str = "blackbox_report.html.j2"
+) -> Path:
     """写入 HTML 报告。"""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -174,18 +174,18 @@ class LLMTraceWriter:
             ):
                 for record in records:
                     # 大小上限检查（stat 已在后台线程，不阻塞 event loop）
-                    if (
-                        _LLM_TRACE_MAX_SIZE_BYTES is not None
-                        and _LLM_TRACE_MAX_SIZE_BYTES > 0
-                        and path.exists()
-                        and path.stat().st_size >= _LLM_TRACE_MAX_SIZE_BYTES
-                    ):
-                        logger.warning(
-                            "LLM 追踪文件超出大小上限 (%d MB)，跳过写入：%s",
-                            _LLM_TRACE_MAX_SIZE_BYTES // (1024 * 1024),
-                            path,
-                        )
-                        continue
+                    if _LLM_TRACE_MAX_SIZE_BYTES is not None and _LLM_TRACE_MAX_SIZE_BYTES > 0:
+                        try:
+                            st = path.stat()
+                        except OSError:
+                            continue
+                        if st.st_size >= _LLM_TRACE_MAX_SIZE_BYTES:
+                            logger.warning(
+                                "LLM 追踪文件超出大小上限 (%d MB)，跳过写入：%s",
+                                _LLM_TRACE_MAX_SIZE_BYTES // (1024 * 1024),
+                                path,
+                            )
+                            continue
                     data = record.model_dump(mode="json")
                     if _LLM_TRACE_CONTENT_REDACT:
                         data = redact_trace_data(data)
@@ -340,17 +340,11 @@ def cleanup_old_traces(
             total_size -= size + idx_size
             deleted_quota += 1
             idx += 1
-        files = [path for path, _, _, _ in entries[idx:]]
-
-    remaining_size = 0
-    for f in files:
-        try:
-            remaining_size += f.stat().st_size
-            idx_path = f.with_suffix(".idx")
-            if idx_path.is_file():
-                remaining_size += idx_path.stat().st_size
-        except OSError:
-            continue
+        remaining_entries = entries[idx:]
+        files = [path for path, _, _, _ in remaining_entries]
+        remaining_size = sum(size + idx_size for _, _, size, idx_size in remaining_entries)
+    else:
+        remaining_size = 0
     summary = {
         "deleted_ttl": deleted_ttl,
         "deleted_quota": deleted_quota,

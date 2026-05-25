@@ -122,8 +122,10 @@ class PlaywrightClient:
     async def close_context(self, context: BrowserContext) -> None:
         """关闭指定上下文。"""
         await context.close()
-        if context in self._contexts:
+        try:
             self._contexts.remove(context)
+        except ValueError:
+            pass
 
     async def new_page(self, context: BrowserContext | None = None) -> Page:
         """创建新页面。"""

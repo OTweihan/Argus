@@ -169,25 +169,13 @@ class TaskReadService:
         report_path_str = self.get_report_path(task_id)
         if not report_path_str:
             raise TaskError(f"任务尚未生成报告：{task_id}")
-        report_path = Path(report_path_str).expanduser().resolve()
-        reports_dir = REPORTS_DIR.resolve()
-        if not report_path.is_relative_to(reports_dir):
-            raise TaskError(f"报告路径不在允许的报告目录下：{report_path}")
-        if not report_path.exists():
-            raise TaskError(f"HTML 报告文件不存在：{report_path}")
-        return report_path
+        return _resolve_report_path(report_path_str)
 
     def resolve_report_path(self, task: Task) -> Path:
         """解析并校验 HTML 报告路径。"""
         if not task.report_path:
             raise TaskError(f"任务尚未生成报告：{task.task_id}")
-        report_path = Path(task.report_path).expanduser().resolve()
-        reports_dir = REPORTS_DIR.resolve()
-        if not report_path.is_relative_to(reports_dir):
-            raise TaskError(f"报告路径不在允许的报告目录下：{report_path}")
-        if not report_path.exists():
-            raise TaskError(f"HTML 报告文件不存在：{report_path}")
-        return report_path
+        return _resolve_report_path(task.report_path)
 
     def resolve_screenshot_path(self, task_id: str, filename: str) -> Path:
         """解析并校验截图文件路径。"""
@@ -198,3 +186,14 @@ class TaskReadService:
         if not screenshot_path.exists():
             raise TaskError("截图文件不存在。")
         return screenshot_path
+
+
+def _resolve_report_path(report_path_str: str) -> Path:
+    """解析并校验 HTML 报告路径的共享逻辑。"""
+    report_path = Path(report_path_str).expanduser().resolve()
+    reports_dir = REPORTS_DIR.resolve()
+    if not report_path.is_relative_to(reports_dir):
+        raise TaskError(f"报告路径不在允许的报告目录下：{report_path}")
+    if not report_path.exists():
+        raise TaskError(f"HTML 报告文件不存在：{report_path}")
+    return report_path

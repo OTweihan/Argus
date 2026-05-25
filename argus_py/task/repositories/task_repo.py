@@ -8,7 +8,12 @@ from argus_py.core.constants import KEYWORD_FIELDS, TASK_SEARCH_MIN_LENGTH
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.db import DbPool
 from argus_py.task.models import Task
-from argus_py.task.repositories.mappers import row_to_task, task_to_row
+from argus_py.task.repositories.mappers import (
+    row_to_task,
+    row_to_task_summary,
+    task_summary_columns,
+    task_to_row,
+)
 
 
 def _sql_keyword_where(q: str) -> tuple[str, list[str]]:
@@ -245,7 +250,7 @@ class TaskRepository:
                     where_clauses.append(clause)
                     params.extend(kw_params)
 
-            query = "SELECT tasks.*, COUNT(*) OVER() AS total_count FROM tasks"
+            query = f"SELECT {task_summary_columns()}, COUNT(*) OVER() AS total_count FROM tasks"
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
             query += " ORDER BY created_at DESC"
@@ -273,7 +278,7 @@ class TaskRepository:
             counts_by_task: dict[str, int] = {r["task_id"]: r["cnt"] for r in count_rows}
 
         total_count = rows[0]["total_count"]
-        tasks = [row_to_task(r, [], []) for r in rows]
+        tasks = [row_to_task_summary(r) for r in rows]
         for r, t in zip(rows, tasks, strict=True):
             t.current_step = r["current_step"]
             t.finding_count = counts_by_task.get(r["task_id"], 0)

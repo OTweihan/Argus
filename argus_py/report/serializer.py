@@ -13,7 +13,7 @@ from argus_py.redaction import (
     redact_step_params,
 )
 from argus_py.report.models import Report
-from argus_py.utils.casing import camel_keys
+from argus_py.utils.casing import camel_keys_inplace
 from argus_py.utils.jsonx import to_jsonable
 
 
@@ -67,7 +67,7 @@ def report_to_dict(report: Report) -> dict[str, Any]:
     data["total_steps_count"] = len(steps)
     data["hidden_steps_count"] = len(steps) - len(display_steps)
 
-    return camel_keys(data)
+    return camel_keys_inplace(data)
 
 
 def _should_display_step(step: dict[str, Any]) -> bool:

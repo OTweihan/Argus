@@ -12,9 +12,23 @@ def to_camel(snake: str) -> str:
 
 
 def camel_keys(data: Any) -> Any:
-    """递归将 dict 的所有 key 从 snake_case 转为 camelCase。"""
+    """递归将 dict 的所有 key 从 snake_case 转为 camelCase（返回新对象）。"""
     if isinstance(data, dict):
         return {to_camel(k): camel_keys(v) for k, v in data.items()}
     if isinstance(data, list):
         return [camel_keys(item) for item in data]
+    return data
+
+
+def camel_keys_inplace(data: Any) -> Any:
+    """就地转换 dict key 为 camelCase，避免第二次全量拷贝。"""
+    if isinstance(data, dict):
+        for k in list(data.keys()):
+            v = data.pop(k)
+            data[to_camel(k)] = camel_keys_inplace(v)
+        return data
+    if isinstance(data, list):
+        for i, item in enumerate(data):
+            data[i] = camel_keys_inplace(item)
+        return data
     return data
