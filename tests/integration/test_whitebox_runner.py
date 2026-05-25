@@ -93,7 +93,7 @@ async def test_runner_whitebox_with_mock_client(app_stack) -> None:
                     class_name="com.example.UserController",
                     method_name="listUsers",
                     method_signature="List<User> listUsers()",
-                    callees=["com.example.UserService#findAll"],
+                    callee_details=[],
                 ),
             }
         ),
@@ -166,7 +166,7 @@ async def test_whitebox_task_api_validation(app_stack) -> None:
     with pytest.raises(ValueError, match="repo_url 或 source_path"):
         TaskCreateRequest(
             taskType="whitebox",
-            projectId="test",
+            project_id="test",
             goal="白盒分析",
             parameters={},
         )
@@ -174,7 +174,7 @@ async def test_whitebox_task_api_validation(app_stack) -> None:
     # WHITEBOX 带 source_path 应通过
     req = TaskCreateRequest(
         taskType="whitebox",
-        projectId="test",
+        project_id="test",
         goal="白盒分析",
         parameters={"source_path": "/tmp/test"},
     )
@@ -184,7 +184,7 @@ async def test_whitebox_task_api_validation(app_stack) -> None:
     # WHITEBOX 带 repo_url 应通过
     req = TaskCreateRequest(
         taskType="whitebox",
-        projectId="test",
+        project_id="test",
         goal="白盒分析",
         parameters={"repo_url": "https://github.com/user/repo.git"},
     )

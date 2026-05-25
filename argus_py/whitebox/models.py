@@ -32,6 +32,17 @@ class Endpoint:
     parameters: list[str] = field(default_factory=list)
     return_type: str = ""
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Endpoint:
+        return cls(
+            path=data.get("path", ""),
+            http_method=data.get("httpMethod", ""),
+            controller_class=data.get("controllerClass", ""),
+            controller_method=data.get("controllerMethod", ""),
+            parameters=data.get("parameters", []),
+            return_type=data.get("returnType", ""),
+        )
+
 
 @dataclass
 class CallEdge:
@@ -46,6 +57,19 @@ class CallEdge:
     source_file: str = ""
     line: int = 0
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CallEdge:
+        return cls(
+            to=data.get("to", ""),
+            method_name=data.get("methodName", ""),
+            type_name=data.get("typeName", ""),
+            resolution_type=data.get("resolutionType", "UNRESOLVED"),
+            confidence=data.get("confidence", "UNKNOWN"),
+            candidates=data.get("candidates", []),
+            source_file=data.get("sourceFile", ""),
+            line=data.get("line", 0),
+        )
+
 
 @dataclass
 class CallGraphNode:
@@ -56,12 +80,27 @@ class CallGraphNode:
     method_signature: str
     callee_details: list[CallEdge] = field(default_factory=list)
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CallGraphNode:
+        return cls(
+            class_name=data.get("className", ""),
+            method_name=data.get("methodName", ""),
+            method_signature=data.get("methodSignature", ""),
+            callee_details=[CallEdge.from_dict(ce) for ce in data.get("calleeDetails", [])],
+        )
+
 
 @dataclass
 class CallGraph:
     """调用图，key 为 className#methodName。"""
 
     nodes: dict[str, CallGraphNode] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CallGraph:
+        return cls(
+            nodes={key: CallGraphNode.from_dict(node) for key, node in data.items()},
+        )
 
 
 @dataclass
@@ -70,6 +109,13 @@ class ParseFailureDetail:
 
     file: str = ""
     problems: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ParseFailureDetail:
+        return cls(
+            file=data.get("file", ""),
+            problems=data.get("problems", []),
+        )
 
 
 @dataclass
@@ -101,6 +147,38 @@ class AnalyzerDiagnostics:
     library_module_count: int = 0
     bom_module_count: int = 0
     module_types: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AnalyzerDiagnostics:
+        return cls(
+            total_source_files=data.get("totalSourceFiles", 0),
+            parsed_file_count=data.get("parsedFileCount", 0),
+            failed_file_count=data.get("failedFileCount", 0),
+            failed_files=[
+                ParseFailureDetail.from_dict(ff) for ff in (data.get("failedFiles") or [])
+            ],
+            total_calls=data.get("totalCalls", 0),
+            resolved_high=data.get("resolvedHigh", 0),
+            resolved_medium=data.get("resolvedMedium", 0),
+            resolved_low=data.get("resolvedLow", 0),
+            unresolved=data.get("unresolved", 0),
+            classpath_available=data.get("classpathAvailable", False),
+            jar_count=data.get("jarCount", 0),
+            classpath_source=data.get("classpathSource", ""),
+            classpath_warnings=data.get("classpathWarnings", []),
+            classpath_errors=data.get("classpathErrors", []),
+            classpath_command=data.get("classpathCommand", ""),
+            classpath_exit_code=data.get("classpathExitCode"),
+            classpath_duration_ms=data.get("classpathDurationMs"),
+            classpath_stdout_tail=data.get("classpathStdoutTail", ""),
+            classpath_stderr_tail=data.get("classpathStderrTail", ""),
+            classpath_timed_out=data.get("classpathTimedOut", False),
+            application_module_count=data.get("applicationModuleCount", 0),
+            business_module_count=data.get("businessModuleCount", 0),
+            library_module_count=data.get("libraryModuleCount", 0),
+            bom_module_count=data.get("bomModuleCount", 0),
+            module_types=data.get("moduleTypes", {}),
+        )
 
 
 @dataclass
@@ -160,6 +238,18 @@ class WhiteboxFinding:
     line_number: int
     snippet: str = ""
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WhiteboxFinding:
+        return cls(
+            rule_id=data.get("ruleId", ""),
+            severity=data.get("severity", ""),
+            title=data.get("title", ""),
+            description=data.get("description", ""),
+            file_path=data.get("filePath", ""),
+            line_number=data.get("lineNumber", 0),
+            snippet=data.get("snippet", ""),
+        )
+
 
 @dataclass
 class FlowStep:
@@ -170,6 +260,15 @@ class FlowStep:
     class_name: str = ""
     method_name: str = ""
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FlowStep:
+        return cls(
+            depth=data.get("depth", 0),
+            method_key=data.get("methodKey", ""),
+            class_name=data.get("className", ""),
+            method_name=data.get("methodName", ""),
+        )
+
 
 @dataclass
 class ExecutionFlow:
@@ -178,6 +277,14 @@ class ExecutionFlow:
     entry_point: str = ""
     steps: list[FlowStep] = field(default_factory=list)
     call_depth: int = 0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExecutionFlow:
+        return cls(
+            entry_point=data.get("entryPoint", ""),
+            steps=[FlowStep.from_dict(s) for s in data.get("steps", [])],
+            call_depth=data.get("callDepth", 0),
+        )
 
 
 @dataclass
@@ -188,6 +295,15 @@ class ClusterInfo:
     suggested_label: str = ""
     member_keys: list[str] = field(default_factory=list)
     member_count: int = 0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ClusterInfo:
+        return cls(
+            cluster_id=data.get("clusterId", ""),
+            suggested_label=data.get("suggestedLabel", ""),
+            member_keys=data.get("memberKeys", []),
+            member_count=data.get("memberCount", 0),
+        )
 
 
 @dataclass
@@ -204,125 +320,12 @@ class WhiteboxResult:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxResult:
         """从 Java API 响应的 JSON dict 反序列化。"""
-        endpoints = [
-            Endpoint(
-                path=e.get("path", ""),
-                http_method=e.get("httpMethod", ""),
-                controller_class=e.get("controllerClass", ""),
-                controller_method=e.get("controllerMethod", ""),
-                parameters=e.get("parameters", []),
-                return_type=e.get("returnType", ""),
-            )
-            for e in data.get("endpoints", [])
-        ]
-
-        raw_nodes = data.get("callGraph", {})
-        nodes = {}
-        for key, node in raw_nodes.items():
-            callee_details = [
-                CallEdge(
-                    to=ce.get("to", ""),
-                    method_name=ce.get("methodName", ""),
-                    type_name=ce.get("typeName", ""),
-                    resolution_type=ce.get("resolutionType", "UNRESOLVED"),
-                    confidence=ce.get("confidence", "UNKNOWN"),
-                    candidates=ce.get("candidates", []),
-                    source_file=ce.get("sourceFile", ""),
-                    line=ce.get("line", 0),
-                )
-                for ce in node.get("calleeDetails", [])
-            ]
-            nodes[key] = CallGraphNode(
-                class_name=node.get("className", ""),
-                method_name=node.get("methodName", ""),
-                method_signature=node.get("methodSignature", ""),
-                callee_details=callee_details,
-            )
-        call_graph = CallGraph(nodes=nodes)
-
-        findings = [
-            WhiteboxFinding(
-                rule_id=f.get("ruleId", ""),
-                severity=f.get("severity", ""),
-                title=f.get("title", ""),
-                description=f.get("description", ""),
-                file_path=f.get("filePath", ""),
-                line_number=f.get("lineNumber", 0),
-                snippet=f.get("snippet", ""),
-            )
-            for f in data.get("findings", [])
-        ]
-
-        execution_flows = [
-            ExecutionFlow(
-                entry_point=ef.get("entryPoint", ""),
-                steps=[
-                    FlowStep(
-                        depth=s.get("depth", 0),
-                        method_key=s.get("methodKey", ""),
-                        class_name=s.get("className", ""),
-                        method_name=s.get("methodName", ""),
-                    )
-                    for s in ef.get("steps", [])
-                ],
-                call_depth=ef.get("callDepth", 0),
-            )
-            for ef in data.get("executionFlows", [])
-        ]
-
-        clusters = [
-            ClusterInfo(
-                cluster_id=c.get("clusterId", ""),
-                suggested_label=c.get("suggestedLabel", ""),
-                member_keys=c.get("memberKeys", []),
-                member_count=c.get("memberCount", 0),
-            )
-            for c in data.get("clusters", [])
-        ]
-
         raw_diag = data.get("diagnostics")
-        diagnostics = None
-        if raw_diag:
-            failed_files = [
-                ParseFailureDetail(
-                    file=ff.get("file", ""),
-                    problems=ff.get("problems", []),
-                )
-                for ff in (raw_diag.get("failedFiles") or [])
-            ]
-            diagnostics = AnalyzerDiagnostics(
-                total_source_files=raw_diag.get("totalSourceFiles", 0),
-                parsed_file_count=raw_diag.get("parsedFileCount", 0),
-                failed_file_count=raw_diag.get("failedFileCount", 0),
-                failed_files=failed_files,
-                total_calls=raw_diag.get("totalCalls", 0),
-                resolved_high=raw_diag.get("resolvedHigh", 0),
-                resolved_medium=raw_diag.get("resolvedMedium", 0),
-                resolved_low=raw_diag.get("resolvedLow", 0),
-                unresolved=raw_diag.get("unresolved", 0),
-                classpath_available=raw_diag.get("classpathAvailable", False),
-                jar_count=raw_diag.get("jarCount", 0),
-                classpath_source=raw_diag.get("classpathSource", ""),
-                classpath_warnings=raw_diag.get("classpathWarnings", []),
-                classpath_errors=raw_diag.get("classpathErrors", []),
-                classpath_command=raw_diag.get("classpathCommand", ""),
-                classpath_exit_code=raw_diag.get("classpathExitCode"),
-                classpath_duration_ms=raw_diag.get("classpathDurationMs"),
-                classpath_stdout_tail=raw_diag.get("classpathStdoutTail", ""),
-                classpath_stderr_tail=raw_diag.get("classpathStderrTail", ""),
-                classpath_timed_out=raw_diag.get("classpathTimedOut", False),
-                application_module_count=raw_diag.get("applicationModuleCount", 0),
-                business_module_count=raw_diag.get("businessModuleCount", 0),
-                library_module_count=raw_diag.get("libraryModuleCount", 0),
-                bom_module_count=raw_diag.get("bomModuleCount", 0),
-                module_types=raw_diag.get("moduleTypes", {}),
-            )
-
         return cls(
-            endpoints=endpoints,
-            call_graph=call_graph,
-            findings=findings,
-            execution_flows=execution_flows,
-            clusters=clusters,
-            diagnostics=diagnostics,
+            endpoints=[Endpoint.from_dict(e) for e in data.get("endpoints", [])],
+            call_graph=CallGraph.from_dict(data.get("callGraph", {})),
+            findings=[WhiteboxFinding.from_dict(f) for f in data.get("findings", [])],
+            execution_flows=[ExecutionFlow.from_dict(ef) for ef in data.get("executionFlows", [])],
+            clusters=[ClusterInfo.from_dict(c) for c in data.get("clusters", [])],
+            diagnostics=AnalyzerDiagnostics.from_dict(raw_diag) if raw_diag else None,
         )
