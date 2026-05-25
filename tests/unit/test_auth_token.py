@@ -17,7 +17,7 @@ def _make_app(token: str) -> FastAPI:
     app = FastAPI()
     app.add_middleware(AuthTokenMiddleware, token=token)
 
-    @app.get("/api/v1/tasks")
+    @app.get("/argus/api/tasks")
     def _list() -> dict[str, str]:
         return {"ok": "1"}
 
@@ -58,26 +58,26 @@ class TestEmptyTokenRejected:
 class TestHttpProtection:
     def test_protected_path_requires_token(self) -> None:
         client = TestClient(_make_app("secret-123"))
-        resp = client.get("/api/v1/tasks")
+        resp = client.get("/argus/api/tasks")
         assert resp.status_code == 401
         assert resp.json()["error"]["code"] == "UNAUTHORIZED"
         assert resp.headers.get("www-authenticate", "").startswith("Bearer")
 
     def test_valid_bearer_token_allowed(self) -> None:
         client = TestClient(_make_app("secret-123"))
-        resp = client.get("/api/v1/tasks", headers={"Authorization": "Bearer secret-123"})
+        resp = client.get("/argus/api/tasks", headers={"Authorization": "Bearer secret-123"})
         assert resp.status_code == 200
         assert resp.json() == {"ok": "1"}
 
     def test_wrong_token_rejected(self) -> None:
         client = TestClient(_make_app("secret-123"))
-        resp = client.get("/api/v1/tasks", headers={"Authorization": "Bearer wrong"})
+        resp = client.get("/argus/api/tasks", headers={"Authorization": "Bearer wrong"})
         assert resp.status_code == 401
 
     def test_malformed_authorization_rejected(self) -> None:
         client = TestClient(_make_app("secret-123"))
         for bad in ("Basic dXNlcjpwd2Q=", "Bearer", "Bearer ", "secret-123"):
-            resp = client.get("/api/v1/tasks", headers={"Authorization": bad})
+            resp = client.get("/argus/api/tasks", headers={"Authorization": bad})
             assert resp.status_code == 401, f"bad header `{bad}` should 401"
 
     def test_health_path_not_protected(self) -> None:
@@ -90,7 +90,7 @@ class TestHttpProtection:
         assert client.get("/").status_code == 200
 
     def test_protected_prefixes_match_only_segment_start(self) -> None:
-        """前缀按字符串 startswith 比较 → /api/v1 才命中，/apicover 不命中。"""
+        """前缀按字符串 startswith 比较 → /argus/api 才命中，/argus/apicover 不命中。"""
         app = FastAPI()
         app.add_middleware(AuthTokenMiddleware, token="t")
 
@@ -134,5 +134,5 @@ class TestWebSocketProtection:
             assert ws.receive_text() == "pong"
 
 
-def test_default_protected_prefixes_are_api_and_ws() -> None:
-    assert DEFAULT_PROTECTED_PREFIXES == ("/api/", "/ws/")
+def test_default_protected_prefixes_are_argus_api_and_ws() -> None:
+    assert DEFAULT_PROTECTED_PREFIXES == ("/argus/api/", "/ws/")

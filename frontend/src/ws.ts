@@ -13,7 +13,7 @@ function wsBaseUrl(): string {
   const explicit = import.meta.env.VITE_ARGUS_WS_BASE;
   if (explicit) return String(explicit).replace(/\/$/, "");
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/v1`;
+  return `${protocol}//${window.location.host}/argus/api`;
 }
 
 export class TaskEventStream {

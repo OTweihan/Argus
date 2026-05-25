@@ -1,4 +1,4 @@
-export const API_BASE = (import.meta.env.VITE_ARGUS_API_BASE ?? "/api/v1").replace(/\/$/, "");
+export const API_BASE = (import.meta.env.VITE_ARGUS_API_BASE ?? "/argus/api").replace(/\/$/, "");
 const DEFAULT_REQUEST_TIMEOUT_MS = Number(
     import.meta.env.VITE_ARGUS_API_TIMEOUT_MS ?? 180000,
 );

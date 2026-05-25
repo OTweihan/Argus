@@ -78,7 +78,7 @@ class WhiteboxClient:
         for attempt in range(1, self._max_retries + 1):
             try:
                 client = await self._get_client()
-                response = await client.post("/api/v1/analyze", json=payload)
+                response = await client.post("/argus/api/analyze", json=payload)
                 response.raise_for_status()
                 data: dict[str, Any] = response.json()
                 return WhiteboxResult.from_dict(data)
@@ -90,9 +90,7 @@ class WhiteboxClient:
                 status = exc.response.status_code
                 body = exc.response.text[:500]
                 logger.error("白盒分析服务返回错误 %d: %s", status, body)
-                raise WhiteboxClientError(
-                    f"Java 分析服务返回 {status}: {body}"
-                ) from exc
+                raise WhiteboxClientError(f"Java 分析服务返回 {status}: {body}") from exc
             except httpx.RequestError as exc:
                 last_error = exc
                 logger.warning("白盒分析请求失败（第 %d 次）: %s", attempt, exc)

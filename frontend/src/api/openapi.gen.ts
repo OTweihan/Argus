@@ -64,7 +64,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects": {
+    "/argus/api/projects": {
         parameters: {
             query?: never;
             header?: never;
@@ -75,20 +75,20 @@ export interface paths {
          * List Projects
          * @description 列出项目。
          */
-        get: operations["list_projects_api_v1_projects_get"];
+        get: operations["list_projects_argus_api_projects_get"];
         put?: never;
         /**
          * Create Project
          * @description 创建项目。
          */
-        post: operations["create_project_api_v1_projects_post"];
+        post: operations["create_project_argus_api_projects_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{project_id}": {
+    "/argus/api/projects/{project_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -99,24 +99,24 @@ export interface paths {
          * Get Project
          * @description 查询项目详情。
          */
-        get: operations["get_project_api_v1_projects__project_id__get"];
+        get: operations["get_project_argus_api_projects__project_id__get"];
         /**
          * Update Project
          * @description 更新项目。
          */
-        put: operations["update_project_api_v1_projects__project_id__put"];
+        put: operations["update_project_argus_api_projects__project_id__put"];
         post?: never;
         /**
          * Delete Project
          * @description 删除项目。
          */
-        delete: operations["delete_project_api_v1_projects__project_id__delete"];
+        delete: operations["delete_project_argus_api_projects__project_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks": {
+    "/argus/api/tasks": {
         parameters: {
             query?: never;
             header?: never;
@@ -127,20 +127,20 @@ export interface paths {
          * List Tasks
          * @description 列出任务（轻量，不含日志和发现项），支持过滤和分页。
          */
-        get: operations["list_tasks_api_v1_tasks_get"];
+        get: operations["list_tasks_argus_api_tasks_get"];
         put?: never;
         /**
          * Create Task
          * @description 创建任务快照，不立即启动执行。
          */
-        post: operations["create_task_api_v1_tasks_post"];
+        post: operations["create_task_argus_api_tasks_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}": {
+    "/argus/api/tasks/{task_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -151,24 +151,24 @@ export interface paths {
          * Get Task
          * @description 查询任务详情。
          */
-        get: operations["get_task_api_v1_tasks__task_id__get"];
+        get: operations["get_task_argus_api_tasks__task_id__get"];
         /**
          * Update Task
          * @description 更新待执行任务的基础信息。
          */
-        put: operations["update_task_api_v1_tasks__task_id__put"];
+        put: operations["update_task_argus_api_tasks__task_id__put"];
         post?: never;
         /**
          * Delete Task
          * @description 删除未启动的 pending 任务。
          */
-        delete: operations["delete_task_api_v1_tasks__task_id__delete"];
+        delete: operations["delete_task_argus_api_tasks__task_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/infer-limits": {
+    "/argus/api/tasks/infer-limits": {
         parameters: {
             query?: never;
             header?: never;
@@ -179,7 +179,7 @@ export interface paths {
          * Infer Limits
          * @description 根据任务目标和起始 URL 推断推荐的最大步数和超时时间。
          */
-        get: operations["infer_limits_api_v1_tasks_infer_limits_get"];
+        get: operations["infer_limits_argus_api_tasks_infer_limits_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -188,7 +188,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/stats": {
+    "/argus/api/tasks/stats": {
         parameters: {
             query?: never;
             header?: never;
@@ -201,7 +201,7 @@ export interface paths {
          *
          *     与分页列表解耦：COUNT 走 SQLite 索引，避免 dashboard 把"当前页"误当全量。
          */
-        get: operations["get_dashboard_stats_api_v1_tasks_stats_get"];
+        get: operations["get_dashboard_stats_argus_api_tasks_stats_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -210,7 +210,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/start": {
+    "/argus/api/tasks/{task_id}/start": {
         parameters: {
             query?: never;
             header?: never;
@@ -223,14 +223,14 @@ export interface paths {
          * Start Task
          * @description 将 pending 任务加入后台执行队列。
          */
-        post: operations["start_task_api_v1_tasks__task_id__start_post"];
+        post: operations["start_task_argus_api_tasks__task_id__start_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/restart": {
+    "/argus/api/tasks/{task_id}/restart": {
         parameters: {
             query?: never;
             header?: never;
@@ -243,14 +243,14 @@ export interface paths {
          * Restart Task
          * @description 重试失败/超时/取消的任务，创建新任务并立即入队。
          */
-        post: operations["restart_task_api_v1_tasks__task_id__restart_post"];
+        post: operations["restart_task_argus_api_tasks__task_id__restart_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/cancel": {
+    "/argus/api/tasks/{task_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -263,14 +263,14 @@ export interface paths {
          * Cancel Task
          * @description 取消任务。支持 pending、queued 和 running 状态。
          */
-        post: operations["cancel_task_api_v1_tasks__task_id__cancel_post"];
+        post: operations["cancel_task_argus_api_tasks__task_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/pause": {
+    "/argus/api/tasks/{task_id}/pause": {
         parameters: {
             query?: never;
             header?: never;
@@ -283,14 +283,14 @@ export interface paths {
          * Pause Task
          * @description 暂停运行中的任务。
          */
-        post: operations["pause_task_api_v1_tasks__task_id__pause_post"];
+        post: operations["pause_task_argus_api_tasks__task_id__pause_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/resume": {
+    "/argus/api/tasks/{task_id}/resume": {
         parameters: {
             query?: never;
             header?: never;
@@ -303,14 +303,14 @@ export interface paths {
          * Resume Task
          * @description 恢复暂停的任务。
          */
-        post: operations["resume_task_api_v1_tasks__task_id__resume_post"];
+        post: operations["resume_task_argus_api_tasks__task_id__resume_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/report": {
+    "/argus/api/tasks/{task_id}/report": {
         parameters: {
             query?: never;
             header?: never;
@@ -321,7 +321,7 @@ export interface paths {
          * Get Task Report
          * @description 返回任务报告文件，默认 HTML，可通过 format=json 获取结构化报告。
          */
-        get: operations["get_task_report_api_v1_tasks__task_id__report_get"];
+        get: operations["get_task_report_argus_api_tasks__task_id__report_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -330,7 +330,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/report.json": {
+    "/argus/api/tasks/{task_id}/report.json": {
         parameters: {
             query?: never;
             header?: never;
@@ -341,7 +341,7 @@ export interface paths {
          * Get Task Report Json
          * @description 返回任务 JSON 报告文件。
          */
-        get: operations["get_task_report_json_api_v1_tasks__task_id__report_json_get"];
+        get: operations["get_task_report_json_argus_api_tasks__task_id__report_json_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -350,7 +350,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/screenshots/{filename}": {
+    "/argus/api/tasks/{task_id}/screenshots/{filename}": {
         parameters: {
             query?: never;
             header?: never;
@@ -361,7 +361,7 @@ export interface paths {
          * Get Task Screenshot
          * @description 返回任务截图文件。
          */
-        get: operations["get_task_screenshot_api_v1_tasks__task_id__screenshots__filename__get"];
+        get: operations["get_task_screenshot_argus_api_tasks__task_id__screenshots__filename__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -370,7 +370,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config/summary": {
+    "/argus/api/config/summary": {
         parameters: {
             query?: never;
             header?: never;
@@ -381,7 +381,7 @@ export interface paths {
          * Get Config Summary
          * @description 返回非敏感配置摘要。
          */
-        get: operations["get_config_summary_api_v1_config_summary_get"];
+        get: operations["get_config_summary_argus_api_config_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -390,7 +390,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config/models": {
+    "/argus/api/config/models": {
         parameters: {
             query?: never;
             header?: never;
@@ -401,20 +401,20 @@ export interface paths {
          * List Model Configs
          * @description 列出模型配置。
          */
-        get: operations["list_model_configs_api_v1_config_models_get"];
+        get: operations["list_model_configs_argus_api_config_models_get"];
         put?: never;
         /**
          * Create Model Config
          * @description 创建模型配置。
          */
-        post: operations["create_model_config_api_v1_config_models_post"];
+        post: operations["create_model_config_argus_api_config_models_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config/models/test": {
+    "/argus/api/config/models/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -427,14 +427,14 @@ export interface paths {
          * Test Model Config
          * @description 测试已保存或临时模型配置。
          */
-        post: operations["test_model_config_api_v1_config_models_test_post"];
+        post: operations["test_model_config_argus_api_config_models_test_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config/models/{model_config_id}": {
+    "/argus/api/config/models/{model_config_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -445,24 +445,24 @@ export interface paths {
          * Get Model Config
          * @description 查询模型配置详情。
          */
-        get: operations["get_model_config_api_v1_config_models__model_config_id__get"];
+        get: operations["get_model_config_argus_api_config_models__model_config_id__get"];
         /**
          * Update Model Config
          * @description 更新模型配置。
          */
-        put: operations["update_model_config_api_v1_config_models__model_config_id__put"];
+        put: operations["update_model_config_argus_api_config_models__model_config_id__put"];
         post?: never;
         /**
          * Delete Model Config
          * @description 删除模型配置。
          */
-        delete: operations["delete_model_config_api_v1_config_models__model_config_id__delete"];
+        delete: operations["delete_model_config_argus_api_config_models__model_config_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/events": {
+    "/argus/api/tasks/{task_id}/events": {
         parameters: {
             query?: never;
             header?: never;
@@ -473,7 +473,7 @@ export interface paths {
          * List Task Events
          * @description 返回任务的执行时间线事件。
          */
-        get: operations["list_task_events_api_v1_tasks__task_id__events_get"];
+        get: operations["list_task_events_argus_api_tasks__task_id__events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -482,7 +482,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/llm-traces": {
+    "/argus/api/tasks/{task_id}/llm-traces": {
         parameters: {
             query?: never;
             header?: never;
@@ -493,7 +493,7 @@ export interface paths {
          * List Llm Traces
          * @description 返回任务的 LLM 调用追踪记录。
          */
-        get: operations["list_llm_traces_api_v1_tasks__task_id__llm_traces_get"];
+        get: operations["list_llm_traces_argus_api_tasks__task_id__llm_traces_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -502,7 +502,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/llm-traces/{trace_id}": {
+    "/argus/api/tasks/{task_id}/llm-traces/{trace_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -513,7 +513,7 @@ export interface paths {
          * Get Trace Detail
          * @description 返回单条 LLM 调用的完整追踪记录。
          */
-        get: operations["get_trace_detail_api_v1_tasks__task_id__llm_traces__trace_id__get"];
+        get: operations["get_trace_detail_argus_api_tasks__task_id__llm_traces__trace_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -522,7 +522,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tasks/{task_id}/debug-bundle": {
+    "/argus/api/tasks/{task_id}/debug-bundle": {
         parameters: {
             query?: never;
             header?: never;
@@ -533,7 +533,7 @@ export interface paths {
          * Download Debug Bundle
          * @description 下载任务调试包（task.json + traces + 事件 + 截图）。
          */
-        get: operations["download_debug_bundle_api_v1_tasks__task_id__debug_bundle_get"];
+        get: operations["download_debug_bundle_argus_api_tasks__task_id__debug_bundle_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -542,7 +542,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/prompts/preview": {
+    "/argus/api/prompts/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -555,7 +555,7 @@ export interface paths {
          * Preview Prompt
          * @description 按角色返回拼接后的完整 system_prompt，用于编辑器预览。
          */
-        post: operations["preview_prompt_api_v1_prompts_preview_post"];
+        post: operations["preview_prompt_argus_api_prompts_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1320,7 +1320,7 @@ export interface operations {
             };
         };
     };
-    list_projects_api_v1_projects_get: {
+    list_projects_argus_api_projects_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1340,7 +1340,7 @@ export interface operations {
             };
         };
     };
-    create_project_api_v1_projects_post: {
+    create_project_argus_api_projects_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1373,7 +1373,7 @@ export interface operations {
             };
         };
     };
-    get_project_api_v1_projects__project_id__get: {
+    get_project_argus_api_projects__project_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1404,7 +1404,7 @@ export interface operations {
             };
         };
     };
-    update_project_api_v1_projects__project_id__put: {
+    update_project_argus_api_projects__project_id__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -1439,7 +1439,7 @@ export interface operations {
             };
         };
     };
-    delete_project_api_v1_projects__project_id__delete: {
+    delete_project_argus_api_projects__project_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -1468,7 +1468,7 @@ export interface operations {
             };
         };
     };
-    list_tasks_api_v1_tasks_get: {
+    list_tasks_argus_api_tasks_get: {
         parameters: {
             query?: {
                 status?: components["schemas"]["TaskStatus"] | null;
@@ -1503,7 +1503,7 @@ export interface operations {
             };
         };
     };
-    create_task_api_v1_tasks_post: {
+    create_task_argus_api_tasks_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1536,7 +1536,7 @@ export interface operations {
             };
         };
     };
-    get_task_api_v1_tasks__task_id__get: {
+    get_task_argus_api_tasks__task_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1567,7 +1567,7 @@ export interface operations {
             };
         };
     };
-    update_task_api_v1_tasks__task_id__put: {
+    update_task_argus_api_tasks__task_id__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -1602,7 +1602,7 @@ export interface operations {
             };
         };
     };
-    delete_task_api_v1_tasks__task_id__delete: {
+    delete_task_argus_api_tasks__task_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -1631,7 +1631,7 @@ export interface operations {
             };
         };
     };
-    infer_limits_api_v1_tasks_infer_limits_get: {
+    infer_limits_argus_api_tasks_infer_limits_get: {
         parameters: {
             query: {
                 goal: string;
@@ -1663,7 +1663,7 @@ export interface operations {
             };
         };
     };
-    get_dashboard_stats_api_v1_tasks_stats_get: {
+    get_dashboard_stats_argus_api_tasks_stats_get: {
         parameters: {
             query?: {
                 recentLimit?: number;
@@ -1694,7 +1694,7 @@ export interface operations {
             };
         };
     };
-    start_task_api_v1_tasks__task_id__start_post: {
+    start_task_argus_api_tasks__task_id__start_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1725,7 +1725,7 @@ export interface operations {
             };
         };
     };
-    restart_task_api_v1_tasks__task_id__restart_post: {
+    restart_task_argus_api_tasks__task_id__restart_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1756,7 +1756,7 @@ export interface operations {
             };
         };
     };
-    cancel_task_api_v1_tasks__task_id__cancel_post: {
+    cancel_task_argus_api_tasks__task_id__cancel_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1787,7 +1787,7 @@ export interface operations {
             };
         };
     };
-    pause_task_api_v1_tasks__task_id__pause_post: {
+    pause_task_argus_api_tasks__task_id__pause_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1818,7 +1818,7 @@ export interface operations {
             };
         };
     };
-    resume_task_api_v1_tasks__task_id__resume_post: {
+    resume_task_argus_api_tasks__task_id__resume_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1849,7 +1849,7 @@ export interface operations {
             };
         };
     };
-    get_task_report_api_v1_tasks__task_id__report_get: {
+    get_task_report_argus_api_tasks__task_id__report_get: {
         parameters: {
             query?: {
                 format?: string;
@@ -1883,7 +1883,7 @@ export interface operations {
             };
         };
     };
-    get_task_report_json_api_v1_tasks__task_id__report_json_get: {
+    get_task_report_json_argus_api_tasks__task_id__report_json_get: {
         parameters: {
             query?: {
                 download?: boolean;
@@ -1916,7 +1916,7 @@ export interface operations {
             };
         };
     };
-    get_task_screenshot_api_v1_tasks__task_id__screenshots__filename__get: {
+    get_task_screenshot_argus_api_tasks__task_id__screenshots__filename__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1948,7 +1948,7 @@ export interface operations {
             };
         };
     };
-    get_config_summary_api_v1_config_summary_get: {
+    get_config_summary_argus_api_config_summary_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1968,7 +1968,7 @@ export interface operations {
             };
         };
     };
-    list_model_configs_api_v1_config_models_get: {
+    list_model_configs_argus_api_config_models_get: {
         parameters: {
             query?: {
                 includeDisabled?: boolean;
@@ -1999,7 +1999,7 @@ export interface operations {
             };
         };
     };
-    create_model_config_api_v1_config_models_post: {
+    create_model_config_argus_api_config_models_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2032,7 +2032,7 @@ export interface operations {
             };
         };
     };
-    test_model_config_api_v1_config_models_test_post: {
+    test_model_config_argus_api_config_models_test_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2065,7 +2065,7 @@ export interface operations {
             };
         };
     };
-    get_model_config_api_v1_config_models__model_config_id__get: {
+    get_model_config_argus_api_config_models__model_config_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2096,7 +2096,7 @@ export interface operations {
             };
         };
     };
-    update_model_config_api_v1_config_models__model_config_id__put: {
+    update_model_config_argus_api_config_models__model_config_id__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -2131,7 +2131,7 @@ export interface operations {
             };
         };
     };
-    delete_model_config_api_v1_config_models__model_config_id__delete: {
+    delete_model_config_argus_api_config_models__model_config_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -2160,7 +2160,7 @@ export interface operations {
             };
         };
     };
-    list_task_events_api_v1_tasks__task_id__events_get: {
+    list_task_events_argus_api_tasks__task_id__events_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2193,7 +2193,7 @@ export interface operations {
             };
         };
     };
-    list_llm_traces_api_v1_tasks__task_id__llm_traces_get: {
+    list_llm_traces_argus_api_tasks__task_id__llm_traces_get: {
         parameters: {
             query?: {
                 skip?: number;
@@ -2230,7 +2230,7 @@ export interface operations {
             };
         };
     };
-    get_trace_detail_api_v1_tasks__task_id__llm_traces__trace_id__get: {
+    get_trace_detail_argus_api_tasks__task_id__llm_traces__trace_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2264,7 +2264,7 @@ export interface operations {
             };
         };
     };
-    download_debug_bundle_api_v1_tasks__task_id__debug_bundle_get: {
+    download_debug_bundle_argus_api_tasks__task_id__debug_bundle_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2295,7 +2295,7 @@ export interface operations {
             };
         };
     };
-    preview_prompt_api_v1_prompts_preview_post: {
+    preview_prompt_argus_api_prompts_preview_post: {
         parameters: {
             query?: never;
             header?: never;

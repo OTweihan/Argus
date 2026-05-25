@@ -153,16 +153,16 @@ Web 管理后台（Vue 3 SPA）提供：
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
-| GET/POST | `/api/v1/projects` | 列出 / 创建项目 |
-| GET/POST | `/api/v1/tasks` | 列出 / 创建任务 |
-| POST | `/api/v1/tasks/{id}/start` | 开始执行任务 |
-| POST | `/api/v1/tasks/{id}/stop` | 停止运行中的任务 |
-| GET | `/api/v1/tasks/{id}/report` | 获取任务报告（HTML 或 JSON） |
-| GET | `/api/v1/tasks/{id}/events` | 获取执行时间线 |
-| GET | `/api/v1/tasks/{id}/llm-traces` | 获取 LLM 调用追踪 |
-| GET | `/api/v1/tasks/{id}/debug-bundle` | 下载调试包（ZIP） |
-| GET/POST | `/api/v1/config/models` | 管理模型配置 |
-| WS | `/api/v1/ws/tasks/{id}` | 实时任务事件推送 |
+| GET/POST | `/argus/api/projects` | 列出 / 创建项目 |
+| GET/POST | `/argus/api/tasks` | 列出 / 创建任务 |
+| POST | `/argus/api/tasks/{id}/start` | 开始执行任务 |
+| POST | `/argus/api/tasks/{id}/stop` | 停止运行中的任务 |
+| GET | `/argus/api/tasks/{id}/report` | 获取任务报告（HTML 或 JSON） |
+| GET | `/argus/api/tasks/{id}/events` | 获取执行时间线 |
+| GET | `/argus/api/tasks/{id}/llm-traces` | 获取 LLM 调用追踪 |
+| GET | `/argus/api/tasks/{id}/debug-bundle` | 下载调试包（ZIP） |
+| GET/POST | `/argus/api/config/models` | 管理模型配置 |
+| WS | `/argus/api/ws/tasks/{id}` | 实时任务事件推送 |
 | — | `/docs` | OpenAPI / Swagger UI |
 
 ---

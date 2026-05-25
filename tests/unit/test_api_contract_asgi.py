@@ -40,7 +40,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers.factories import AppStack, make_app_stack
 
-API_PREFIX = "/api/v1"
+API_PREFIX = "/argus/api"
 pytestmark = [pytest.mark.integration]
 
 

@@ -100,7 +100,7 @@ async def test_analyze_http_error(client: WhiteboxClient) -> None:
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
         err_resp = _mock_response(400, {})
-        request = httpx.Request("POST", "http://test-host:8081/api/v1/analyze")
+        request = httpx.Request("POST", "http://test-host:8081/argus/api/analyze")
         err_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
             "400 Bad Request", request=request, response=httpx.Response(400, request=request)
         )

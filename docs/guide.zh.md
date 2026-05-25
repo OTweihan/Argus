@@ -168,7 +168,7 @@ argus run --goal "..." --url "..." \
 
 - 两个 Tab：**Planner** 和 **Evaluator**
 - 左侧 Markdown 编辑，右侧实时渲染
-- 底部的**预览完整 Prompt**按钮调用 `POST /api/v1/prompts/preview`（600ms 防抖），展示内置 + 项目 + 任务三段拼接后的最终 Prompt
+- 底部的**预览完整 Prompt**按钮调用 `POST /argus/api/prompts/preview`（600ms 防抖），展示内置 + 项目 + 任务三段拼接后的最终 Prompt
 
 ### 扩展示例
 
@@ -252,7 +252,7 @@ outputs/reports/<task_id>/
 ### 报告 API
 
 ```
-GET /api/v1/tasks/{task_id}/report    → HTML（默认）或 JSON（?format=json）
+GET /argus/api/tasks/{task_id}/report    → HTML（默认）或 JSON（?format=json）
 ```
 
 ### 截图
@@ -282,7 +282,7 @@ Argus 为任务执行提供丰富的可观测能力。
 通过 API 获取：
 
 ```
-GET /api/v1/tasks/{task_id}/events
+GET /argus/api/tasks/{task_id}/events
 ```
 
 或在 Web 控制台的**执行时间线**页签中查看（通过 WebSocket 实时更新）。
@@ -307,8 +307,8 @@ outputs/traces/<task_id>.jsonl
 通过 API 获取：
 
 ```
-GET /api/v1/tasks/{task_id}/llm-traces          → 追踪概要列表
-GET /api/v1/tasks/{task_id}/llm-traces/{trace_id} → 单条追踪详情
+GET /argus/api/tasks/{task_id}/llm-traces          → 追踪概要列表
+GET /argus/api/tasks/{task_id}/llm-traces/{trace_id} → 单条追踪详情
 ```
 
 ### 调试包
@@ -316,7 +316,7 @@ GET /api/v1/tasks/{task_id}/llm-traces/{trace_id} → 单条追踪详情
 下载包含离线分析所需所有内容的 ZIP 包：
 
 ```
-GET /api/v1/tasks/{task_id}/debug-bundle
+GET /argus/api/tasks/{task_id}/debug-bundle
 ```
 
 包含：

@@ -4,7 +4,7 @@
 此中间件提供一个**最小可行**的 token 鉴权选项：
 
 - 默认禁用（``ARGUS_API_TOKEN`` 未设置时不挂载，零行为变化）；
-- 启用后只保护 ``/api/v1/*`` 与 ``/ws/*``，不保护 ``/health`` 和静态资源，
+- 启用后只保护 ``/argus/api/*`` 与 ``/ws/*``，不保护 ``/health`` 和静态资源，
   因为后者要么由反代/Compose 直接探测，要么是浏览器加载首页 HTML 无法带 header；
 - HTTP 走 ``Authorization: Bearer <token>``，WebSocket 走 query ``?token=<token>``
   （浏览器原生 WebSocket 不支持自定义 header）；
@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 # 启用 token 时的默认保护前缀。``/health`` 故意不在此列：反代健康检查、
 # docker compose healthcheck、k8s liveness 都依赖匿名 GET。
-DEFAULT_PROTECTED_PREFIXES: tuple[str, ...] = ("/api/", "/ws/")
+DEFAULT_PROTECTED_PREFIXES: tuple[str, ...] = ("/argus/api/", "/ws/")
 
 
 class AuthTokenMiddleware:

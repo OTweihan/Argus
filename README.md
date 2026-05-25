@@ -160,16 +160,16 @@ The Web Console (Vue 3 SPA) provides:
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check |
-| GET/POST | `/api/v1/projects` | List / create projects |
-| GET/POST | `/api/v1/tasks` | List / create tasks |
-| POST | `/api/v1/tasks/{id}/start` | Start task execution |
-| POST | `/api/v1/tasks/{id}/stop` | Stop running task |
-| GET | `/api/v1/tasks/{id}/report` | Get task report (HTML or JSON) |
-| GET | `/api/v1/tasks/{id}/events` | Get execution timeline |
-| GET | `/api/v1/tasks/{id}/llm-traces` | Get LLM call traces |
-| GET | `/api/v1/tasks/{id}/debug-bundle` | Download debug bundle (ZIP) |
-| GET/POST | `/api/v1/config/models` | Manage model configurations |
-| WS | `/api/v1/ws/tasks/{id}` | Real-time task events |
+| GET/POST | `/argus/api/projects` | List / create projects |
+| GET/POST | `/argus/api/tasks` | List / create tasks |
+| POST | `/argus/api/tasks/{id}/start` | Start task execution |
+| POST | `/argus/api/tasks/{id}/stop` | Stop running task |
+| GET | `/argus/api/tasks/{id}/report` | Get task report (HTML or JSON) |
+| GET | `/argus/api/tasks/{id}/events` | Get execution timeline |
+| GET | `/argus/api/tasks/{id}/llm-traces` | Get LLM call traces |
+| GET | `/argus/api/tasks/{id}/debug-bundle` | Download debug bundle (ZIP) |
+| GET/POST | `/argus/api/config/models` | Manage model configurations |
+| WS | `/argus/api/ws/tasks/{id}` | Real-time task events |
 | — | `/docs` | OpenAPI / Swagger UI |
 
 ---

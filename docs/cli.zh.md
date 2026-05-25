@@ -115,9 +115,9 @@ argus serve
 ### 启动后访问
 
 - **Web 控制台：** `http://localhost:8000/` — Vue 3 SPA，管理项目、任务和模型
-- **REST API：** `http://localhost:8000/api/v1/` — 完整 RESTful API
+- **REST API：** `http://localhost:8000/argus/api/` — 完整 RESTful API
 - **OpenAPI 文档：** `http://localhost:8000/docs` — 交互式 Swagger UI
-- **WebSocket：** `ws://localhost:8000/api/v1/ws/tasks/{id}` — 实时任务事件
+- **WebSocket：** `ws://localhost:8000/argus/api/ws/tasks/{id}` — 实时任务事件
 
 ---
 

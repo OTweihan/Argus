@@ -45,7 +45,7 @@ from argus_py.utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
 
-API_PREFIX = "/api/v1"
+API_PREFIX = "/argus/api"
 # 启用可选 API Token 鉴权的环境变量名。
 # 未设置或为空字符串 → 中间件不挂载，向后兼容。
 AUTH_TOKEN_ENV = "ARGUS_API_TOKEN"

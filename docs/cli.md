@@ -115,9 +115,9 @@ argus serve
 ### What You Get
 
 - **Web Console:** `http://localhost:8000/` — Vue 3 SPA for managing projects, tasks, and models
-- **REST API:** `http://localhost:8000/api/v1/` — Full RESTful API
+- **REST API:** `http://localhost:8000/argus/api/` — Full RESTful API
 - **OpenAPI Docs:** `http://localhost:8000/docs` — Interactive Swagger UI
-- **WebSocket:** `ws://localhost:8000/api/v1/ws/tasks/{id}` — Real-time task events
+- **WebSocket:** `ws://localhost:8000/argus/api/ws/tasks/{id}` — Real-time task events
 
 ---
 

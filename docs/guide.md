@@ -167,7 +167,7 @@ In the Project or Task create/edit dialog, expand the **Prompt Extensions** pane
 
 - Two tabs: **Planner** and **Evaluator**
 - Markdown editor on the left, rendered preview on the right
-- A **Preview Full System Prompt** button at the bottom calls `POST /api/v1/prompts/preview` (with 600ms debounce) to show the concatenated built-in + project + task prompt
+- A **Preview Full System Prompt** button at the bottom calls `POST /argus/api/prompts/preview` (with 600ms debounce) to show the concatenated built-in + project + task prompt
 
 ### Example Extensions
 
@@ -251,7 +251,7 @@ outputs/reports/<task_id>/
 ### Report API
 
 ```
-GET /api/v1/tasks/{task_id}/report    → HTML (default) or JSON (?format=json)
+GET /argus/api/tasks/{task_id}/report    → HTML (default) or JSON (?format=json)
 ```
 
 ### Screenshots
@@ -281,7 +281,7 @@ Every task lifecycle event is recorded in SQLite's `task_events` table:
 Get via API:
 
 ```
-GET /api/v1/tasks/{task_id}/events
+GET /argus/api/tasks/{task_id}/events
 ```
 
 Or view in the Web Console's **Execution Timeline** tab (real-time via WebSocket).
@@ -306,8 +306,8 @@ outputs/traces/<task_id>.jsonl
 Get via API:
 
 ```
-GET /api/v1/tasks/{task_id}/llm-traces          → list of trace summaries
-GET /api/v1/tasks/{task_id}/llm-traces/{trace_id} → single trace detail
+GET /argus/api/tasks/{task_id}/llm-traces          → list of trace summaries
+GET /argus/api/tasks/{task_id}/llm-traces/{trace_id} → single trace detail
 ```
 
 ### Debug Bundle
@@ -315,7 +315,7 @@ GET /api/v1/tasks/{task_id}/llm-traces/{trace_id} → single trace detail
 Download a ZIP with everything needed for offline analysis:
 
 ```
-GET /api/v1/tasks/{task_id}/debug-bundle
+GET /argus/api/tasks/{task_id}/debug-bundle
 ```
 
 Contains:
