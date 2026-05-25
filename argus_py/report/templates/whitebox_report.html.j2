@@ -97,6 +97,16 @@
           <strong>{{ diagnostics.get("failedFileCount", 0) }} files</strong>
         </div>
         <div class="metric">
+          <span>Classpath</span>
+          <strong>
+            {% if diagnostics.get("classpathAvailable", False) %}
+              <span style="color: #22c55e;">{{ diagnostics.get("jarCount", 0) }} jars</span>
+            {% else %}
+              <span style="color: #64748b;">不可用</span>
+            {% endif %}
+          </strong>
+        </div>
+        <div class="metric">
           <span>分析范围</span>
           <strong><span class="badge info">{{ wb.summary.scope if wb.summary else "all" }}</span></strong>
         </div>
@@ -145,6 +155,47 @@
             <strong style="color: {{ '#e11d48' if diagnostics.get('unresolved', 0) > 0 else '#22c55e' }};">
               未解析 {{ diagnostics.get("unresolved", 0) }}
             </strong>
+          </td>
+        </tr>
+        <tr>
+          <th>Classpath</th>
+          <td>
+            {% if diagnostics.get("classpathAvailable", False) %}
+              <span style="color: #22c55e;">可用</span> —
+              来源 {{ diagnostics.get("classpathSource", "?") }}，
+              {{ diagnostics.get("jarCount", 0) }} 个 JAR
+              {% if diagnostics.get("classpathWarnings", []) %}
+                <br>
+                <details>
+                  <summary style="color: #eab308; cursor: pointer;">
+                    {{ diagnostics.get("classpathWarnings", []) | length }} 个警告
+                  </summary>
+                  <ul>
+                    {% for w in diagnostics.get("classpathWarnings", []) %}
+                      <li style="font-size: 0.85em; color: #64748b;">{{ w }}</li>
+                    {% endfor %}
+                  </ul>
+                </details>
+              {% endif %}
+              {% if diagnostics.get("classpathErrors", []) %}
+                <br>
+                <details>
+                  <summary style="color: #e11d48; cursor: pointer;">
+                    {{ diagnostics.get("classpathErrors", []) | length }} 个错误
+                  </summary>
+                  <ul>
+                    {% for e in diagnostics.get("classpathErrors", []) %}
+                      <li style="font-size: 0.85em; color: #e11d48;">{{ e }}</li>
+                    {% endfor %}
+                  </ul>
+                </details>
+              {% endif %}
+            {% else %}
+              <span style="color: #64748b;">不可用</span>
+              {% if diagnostics.get("classpathErrors", []) %}
+                — {{ diagnostics.get("classpathErrors", []) | first }}
+              {% endif %}
+            {% endif %}
           </td>
         </tr>
       </table>

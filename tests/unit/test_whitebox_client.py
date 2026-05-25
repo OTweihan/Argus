@@ -95,6 +95,41 @@ async def test_analyze_empty_response(client: WhiteboxClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_analyze_diagnostics_classpath_details(client: WhiteboxClient) -> None:
+    """验证 classpath 诊断字段可反序列化。"""
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(
+            200,
+            {
+                "endpoints": [],
+                "callGraph": {},
+                "findings": [],
+                "diagnostics": {
+                    "classpathAvailable": False,
+                    "classpathSource": "none",
+                    "classpathCommand": "mvn dependency:build-classpath",
+                    "classpathExitCode": 1,
+                    "classpathDurationMs": 1234,
+                    "classpathStdoutTail": "[INFO] Building demo",
+                    "classpathStderrTail": "[ERROR] failed",
+                    "classpathTimedOut": False,
+                    "classpathErrors": ["Maven exited with code 1"],
+                },
+            },
+        )
+        mock_get_client.return_value = mock_http
+
+        result = await client.analyze("/tmp/test-project")
+
+    assert result.diagnostics is not None
+    assert result.diagnostics.classpath_command == "mvn dependency:build-classpath"
+    assert result.diagnostics.classpath_exit_code == 1
+    assert result.diagnostics.classpath_duration_ms == 1234
+    assert result.diagnostics.classpath_stderr_tail == "[ERROR] failed"
+
+
+@pytest.mark.asyncio
 async def test_analyze_http_error(client: WhiteboxClient) -> None:
     """验证 HTTP 错误时抛出 WhiteboxClientError。"""
     with patch.object(client, "_get_client") as mock_get_client:
@@ -157,7 +192,51 @@ async def test_analyze_scope_callgraph(client: WhiteboxClient) -> None:
         )
         mock_get_client.return_value = mock_http
 
-        await client.analyze("/tmp/test", scope="callgraph")
+        await client.analyze("/tmp/test", scope="callgraph", target_modules=["han-modules/han-admin"])
 
         call_kwargs = mock_http.post.call_args.kwargs
         assert call_kwargs["json"]["scope"] == "callgraph"
+        assert call_kwargs["json"]["targetModules"] == ["han-modules/han-admin"]
+
+
+@pytest.mark.asyncio
+async def test_submit_and_query_analyze_job(client: WhiteboxClient) -> None:
+    """验证异步作业接口请求和状态解析。"""
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(
+            200,
+            {
+                "jobId": "job-1",
+                "status": "RUNNING",
+                "stage": "classpath",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "events": [
+                    {
+                        "timestamp": "2026-05-25T00:00:01Z",
+                        "stage": "classpath",
+                        "level": "INFO",
+                        "message": "Executing Maven",
+                    }
+                ],
+            },
+        )
+        mock_http.get.return_value = _mock_response(
+            200,
+            {
+                "jobId": "job-1",
+                "status": "SUCCEEDED",
+                "stage": "complete",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "finishedAt": "2026-05-25T00:00:02Z",
+                "events": [],
+            },
+        )
+        mock_get_client.return_value = mock_http
+
+        submitted = await client.submit_analyze_job("/tmp/test-project")
+        status = await client.get_analyze_job("job-1")
+
+    assert submitted.job_id == "job-1"
+    assert submitted.events[0].stage == "classpath"
+    assert status.status == "SUCCEEDED"
