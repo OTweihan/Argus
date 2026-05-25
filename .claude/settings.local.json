@@ -33,7 +33,8 @@
       "Bash(npx vitest *)",
       "Bash(npx gitnexus *)",
       "Bash(git stash *)",
-      "Bash(uv sync *)"
+      "Bash(uv sync *)",
+      "Bash(mvn compile *)"
     ]
   }
 }

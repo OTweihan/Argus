@@ -54,7 +54,7 @@ public class ProjectAnalyzerService {
 
         // Step 1: 无依赖的独立分析，并行执行
         CompletableFuture<List<EndpointInfo>> endpointsFuture = CompletableFuture.completedFuture(List.of());
-        CompletableFuture<Map<String, CallGraphNode>> callGraphFuture = CompletableFuture.completedFuture(Map.of());
+        CompletableFuture<CallGraphBuilder.BuildResult> buildResultFuture = CompletableFuture.completedFuture(null);
         CompletableFuture<List<FindingItem>> findingsFuture = CompletableFuture.completedFuture(List.of());
 
         boolean runEndpoints = "endpoints".equals(scope) || "all".equals(scope) || "flows".equals(scope);
@@ -66,13 +66,19 @@ public class ProjectAnalyzerService {
             endpointsFuture = CompletableFuture.supplyAsync(() -> controllerExtractor.extract(sourcePath));
         }
         if (runCallGraph) {
-            callGraphFuture = CompletableFuture.supplyAsync(() -> callGraphBuilder.build(sourcePath));
+            buildResultFuture = CompletableFuture.supplyAsync(() -> callGraphBuilder.build(sourcePath));
         }
         if (runFindings) {
             findingsFuture = CompletableFuture.supplyAsync(() -> findingDetector.detect(sourcePath));
         }
 
-        // Step 2: 依赖 endpoints 和 callgraph 的衍生分析
+        // Step 2: 依赖 callgraph 的衍生分析
+        CompletableFuture<Map<String, CallGraphNode>> callGraphFuture = buildResultFuture
+                .thenApplyAsync(result -> result != null ? result.graph() : Map.of());
+
+        CompletableFuture<AnalyzerDiagnostics> diagnosticsFuture = buildResultFuture
+                .thenApplyAsync(result -> result != null ? result.diagnostics() : new AnalyzerDiagnostics());
+
         CompletableFuture<List<ExecutionFlow>> flowsFuture = endpointsFuture.thenCombineAsync(callGraphFuture,
                 (endpoints, callGraph) -> {
                     boolean runFlows = "all".equals(scope) || "flows".equals(scope);
@@ -95,11 +101,20 @@ public class ProjectAnalyzerService {
         List<FindingItem> findings = findingsFuture.join();
         List<ExecutionFlow> flows = flowsFuture.join();
         List<ClusterInfo> clusters = clustersFuture.join();
+        AnalyzerDiagnostics diagnostics = diagnosticsFuture.join();
 
-        AnalyzeResponse response = new AnalyzeResponse(endpoints, callGraph, findings, flows, clusters);
+        AnalyzeResponse response = new AnalyzeResponse(endpoints, callGraph, findings, flows, clusters, diagnostics);
         indexCache.put(canonicalPath, response);
+
         log.info("白盒分析完成: scope={} endpoints={} callgraph_nodes={} findings={} flows={} clusters={}",
                 scope, endpoints.size(), callGraph.size(), findings.size(), flows.size(), clusters.size());
+        if (diagnostics != null) {
+            log.info("解析诊断: total_files={} parsed={} failed={} calls={} resolved_high={} resolved_medium={} unresolved={}",
+                    diagnostics.getTotalSourceFiles(), diagnostics.getParsedFileCount(),
+                    diagnostics.getFailedFileCount(), diagnostics.getTotalCalls(),
+                    diagnostics.getResolvedHigh(), diagnostics.getResolvedMedium(),
+                    diagnostics.getUnresolved());
+        }
         return response;
     }
 }

@@ -19,13 +19,27 @@ class Endpoint:
 
 
 @dataclass
+class CallEdge:
+    """调用图边，携带解析元数据。"""
+
+    to: str = ""
+    method_name: str = ""
+    type_name: str = ""
+    resolution_type: str = "UNRESOLVED"
+    confidence: str = "UNKNOWN"
+    candidates: list[str] = field(default_factory=list)
+    source_file: str = ""
+    line: int = 0
+
+
+@dataclass
 class CallGraphNode:
     """调用图节点。"""
 
     class_name: str
     method_name: str
     method_signature: str
-    callees: list[str] = field(default_factory=list)
+    callee_details: list[CallEdge] = field(default_factory=list)
 
 
 @dataclass
@@ -33,6 +47,29 @@ class CallGraph:
     """调用图，key 为 className#methodName。"""
 
     nodes: dict[str, CallGraphNode] = field(default_factory=dict)
+
+
+@dataclass
+class ParseFailureDetail:
+    """单个文件解析失败详情。"""
+
+    file: str = ""
+    problems: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AnalyzerDiagnostics:
+    """分析诊断信息。"""
+
+    total_source_files: int = 0
+    parsed_file_count: int = 0
+    failed_file_count: int = 0
+    failed_files: list[ParseFailureDetail] = field(default_factory=list)
+    total_calls: int = 0
+    resolved_high: int = 0
+    resolved_medium: int = 0
+    resolved_low: int = 0
+    unresolved: int = 0
 
 
 @dataclass
@@ -86,6 +123,7 @@ class WhiteboxResult:
     findings: list[WhiteboxFinding] = field(default_factory=list)
     execution_flows: list[ExecutionFlow] = field(default_factory=list)
     clusters: list[ClusterInfo] = field(default_factory=list)
+    diagnostics: AnalyzerDiagnostics | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxResult:
@@ -105,11 +143,24 @@ class WhiteboxResult:
         raw_nodes = data.get("callGraph", {})
         nodes = {}
         for key, node in raw_nodes.items():
+            callee_details = [
+                CallEdge(
+                    to=ce.get("to", ""),
+                    method_name=ce.get("methodName", ""),
+                    type_name=ce.get("typeName", ""),
+                    resolution_type=ce.get("resolutionType", "UNRESOLVED"),
+                    confidence=ce.get("confidence", "UNKNOWN"),
+                    candidates=ce.get("candidates", []),
+                    source_file=ce.get("sourceFile", ""),
+                    line=ce.get("line", 0),
+                )
+                for ce in node.get("calleeDetails", [])
+            ]
             nodes[key] = CallGraphNode(
                 class_name=node.get("className", ""),
                 method_name=node.get("methodName", ""),
                 method_signature=node.get("methodSignature", ""),
-                callees=node.get("callees", []),
+                callee_details=callee_details,
             )
         call_graph = CallGraph(nodes=nodes)
 
@@ -153,10 +204,33 @@ class WhiteboxResult:
             for c in data.get("clusters", [])
         ]
 
+        raw_diag = data.get("diagnostics")
+        diagnostics = None
+        if raw_diag:
+            failed_files = [
+                ParseFailureDetail(
+                    file=ff.get("file", ""),
+                    problems=ff.get("problems", []),
+                )
+                for ff in raw_diag.get("failedFiles", [])
+            ]
+            diagnostics = AnalyzerDiagnostics(
+                total_source_files=raw_diag.get("totalSourceFiles", 0),
+                parsed_file_count=raw_diag.get("parsedFileCount", 0),
+                failed_file_count=raw_diag.get("failedFileCount", 0),
+                failed_files=failed_files,
+                total_calls=raw_diag.get("totalCalls", 0),
+                resolved_high=raw_diag.get("resolvedHigh", 0),
+                resolved_medium=raw_diag.get("resolvedMedium", 0),
+                resolved_low=raw_diag.get("resolvedLow", 0),
+                unresolved=raw_diag.get("unresolved", 0),
+            )
+
         return cls(
             endpoints=endpoints,
             call_graph=call_graph,
             findings=findings,
             execution_flows=execution_flows,
             clusters=clusters,
+            diagnostics=diagnostics,
         )

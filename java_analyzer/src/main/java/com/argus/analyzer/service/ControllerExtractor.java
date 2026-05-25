@@ -36,7 +36,8 @@ public class ControllerExtractor {
     public List<EndpointInfo> extract(Path sourcePath) {
         List<EndpointInfo> endpoints = new ArrayList<>();
 
-        for (var entry : sourceFileScanner.scan(sourcePath)) {
+        var scanResult = sourceFileScanner.scan(sourcePath);
+        for (var entry : scanResult.parsedFiles()) {
             Path javaFile = entry.getKey();
             CompilationUnit cu = entry.getValue();
 

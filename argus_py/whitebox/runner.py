@@ -58,9 +58,7 @@ class WhiteboxRunner:
                         self._source_resolver.resolve, repo_url, branch
                     )
                 else:
-                    resolved_path = await asyncio.to_thread(
-                        self._source_resolver.resolve, repo_url
-                    )
+                    resolved_path = await asyncio.to_thread(self._source_resolver.resolve, repo_url)
             else:
                 assert source_path is not None  # 已在入口处校验
                 resolved_path = await asyncio.to_thread(
@@ -78,7 +76,9 @@ class WhiteboxRunner:
                     title=wf.title,
                     description=wf.description,
                     severity=_map_severity(wf.severity),
-                    finding_type=FindingType.SECURITY if wf.severity.upper() in ("HIGH", "CRITICAL") else FindingType.FUNCTIONAL,
+                    finding_type=FindingType.SECURITY
+                    if wf.severity.upper() in ("HIGH", "CRITICAL")
+                    else FindingType.FUNCTIONAL,
                     location=f"{wf.file_path}:{wf.line_number}",
                 )
                 findings.append(finding)
@@ -87,9 +87,19 @@ class WhiteboxRunner:
             # Step 4: 设置结果摘要
             endpoint_count = len(result.endpoints)
             finding_count = len(result.findings)
+            diag_summary = ""
+            if result.diagnostics:
+                diag_summary = (
+                    f"解析文件 {result.diagnostics.parsed_file_count}/{result.diagnostics.total_source_files}，"
+                    f"调用 {result.diagnostics.total_calls} 个"
+                    f"（高置信度 {result.diagnostics.resolved_high}，"
+                    f"中置信度 {result.diagnostics.resolved_medium}，"
+                    f"未解析 {result.diagnostics.unresolved}）。"
+                )
             task.result_summary = (
                 f"白盒分析完成。发现 {endpoint_count} 个端点、"
                 f"{finding_count} 个代码缺陷/坏味道。"
+                f"{diag_summary}"
             )
 
             # 保存全量分析结果至 parameters（报告模板使用）
@@ -112,7 +122,19 @@ class WhiteboxRunner:
                             "className": node.class_name,
                             "methodName": node.method_name,
                             "methodSignature": node.method_signature,
-                            "callees": node.callees,
+                            "calleeDetails": [
+                                {
+                                    "to": ce.to,
+                                    "methodName": ce.method_name,
+                                    "typeName": ce.type_name,
+                                    "resolutionType": ce.resolution_type,
+                                    "confidence": ce.confidence,
+                                    "candidates": ce.candidates,
+                                    "sourceFile": ce.source_file,
+                                    "line": ce.line,
+                                }
+                                for ce in node.callee_details
+                            ],
                         }
                         for key, node in result.call_graph.nodes.items()
                     },
@@ -141,6 +163,25 @@ class WhiteboxRunner:
                         }
                         for c in result.clusters
                     ],
+                    "diagnostics": {
+                        "totalSourceFiles": result.diagnostics.total_source_files,
+                        "parsedFileCount": result.diagnostics.parsed_file_count,
+                        "failedFileCount": result.diagnostics.failed_file_count,
+                        "failedFiles": [
+                            {
+                                "file": ff.file,
+                                "problems": ff.problems,
+                            }
+                            for ff in result.diagnostics.failed_files
+                        ],
+                        "totalCalls": result.diagnostics.total_calls,
+                        "resolvedHigh": result.diagnostics.resolved_high,
+                        "resolvedMedium": result.diagnostics.resolved_medium,
+                        "resolvedLow": result.diagnostics.resolved_low,
+                        "unresolved": result.diagnostics.unresolved,
+                    }
+                    if result.diagnostics
+                    else None,
                     "summary": {
                         "endpoint_count": endpoint_count,
                         "call_graph_node_count": len(result.call_graph.nodes),

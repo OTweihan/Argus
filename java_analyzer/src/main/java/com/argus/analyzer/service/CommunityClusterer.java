@@ -1,5 +1,6 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.api.dto.CallEdge;
 import com.argus.analyzer.api.dto.CallGraphNode;
 import com.argus.analyzer.api.dto.ClusterInfo;
 import org.slf4j.Logger;
@@ -26,10 +27,11 @@ public class CommunityClusterer {
             String caller = entry.getKey();
             adjacency.computeIfAbsent(caller, k -> new HashSet<>());
 
-            for (String callee : entry.getValue().getCallees()) {
-                if (callGraph.containsKey(callee)) {
-                    adjacency.computeIfAbsent(caller, k -> new HashSet<>()).add(callee);
-                    adjacency.computeIfAbsent(callee, k -> new HashSet<>()).add(caller);
+            for (CallEdge callee : entry.getValue().getCalleeDetails()) {
+                String calleeKey = callee.getTo();
+                if (callGraph.containsKey(calleeKey)) {
+                    adjacency.computeIfAbsent(caller, k -> new HashSet<>()).add(calleeKey);
+                    adjacency.computeIfAbsent(calleeKey, k -> new HashSet<>()).add(caller);
                 }
             }
         }

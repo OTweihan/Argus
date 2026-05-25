@@ -1,5 +1,6 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.api.dto.CallEdge;
 import com.argus.analyzer.api.dto.CallGraphNode;
 import com.argus.analyzer.api.dto.EndpointInfo;
 import com.argus.analyzer.api.dto.ExecutionFlow;
@@ -53,15 +54,16 @@ public class ExecutionFlowTracer {
 
         steps.add(new FlowStep(depth, currentKey, node.getClassName(), node.getMethodName()));
 
-        for (String callee : node.getCallees()) {
-            if (callGraph.containsKey(callee)) {
-                dfs(callGraph, callee, depth + 1, visited, steps);
+        for (CallEdge callee : node.getCalleeDetails()) {
+            String calleeKey = callee.getTo();
+            if (callGraph.containsKey(calleeKey)) {
+                dfs(callGraph, calleeKey, depth + 1, visited, steps);
             } else {
                 // External / unresolved call — record as leaf at next depth
-                String[] parts = callee.split("#", 2);
+                String[] parts = calleeKey.split("#", 2);
                 String clazz = parts.length > 1 ? parts[0] : "";
-                String method = parts.length > 1 ? parts[1] : callee;
-                steps.add(new FlowStep(depth + 1, callee, clazz, method));
+                String method = parts.length > 1 ? parts[1] : calleeKey;
+                steps.add(new FlowStep(depth + 1, calleeKey, clazz, method));
             }
         }
     }

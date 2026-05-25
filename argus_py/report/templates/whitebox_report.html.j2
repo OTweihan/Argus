@@ -7,6 +7,7 @@
 {% set call_graph = wb.callGraph or {} %}
 {% set execution_flows = wb.executionFlows or [] %}
 {% set clusters = wb.clusters or [] %}
+{% set diagnostics = wb.diagnostics or {} %}
 {% set findings = report.findings %}
 {% set finding_count = findings | length %}
 {% set endpoint_count = endpoints | length %}
@@ -50,12 +51,13 @@
     <nav class="nav-card" aria-label="报告导航">
       <p class="nav-title">Report Sections</p>
       <a class="nav-link" href="#overview"><span>概览</span><span>01</span></a>
-      <a class="nav-link" href="#task"><span>任务信息</span><span>02</span></a>
-      <a class="nav-link" href="#endpoints"><span>端点清单</span><span>03</span></a>
-      <a class="nav-link" href="#execution-flows"><span>执行流</span><span>04</span></a>
-      <a class="nav-link" href="#callgraph"><span>调用图</span><span>05</span></a>
-      <a class="nav-link" href="#clusters"><span>功能聚类</span><span>06</span></a>
-      <a class="nav-link" href="#findings"><span>代码缺陷</span><span>07</span></a>
+      <a class="nav-link" href="#diagnostics"><span>解析诊断</span><span>02</span></a>
+      <a class="nav-link" href="#task"><span>任务信息</span><span>03</span></a>
+      <a class="nav-link" href="#endpoints"><span>端点清单</span><span>04</span></a>
+      <a class="nav-link" href="#execution-flows"><span>执行流</span><span>05</span></a>
+      <a class="nav-link" href="#callgraph"><span>调用图</span><span>06</span></a>
+      <a class="nav-link" href="#clusters"><span>功能聚类</span><span>07</span></a>
+      <a class="nav-link" href="#findings"><span>代码缺陷</span><span>08</span></a>
     </nav>
   </aside>
 
@@ -87,10 +89,65 @@
           <strong>{{ finding_count }}</strong>
         </div>
         <div class="metric">
+          <span>调用解析</span>
+          <strong>{{ diagnostics.get("resolvedHigh", 0) + diagnostics.get("resolvedMedium", 0) }}/{{ diagnostics.get("totalCalls", 0) }}</strong>
+        </div>
+        <div class="metric">
+          <span>解析失败</span>
+          <strong>{{ diagnostics.get("failedFileCount", 0) }} files</strong>
+        </div>
+        <div class="metric">
           <span>分析范围</span>
           <strong><span class="badge info">{{ wb.summary.scope if wb.summary else "all" }}</span></strong>
         </div>
       </div>
+    </section>
+
+    <section class="section card" id="diagnostics">
+      <div class="section-head">
+        <div>
+          <h2>解析诊断</h2>
+          <p class="section-subtitle">文件解析与调用图解析质量统计。</p>
+        </div>
+        <span class="badge info">diagnostics</span>
+      </div>
+
+      <table class="info-table">
+        <tr>
+          <th>源文件</th>
+          <td>{{ diagnostics.get("parsedFileCount", 0) }} / {{ diagnostics.get("totalSourceFiles", 0) }} 解析成功
+            {% if diagnostics.get("failedFileCount", 0) > 0 %}
+              <br>
+              <details>
+                <summary style="color: #e11d48; cursor: pointer;">{{ diagnostics.get("failedFileCount", 0) }} 个文件解析失败</summary>
+                <ul>
+                  {% for ff in diagnostics.get("failedFiles", []) %}
+                    <li><code>{{ ff.file }}</code>
+                      <ul>
+                        {% for prob in ff.problems %}
+                          <li style="font-size: 0.85em; color: #64748b;">{{ prob }}</li>
+                        {% endfor %}
+                      </ul>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th>调用解析</th>
+          <td>
+            总计 {{ diagnostics.get("totalCalls", 0) }} 个调用 —
+            高置信度 {{ diagnostics.get("resolvedHigh", 0) }}，
+            中置信度 {{ diagnostics.get("resolvedMedium", 0) }}，
+            低置信度 {{ diagnostics.get("resolvedLow", 0) }}，
+            <strong style="color: {{ '#e11d48' if diagnostics.get('unresolved', 0) > 0 else '#22c55e' }};">
+              未解析 {{ diagnostics.get("unresolved", 0) }}
+            </strong>
+          </td>
+        </tr>
+      </table>
     </section>
 
     <section class="section card" id="task">
@@ -250,9 +307,11 @@
                 <td><code>{{ key }}</code></td>
                 <td><code>{{ node.methodSignature }}</code></td>
                 <td>
-                  {% if node.callees %}
-                    {% for callee in node.callees %}
-                      <code>{{ callee }}</code>{% if not loop.last %}<br>{% endif %}
+                  {% if node.calleeDetails %}
+                    {% for callee in node.calleeDetails %}
+                      <code>{{ callee.to }}</code>
+                      <span class="badge {{ 'success' if callee.confidence == 'HIGH' else 'info' if callee.confidence == 'MEDIUM' else 'failed' }}">{{ callee.resolutionType }}</span>
+                      {% if not loop.last %}<br>{% endif %}
                     {% endfor %}
                   {% else %}
                     <span class="muted">无</span>

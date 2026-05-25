@@ -7,15 +7,15 @@ public class CallGraphNode {
     private String className;
     private String methodName;
     private String methodSignature;
-    private List<String> callees;
+    private List<CallEdge> calleeDetails;
 
     public CallGraphNode() {}
 
-    public CallGraphNode(String className, String methodName, String methodSignature, List<String> callees) {
+    public CallGraphNode(String className, String methodName, String methodSignature, List<CallEdge> calleeDetails) {
         this.className = className;
         this.methodName = methodName;
         this.methodSignature = methodSignature;
-        this.callees = callees;
+        this.calleeDetails = calleeDetails;
     }
 
     public String getClassName() { return className; }
@@ -27,6 +27,6 @@ public class CallGraphNode {
     public String getMethodSignature() { return methodSignature; }
     public void setMethodSignature(String methodSignature) { this.methodSignature = methodSignature; }
 
-    public List<String> getCallees() { return callees; }
-    public void setCallees(List<String> callees) { this.callees = callees; }
+    public List<CallEdge> getCalleeDetails() { return calleeDetails; }
+    public void setCalleeDetails(List<CallEdge> calleeDetails) { this.calleeDetails = calleeDetails; }
 }

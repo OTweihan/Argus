@@ -1,7 +1,9 @@
 package com.argus.analyzer.support;
 
+import com.argus.analyzer.api.dto.ParseFailureDetail;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
+import com.github.javaparser.Problem;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
@@ -18,6 +20,7 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Component
@@ -38,7 +41,7 @@ public class SourceFileScanner {
     /**
      * 使用默认配置（JAVA_21）扫描源码目录。
      */
-    public List<Map.Entry<Path, CompilationUnit>> scan(Path sourcePath) {
+    public ScanResult scan(Path sourcePath) {
         return scan(sourcePath, null);
     }
 
@@ -47,16 +50,16 @@ public class SourceFileScanner {
      *
      * @param sourcePath      源码根目录
      * @param languageLevel   可选的语言级别，为 null 时自动检测
-     * @return 可解析的 Java 文件列表，解析失败的自动跳过并记 warn 日志
+     * @return ScanResult 包含解析成功/失败的文件列表
      */
-    public List<Map.Entry<Path, CompilationUnit>> scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel) {
-        List<Map.Entry<Path, CompilationUnit>> results = new ArrayList<>();
+    public ScanResult scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel) {
+        List<Map.Entry<Path, CompilationUnit>> parsedFiles = new ArrayList<>();
+        List<ParseFailureDetail> failures = new ArrayList<>();
 
         ParserConfiguration.LanguageLevel level = languageLevel != null
                 ? languageLevel
                 : detectLanguageLevel(sourcePath);
 
-        // 配置类型解析器：JDK + 项目源码目录（支持多模块 Maven 项目）
         CombinedTypeSolver typeSolver = new CombinedTypeSolver();
         typeSolver.add(new ReflectionTypeSolver());
         if (sourcePath != null && Files.isDirectory(sourcePath)) {
@@ -70,28 +73,48 @@ public class SourceFileScanner {
         config.setSymbolResolver(new JavaSymbolSolver(typeSolver));
         JavaParser parser = new JavaParser(config);
 
+        List<Path> javaFiles;
         try (var files = Files.walk(sourcePath)) {
-            List<Path> javaFiles = files
+            javaFiles = files
                     .filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> !p.toString().contains("target"))
                     .toList();
-
-            for (Path javaFile : javaFiles) {
-                try {
-                    CompilationUnit cu = parser.parse(javaFile)
-                            .getResult()
-                            .orElseThrow(() -> new IOException("Failed to parse: " + javaFile));
-                    results.add(new AbstractMap.SimpleEntry<>(javaFile, cu));
-                } catch (Exception e) {
-                    log.warn("Failed to parse file: {} — {}", javaFile, e.getMessage());
-                }
-            }
         } catch (IOException e) {
             log.error("Failed to walk source path: {}", sourcePath, e);
+            return new ScanResult(List.of(), List.of(), 0);
         }
 
-        return results;
+        for (Path javaFile : javaFiles) {
+            try {
+                var parseResult = parser.parse(javaFile);
+                if (parseResult.isSuccessful() && parseResult.getResult().isPresent()) {
+                    parsedFiles.add(new AbstractMap.SimpleEntry<>(javaFile, parseResult.getResult().get()));
+                } else {
+                    List<String> problems = parseResult.getProblems().stream()
+                            .map(Problem::toString)
+                            .collect(Collectors.toList());
+                    String relativePath = relativize(sourcePath, javaFile);
+                    failures.add(new ParseFailureDetail(relativePath, problems));
+                    log.warn("Failed to parse: {} — problems: {}", relativePath, problems);
+                }
+            } catch (Exception e) {
+                String relativePath = relativize(sourcePath, javaFile);
+                failures.add(new ParseFailureDetail(relativePath, List.of(e.getMessage())));
+                log.warn("Failed to parse: {} — {}", relativePath, e.getMessage());
+            }
+        }
+
+        return new ScanResult(parsedFiles, failures, javaFiles.size());
     }
+
+    /**
+     * ScanResult 包装类，包含解析成功/失败的文件列表及统计信息。
+     */
+    public record ScanResult(
+            List<Map.Entry<Path, CompilationUnit>> parsedFiles,
+            List<ParseFailureDetail> failures,
+            int totalFiles
+    ) {}
 
     /**
      * 解析项目源码目录列表。支持：
@@ -103,10 +126,9 @@ public class SourceFileScanner {
         Path mainSrc = sourcePath.resolve("src/main/java");
         if (Files.isDirectory(mainSrc)) {
             dirs.add(mainSrc);
-            return dirs; // 单模块，直接返回
+            return dirs;
         }
 
-        // 多模块 Maven 项目：查找各模块的 src/main/java
         try (Stream<Path> entries = Files.list(sourcePath)) {
             entries.filter(Files::isDirectory)
                     .map(module -> module.resolve("src/main/java"))
@@ -117,7 +139,6 @@ public class SourceFileScanner {
         }
 
         if (dirs.isEmpty()) {
-            // 兜底：使用 sourcePath 本身
             dirs.add(sourcePath);
         } else {
             log.info("Discovered {} Maven module source directories", dirs.size());

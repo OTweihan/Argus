@@ -10,17 +10,19 @@ public class AnalyzeResponse {
     private List<FindingItem> findings;
     private List<ExecutionFlow> executionFlows;
     private List<ClusterInfo> clusters;
+    private AnalyzerDiagnostics diagnostics;
 
     public AnalyzeResponse() {}
 
     public AnalyzeResponse(List<EndpointInfo> endpoints, Map<String, CallGraphNode> callGraph,
                            List<FindingItem> findings, List<ExecutionFlow> executionFlows,
-                           List<ClusterInfo> clusters) {
+                           List<ClusterInfo> clusters, AnalyzerDiagnostics diagnostics) {
         this.endpoints = endpoints;
         this.callGraph = callGraph;
         this.findings = findings;
         this.executionFlows = executionFlows;
         this.clusters = clusters;
+        this.diagnostics = diagnostics;
     }
 
     public List<EndpointInfo> getEndpoints() { return endpoints; }
@@ -37,4 +39,7 @@ public class AnalyzeResponse {
 
     public List<ClusterInfo> getClusters() { return clusters; }
     public void setClusters(List<ClusterInfo> clusters) { this.clusters = clusters; }
+
+    public AnalyzerDiagnostics getDiagnostics() { return diagnostics; }
+    public void setDiagnostics(AnalyzerDiagnostics diagnostics) { this.diagnostics = diagnostics; }
 }
