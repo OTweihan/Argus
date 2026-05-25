@@ -1,8 +1,24 @@
-# Argus — AI Native Test Platform
+# Argus — AI-Native Web Testing
 
 > Every bug has nowhere to hide.
 
-Argus is an AI-native test platform for Web application quality assurance. Describe your test goals in natural language, and Argus does the rest: an LLM plans browser actions, Playwright executes them, and structured reports are generated — all in one automated workflow.
+Stop writing tests. Start describing them.
+
+Argus is an open-source, AI-native test platform that lets you test web
+applications by simply describing what you want to check — in plain English.
+No Selenium. No Playwright scripts. No page objects to maintain.
+
+```bash
+argus run --goal "Submit the contact form and verify the success message" \
+          --url "https://example.com/contact"
+```
+
+An LLM plans the browser actions, Playwright executes them, and a second LLM
+evaluates whether the goal was met — with screenshots, DOM snapshots, and
+structured reports at every step. When something fails, Argus recovers and
+retries instead of giving up.
+
+**Built for teams that want AI-driven test automation without the script tax.**
 
 [中文文档](README.zh.md)
 
@@ -75,7 +91,7 @@ playwright install chromium
 argus config llm
 ```
 
-This walks you through API Key, endpoint, and model name. Configuration is saved to `config/llm.env` (excluded from version control).
+This walks you through API Key, endpoint, and model name. Configuration is saved to the database (encrypted).
 
 Verify connectivity:
 
@@ -249,7 +265,7 @@ argus/
 │   ├── runtime/       # DI container
 │   └── whitebox/      # Java white-box analysis stub (planned)
 ├── frontend/          # TypeScript + Vite + Vue 3 SPA source
-├── config/            # Configuration files (llm.env, logging.yaml, server.yaml)
+├── config/            # Configuration files (logging.yaml, server.yaml)
 ├── docs/              # Documentation
 ├── tests/             # Unit, contract, and integration tests
 ├── examples/          # Example task JSON files

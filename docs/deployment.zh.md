@@ -151,8 +151,7 @@ ARGUS_API_TOKEN=请生成一个32字节以上的随机串
 | 路径 | 用途 | 备份 | 权限 |
 |------|------|------|------|
 | `config/.fernet_key` | model_configs 的 API Key 加解密 | **必须** | POSIX `chmod 600`（Argus 启动时自动收紧） |
-| `config/llm.env` | LLM 提供商默认凭据（可选） | 视密级 | 600 |
-| `outputs/data/argus.db` | SQLite 全量数据 | 每日 | 600 |
+| `outputs/data/argus.db` | SQLite 全量数据（含模型配置） | 每日 | 600 |
 | `outputs/data/argus.db-wal` | WAL 日志 | 由 backup 工具一并 copy | 600 |
 
 > Argus 启动时会检查 `config/.fernet_key` 文件权限：POSIX 下若 group/other 可读，会打 WARN 日志提示 `chmod 600`。Linux 多人 SSH 服务器尤其需要注意。

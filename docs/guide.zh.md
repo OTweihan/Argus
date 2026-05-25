@@ -29,7 +29,7 @@ Argus 需要兼容 OpenAI Chat Completions 的大模型 API。通过交互式命
 argus config llm
 ```
 
-配置保存在 `config/llm.env`——该文件已排除出版本控制。切勿提交此文件。
+配置保存在数据库（API Key 加密存储）。后续可通过 Web 控制台管理多个模型配置。
 
 验证连通性：
 
@@ -365,7 +365,7 @@ GET /api/v1/tasks/{task_id}/debug-bundle
 
 ### 安全
 
-- 切勿提交 `config/llm.env` 或 `config/browser-states/`
+- 切勿提交 `config/browser-states/`
 - 调试包可能包含敏感信息（页面内容和 LLM 输入）
 - 生产部署时启用 API Token 认证和限流
 - 配置 SSRF 防护，保护私网 LLM 端点
@@ -378,7 +378,7 @@ GET /api/v1/tasks/{task_id}/debug-bundle
 
 | 现象 | 可能原因 | 解决方法 |
 |------|---------|----------|
-| `argus llm check` 超时 | API 地址错误或网络问题 | 检查 `config/llm.env`，确认网络可达 |
+| `argus llm check` 超时 | API 地址错误或网络问题 | 执行 `argus config llm` 检查配置 |
 | "401 Unauthorized" | API Key 无效 | 运行 `argus config llm` 重新输入 |
 | "Model not found" | 模型名称错误 | 查阅提供商文档确认正确的模型 ID |
 | "SSRF blocked" | 私网主机未加入白名单 | 在 `config/server.yaml` → `llm.allow_private_hosts` 中添加主机 |

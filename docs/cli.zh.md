@@ -257,7 +257,7 @@ argus config llm
 - 接口地址
 - 模型名称
 
-配置保存在 `config/llm.env`（排除出版本控制）。
+配置保存在数据库（API Key 加密存储）。
 
 ### 高级配置
 

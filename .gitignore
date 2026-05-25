@@ -59,7 +59,6 @@ openapi.json
 # OS
 .DS_Store
 Thumbs.db
-config/llm.env
 config/llm.local.env
 config/.fernet_key
 config/browser-states/*.json

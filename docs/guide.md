@@ -29,7 +29,7 @@ Argus needs an OpenAI Chat Completions-compatible LLM API. Configure it interact
 argus config llm
 ```
 
-This saves to `config/llm.env` — a file excluded from git. Never commit this file.
+This saves to the database (API key encrypted). You can manage multiple profiles later via the Web Console.
 
 To verify connectivity:
 
@@ -364,7 +364,7 @@ The redaction is field-name-based and does not scan plain text content.
 
 ### Security
 
-- Never commit `config/llm.env` or `config/browser-states/`
+- Never commit `config/browser-states/`
 - Treat debug bundles as potentially sensitive (they contain page content and LLM inputs)
 - In production deployment, enable API token auth and rate limiting
 - Configure SSRF protection for private network LLM endpoints
@@ -377,7 +377,7 @@ The redaction is field-name-based and does not scan plain text content.
 
 | Symptom | Likely Cause | Solution |
 |---------|-------------|----------|
-| `argus llm check` times out | Wrong API endpoint or network issue | Check `config/llm.env`, verify network access |
+| `argus llm check` times out | Wrong API endpoint or network issue | Run `argus config llm` to verify settings |
 | "401 Unauthorized" | Invalid API key | Run `argus config llm` to re-enter key |
 | "Model not found" | Wrong model name | Check provider documentation for correct model ID |
 | "SSRF blocked" | Private host not whitelisted | Add host to `config/server.yaml` → `llm.allow_private_hosts` |

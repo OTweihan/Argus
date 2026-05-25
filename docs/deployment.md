@@ -152,8 +152,7 @@ Validation uses `hmac.compare_digest` for timing-attack resistance. **Do not com
 | Path | Purpose | Backup | Permission |
 |------|---------|--------|------------|
 | `config/.fernet_key` | Model API key encryption/decryption | **Required** | POSIX `chmod 600` (auto-set on startup) |
-| `config/llm.env` | Default LLM provider credentials (optional) | Per security level | 600 |
-| `outputs/data/argus.db` | SQLite full data | Daily | 600 |
+| `outputs/data/argus.db` | SQLite full data (includes model configs) | Daily | 600 |
 | `outputs/data/argus.db-wal` | WAL journal | Copied by backup tool | 600 |
 
 > Argus checks `config/.fernet_key` permissions on startup: if group/others are readable on POSIX, it logs a WARN recommending `chmod 600`. Pay special attention on multi-user Linux SSH servers.

@@ -13,10 +13,9 @@ LLM_CONFIG_FIELD_LABELS = {
 
 LLM_CONFIG_MESSAGES = {
     "start": "开始配置大模型 API。API Key 输入时会显示星号掩码。",
-    "target": "大模型配置将写入：{path}",
     "api_key_required": "API Key 不能为空。",
     "advanced_default": "高级参数使用默认值；后续可执行 argus config llm --advanced 调整。",
-    "saved": "大模型配置已写入。",
+    "saved": "大模型配置已保存到数据库。",
     "verify_hint": "可执行以下命令验证：",
     "keep_existing": "已配置，回车保留",
 }

@@ -1,61 +1,39 @@
-"""交互式配置命令。"""
+"""交互式配置命令 — 写入 SQLite 模型配置。"""
 
 from __future__ import annotations
 
 import argparse
 import getpass
 import sys
-from pathlib import Path
 
 from argus_py.cli.io import cli_error, cli_info, cli_print
 from argus_py.cli.messages import llm_field_label, llm_message
-from argus_py.core.constants import (
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_MAX_RETRIES,
-    DEFAULT_LLM_MAX_TOKENS,
-    DEFAULT_LLM_MODEL,
-    DEFAULT_LLM_TEMPERATURE,
-)
-from argus_py.core.crypto import encrypt_api_key
-from argus_py.core.paths import resolve_project_path
-
-LLM_ENV_KEYS = [
-    "LLM_API_KEY",
-    "LLM_BASE_URL",
-    "LLM_MODEL",
-    "LLM_MAX_TOKENS",
-    "LLM_TEMPERATURE",
-    "LLM_MAX_RETRIES",
-]
+from argus_py.config.service import ModelConfigService
+from argus_py.core.constants import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MAX_RETRIES, DEFAULT_LLM_MODEL
+from argus_py.core.exceptions import ModelConfigError
+from argus_py.core.ids import generate_model_config_id
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
     """添加 config 子命令解析器。"""
-    from argus_py.config.llm_settings import DEFAULT_LLM_ENV_FILE
-
     config_parser = subparsers.add_parser("config", help="交互式配置命令")
     config_subparsers = config_parser.add_subparsers(dest="config_command")
     llm_parser = config_subparsers.add_parser("llm", help="交互式配置大模型 API")
-    llm_parser.add_argument(
-        "--env-file",
-        default=str(DEFAULT_LLM_ENV_FILE),
-        help="写入的大模型配置文件路径，默认 config/llm.env",
-    )
-    llm_parser.add_argument(
-        "--advanced", action="store_true", help="显示最大输出 Token 数、温度、重试次数等高级配置"
-    )
+    llm_parser.add_argument("--advanced", action="store_true", help="显示重试次数等高级参数")
 
 
 def run_llm(args: argparse.Namespace) -> int:
-    """交互式配置 LLM API。"""
-    env_path = resolve_project_path(args.env_file)
-    current = _read_env_values(env_path)
+    """交互式配置 LLM API — 写入 SQLite。"""
+    service = ModelConfigService()
 
-    cli_info(llm_message("start"))
-    cli_info(llm_message("target", path=env_path.resolve()))
+    existing = service.get_default_model_config()
+    if existing:
+        cli_info(f"将更新默认模型配置「{existing.name}」（{existing.model}）")
+    else:
+        cli_info(llm_message("start"))
+        cli_info("配置将保存到数据库，可通过 Web 控制台或 argus config llm 管理。")
 
-    updates: dict[str, str] = {}
-    api_key = _prompt_secret(llm_field_label("LLM_API_KEY"), bool(current.get("LLM_API_KEY")))
+    api_key = _prompt_secret(llm_field_label("LLM_API_KEY"), bool(existing and existing.api_key))
     if api_key is not None:
         if not api_key:
             cli_error(
@@ -64,93 +42,84 @@ def run_llm(args: argparse.Namespace) -> int:
                 "请重新执行 argus config llm 并输入 API Key。",
             )
             return 1
-        updates["LLM_API_KEY"] = encrypt_api_key(api_key)
+    elif existing:
+        api_key = existing.api_key
 
-    updates["LLM_BASE_URL"] = _prompt_text(
-        llm_field_label("LLM_BASE_URL"), current.get("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+    base_url = _prompt_text(
+        llm_field_label("LLM_BASE_URL"),
+        existing.base_url if existing else DEFAULT_LLM_BASE_URL,
     )
-    updates["LLM_MODEL"] = _prompt_text(
-        llm_field_label("LLM_MODEL"), current.get("LLM_MODEL", DEFAULT_LLM_MODEL)
+    model = _prompt_text(
+        llm_field_label("LLM_MODEL"),
+        existing.model if existing else DEFAULT_LLM_MODEL,
     )
+
     if args.advanced:
-        updates["LLM_MAX_TOKENS"] = _prompt_text(
-            llm_field_label("LLM_MAX_TOKENS"),
-            current.get("LLM_MAX_TOKENS", str(DEFAULT_LLM_MAX_TOKENS)),
-        )
-        updates["LLM_TEMPERATURE"] = _prompt_text(
-            llm_field_label("LLM_TEMPERATURE"),
-            current.get("LLM_TEMPERATURE", str(DEFAULT_LLM_TEMPERATURE)),
-        )
-        updates["LLM_MAX_RETRIES"] = _prompt_text(
+        max_retries_str = _prompt_text(
             llm_field_label("LLM_MAX_RETRIES"),
-            current.get("LLM_MAX_RETRIES", str(DEFAULT_LLM_MAX_RETRIES)),
+            str(existing.max_retries) if existing else str(DEFAULT_LLM_MAX_RETRIES),
         )
     else:
-        updates["LLM_MAX_TOKENS"] = current.get("LLM_MAX_TOKENS", str(DEFAULT_LLM_MAX_TOKENS))
-        updates["LLM_TEMPERATURE"] = current.get("LLM_TEMPERATURE", str(DEFAULT_LLM_TEMPERATURE))
-        updates["LLM_MAX_RETRIES"] = current.get("LLM_MAX_RETRIES", str(DEFAULT_LLM_MAX_RETRIES))
+        max_retries_str = str(existing.max_retries if existing else DEFAULT_LLM_MAX_RETRIES)
         cli_info(llm_message("advanced_default"))
 
     try:
-        int(updates["LLM_MAX_TOKENS"])
-        float(updates["LLM_TEMPERATURE"])
-        int(updates["LLM_MAX_RETRIES"])
+        max_retries = int(max_retries_str)
     except ValueError as exc:
         cli_error(
             "大模型配置失败",
             f"数值配置格式错误：{exc}",
-            "请检查最大输出 Token 数、温度和最大重试次数。",
+            "请检查最大重试次数。",
         )
         return 1
 
-    _write_env_values(env_path, updates)
-    cli_info(llm_message("saved"))
+    if not isinstance(api_key, str):
+        api_key = ""
+
+    try:
+        if existing:
+            service.update_model_config(
+                existing.model_config_id,
+                {
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "model": model,
+                    "max_retries": max_retries,
+                    "timeout_seconds": existing.timeout_seconds,
+                },
+            )
+            cli_info(f"默认模型配置「{existing.name}」已更新。")
+        else:
+            name = f"default-{generate_model_config_id()[:8]}"
+            service.create_model_config(
+                name=name,
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                max_retries=max_retries,
+                timeout_seconds=120.0,
+                is_default=True,
+            )
+            cli_info("默认模型配置已创建。")
+    except ModelConfigError as exc:
+        cli_error("大模型配置失败", str(exc))
+        return 1
+
     cli_info(llm_message("verify_hint"))
     cli_print("argus llm check")
     return 0
 
 
-def _read_env_values(path: Path) -> dict[str, str]:
-    """读取 env 文件中的 key/value，不输出任何值。"""
-    if not path.exists():
-        return {}
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
-
-
-def _write_env_values(path: Path, updates: dict[str, str]) -> None:
-    """写入 env 文件，保留已有未知配置和注释。"""
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    written: set[str] = set()
-    output: list[str] = []
-
-    for line in lines:
-        if "=" not in line or line.lstrip().startswith("#"):
-            output.append(line)
-            continue
-        key, _ = line.split("=", 1)
-        normalized_key = key.strip()
-        if normalized_key in updates:
-            output.append(f"{normalized_key}={updates[normalized_key]}")
-            written.add(normalized_key)
-        else:
-            output.append(line)
-
-    if output and output[-1].strip():
-        output.append("")
-
-    for key in LLM_ENV_KEYS:
-        if key in updates and key not in written:
-            output.append(f"{key}={updates[key]}")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+def _prompt_secret(label: str, has_existing: bool) -> str | None:
+    """读取敏感配置输入，回车保留已有值。"""
+    suffix = f" [{llm_message('keep_existing')}]" if has_existing else ""
+    try:
+        value = _read_masked_input(f"{label}{suffix}: ").strip()
+    except (AttributeError, OSError):
+        value = getpass.getpass(f"{label}{suffix}: ").strip()
+    if not value and has_existing:
+        return None
+    return value
 
 
 def _prompt_text(label: str, default: str) -> str:
@@ -194,15 +163,3 @@ def _read_masked_input(prompt: str, mask: str = "*") -> str:
         chars.append(char)
         sys.stdout.write(mask)
         sys.stdout.flush()
-
-
-def _prompt_secret(label: str, has_existing: bool) -> str | None:
-    """读取敏感配置输入，回车保留已有值。"""
-    suffix = f" [{llm_message('keep_existing')}]" if has_existing else ""
-    try:
-        value = _read_masked_input(f"{label}{suffix}: ").strip()
-    except (AttributeError, OSError):
-        value = getpass.getpass(f"{label}{suffix}: ").strip()
-    if not value and has_existing:
-        return None
-    return value

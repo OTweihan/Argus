@@ -257,7 +257,7 @@ Prompts for:
 - Base URL (endpoint)
 - Model name
 
-Configuration is saved to `config/llm.env` (excluded from version control).
+Configuration is saved to the database (API key encrypted).
 
 ### Advanced Configuration
 

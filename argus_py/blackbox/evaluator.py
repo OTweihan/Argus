@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from argus_py.blackbox._client import create_llm_client
+from argus_py.blackbox._client import create_default_client
 from argus_py.blackbox.prompts import compose_evaluator_prompt
 from argus_py.core.enums import FindingSeverity, FindingType
 from argus_py.core.exceptions import LLMError
@@ -140,5 +140,5 @@ class BlackboxEvaluator:
     def _client(self) -> LLMClient:
         """懒加载 LLM 客户端。"""
         if self.llm_client is None:
-            self.llm_client = create_llm_client()
+            self.llm_client = create_default_client()
         return self.llm_client

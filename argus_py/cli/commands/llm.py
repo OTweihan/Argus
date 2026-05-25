@@ -6,7 +6,7 @@ import argparse
 import asyncio
 
 from argus_py.cli.io import cli_error, cli_info, cli_print
-from argus_py.config.llm_settings import load_llm_settings
+from argus_py.config.service import ModelConfigService
 from argus_py.llm import LLMClient
 
 LLM_CONNECTION_CHECK_PROMPT = "Reply only: ok"
@@ -27,13 +27,19 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
 
 async def run_check(args: argparse.Namespace) -> int:
     """运行 LLM 连接检查。"""
-    llm_settings = load_llm_settings()
-    prompt = LLM_CONNECTION_CHECK_PROMPT
+    service = ModelConfigService()
+    config = service.get_default_model_config()
+    if config is None:
+        cli_error(
+            "未配置模型",
+            "请先执行 argus config llm 配置大模型。",
+        )
+        return 1
 
     client = LLMClient(
-        api_key=llm_settings.api_key,
-        base_url=args.base_url or llm_settings.base_url,
-        model=args.model or llm_settings.model,
+        api_key=config.api_key,
+        base_url=args.base_url or config.base_url,
+        model=args.model or config.model,
         max_tokens=LLM_CONNECTION_CHECK_MAX_TOKENS,
         temperature=LLM_CONNECTION_CHECK_TEMPERATURE,
         max_retries=0,
@@ -41,7 +47,9 @@ async def run_check(args: argparse.Namespace) -> int:
     cli_info(f"正在调用大模型接口，最多等待 {args.timeout:g} 秒...")
     try:
         try:
-            response = await asyncio.wait_for(client.complete(prompt=prompt), timeout=args.timeout)
+            response = await asyncio.wait_for(
+                client.complete(prompt=LLM_CONNECTION_CHECK_PROMPT), timeout=args.timeout
+            )
         except TimeoutError:
             cli_error(
                 "LLM 检查超时",
@@ -50,7 +58,7 @@ async def run_check(args: argparse.Namespace) -> int:
             )
             return 1
 
-        cli_print(f"模型：{response.model}")
+        cli_print(f"模型：{client.model}")
         cli_print(f"结束原因：{response.finish_reason}")
         cli_print(f"Token：{response.usage.to_dict()}")
         cli_print("响应内容：")

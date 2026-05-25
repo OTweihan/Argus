@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from argus_py.blackbox._client import create_llm_client
+from argus_py.blackbox._client import create_default_client
 from argus_py.blackbox.models import ActionSequence, ActionStep, BlackboxTaskInput
 from argus_py.blackbox.prompts import compose_planner_prompt
 from argus_py.core.enums import ActionType
@@ -107,5 +107,5 @@ class BlackboxPlanner:
     def _client(self) -> LLMClient:
         """懒加载 LLM 客户端，避免导入或构造时读取敏感配置。"""
         if self.llm_client is None:
-            self.llm_client = create_llm_client()
+            self.llm_client = create_default_client()
         return self.llm_client
