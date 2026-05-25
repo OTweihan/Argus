@@ -66,3 +66,12 @@ config/browser-states/*.json
 # GitNexus
 AGENTS.md
 CLAUDE.md
+
+# Claude Code local config
+.claude/
+
+# MCP server config
+.mcp.json
+
+# Temp response data
+p1_response.json
