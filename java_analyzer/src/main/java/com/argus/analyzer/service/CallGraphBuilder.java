@@ -30,7 +30,11 @@ public class CallGraphBuilder {
      * 构建调用图，返回图结构和 diagnostics。
      */
     public BuildResult build(Path sourcePath) {
-        var scanResult = sourceFileScanner.scan(sourcePath);
+        return build(sourcePath, List.of());
+    }
+
+    public BuildResult build(Path sourcePath, List<Path> classpathJars) {
+        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars);
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
 
         int totalCalls = 0;

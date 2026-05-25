@@ -33,9 +33,13 @@ public class FindingDetector {
     }
 
     public List<FindingItem> detect(Path sourcePath) {
+        return detect(sourcePath, List.of());
+    }
+
+    public List<FindingItem> detect(Path sourcePath, List<Path> classpathJars) {
         List<FindingItem> findings = new ArrayList<>();
 
-        for (var entry : sourceFileScanner.scan(sourcePath).parsedFiles()) {
+        for (var entry : sourceFileScanner.scan(sourcePath, null, classpathJars).parsedFiles()) {
             Path javaFile = entry.getKey();
             CompilationUnit cu = entry.getValue();
             String relativePath = SourceFileScanner.relativize(sourcePath, javaFile);

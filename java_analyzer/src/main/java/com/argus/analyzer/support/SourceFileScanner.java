@@ -1,12 +1,16 @@
 package com.argus.analyzer.support;
 
 import com.argus.analyzer.api.dto.ParseFailureDetail;
+import com.argus.analyzer.env.MavenModuleIndex;
+import com.argus.analyzer.env.MavenProjectLocator;
+import com.argus.analyzer.env.MavenModuleScanner;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Problem;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import org.slf4j.Logger;
@@ -20,6 +24,7 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -29,30 +34,47 @@ public class SourceFileScanner {
     private static final Logger log = LoggerFactory.getLogger(SourceFileScanner.class);
 
     private final JavaParser defaultParser;
+    private final MavenProjectLocator projectLocator;
+    private final MavenModuleScanner moduleScanner;
+
     private String lastSourcePath;
     private ParserConfiguration.LanguageLevel lastLevel;
     private String lastSourceDirsPath;
     private List<Path> lastSourceDirs;
+    private MavenModuleIndex currentModuleIndex;
+    private String lastModuleIndexPath;
 
-    public SourceFileScanner(JavaParser defaultParser) {
+    public SourceFileScanner(JavaParser defaultParser,
+                             MavenProjectLocator projectLocator,
+                             MavenModuleScanner moduleScanner) {
         this.defaultParser = defaultParser;
+        this.projectLocator = projectLocator;
+        this.moduleScanner = moduleScanner;
     }
 
     /**
      * 使用默认配置（JAVA_21）扫描源码目录。
      */
     public ScanResult scan(Path sourcePath) {
-        return scan(sourcePath, null);
+        return scan(sourcePath, null, List.of());
     }
 
     /**
      * 扫描源码目录，自动检测项目 Java 版本并配置符号解析器。
+     */
+    public ScanResult scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel) {
+        return scan(sourcePath, languageLevel, List.of());
+    }
+
+    /**
+     * 扫描源码目录，支持 classpath JAR。
      *
      * @param sourcePath      源码根目录
      * @param languageLevel   可选的语言级别，为 null 时自动检测
+     * @param classpathJars   外部依赖 JAR 路径列表
      * @return ScanResult 包含解析成功/失败的文件列表
      */
-    public ScanResult scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel) {
+    public ScanResult scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel, List<Path> classpathJars) {
         List<Map.Entry<Path, CompilationUnit>> parsedFiles = new ArrayList<>();
         List<ParseFailureDetail> failures = new ArrayList<>();
 
@@ -60,13 +82,7 @@ public class SourceFileScanner {
                 ? languageLevel
                 : detectLanguageLevel(sourcePath);
 
-        CombinedTypeSolver typeSolver = new CombinedTypeSolver();
-        typeSolver.add(new ReflectionTypeSolver());
-        if (sourcePath != null && Files.isDirectory(sourcePath)) {
-            for (Path srcDir : getSourceDirectories(sourcePath)) {
-                typeSolver.add(new JavaParserTypeSolver(srcDir));
-            }
-        }
+        CombinedTypeSolver typeSolver = buildTypeSolver(sourcePath, classpathJars);
 
         ParserConfiguration config = new ParserConfiguration();
         config.setLanguageLevel(level);
@@ -105,6 +121,28 @@ public class SourceFileScanner {
         }
 
         return new ScanResult(parsedFiles, failures, javaFiles.size());
+    }
+
+    private CombinedTypeSolver buildTypeSolver(Path sourcePath, List<Path> classpathJars) {
+        CombinedTypeSolver typeSolver = new CombinedTypeSolver();
+        typeSolver.add(new ReflectionTypeSolver());
+        if (sourcePath != null && Files.isDirectory(sourcePath)) {
+            for (Path srcDir : getSourceDirectories(sourcePath)) {
+                typeSolver.add(new JavaParserTypeSolver(srcDir));
+            }
+        }
+        for (Path jar : classpathJars) {
+            if (Files.exists(jar)) {
+                try {
+                    typeSolver.add(new JarTypeSolver(jar));
+                } catch (Exception e) {
+                    log.warn("Failed to load JarTypeSolver for: {} — {}", jar, e.getMessage());
+                }
+            } else {
+                log.warn("Classpath JAR not found, skipping: {}", jar);
+            }
+        }
+        return typeSolver;
     }
 
     /**
@@ -149,10 +187,68 @@ public class SourceFileScanner {
     private synchronized List<Path> getSourceDirectories(Path sourcePath) {
         String pathStr = sourcePath.toAbsolutePath().normalize().toString();
         if (!pathStr.equals(lastSourceDirsPath)) {
+            log.info("[SOURCE_DIRS] Resolving source directories for: {}", pathStr);
+
+            // 优先使用 POM 驱动的模块发现
+            MavenModuleIndex pomIndex = tryBuildModuleIndex(sourcePath);
+            if (pomIndex != null) {
+                List<Path> sourceRoots = pomIndex.getAllSourceRoots();
+                log.info("[SOURCE_DIRS] POM-based discovery: {} source roots from {} modules",
+                        sourceRoots.size(), pomIndex.getNonAggregatorModuleCount());
+                if (!sourceRoots.isEmpty()) {
+                    currentModuleIndex = pomIndex;
+                    lastModuleIndexPath = pathStr;
+                    lastSourceDirs = sourceRoots;
+                    lastSourceDirsPath = pathStr;
+                    return lastSourceDirs;
+                }
+                log.info("[SOURCE_DIRS] POM found but no source roots, falling back to directory scan");
+            } else {
+                log.info("[SOURCE_DIRS] No Maven POM found, using directory scan");
+            }
+
+            // 降级到目录扫描
             lastSourceDirs = resolveSourceDirectories(sourcePath);
             lastSourceDirsPath = pathStr;
+            log.info("[SOURCE_DIRS] Directory scan result: {} source directories", lastSourceDirs.size());
         }
         return lastSourceDirs;
+    }
+
+    /**
+     * 尝试基于 POM 构建模块索引。
+     */
+    private MavenModuleIndex tryBuildModuleIndex(Path sourcePath) {
+        try {
+            log.info("[POM_INDEX] Attempting to build Maven module index for: {}", sourcePath);
+            Optional<Path> rootPom = projectLocator.locateRootPom(sourcePath);
+            if (rootPom.isPresent()) {
+                log.info("[POM_INDEX] Root POM found: {}, starting module scan...", rootPom.get());
+                MavenModuleIndex index = moduleScanner.scan(rootPom.get());
+                log.info("[POM_INDEX] Module index built: {} modules, {} source roots",
+                        index.getModuleCount(), index.getAllSourceRoots().size());
+                return index;
+            } else {
+                log.info("[POM_INDEX] No root POM found for: {}", sourcePath);
+                return null;
+            }
+        } catch (Exception e) {
+            log.warn("[POM_INDEX] Maven module scan failed for {}: {}", sourcePath, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 获取当前项目对应的 Maven 模块索引。
+     *
+     * @param sourcePath 源码根目录
+     * @return 模块索引，如非 Maven 项目或扫描失败则返回 null
+     */
+    public synchronized MavenModuleIndex getCurrentModuleIndex(Path sourcePath) {
+        // 确保缓存已初始化
+        getSourceDirectories(sourcePath);
+        String pathStr = sourcePath.toAbsolutePath().normalize().toString();
+        return pathStr.equals(lastModuleIndexPath) ? currentModuleIndex : null;
     }
 
     private synchronized ParserConfiguration.LanguageLevel detectLanguageLevel(Path sourcePath) {

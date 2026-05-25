@@ -34,9 +34,13 @@ public class ControllerExtractor {
     }
 
     public List<EndpointInfo> extract(Path sourcePath) {
+        return extract(sourcePath, List.of());
+    }
+
+    public List<EndpointInfo> extract(Path sourcePath, List<Path> classpathJars) {
         List<EndpointInfo> endpoints = new ArrayList<>();
 
-        var scanResult = sourceFileScanner.scan(sourcePath);
+        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars);
         for (var entry : scanResult.parsedFiles()) {
             Path javaFile = entry.getKey();
             CompilationUnit cu = entry.getValue();
