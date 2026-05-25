@@ -46,6 +46,7 @@ class WhiteboxRunner:
         source_path: str | None = params.get("source_path")
         scope: str = params.get("scope", "all")
         branch: str | None = params.get("branch")
+        maven: dict | None = params.get("maven")
 
         if not repo_url and not source_path:
             raise ValueError("parameters 必须包含 repo_url 或 source_path")
@@ -67,7 +68,7 @@ class WhiteboxRunner:
 
             # Step 2: 调用 Java 分析服务
             logger.info("开始白盒分析: path=%s scope=%s", resolved_path, scope)
-            result = await self._client.analyze(resolved_path, scope=scope)
+            result = await self._client.analyze(resolved_path, scope=scope, maven=maven)
 
             # Step 3: 写 Findings
             findings = []
@@ -89,12 +90,17 @@ class WhiteboxRunner:
             finding_count = len(result.findings)
             diag_summary = ""
             if result.diagnostics:
+                cp_info = ""
+                if result.diagnostics.classpath_available:
+                    cp_info = f"，classpath {result.diagnostics.jar_count} 个 JAR"
+                elif result.diagnostics.classpath_source:
+                    cp_info = "，无 classpath（降级为源码分析）"
                 diag_summary = (
                     f"解析文件 {result.diagnostics.parsed_file_count}/{result.diagnostics.total_source_files}，"
                     f"调用 {result.diagnostics.total_calls} 个"
                     f"（高置信度 {result.diagnostics.resolved_high}，"
                     f"中置信度 {result.diagnostics.resolved_medium}，"
-                    f"未解析 {result.diagnostics.unresolved}）。"
+                    f"未解析 {result.diagnostics.unresolved}）{cp_info}。"
                 )
             task.result_summary = (
                 f"白盒分析完成。发现 {endpoint_count} 个端点、"
@@ -179,6 +185,16 @@ class WhiteboxRunner:
                         "resolvedMedium": result.diagnostics.resolved_medium,
                         "resolvedLow": result.diagnostics.resolved_low,
                         "unresolved": result.diagnostics.unresolved,
+                        "classpathAvailable": result.diagnostics.classpath_available,
+                        "jarCount": result.diagnostics.jar_count,
+                        "classpathSource": result.diagnostics.classpath_source,
+                        "classpathWarnings": result.diagnostics.classpath_warnings,
+                        "classpathErrors": result.diagnostics.classpath_errors,
+                        "applicationModuleCount": result.diagnostics.application_module_count,
+                        "businessModuleCount": result.diagnostics.business_module_count,
+                        "libraryModuleCount": result.diagnostics.library_module_count,
+                        "bomModuleCount": result.diagnostics.bom_module_count,
+                        "moduleTypes": result.diagnostics.module_types,
                     }
                     if result.diagnostics
                     else None,

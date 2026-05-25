@@ -39,6 +39,38 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
         help="分析范围：all=完整分析，endpoints=仅抽接口，callgraph=仅调用图（默认 all）",
     )
     parser.add_argument("--project", help="关联项目 ID")
+    parser.add_argument(
+        "--maven-classpath-file",
+        help="classpath 文件路径（相对于项目根目录）",
+    )
+    parser.add_argument(
+        "--maven-executable",
+        help="Maven 可执行文件路径",
+    )
+    parser.add_argument(
+        "--maven-settings",
+        help="Maven settings.xml 路径",
+    )
+    parser.add_argument(
+        "--local-repository",
+        help="本地 Maven 仓库路径",
+    )
+    parser.add_argument(
+        "--maven-offline",
+        action="store_true",
+        help="Maven 离线模式",
+    )
+    parser.add_argument(
+        "--classpath-mode",
+        choices=("auto", "cache-only", "maven", "source-only"),
+        default=None,
+        help="类路径策略：auto（智能降级）、cache-only（仅缓存）、maven（强制 Maven）、source-only（仅源码）",
+    )
+    parser.add_argument(
+        "--prepare-reactor",
+        action="store_true",
+        help="类路径生成前执行 mvn install -DskipTests（准备 reactor 内部模块）",
+    )
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -57,6 +89,13 @@ async def run(args: argparse.Namespace) -> int:
     branch = getattr(args, "branch", None)
     scope = getattr(args, "scope", "all")
     project_id = getattr(args, "project", None)
+    maven_classpath_file = getattr(args, "maven_classpath_file", None)
+    maven_executable = getattr(args, "maven_executable", None)
+    maven_settings = getattr(args, "maven_settings", None)
+    local_repository = getattr(args, "local_repository", None)
+    maven_offline = getattr(args, "maven_offline", False)
+    classpath_mode = getattr(args, "classpath_mode", None)
+    prepare_reactor = getattr(args, "prepare_reactor", False)
 
     if not repo and not source_path:
         cli_error(
@@ -76,6 +115,24 @@ async def run(args: argparse.Namespace) -> int:
         parameters["source_path"] = source_path
     if branch:
         parameters["branch"] = branch
+
+    maven_config: dict[str, object] = {}
+    if maven_classpath_file:
+        maven_config["classpathFile"] = maven_classpath_file
+    if maven_executable:
+        maven_config["executable"] = maven_executable
+    if maven_settings:
+        maven_config["settingsXml"] = maven_settings
+    if local_repository:
+        maven_config["localRepository"] = local_repository
+    if maven_offline:
+        maven_config["offline"] = True
+    if classpath_mode:
+        maven_config["classpathMode"] = classpath_mode
+    if prepare_reactor:
+        maven_config["prepareReactorArtifacts"] = True
+    if maven_config:
+        parameters["maven"] = maven_config
 
     params = app.resolve_create_params(
         goal="白盒分析",

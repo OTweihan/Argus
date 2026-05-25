@@ -7,6 +7,41 @@ from typing import Any
 
 
 @dataclass
+class MavenConfig:
+    """Maven 配置。"""
+
+    auto_detect: bool = True
+    generate_classpath: bool = True
+    classpath_file: str | None = None
+    executable: str | None = None
+    settings_xml: str | None = None
+    local_repository: str | None = None
+    offline: bool = False
+    classpath_mode: str = "auto"
+    prepare_reactor_artifacts: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "autoDetect": self.auto_detect,
+            "generateClasspath": self.generate_classpath,
+            "offline": self.offline,
+        }
+        if self.classpath_file is not None:
+            d["classpathFile"] = self.classpath_file
+        if self.executable is not None:
+            d["executable"] = self.executable
+        if self.settings_xml is not None:
+            d["settingsXml"] = self.settings_xml
+        if self.local_repository is not None:
+            d["localRepository"] = self.local_repository
+        if self.classpath_mode != "auto":
+            d["classpathMode"] = self.classpath_mode
+        if self.prepare_reactor_artifacts:
+            d["prepareReactorArtifacts"] = True
+        return d
+
+
+@dataclass
 class Endpoint:
     """REST 端点信息。"""
 
@@ -70,6 +105,67 @@ class AnalyzerDiagnostics:
     resolved_medium: int = 0
     resolved_low: int = 0
     unresolved: int = 0
+    classpath_available: bool = False
+    jar_count: int = 0
+    classpath_source: str = ""
+    classpath_warnings: list[str] = field(default_factory=list)
+    classpath_errors: list[str] = field(default_factory=list)
+    classpath_command: str = ""
+    classpath_exit_code: int | None = None
+    classpath_duration_ms: int | None = None
+    classpath_stdout_tail: str = ""
+    classpath_stderr_tail: str = ""
+    classpath_timed_out: bool = False
+    application_module_count: int = 0
+    business_module_count: int = 0
+    library_module_count: int = 0
+    bom_module_count: int = 0
+    module_types: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class WhiteboxJobEvent:
+    """Java 分析作业进度事件。"""
+
+    timestamp: str = ""
+    stage: str = ""
+    level: str = ""
+    message: str = ""
+
+
+@dataclass
+class WhiteboxJobStatus:
+    """Java 分析作业状态。"""
+
+    job_id: str = ""
+    status: str = ""
+    stage: str = ""
+    created_at: str = ""
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    events: list[WhiteboxJobEvent] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WhiteboxJobStatus:
+        return cls(
+            job_id=data.get("jobId", ""),
+            status=data.get("status", ""),
+            stage=data.get("stage", ""),
+            created_at=data.get("createdAt", ""),
+            started_at=data.get("startedAt"),
+            finished_at=data.get("finishedAt"),
+            error=data.get("error"),
+            events=[
+                WhiteboxJobEvent(
+                    timestamp=e.get("timestamp", ""),
+                    stage=e.get("stage", ""),
+                    level=e.get("level", ""),
+                    message=e.get("message", ""),
+                )
+                for e in data.get("events", [])
+            ],
+        )
 
 
 @dataclass
@@ -212,7 +308,7 @@ class WhiteboxResult:
                     file=ff.get("file", ""),
                     problems=ff.get("problems", []),
                 )
-                for ff in raw_diag.get("failedFiles", [])
+                for ff in (raw_diag.get("failedFiles") or [])
             ]
             diagnostics = AnalyzerDiagnostics(
                 total_source_files=raw_diag.get("totalSourceFiles", 0),
@@ -224,6 +320,22 @@ class WhiteboxResult:
                 resolved_medium=raw_diag.get("resolvedMedium", 0),
                 resolved_low=raw_diag.get("resolvedLow", 0),
                 unresolved=raw_diag.get("unresolved", 0),
+                classpath_available=raw_diag.get("classpathAvailable", False),
+                jar_count=raw_diag.get("jarCount", 0),
+                classpath_source=raw_diag.get("classpathSource", ""),
+                classpath_warnings=raw_diag.get("classpathWarnings", []),
+                classpath_errors=raw_diag.get("classpathErrors", []),
+                classpath_command=raw_diag.get("classpathCommand", ""),
+                classpath_exit_code=raw_diag.get("classpathExitCode"),
+                classpath_duration_ms=raw_diag.get("classpathDurationMs"),
+                classpath_stdout_tail=raw_diag.get("classpathStdoutTail", ""),
+                classpath_stderr_tail=raw_diag.get("classpathStderrTail", ""),
+                classpath_timed_out=raw_diag.get("classpathTimedOut", False),
+                application_module_count=raw_diag.get("applicationModuleCount", 0),
+                business_module_count=raw_diag.get("businessModuleCount", 0),
+                library_module_count=raw_diag.get("libraryModuleCount", 0),
+                bom_module_count=raw_diag.get("bomModuleCount", 0),
+                module_types=raw_diag.get("moduleTypes", {}),
             )
 
         return cls(
