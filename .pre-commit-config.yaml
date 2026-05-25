@@ -1,52 +1,21 @@
 # 安装方式：pip install pre-commit && pre-commit install
 # 首次安装后建议运行 pre-commit run --all-files 检查全部文件
 repos:
-  - repo: local
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
     hooks:
       - id: check-added-large-files
-        name: check added large files (>2MB)
-        entry: python scripts/pre-commit-large-files.py
-        language: system
-        types: [file]
-
       - id: check-merge-conflict
-        name: check merge conflict markers
-        entry: python scripts/pre-commit-merge-conflict.py
-        language: system
-        types: [text]
         exclude: 'scripts/pre-commit-merge-conflict\.py$|\.pre-commit-config\.yaml$'
-
       - id: detect-private-key
-        name: detect private keys
-        entry: python scripts/pre-commit-detect-private-key.py
-        language: system
-        types: [text]
-
       - id: check-json
-        name: check json syntax
-        entry: python scripts/pre-commit-check-json.py
-        language: system
-        types: [json]
-
       - id: check-yaml
-        name: check yaml syntax
-        entry: python scripts/pre-commit-check-yaml.py
-        language: system
-        types: [yaml]
-
       - id: trailing-whitespace
-        name: trim trailing whitespace
-        entry: python scripts/pre-commit-trailing-whitespace.py
-        language: system
-        types: [text]
-
       - id: end-of-file-fixer
-        name: fix end of files
-        entry: python scripts/pre-commit-eof-fixer.py
-        language: system
-        types: [text]
         exclude: '\.md$'
 
+  - repo: local
+    hooks:
       - id: ruff
         name: ruff (lint + import sorting)
         entry: python -m ruff check --fix
