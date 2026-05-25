@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from argus_py.browser.snapshot.meta import ConsoleMessage, InteractiveElement, P
 
 _JS_DIR = Path(__file__).parent
 _JS_CODE = (_JS_DIR / "snapshot_dom.js").read_text("utf-8")
+
+logger = logging.getLogger(__name__)
 
 # 从 JS 文件中按标记提取对应的函数表达式
 _JS_RE = re.compile(r"// @@(\w+)@@\n(.*?)(?=\n// @@|\Z)", re.DOTALL)
@@ -81,6 +84,7 @@ async def _capture_html_summary(page: Page, max_length: int = 6000) -> str:
             cleaned = cleaned[:max_length] + "\n... [truncated]"
         return cleaned
     except Exception:
+        logger.exception("获取 DOM 评估失败")
         return ""
 
 
@@ -93,4 +97,5 @@ async def _capture_accessibility_summary(page: Page, max_nodes: int = 80) -> str
         )
         return raw or ""
     except Exception:
+        logger.exception("获取 DOM 评估失败")
         return ""

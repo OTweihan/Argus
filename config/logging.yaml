@@ -64,7 +64,7 @@ handlers:
     filename: outputs/logs/argus.log
     encoding: utf-8
     maxBytes: 10485760
-    backupCount: 5
+    backupCount: 20
     filters:
       - context
 
@@ -76,10 +76,7 @@ handlers:
     filename: outputs/logs/argus.error.log
     encoding: utf-8
     maxBytes: 10485760
-    backupCount: 5
-    filters:
-      - context
-
+    backupCount: 20
   # 审计专用文件：argus.audit logger 独占
   audit_file:
     class: logging.handlers.RotatingFileHandler
@@ -100,7 +97,7 @@ handlers:
     filename: outputs/logs/argus.access.log
     encoding: utf-8
     maxBytes: 10485760
-    backupCount: 5
+    backupCount: 20
     filters:
       - context
 
@@ -150,7 +147,6 @@ loggers:
   argus.request:
     level: DEBUG
     handlers:
-      - console
       - access_file
       - error_file
     propagate: false

@@ -20,26 +20,6 @@ class MavenConfig:
     classpath_mode: str = "auto"
     prepare_reactor_artifacts: bool = False
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {
-            "autoDetect": self.auto_detect,
-            "generateClasspath": self.generate_classpath,
-            "offline": self.offline,
-        }
-        if self.classpath_file is not None:
-            d["classpathFile"] = self.classpath_file
-        if self.executable is not None:
-            d["executable"] = self.executable
-        if self.settings_xml is not None:
-            d["settingsXml"] = self.settings_xml
-        if self.local_repository is not None:
-            d["localRepository"] = self.local_repository
-        if self.classpath_mode != "auto":
-            d["classpathMode"] = self.classpath_mode
-        if self.prepare_reactor_artifacts:
-            d["prepareReactorArtifacts"] = True
-        return d
-
 
 @dataclass
 class Endpoint:

@@ -46,7 +46,11 @@ class ReportGenerator:
         try:
             report = Report.from_task(task, summary=summary or "")
             write_json_report(report, json_path)
-            template_name = "whitebox_report.html.j2" if task.task_type == TaskType.WHITEBOX else "blackbox_report.html.j2"
+            template_name = (
+                "whitebox_report.html.j2"
+                if task.task_type == TaskType.WHITEBOX
+                else "blackbox_report.html.j2"
+            )
             write_html_report(report, html_path, template_name=template_name)
             return GeneratedReport(report=report, html_path=html_path, json_path=json_path)
         except Exception:

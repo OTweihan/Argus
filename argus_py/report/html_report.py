@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -57,7 +57,7 @@ def write_html_report(
     return target
 
 
-def _screenshot_src_filter(output_path: str | Path | None):
+def _screenshot_src_filter(output_path: str | Path | None) -> Callable[[str | None], str]:
     """创建截图路径转换过滤器。"""
 
     def convert(value: str | None) -> str:

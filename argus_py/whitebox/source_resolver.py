@@ -119,7 +119,11 @@ class SourceResolver:
         str
             克隆后的本地目录路径。
         """
-        safe_url = _REDACT_CREDENTIALS.sub(r"\1***@", repo_url) if _REDACT_CREDENTIALS.search(repo_url) else repo_url
+        safe_url = (
+            _REDACT_CREDENTIALS.sub(r"\1***@", repo_url)
+            if _REDACT_CREDENTIALS.search(repo_url)
+            else repo_url
+        )
         target_dir = self._work_dir / _sanitize_dir_name(repo_url)
         if target_dir.exists():
             shutil.rmtree(target_dir)
@@ -140,9 +144,7 @@ class SourceResolver:
             )
             if result.returncode != 0:
                 stderr = result.stderr[:500] if result.stderr else ""
-                raise SourceResolutionError(
-                    f"Git 克隆失败 (code={result.returncode}): {stderr}"
-                )
+                raise SourceResolutionError(f"Git 克隆失败 (code={result.returncode}): {stderr}")
             logger.info("仓库已克隆到: %s", target_dir)
             return str(target_dir.resolve())
         except subprocess.TimeoutExpired:

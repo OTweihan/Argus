@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.models import ModelConfig
@@ -19,6 +19,9 @@ from argus_py.llm.models import ChatMessage
 from argus_py.llm.providers import create_llm_client, default_base_url, get_provider_spec
 from argus_py.llm.url_guard import LLMUrlSafetyError, assert_llm_base_url_safe
 from argus_py.observability import audit
+
+if TYPE_CHECKING:
+    from argus_py.config.server_settings import ServerSettings
 
 
 class ModelConfigService:
@@ -204,7 +207,7 @@ def _assert_base_url_safe(base_url: str | None) -> None:
 
 
 @functools.lru_cache(maxsize=1)
-def _load_server_settings_cached():
+def _load_server_settings_cached() -> ServerSettings:
     """带缓存的 server settings 加载，避免重复 YAML 文件 I/O。"""
     return load_server_settings()
 

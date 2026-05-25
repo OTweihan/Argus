@@ -5,10 +5,15 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from argus_py.cli.io import cli_cancelled, cli_error
 from argus_py.core.paths import BROWSER_STATES_DIR, resolve_project_path
+
+if TYPE_CHECKING:
+    from argus_py.core.models import Task
+    from argus_py.task.read import TaskReadService
 
 
 def positive_int(value: str) -> int:
@@ -44,6 +49,16 @@ def resolve_auth_state_path(value: str) -> Path:
         return resolve_project_path(value)
     filename = value if value.lower().endswith(".json") else f"{value}.json"
     return BROWSER_STATES_DIR / filename
+
+
+def load_latest_task(reader: TaskReadService, task: Task) -> Task:
+    """读取最新任务快照，失败时回退到原始 task 对象。"""
+    from argus_py.core.exceptions import TaskError
+
+    try:
+        return reader.get_task(task.task_id)
+    except TaskError:
+        return task
 
 
 def auth_state_name_from_url(url: str) -> str:

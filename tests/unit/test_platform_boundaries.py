@@ -244,11 +244,12 @@ async def test_list_task_events_returns_timeline(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_list_task_events_404_for_missing_task(tmp_path):
+@pytest.mark.parametrize("db_name", ["events404", "llm404", "trace_404", "debug_404"])
+async def test_require_task_exists_404_for_missing_task(tmp_path, db_name):
     """不存在的 task_id 返回 404（via require_task_exists dep）。"""
     from argus_py.api.dependencies import require_task_exists
 
-    storage = TaskSQLiteStorage(tmp_path / "events404.db")
+    storage = TaskSQLiteStorage(tmp_path / f"{db_name}.db")
     reader = TaskReadService(storage)
     with pytest.raises(TaskNotFoundError):
         await require_task_exists("no-such", reader=reader)
@@ -279,17 +280,6 @@ async def test_list_llm_traces_returns_records(tmp_path, monkeypatch):
     assert len(result) == 2
     assert result[0]["model"] == "qwen"
     assert result[1]["latencyMs"] == 800
-
-
-@pytest.mark.asyncio
-async def test_list_llm_traces_404_for_missing_task(tmp_path):
-    """不存在的 task_id 返回 404（via require_task_exists dep）。"""
-    from argus_py.api.dependencies import require_task_exists
-
-    storage = TaskSQLiteStorage(tmp_path / "llm404.db")
-    reader = TaskReadService(storage)
-    with pytest.raises(TaskNotFoundError):
-        await require_task_exists("no-such", reader=reader)
 
 
 @pytest.mark.asyncio
@@ -365,17 +355,6 @@ async def test_get_trace_detail_returns_matching_record(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_trace_detail_404_for_missing_task(tmp_path):
-    """不存在的 task_id 返回 404（via require_task_exists dep）。"""
-    from argus_py.api.dependencies import require_task_exists
-
-    storage = TaskSQLiteStorage(tmp_path / "trace_404.db")
-    reader = TaskReadService(storage)
-    with pytest.raises(TaskNotFoundError):
-        await require_task_exists("no-such", reader=reader)
-
-
-@pytest.mark.asyncio
 async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
     """调试包包含 task.json 和 traces。"""
     import io
@@ -416,14 +395,3 @@ async def test_debug_bundle_contains_task_and_traces(tmp_path, monkeypatch):
     names = zf.namelist()
     assert "task.json" in names
     assert "traces/llm.jsonl" in names
-
-
-@pytest.mark.asyncio
-async def test_debug_bundle_404_for_missing_task(tmp_path):
-    """不存在的 task_id 返回 404（via require_task_exists dep）。"""
-    from argus_py.api.dependencies import require_task_exists
-
-    storage = TaskSQLiteStorage(tmp_path / "debug_404.db")
-    reader = TaskReadService(storage)
-    with pytest.raises(TaskNotFoundError):
-        await require_task_exists("no-such", reader=reader)

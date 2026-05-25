@@ -54,13 +54,13 @@ class PlaywrightClient:
             try:
                 await self._browser.close()
             except Exception:
-                pass
+                logger.warning("清理断开状态的浏览器失败", exc_info=True)
             self._browser = None
         if self._playwright is not None:
             try:
                 await self._playwright.stop()
             except Exception:
-                pass
+                logger.warning("清理断开状态的 Playwright 失败", exc_info=True)
             self._playwright = None
         try:
             self._playwright = await async_playwright().start()
@@ -97,14 +97,14 @@ class PlaywrightClient:
             try:
                 await self._browser.close()
             except Exception:
-                pass
+                logger.warning("stop() 关闭浏览器失败", exc_info=True)
             finally:
                 self._browser = None
         if self._playwright is not None:
             try:
                 await self._playwright.stop()
             except Exception:
-                pass
+                logger.warning("stop() 关闭 Playwright 失败", exc_info=True)
             finally:
                 self._playwright = None
 

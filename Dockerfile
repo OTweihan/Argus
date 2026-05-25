@@ -52,7 +52,7 @@ RUN chown pwuser:pwuser /app
 # 先切 pwuser → 安装依赖（创建 .venv），再切回 root 复制源码
 USER pwuser
 COPY pyproject.toml uv.lock README.md /app/
-RUN uv sync --frozen --extra browser --no-install-project
+RUN uv sync --frozen --extra browser --no-install-project --no-dev
 
 USER root
 # 复制源码 + 配置 + 前端构建产物
@@ -72,7 +72,7 @@ RUN mkdir -p /app/outputs/data \
 
 # 安装项目自身到 .venv（pwuser 已有的 .venv 中注册项目包）
 USER pwuser
-RUN uv sync --frozen --extra browser
+RUN uv sync --frozen --extra browser --no-dev
 
 EXPOSE 8000
 

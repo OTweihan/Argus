@@ -49,7 +49,7 @@ def _parse_env_example(text: str) -> dict[str, str]:
     return result
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def env_example() -> dict[str, str]:
     """加载并解析 ``.env.example``。"""
     assert ENV_EXAMPLE_PATH.exists(), f".env.example 不存在：{ENV_EXAMPLE_PATH}"

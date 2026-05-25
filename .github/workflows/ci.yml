@@ -150,7 +150,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra browser
 
       - name: Cache Playwright browsers
         uses: actions/cache@v5

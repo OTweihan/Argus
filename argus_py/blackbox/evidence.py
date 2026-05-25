@@ -26,13 +26,13 @@ class EvidenceCollector:
                 captured = await session.screenshot(self.screenshot_name(task), full_page=True)
                 captured_path = str(captured)
             except Exception:
-                logger.debug("步骤截图采集失败：%s step %d", task.task_id, task.current_step + 1)
+                logger.warning("步骤截图采集失败", exc_info=True)
                 captured_path = None
 
         try:
             return captured_path, await session.snapshot()
         except Exception:
-            logger.debug("页面快照采集失败：%s step %d", task.task_id, task.current_step + 1)
+            logger.warning("页面快照采集失败", exc_info=True)
             return captured_path, None
 
     async def safe_observation(self, session: BrowserSession) -> str:
@@ -41,6 +41,7 @@ class EvidenceCollector:
             snapshot = await session.snapshot()
             return snapshot.to_prompt_text()
         except Exception as exc:
+            logger.debug("页面观察失败: %s", exc)
             return f"页面观察失败：{exc}"
 
     def screenshot_name(self, task: Task) -> str:

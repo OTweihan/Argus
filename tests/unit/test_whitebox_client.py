@@ -20,7 +20,7 @@ def _mock_response(status_code: int, json_data: dict) -> MagicMock:
     return resp
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def client() -> WhiteboxClient:
     return WhiteboxClient(base_url="http://test-host:8081", timeout=10, max_retries=1)
 
@@ -192,7 +192,9 @@ async def test_analyze_scope_callgraph(client: WhiteboxClient) -> None:
         )
         mock_get_client.return_value = mock_http
 
-        await client.analyze("/tmp/test", scope="callgraph", target_modules=["han-modules/han-admin"])
+        await client.analyze(
+            "/tmp/test", scope="callgraph", target_modules=["han-modules/han-admin"]
+        )
 
         call_kwargs = mock_http.post.call_args.kwargs
         assert call_kwargs["json"]["scope"] == "callgraph"

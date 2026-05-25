@@ -6,6 +6,7 @@ import argparse
 from typing import TYPE_CHECKING
 
 from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_print, cli_success
+from argus_py.cli.utils import load_latest_task
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
@@ -14,7 +15,6 @@ from argus_py.task.application import TaskApplicationService
 
 if TYPE_CHECKING:
     from argus_py.task.models import Task
-    from argus_py.task.read import TaskReadService
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
@@ -160,7 +160,7 @@ async def run(args: argparse.Namespace) -> int:
     try:
         result = await runner.run(task)
     except TaskError as exc:
-        latest = _load_latest_task(c.task_read_service, task)
+        latest = load_latest_task(c.task_read_service, task)
         _print_result(latest)
         cli_error("白盒分析失败", exc)
         return 1
@@ -172,16 +172,6 @@ async def run(args: argparse.Namespace) -> int:
 
     _print_result(result)
     return 0
-
-
-def _load_latest_task(reader: TaskReadService, task: Task) -> Task:
-    """读取最新任务快照。"""
-    from argus_py.core.exceptions import TaskError as _TaskError
-
-    try:
-        return reader.get_task(task.task_id)
-    except _TaskError:
-        return task
 
 
 def _print_result(task: Task) -> None:

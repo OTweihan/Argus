@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Generator
 
 import pytest
 from argus_py.whitebox.source_resolver import SourceResolutionError, SourceResolver
 
 
 @pytest.fixture
-def temp_work_dir() -> str:
+def temp_work_dir() -> Generator[str, None, None]:
     """创建临时工作目录。"""
     d = tempfile.mkdtemp(prefix="test-argus-")
     yield d
     # 测试后清理
     import shutil
+
     shutil.rmtree(d, ignore_errors=True)
 
 
@@ -93,7 +95,9 @@ def test_sanitize_dir_name() -> None:
     """验证 _sanitize_dir_name 生成安全的目录名。"""
     from argus_py.whitebox.source_resolver import _sanitize_dir_name
 
-    assert _sanitize_dir_name("https://github.com/user/repo.git") == "https_github_com_user_repo_git"
+    assert (
+        _sanitize_dir_name("https://github.com/user/repo.git") == "https_github_com_user_repo_git"
+    )
     assert _sanitize_dir_name("git@github.com:user/repo.git") == "git_github_com_user_repo_git"
     assert _sanitize_dir_name("/tmp/path") == "tmp_path"
     # 特殊字符应被替换
