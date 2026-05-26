@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
@@ -34,9 +35,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.types import ASGIApp
 
-from argus_py.utils.logger import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # 默认 key 抽取使用的反代 IP 头：仅在 settings 显式开启时启用，
 # 避免相信非托管的客户端伪造头。

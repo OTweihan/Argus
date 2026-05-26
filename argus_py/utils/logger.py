@@ -31,5 +31,12 @@ def setup_logging(config_path: str | Path = LOGGING_CONFIG_FILE) -> None:
 
 
 def get_logger(name: str) -> logging.Logger:
-    """获取 Logger。业务模块调用时传入 ``__name__``。"""
+    """获取 Logger。已弃用，直接使用 ``logging.getLogger(__name__)`` 替代。"""
+    import warnings
+
+    warnings.warn(
+        "get_logger 已弃用，请直接使用 logging.getLogger(__name__)",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return logging.getLogger(name)

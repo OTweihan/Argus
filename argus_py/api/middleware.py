@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -28,9 +29,8 @@ from argus_py.core.exceptions import (
     TaskNotFoundError,
 )
 from argus_py.observability.middleware import RequestLoggingMiddleware
-from argus_py.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

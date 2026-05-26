@@ -17,15 +17,14 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from argus_py.utils.logger import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # 启用 token 时的默认保护前缀。``/health`` 故意不在此列：反代健康检查、
 # docker compose healthcheck、k8s liveness 都依赖匿名 GET。
