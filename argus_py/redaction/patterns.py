@@ -52,14 +52,6 @@ URL_PARAM_NAMES: frozenset[str] = frozenset(
 TEXT_PARAM_NAMES: frozenset[str] = frozenset({"text", "value", "input", "content"})
 REDACTED: str = "[REDACTED]"
 
-# ── 向后兼容的私有别名 ────────────────────────────────────────────
-# 项目内仍有模块直接 `from argus_py.redaction.patterns import _SENSITIVE_NAME_PATTERNS`
-# 等私有名字。保留这些别名指向新公开常量，避免一次性扩散修改。
-_SENSITIVE_NAME_PATTERNS = SENSITIVE_NAME_KEYWORDS
-_URL_PARAM_NAMES = URL_PARAM_NAMES
-_TEXT_PARAM_NAMES = TEXT_PARAM_NAMES
-_REDACTED = REDACTED
-
 
 def _is_sensitive(name: str | None) -> bool:
     """检查 name/type 是否匹配敏感字段模式。"""

@@ -7,12 +7,16 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from argus_py.redaction.patterns import (
-    _REDACTED,
-    _SENSITIVE_NAME_PATTERNS,
-    _TEXT_PARAM_NAMES,
+    REDACTED,
     SENSITIVE_VALUE_KEYWORDS,
     _is_sensitive,
     _is_url_param,
+)
+from argus_py.redaction.patterns import (
+    SENSITIVE_NAME_KEYWORDS as _SENSITIVE_NAME_PATTERNS,
+)
+from argus_py.redaction.patterns import (
+    TEXT_PARAM_NAMES as _TEXT_PARAM_NAMES,
 )
 
 
@@ -52,9 +56,9 @@ def redact_href(href: str) -> str:
         parsed = urlparse(stripped)
         scheme = parsed.scheme.lower()
         if scheme in {"javascript", "data"}:
-            return f"{scheme}:{_REDACTED}"
+            return f"{scheme}:{REDACTED}"
         if scheme and scheme not in {"http", "https"}:
-            return f"{scheme}:{_REDACTED}"
+            return f"{scheme}:{REDACTED}"
         netloc = parsed.netloc
         if parsed.hostname:
             try:
@@ -88,7 +92,7 @@ def _redact_step_list_value(key: str, value: list[Any], selector_sensitive: bool
         elif isinstance(item, str) and key_is_url:
             redacted.append(redact_href(item))
         elif isinstance(item, str) and (key_sensitive or (key_is_text and selector_sensitive)):
-            redacted.append(_REDACTED)
+            redacted.append(REDACTED)
         elif isinstance(item, str):
             redacted.append(redact_sensitive_text(item))
         else:
@@ -113,7 +117,7 @@ def redact_step_params(params: dict[str, Any]) -> dict[str, Any]:
             redacted[key] = redact_href(value)
         elif isinstance(value, str):
             if _is_sensitive(key_lower) or (key_lower in _TEXT_PARAM_NAMES and selector_sensitive):
-                redacted[key] = _REDACTED
+                redacted[key] = REDACTED
             else:
                 redacted[key] = redact_sensitive_text(value)
         elif isinstance(value, dict):

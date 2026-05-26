@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from argus_py.redaction.core import redact_href, redact_sensitive_text
-from argus_py.redaction.patterns import _REDACTED, _is_sensitive
+from argus_py.redaction.patterns import REDACTED, _is_sensitive
 
 
 @dataclass
@@ -69,9 +69,9 @@ class InteractiveElement:
         if self.value is None:
             return None
         if self.element_type == "hidden":
-            return _REDACTED
+            return REDACTED
         if _is_sensitive(self.element_type) or _is_sensitive(self.name):
-            return _REDACTED
+            return REDACTED
         return self.value
 
     def redacted_selected_text(self) -> str | None:
@@ -79,9 +79,9 @@ class InteractiveElement:
         if self.selected_text is None:
             return None
         if self.element_type == "hidden":
-            return _REDACTED
+            return REDACTED
         if _is_sensitive(self.element_type) or _is_sensitive(self.name):
-            return _REDACTED
+            return REDACTED
         return self.selected_text
 
 

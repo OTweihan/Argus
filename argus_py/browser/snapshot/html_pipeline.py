@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from argus_py.redaction.core import redact_href
-from argus_py.redaction.patterns import _REDACTED, _is_sensitive
+from argus_py.redaction.patterns import REDACTED, _is_sensitive
 
 _MAX_CLASS_LENGTH = 60
 
@@ -56,9 +56,9 @@ def _redact_attr_value(
     if attr_name != "value":
         return attr_val
     if element_type == "hidden":
-        return _REDACTED
+        return REDACTED
     if _is_sensitive(element_type) or _is_sensitive(element_name):
-        return _REDACTED
+        return REDACTED
     return attr_val
 
 
