@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from argus_py.core.enums import TaskType
+from argus_py.core.exceptions import TaskError
 from argus_py.task.models import Task
 
 
@@ -52,14 +53,14 @@ async def test_runner_whitebox_no_source(app_stack) -> None:
         goal="分析",
         parameters={},
     )
-    task = app_stack.lifecycle.start_task(task)
+    app_stack.lifecycle.save_task(task)
 
     runner = TaskRunner(
         lifecycle=app_stack.lifecycle,
         reader=app_stack.reader,
     )
 
-    with pytest.raises(ValueError, match="repo_url 或 source_path"):
+    with pytest.raises(TaskError, match="repo_url 或 source_path"):
         await runner.run(task)
 
 

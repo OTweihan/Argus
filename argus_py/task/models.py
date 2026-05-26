@@ -30,6 +30,20 @@ def _parse_enum(enum_class: type[Enum], value: Any) -> Any:
     return enum_class(value)
 
 
+def _parse_bool(value: Any, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
 @dataclass
 class TaskLog:
     """任务执行步骤日志。"""
@@ -165,7 +179,7 @@ class Task:
             project_id=data.get("project_id"),
             max_steps=int(data.get("max_steps", DEFAULT_MAX_STEPS)),
             timeout_seconds=int(data.get("timeout_seconds", DEFAULT_TASK_TIMEOUT_S)),
-            capture_screenshots=bool(data.get("capture_screenshots", True)),
+            capture_screenshots=_parse_bool(data.get("capture_screenshots"), True),
             parameters=dict(data.get("parameters") or {}),
             logs=[TaskLog.from_dict(item) for item in data.get("logs", [])],
             findings=[Finding.from_dict(item) for item in data.get("findings", [])],

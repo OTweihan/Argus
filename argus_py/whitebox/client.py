@@ -17,6 +17,24 @@ class WhiteboxClientError(Exception):
     """白盒分析客户端错误。"""
 
 
+def _response_json(response: httpx.Response, operation: str) -> dict[str, Any]:
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise WhiteboxClientError(f"{operation} 响应不是有效 JSON: {response.text[:500]}") from exc
+    if not isinstance(data, dict):
+        raise WhiteboxClientError(f"{operation} 响应结构不是对象。")
+    return data
+
+
+def _parse_response(response: httpx.Response, operation: str, parser: Any) -> Any:
+    data = _response_json(response, operation)
+    try:
+        return parser(data)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise WhiteboxClientError(f"{operation} 响应解析失败: {exc}") from exc
+
+
 class WhiteboxClient:
     """Java 分析服务的异步 HTTP 客户端。
 
@@ -97,8 +115,7 @@ class WhiteboxClient:
                 client = await self._get_client()
                 response = await client.post("/argus/api/analyze", json=payload)
                 response.raise_for_status()
-                data: dict[str, Any] = response.json()
-                return WhiteboxResult.from_dict(data)
+                return _parse_response(response, "白盒分析", WhiteboxResult.from_dict)
 
             except httpx.TimeoutException as exc:
                 last_error = exc
@@ -138,7 +155,7 @@ class WhiteboxClient:
             client = await self._get_client()
             response = await client.post("/argus/api/analyze/jobs", json=payload)
             response.raise_for_status()
-            return WhiteboxJobStatus.from_dict(response.json())
+            return _parse_response(response, "Java 分析作业提交", WhiteboxJobStatus.from_dict)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             body = exc.response.text[:500]
@@ -152,7 +169,7 @@ class WhiteboxClient:
             client = await self._get_client()
             response = await client.get(f"/argus/api/analyze/jobs/{job_id}")
             response.raise_for_status()
-            return WhiteboxJobStatus.from_dict(response.json())
+            return _parse_response(response, "Java 分析作业查询", WhiteboxJobStatus.from_dict)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             body = exc.response.text[:500]
@@ -166,7 +183,7 @@ class WhiteboxClient:
             client = await self._get_client()
             response = await client.get(f"/argus/api/analyze/jobs/{job_id}/result")
             response.raise_for_status()
-            return WhiteboxResult.from_dict(response.json())
+            return _parse_response(response, "Java 分析作业结果获取", WhiteboxResult.from_dict)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             body = exc.response.text[:500]
@@ -181,6 +198,7 @@ class WhiteboxClient:
             response = await client.get("/actuator/health")
             return response.status_code == 200
         except Exception:
+            logger.debug("白盒分析服务健康检查失败", exc_info=True)
             return False
 
     async def close(self) -> None:

@@ -20,6 +20,13 @@ def _mock_response(status_code: int, json_data: dict) -> MagicMock:
     return resp
 
 
+def _mock_bad_json_response() -> MagicMock:
+    resp = _mock_response(200, {})
+    resp.text = "not-json"
+    resp.json.side_effect = ValueError("bad json")
+    return resp
+
+
 @pytest.fixture(scope="module")
 def client() -> WhiteboxClient:
     return WhiteboxClient(base_url="http://test-host:8081", timeout=10, max_retries=1)
@@ -130,6 +137,52 @@ async def test_analyze_diagnostics_classpath_details(client: WhiteboxClient) -> 
 
 
 @pytest.mark.asyncio
+async def test_analyze_wraps_invalid_json(client: WhiteboxClient) -> None:
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_bad_json_response()
+        mock_get_client.return_value = mock_http
+
+        with pytest.raises(WhiteboxClientError, match="有效 JSON"):
+            await client.analyze("/tmp/test-project")
+
+
+@pytest.mark.asyncio
+async def test_submit_analyze_job_wraps_invalid_json(client: WhiteboxClient) -> None:
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_bad_json_response()
+        mock_get_client.return_value = mock_http
+
+        with pytest.raises(WhiteboxClientError, match="有效 JSON"):
+            await client.submit_analyze_job("/tmp/test-project")
+
+
+@pytest.mark.asyncio
+async def test_get_analyze_job_result_wraps_invalid_json(client: WhiteboxClient) -> None:
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.get.return_value = _mock_bad_json_response()
+        mock_get_client.return_value = mock_http
+
+        with pytest.raises(WhiteboxClientError, match="有效 JSON"):
+            await client.get_analyze_job_result("job-1")
+
+
+@pytest.mark.asyncio
+async def test_analyze_wraps_non_object_response(client: WhiteboxClient) -> None:
+    response = _mock_response(200, {})
+    response.json.return_value = []
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.post.return_value = response
+        mock_get_client.return_value = mock_http
+
+        with pytest.raises(WhiteboxClientError, match="响应结构不是对象"):
+            await client.analyze("/tmp/test-project")
+
+
+@pytest.mark.asyncio
 async def test_analyze_http_error(client: WhiteboxClient) -> None:
     """验证 HTTP 错误时抛出 WhiteboxClientError。"""
     with patch.object(client, "_get_client") as mock_get_client:
@@ -174,12 +227,17 @@ async def test_health_ok(client: WhiteboxClient) -> None:
 @pytest.mark.asyncio
 async def test_health_fail(client: WhiteboxClient) -> None:
     """验证健康检查返回 False。"""
-    with patch.object(client, "_get_client") as mock_get_client:
+    with (
+        patch.object(client, "_get_client") as mock_get_client,
+        patch("argus_py.whitebox.client.logger.debug") as mock_debug,
+    ):
         mock_http = AsyncMock()
         mock_http.get.side_effect = ConnectionError("refused")
         mock_get_client.return_value = mock_http
 
         assert await client.health() is False
+
+    mock_debug.assert_called_once()
 
 
 @pytest.mark.asyncio

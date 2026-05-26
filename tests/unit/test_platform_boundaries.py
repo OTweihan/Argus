@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from argus_py.api.dependencies import load_server_settings
 from argus_py.api.routes import projects as project_routes
@@ -123,6 +125,33 @@ async def test_task_queue_cancel_clears_scheduler_status():
     await queue.request_stop(1)
     assert await queue.get() is None
     await queue.complete(None)
+
+
+@pytest.mark.asyncio
+async def test_task_queue_full_enqueue_does_not_block_status_methods():
+    queue = TaskQueue(max_size=1)
+    await queue.enqueue("task-first")
+
+    pending_enqueue = asyncio.create_task(queue.enqueue("task-second"))
+    await asyncio.wait_for(_wait_for_scheduler_status(queue, "task-second", "queued"), 1)
+
+    assert await asyncio.wait_for(queue.scheduler_status("task-first"), 1) == "queued"
+    assert await asyncio.wait_for(queue.counts(), 1) == {"queued": 2, "active": 0}
+    assert await asyncio.wait_for(queue.cancel("task-second"), 1) is True
+
+    assert await queue.get() == "task-first"
+    await queue.complete("task-first")
+    await asyncio.wait_for(pending_enqueue, 1)
+
+    pending_get = asyncio.create_task(queue.get())
+    await queue.request_stop(1)
+    assert await asyncio.wait_for(pending_get, 1) is None
+    await queue.complete(None)
+
+
+async def _wait_for_scheduler_status(queue: TaskQueue, task_id: str, status: str) -> None:
+    while await queue.scheduler_status(task_id) != status:
+        await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio

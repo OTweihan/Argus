@@ -56,9 +56,15 @@ class TaskQueue:
                     scheduler_status="queued",
                     already_known=True,
                 )
-            await self._queue.put(task_id)
             self._queued_ids.add(task_id)
-            return EnqueueResult(task_id=task_id, scheduler_status="queued")
+
+        try:
+            await self._queue.put(task_id)
+        except BaseException:
+            async with self._lock:
+                self._queued_ids.discard(task_id)
+            raise
+        return EnqueueResult(task_id=task_id, scheduler_status="queued")
 
     async def get(self) -> str | None:
         """获取下一个任务 ID，None 表示停止信号。"""

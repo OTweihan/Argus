@@ -51,8 +51,8 @@ class ModelConfig:
             max_retries=_int_or_default(data.get("max_retries"), DEFAULT_LLM_MAX_RETRIES),
             timeout_seconds=_float_or_default(data.get("timeout_seconds"), 120.0),
             task_type=_parse_task_type(data.get("task_type")),
-            is_default=bool(data.get("is_default", False)),
-            enabled=bool(data.get("enabled", True)),
+            is_default=_bool_or_default(data.get("is_default"), False),
+            enabled=_bool_or_default(data.get("enabled"), True),
             created_at=parse_datetime(data.get("created_at")) or utc_now(),
             updated_at=parse_datetime(data.get("updated_at")) or utc_now(),
         )
@@ -63,6 +63,20 @@ def _parse_task_type(value: Any) -> TaskType | None:
     if value is None or value == "":
         return None
     return TaskType(str(value))
+
+
+def _bool_or_default(value: Any, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
 
 
 def _int_or_default(value: Any, default: int) -> int:

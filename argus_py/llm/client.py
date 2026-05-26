@@ -143,10 +143,6 @@ class LLMClient:
         _trace_ctx — 若传入，会在调用完成后补充底层信息
         （model、base_url_host、latency_ms、token_usage、error）。
         """
-        sem = _llm_semaphore
-        if sem is not None:
-            async with sem:
-                return await self._chat(messages, response_format, extra_body, _trace_ctx)
         return await self._chat(messages, response_format, extra_body, _trace_ctx)
 
     async def _chat(
@@ -167,7 +163,7 @@ class LLMClient:
         start = time.monotonic()
         try:
             response = await retry_async(
-                lambda: self._post_completion(request),
+                lambda: self._post_completion_with_limit(request),
                 retry_config=self.retry_config,
                 retryable_errors=(LLMTransientError,),
             )
@@ -216,6 +212,13 @@ class LLMClient:
         """从 base_url 中提取 host。"""
         stripped = self.base_url.split("://")[-1]
         return stripped.split("/")[0] if "/" in stripped else stripped
+
+    async def _post_completion_with_limit(self, request: ChatCompletionRequest) -> ChatResponse:
+        sem = _llm_semaphore
+        if sem is None:
+            return await self._post_completion(request)
+        async with sem:
+            return await self._post_completion(request)
 
     async def _post_completion(self, request: ChatCompletionRequest) -> ChatResponse:
         """提交请求并解析 OpenAI 兼容响应。"""
