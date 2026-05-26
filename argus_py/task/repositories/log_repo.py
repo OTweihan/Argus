@@ -26,7 +26,9 @@ class LogRepository:
                 "INSERT INTO task_logs (task_log_id, task_id, step_number, action, result, params_json, url_before, url_after, screenshot_path, message, error, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [log_to_row(task_id, log) for task_id, log in entries],
             )
+            # 按 (task_id, step_number) 去重，避免同一步产生冗余 UPDATE
+            unique_updates = {(task_id, log.step_number) for task_id, log in entries}
             conn.executemany(
                 "UPDATE tasks SET current_step = max(current_step, ?) WHERE task_id = ?",
-                [(log.step_number, task_id) for task_id, log in entries],
+                [(step, tid) for tid, step in unique_updates],
             )

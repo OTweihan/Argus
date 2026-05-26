@@ -145,12 +145,9 @@ class LLMClient:
         """
         sem = _llm_semaphore
         if sem is not None:
-            await sem.acquire()
-        try:
-            return await self._chat(messages, response_format, extra_body, _trace_ctx)
-        finally:
-            if sem is not None:
-                sem.release()
+            async with sem:
+                return await self._chat(messages, response_format, extra_body, _trace_ctx)
+        return await self._chat(messages, response_format, extra_body, _trace_ctx)
 
     async def _chat(
         self,
