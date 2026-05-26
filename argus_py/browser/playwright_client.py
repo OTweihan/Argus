@@ -52,6 +52,10 @@ class PlaywrightClient:
         # 清理残留断开状态的浏览器
         if self._browser is not None:
             try:
+                self._browser.remove_listener("disconnected", self._on_disconnected)
+            except Exception:
+                pass
+            try:
                 await self._browser.close()
             except Exception:
                 logger.warning("清理断开状态的浏览器失败", exc_info=True)
@@ -70,7 +74,7 @@ class PlaywrightClient:
             options = {"headless": self.headless, **self.launch_options}
             self._browser = await launcher.launch(**options)
             self._connected = True
-            self._browser.on("disconnected", lambda _: self._on_disconnected())
+            self._browser.on("disconnected", self._on_disconnected)
         except Exception as exc:
             if self._playwright is not None:
                 await self._playwright.stop()
@@ -78,7 +82,7 @@ class PlaywrightClient:
             raise BrowserActionError("start_browser", str(exc), self.browser_type) from exc
         return self
 
-    def _on_disconnected(self) -> None:
+    def _on_disconnected(self, *args: object) -> None:
         """浏览器进程意外断开回调。"""
         self._connected = False
         logger.warning("浏览器进程意外断开 (%s)", self.browser_type)
@@ -87,6 +91,12 @@ class PlaywrightClient:
         """关闭浏览器并释放 Playwright。"""
         errors: list[Exception] = []
         self._connected = False
+        # 移除 disconnected 监听器，避免 browser.close() 触发假阳性警告
+        if self._browser is not None:
+            try:
+                self._browser.remove_listener("disconnected", self._on_disconnected)
+            except Exception:
+                pass
         for context in list(self._contexts):
             try:
                 await context.close()

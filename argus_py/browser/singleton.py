@@ -19,7 +19,6 @@ BrowserContext，避免重复 async_playwright().start() + browser.launch()
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 from typing import Any
@@ -34,8 +33,7 @@ from argus_py.core.constants import DEFAULT_BROWSER, DEFAULT_HEADLESS
 logger = logging.getLogger(__name__)
 
 _client: PlaywrightClient | None = None
-_sync_lock: threading.Lock = threading.Lock()
-_lock: asyncio.Lock = asyncio.Lock()
+_lock: threading.Lock = threading.Lock()
 
 
 def shared_client(
@@ -56,7 +54,7 @@ def shared_client(
     global _client
     if _client is not None:
         return _client
-    with _sync_lock:
+    with _lock:
         if _client is None:
             _client = PlaywrightClient(
                 headless=headless,
@@ -73,16 +71,24 @@ async def stop_shared_client() -> None:
 
     安全可重入：未启动或多重调用不会报错。
     通常在 Worker / 应用 shutdown 阶段调用。
+
+    注：锁内只做指针交换，await client.stop() 在锁外执行，
+    避免在 async 上下文阻塞事件循环线程。
     """
     global _client
-    async with _lock:
+    _lock.acquire()
+    try:
         if _client is None:
             return
-        try:
-            await _client.stop()
-            logger.info("Playwright 单例已停止")
-        finally:
-            _client = None
+        client = _client
+        _client = None
+    finally:
+        _lock.release()
+    try:
+        await client.stop()
+        logger.info("Playwright 单例已停止")
+    except Exception:
+        logger.warning("停止 Playwright 单例时发生异常", exc_info=True)
 
 
 async def is_started() -> bool:

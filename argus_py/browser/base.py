@@ -41,6 +41,8 @@ class BrowserSession:
         self.actions: BrowserActions | None = None
         self.console_messages: list[ConsoleMessage] = []
         self._stop_browser = stop_browser
+        # 控制台消息缓冲区上限，防止长时间任务内存泄漏
+        self._console_message_limit = 1000
 
     async def start(self) -> "BrowserSession":
         """启动浏览器会话。"""
@@ -118,6 +120,8 @@ class BrowserSession:
         return await capture_snapshot(self.require_page(), console_messages=messages)
 
     def _on_console(self, message: PwConsoleMessage) -> None:
+        if len(self.console_messages) >= self._console_message_limit:
+            return
         page_url = self.page.url if self.page else ""
         self.console_messages.append(
             ConsoleMessage(level=message.type, text=message.text, page_url=page_url)
