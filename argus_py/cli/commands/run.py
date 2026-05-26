@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession
-from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_print, cli_success
+from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_success, print_task_result
 from argus_py.cli.utils import load_latest_task, resolve_auth_state_path
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
@@ -17,9 +16,6 @@ from argus_py.execution.runner import TaskRunner
 from argus_py.runtime.container import create_container
 from argus_py.task.application import TaskApplicationService
 from argus_py.task.models import Task
-
-if TYPE_CHECKING:
-    pass
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
@@ -159,12 +155,12 @@ async def run(args: argparse.Namespace) -> int:
         result = await runner.run(task)
     except TaskError as exc:
         latest = load_latest_task(c.task_read_service, task)
-        _print_task_result(latest)
+        print_task_result(latest, show_steps=True)
         cli_error("任务执行失败", exc)
         return 1
     except KeyboardInterrupt:
         latest = c.lifecycle_service.cancel_task(task.task_id)
-        _print_task_result(latest)
+        print_task_result(latest, show_steps=True)
         cli_cancelled("任务执行")
         return 130
     finally:
@@ -172,7 +168,7 @@ async def run(args: argparse.Namespace) -> int:
 
         await stop_shared_client()
 
-    _print_task_result(result)
+    print_task_result(result, show_steps=True)
     return 0
 
 
@@ -227,17 +223,3 @@ def _read_prompt_extensions(planner_path: str | None, evaluator_path: str | None
         if content:
             extensions[role] = content
     return extensions
-
-
-def _print_task_result(task: Task) -> None:
-    """输出任务执行结果。"""
-    cli_print(f"任务 ID：{task.task_id}")
-    cli_print(f"任务状态：{task.status.value}")
-    cli_print(f"执行步骤：{task.current_step}")
-    cli_print(f"问题数量：{len(task.findings)}")
-    if task.result_summary:
-        cli_print(f"结果摘要：{task.result_summary}")
-    if task.report_path:
-        cli_print(f"HTML 报告：{task.report_path}")
-    if task.error_message:
-        cli_print(f"错误信息：{task.error_message}")

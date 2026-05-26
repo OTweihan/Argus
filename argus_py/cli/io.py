@@ -90,6 +90,25 @@ def setup_cli_logging(verbose: int = 0) -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def print_task_result(task: Any, show_steps: bool = False) -> None:
+    """输出任务执行结果。
+
+    适用黑盒和白盒两类任务，通过 show_steps 控制是否打印执行步骤数
+    （白盒任务不适用）。
+    """
+    cli_print(f"任务 ID：{task.task_id}")
+    cli_print(f"任务状态：{task.status.value}")
+    if show_steps:
+        cli_print(f"执行步骤：{task.current_step}")
+    cli_print(f"问题数量：{len(task.findings)}")
+    if task.result_summary:
+        cli_print(f"结果摘要：{task.result_summary}")
+    if task.report_path:
+        cli_print(f"HTML 报告：{task.report_path}")
+    if task.error_message:
+        cli_print(f"错误信息：{task.error_message}")
+
+
 __all__ = [
     "cli_cancelled",
     "cli_error",
@@ -97,5 +116,6 @@ __all__ = [
     "cli_print",
     "cli_success",
     "cli_warn",
+    "print_task_result",
     "setup_cli_logging",
 ]

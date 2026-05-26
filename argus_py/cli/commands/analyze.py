@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import TYPE_CHECKING
 
-from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_print, cli_success
+from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_success, print_task_result
 from argus_py.cli.utils import load_latest_task
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
@@ -14,7 +14,7 @@ from argus_py.runtime.container import create_container
 from argus_py.task.application import TaskApplicationService
 
 if TYPE_CHECKING:
-    from argus_py.task.models import Task
+    pass
 
 
 def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
@@ -161,27 +161,14 @@ async def run(args: argparse.Namespace) -> int:
         result = await runner.run(task)
     except TaskError as exc:
         latest = load_latest_task(c.task_read_service, task)
-        _print_result(latest)
+        print_task_result(latest)
         cli_error("白盒分析失败", exc)
         return 1
     except KeyboardInterrupt:
         latest = c.lifecycle_service.cancel_task(task.task_id)
-        _print_result(latest)
+        print_task_result(latest)
         cli_cancelled("白盒分析")
         return 130
 
-    _print_result(result)
+    print_task_result(result)
     return 0
-
-
-def _print_result(task: Task) -> None:
-    """输出白盒分析结果。"""
-    cli_print(f"任务 ID：{task.task_id}")
-    cli_print(f"任务状态：{task.status.value}")
-    cli_print(f"问题数量：{len(task.findings)}")
-    if task.result_summary:
-        cli_print(f"结果摘要：{task.result_summary}")
-    if task.report_path:
-        cli_print(f"HTML 报告：{task.report_path}")
-    if task.error_message:
-        cli_print(f"错误信息：{task.error_message}")
