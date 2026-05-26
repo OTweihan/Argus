@@ -12,6 +12,7 @@ from argus_py.core.paths import REPORTS_DIR
 from argus_py.report.html_report import write_html_report
 from argus_py.report.json_report import write_json_report
 from argus_py.report.models import Report
+from argus_py.report.serializer import report_to_dict
 from argus_py.task.models import Task
 
 SaveTask = Callable[[Task], Task]
@@ -45,13 +46,14 @@ class ReportGenerator:
         task.report_path = str(html_path)
         try:
             report = Report.from_task(task, summary=summary or "")
-            write_json_report(report, json_path)
+            report_dict = report_to_dict(report)
+            write_json_report(report_dict, json_path)
             template_name = (
                 "whitebox_report.html.j2"
                 if task.task_type == TaskType.WHITEBOX
                 else "blackbox_report.html.j2"
             )
-            write_html_report(report, html_path, template_name=template_name)
+            write_html_report(report_dict, html_path, template_name=template_name)
             return GeneratedReport(report=report, html_path=html_path, json_path=json_path)
         except Exception:
             task.report_path = original_report_path

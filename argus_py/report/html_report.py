@@ -11,12 +11,10 @@ from typing import Any, Callable
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from argus_py.core.paths import REPORT_TEMPLATES_DIR
-from argus_py.report.models import Report
-from argus_py.report.serializer import report_to_dict
 
 
 def render_html_report(
-    report: Report,
+    report_dict: dict[str, Any],
     template_dir: str | Path = REPORT_TEMPLATES_DIR,
     template_name: str = "blackbox_report.html.j2",
     output_path: str | Path | None = None,
@@ -25,7 +23,7 @@ def render_html_report(
     env = _get_env(template_dir)
     env.filters["screenshot_src"] = _screenshot_src_filter(output_path)
     template = env.get_template(template_name)
-    return template.render(report=report_to_dict(report))
+    return template.render(report=report_dict)
 
 
 _ENV: Environment | None = None
@@ -45,13 +43,15 @@ def _get_env(template_dir: str | Path) -> Environment:
 
 
 def write_html_report(
-    report: Report, path: str | Path, template_name: str = "blackbox_report.html.j2"
+    report_dict: dict[str, Any],
+    path: str | Path,
+    template_name: str = "blackbox_report.html.j2",
 ) -> Path:
     """写入 HTML 报告。"""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
-        render_html_report(report, output_path=target, template_name=template_name),
+        render_html_report(report_dict, output_path=target, template_name=template_name),
         encoding="utf-8",
     )
     return target
