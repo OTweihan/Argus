@@ -147,6 +147,14 @@ class AnalyzerDiagnostics:
     library_module_count: int = 0
     bom_module_count: int = 0
     module_types: dict[str, str] = field(default_factory=dict)
+    # P0/P3: Maven 模块信息（与 Java 端 AnalyzerDiagnostics 对齐）
+    root_pom: str = ""
+    module_count: int = 0
+    source_root_count: int = 0
+    modules: list[str] = field(default_factory=list)
+    # P3: classpath 模块明细
+    classpath_target_modules: list[str] = field(default_factory=list)
+    classpath_failed_modules: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalyzerDiagnostics:
@@ -178,6 +186,12 @@ class AnalyzerDiagnostics:
             library_module_count=data.get("libraryModuleCount", 0),
             bom_module_count=data.get("bomModuleCount", 0),
             module_types=data.get("moduleTypes", {}),
+            root_pom=data.get("rootPom", ""),
+            module_count=data.get("moduleCount", 0),
+            source_root_count=data.get("sourceRootCount", 0),
+            modules=data.get("modules", []),
+            classpath_target_modules=data.get("classpathTargetModules", []),
+            classpath_failed_modules=data.get("classpathFailedModules", []),
         )
 
 

@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from argus_py.core.paths import resolve_project_path
+from argus_py.utils.parse import parse_bool as _as_bool
 
 DEFAULT_SERVER_CONFIG = "config/server.yaml"
 SERVER_CONFIG_ENV = "ARGUS_SERVER_CONFIG"
@@ -144,22 +145,6 @@ def _read_server_config(path: str | Path) -> dict[str, Any]:
         return {}
     data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     return data if isinstance(data, dict) else {}
-
-
-def _as_bool(value: Any, default: bool) -> bool:
-    """把 YAML 中常见布尔写法统一转换为 bool。"""
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "y", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "n", "off"}:
-            return False
-        return default
-    return bool(value)
 
 
 def _as_int(value: Any, default: int, minimum: int | None = None) -> int:

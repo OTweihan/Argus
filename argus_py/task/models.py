@@ -3,45 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import datetime
 from typing import Any
 
 from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S, utc_now
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.core.ids import generate_finding_id, generate_step_id, generate_task_id
+from argus_py.utils.parse import parse_bool, parse_datetime, parse_enum
 
-
-def _parse_datetime(value: str | datetime | None) -> datetime | None:
-    """从 JSON 值还原 datetime。"""
-    if value is None or isinstance(value, datetime):
-        return value
-    normalized = value.replace("Z", "+00:00")
-    parsed = datetime.fromisoformat(normalized)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
-def _parse_enum(enum_class: type[Enum], value: Any) -> Any:
-    """从字符串或枚举值还原枚举。"""
-    if isinstance(value, enum_class):
-        return value
-    return enum_class(value)
-
-
-def _parse_bool(value: Any, default: bool) -> bool:
-    if value is None or value == "":
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    return bool(value)
+# 向后兼容别名
+_parse_datetime = parse_datetime
+_parse_bool = parse_bool
+_parse_enum = parse_enum
 
 
 @dataclass

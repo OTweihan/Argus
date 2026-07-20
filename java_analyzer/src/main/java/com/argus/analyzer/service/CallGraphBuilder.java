@@ -40,7 +40,6 @@ public class CallGraphBuilder {
         int totalCalls = 0;
         int resolvedHigh = 0;
         int resolvedMedium = 0;
-        int resolvedLow = 0;
         int unresolved = 0;
 
         for (var entry : scanResult.parsedFiles()) {
@@ -69,7 +68,6 @@ public class CallGraphBuilder {
                         switch (edge.getConfidence()) {
                             case HIGH -> resolvedHigh++;
                             case MEDIUM -> resolvedMedium++;
-                            case LOW -> resolvedLow++;
                             case UNKNOWN -> unresolved++;
                         }
                     }
@@ -89,7 +87,7 @@ public class CallGraphBuilder {
                 totalCalls,
                 resolvedHigh,
                 resolvedMedium,
-                resolvedLow,
+                0, // resolvedLow — resolve() 从不返回 LOW，保留字段用于 API 兼容
                 unresolved
         );
 
@@ -113,7 +111,9 @@ public class CallGraphBuilder {
                     ResolutionType.SYMBOL_SOLVER, Confidence.HIGH,
                     List.of(), sourceFile, line
             );
-        } catch (Exception ignored) {}
+        } catch (Exception ex) {
+            log.debug("[RESOLVE] Symbol-solver fallback on {}:{} — {}", sourceFile, line, ex.toString());
+        }
 
         // Layer 2: scope 类型回退
         String scopeType = resolveScopeType(call);
@@ -147,7 +147,8 @@ public class CallGraphBuilder {
             int genericStart = typeName.indexOf('<');
             if (genericStart > 0) typeName = typeName.substring(0, genericStart);
             return typeName;
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            log.debug("[RESOLVE] Scope-type fallback failed — {}", ex.toString());
             return null;
         }
     }

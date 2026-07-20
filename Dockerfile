@@ -37,8 +37,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # 装 uv：lock-aware、并发安装、Python 自动管理
-# 固定 0.4.x 兼容当前 uv.lock 格式；升级时需要重新生成锁
-RUN pip install --no-cache-dir "uv>=0.4,<1.0"
+# 从官方镜像复制二进制，避免每次构建 pip install
+COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /usr/local/bin/uv
 
 # ── 安装依赖（以 pwuser 身份创建 .venv，避免运行时符号链接权限问题）──
 # 策略说明：

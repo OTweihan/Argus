@@ -75,7 +75,61 @@ public class ProjectAnalyzerService {
         String scope = request.getScope() != null ? request.getScope() : "all";
         MavenConfig mavenConfig = request.getMaven() != null ? request.getMaven() : new MavenConfig();
 
-        // P0: 构建 Maven 模块索引（触发 POM 扫描）
+        // P0-P1: 模块索引 + classpath 解析
+        ModuleContext ctx = resolveModuleContext(sourcePath, scope, mavenConfig, request.getTargetModules(),
+                progress);
+
+        // Step 1: 无依赖的独立分析并行执行
+        CompletableFuture<List<EndpointInfo>> endpointsFuture = launchEndpointExtraction(
+                sourcePath, ctx.classpathJars(), scope);
+        CompletableFuture<CallGraphBuilder.BuildResult> callGraphFuture = launchCallGraphBuild(
+                sourcePath, ctx.classpathJars(), scope);
+        CompletableFuture<List<FindingItem>> findingsFuture = launchFindingDetection(
+                sourcePath, ctx.classpathJars(), scope);
+
+        // Step 2: 依赖 callgraph 的衍生分析
+        var graph = callGraphFuture.thenApply(r -> r != null ? r.graph() : Map.<String, CallGraphNode>of());
+        var diagnostics = buildDiagnostics(callGraphFuture, ctx);
+
+        var flowsFuture = endpointsFuture.thenCombineAsync(graph, (eps, g) -> {
+            if (!isScope(scope, "flows", "all") || eps.isEmpty() || g.isEmpty())
+                return List.<ExecutionFlow>of();
+            return executionFlowTracer.trace(g, eps);
+        });
+        var clustersFuture = graph.thenApplyAsync(g -> {
+            if (!isScope(scope, "clusters", "all") || g.isEmpty())
+                return List.<ClusterInfo>of();
+            return communityClusterer.cluster(g);
+        });
+
+        // Step 3: 收集结果
+        List<EndpointInfo> endpoints = endpointsFuture.join();
+        Map<String, CallGraphNode> callGraph = graph.join();
+        List<FindingItem> findings = findingsFuture.join();
+        List<ExecutionFlow> flows = flowsFuture.join();
+        List<ClusterInfo> clusters = clustersFuture.join();
+        AnalyzerDiagnostics diag = diagnostics.join();
+
+        AnalyzeResponse response = new AnalyzeResponse(endpoints, callGraph, findings, flows, clusters, diag);
+        indexCache.put(canonicalPath, response);
+
+        logSummary(scope, endpoints, callGraph, findings, flows, clusters, diag);
+        return response;
+    }
+
+    // ====== 模块上下文解析 ======
+
+    private record ModuleContext(
+            MavenModuleIndex index,
+            List<String> targetModules,
+            List<Path> classpathJars,
+            ClasspathResult cpResult) {
+    }
+
+    private ModuleContext resolveModuleContext(Path sourcePath, String scope,
+                                                MavenConfig mavenConfig,
+                                                List<String> explicitTargets,
+                                                AnalysisProgressListener progress) {
         MavenModuleIndex moduleIndex = sourceFileScanner.getCurrentModuleIndex(sourcePath);
         if (moduleIndex != null) {
             log.info("[POM] Module index built: {} modules, rootPom={}",
@@ -84,29 +138,11 @@ public class ProjectAnalyzerService {
             log.info("[POM] No Maven module index (non-Maven project or scan failed)");
         }
 
-        // P2: 模块分类 + 自动选择目标模块（用户未指定 targetModules 时）
-        List<String> targetModules = request.getTargetModules();
-        if ((targetModules == null || targetModules.isEmpty()) && moduleIndex != null) {
-            log.info("[AUTO_DETECT] No target modules specified, running classification...");
-            moduleClassifier.classifyAll(moduleIndex);
-            List<MavenModule> targets = moduleClassifier.selectTargets(moduleIndex);
-            targetModules = targets.stream()
-                    .map(MavenModule::getDisplayName)
-                    .toList();
-            log.info("[AUTO_DETECT] Selected {} target modules: {}", targetModules.size(), targetModules);
-        }
+        List<String> targetModules = resolveTargetModules(explicitTargets, moduleIndex);
 
-        // P1: 模块感知的 classpath 解析
-        ClasspathResult cpResult;
-        if (moduleIndex != null && targetModules != null && !targetModules.isEmpty()) {
-            log.info("[CLASSPATH] Using module-aware resolution for {} modules: {}",
-                    targetModules.size(), targetModules);
-            cpResult = classpathResolver.resolve(moduleIndex, targetModules, mavenConfig, progress);
-        } else {
-            log.info("[CLASSPATH] Using legacy resolution (moduleIndex={}, targetModules={})",
-                    moduleIndex != null, targetModules != null ? targetModules.size() : 0);
-            cpResult = classpathResolver.resolve(sourcePath, mavenConfig, progress);
-        }
+        ClasspathResult cpResult = moduleIndex != null && targetModules != null && !targetModules.isEmpty()
+                ? classpathResolver.resolve(moduleIndex, targetModules, mavenConfig, progress)
+                : classpathResolver.resolve(sourcePath, mavenConfig, progress);
 
         List<Path> classpathJars = cpResult.isAvailable()
                 ? cpResult.getJars().stream().map(Path::of).toList()
@@ -115,108 +151,95 @@ public class ProjectAnalyzerService {
         log.info("Classpath: available={} source={} jars={}",
                 cpResult.isAvailable(), cpResult.getSource(), cpResult.getJars().size());
 
-        // Capture for lambda use
-        final MavenModuleIndex capturedIndex = moduleIndex;
-        final List<String> capturedTargetModules = targetModules;
+        return new ModuleContext(moduleIndex, targetModules, classpathJars, cpResult);
+    }
 
-        // Step 1: 无依赖的独立分析，并行执行
-        CompletableFuture<List<EndpointInfo>> endpointsFuture = CompletableFuture.completedFuture(List.of());
-        CompletableFuture<CallGraphBuilder.BuildResult> buildResultFuture = CompletableFuture.completedFuture(null);
-        CompletableFuture<List<FindingItem>> findingsFuture = CompletableFuture.completedFuture(List.of());
+    private List<String> resolveTargetModules(List<String> explicitTargets, MavenModuleIndex moduleIndex) {
+        if (explicitTargets != null && !explicitTargets.isEmpty()) return explicitTargets;
+        if (moduleIndex == null) return null;
+        log.info("[AUTO_DETECT] No target modules specified, running classification...");
+        moduleClassifier.classifyAll(moduleIndex);
+        var targets = moduleClassifier.selectTargets(moduleIndex);
+        var result = targets.stream().map(MavenModule::getDisplayName).toList();
+        log.info("[AUTO_DETECT] Selected {} target modules: {}", result.size(), result);
+        return result;
+    }
 
-        boolean runEndpoints = "endpoints".equals(scope) || "all".equals(scope) || "flows".equals(scope);
-        boolean runCallGraph = "callgraph".equals(scope) || "all".equals(scope)
-                || "flows".equals(scope) || "clusters".equals(scope);
-        boolean runFindings = "all".equals(scope);
+    // ====== 并行分析启动 ======
 
-        if (runEndpoints) {
-            List<Path> cp = classpathJars;
-            endpointsFuture = CompletableFuture.supplyAsync(() -> controllerExtractor.extract(sourcePath, cp));
-        }
-        if (runCallGraph) {
-            List<Path> cp = classpathJars;
-            buildResultFuture = CompletableFuture.supplyAsync(() -> callGraphBuilder.build(sourcePath, cp));
-        }
-        if (runFindings) {
-            List<Path> cp = classpathJars;
-            findingsFuture = CompletableFuture.supplyAsync(() -> findingDetector.detect(sourcePath, cp));
-        }
+    private CompletableFuture<List<EndpointInfo>> launchEndpointExtraction(
+            Path sourcePath, List<Path> cp, String scope) {
+        if (!isScope(scope, "endpoints", "all", "flows")) return CompletableFuture.completedFuture(List.of());
+        return CompletableFuture.supplyAsync(() -> controllerExtractor.extract(sourcePath, cp));
+    }
 
-        // Step 2: 依赖 callgraph 的衍生分析
-        CompletableFuture<Map<String, CallGraphNode>> callGraphFuture = buildResultFuture
-                .thenApplyAsync(result -> result != null ? result.graph() : Map.of());
+    private CompletableFuture<CallGraphBuilder.BuildResult> launchCallGraphBuild(
+            Path sourcePath, List<Path> cp, String scope) {
+        if (!isScope(scope, "callgraph", "all", "flows", "clusters"))
+            return CompletableFuture.completedFuture(null);
+        return CompletableFuture.supplyAsync(() -> callGraphBuilder.build(sourcePath, cp));
+    }
 
-        CompletableFuture<AnalyzerDiagnostics> diagnosticsFuture = buildResultFuture
-                .thenApplyAsync(result -> {
-                    AnalyzerDiagnostics diag = result != null ? result.diagnostics() : new AnalyzerDiagnostics();
-                    if (diag != null) {
-                        diag.setClasspathAvailable(cpResult.isAvailable());
-                        diag.setJarCount(cpResult.getJars().size());
-                        diag.setClasspathSource(cpResult.getSource());
-                        diag.setClasspathWarnings(cpResult.getWarnings());
-                        diag.setClasspathErrors(cpResult.getErrors());
-                        diag.setClasspathCommand(cpResult.getCommand());
-                        diag.setClasspathExitCode(cpResult.getExitCode());
-                        diag.setClasspathDurationMs(cpResult.getDurationMs());
-                        diag.setClasspathStdoutTail(cpResult.getStdoutTail());
-                        diag.setClasspathStderrTail(cpResult.getStderrTail());
-                        diag.setClasspathTimedOut(cpResult.isTimedOut());
+    private CompletableFuture<List<FindingItem>> launchFindingDetection(
+            Path sourcePath, List<Path> cp, String scope) {
+        if (!isScope(scope, "all")) return CompletableFuture.completedFuture(List.of());
+        return CompletableFuture.supplyAsync(() -> findingDetector.detect(sourcePath, cp));
+    }
 
-                        // P3: 填充模块信息
-                        if (capturedIndex != null) {
-                            diag.setRootPom(capturedIndex.getRootPom() != null
-                                    ? capturedIndex.getRootPom().toString() : null);
-                            diag.setModuleCount(capturedIndex.getModuleCount());
-                            diag.setSourceRootCount(capturedIndex.getAllSourceRoots().size());
-                            diag.setModules(capturedIndex.getModules().stream()
-                                    .map(m -> m.getDisplayName())
-                                    .collect(Collectors.toList()));
+    // ====== Diagnostics 组装 ======
 
-                            // P4: 模块分类摘要
-                            diag.setApplicationModuleCount(capturedIndex.getApplicationModuleCount());
-                            diag.setBusinessModuleCount(capturedIndex.getBusinessModuleCount());
-                            diag.setLibraryModuleCount(capturedIndex.getLibraryModuleCount());
-                            diag.setBomModuleCount(capturedIndex.getBomModuleCount());
-                            diag.setModuleTypes(capturedIndex.getModules().stream()
-                                    .filter(m -> !m.isAggregator())
-                                    .collect(Collectors.toMap(
-                                            MavenModule::getDisplayName,
-                                            m -> m.getModuleType().name())));
-                        }
-                        if (capturedTargetModules != null) {
-                            diag.setClasspathTargetModules(capturedTargetModules);
-                        }
-                    }
-                    return diag;
-                });
+    private CompletableFuture<AnalyzerDiagnostics> buildDiagnostics(
+            CompletableFuture<CallGraphBuilder.BuildResult> resultFuture, ModuleContext ctx) {
+        return resultFuture.thenApplyAsync(result -> {
+            AnalyzerDiagnostics diag = result != null ? result.diagnostics() : new AnalyzerDiagnostics();
+            if (diag == null) return null;
+            diag.setClasspathAvailable(ctx.cpResult().isAvailable());
+            diag.setJarCount(ctx.cpResult().getJars().size());
+            diag.setClasspathSource(ctx.cpResult().getSource());
+            diag.setClasspathWarnings(ctx.cpResult().getWarnings());
+            diag.setClasspathErrors(ctx.cpResult().getErrors());
+            diag.setClasspathCommand(ctx.cpResult().getCommand());
+            diag.setClasspathExitCode(ctx.cpResult().getExitCode());
+            diag.setClasspathDurationMs(ctx.cpResult().getDurationMs());
+            diag.setClasspathStdoutTail(ctx.cpResult().getStdoutTail());
+            diag.setClasspathStderrTail(ctx.cpResult().getStderrTail());
+            diag.setClasspathTimedOut(ctx.cpResult().isTimedOut());
 
-        CompletableFuture<List<ExecutionFlow>> flowsFuture = endpointsFuture.thenCombineAsync(callGraphFuture,
-                (endpoints, callGraph) -> {
-                    boolean runFlows = "all".equals(scope) || "flows".equals(scope);
-                    if (!runFlows || endpoints.isEmpty() || callGraph.isEmpty()) {
-                        return List.<ExecutionFlow>of();
-                    }
-                    return executionFlowTracer.trace(callGraph, endpoints);
-                });
-
-        CompletableFuture<List<ClusterInfo>> clustersFuture = callGraphFuture.thenApplyAsync(callGraph -> {
-            boolean runClusters = "all".equals(scope) || "clusters".equals(scope);
-            if (!runClusters || callGraph.isEmpty()) {
-                return List.<ClusterInfo>of();
+            if (ctx.index() != null) {
+                diag.setRootPom(ctx.index().getRootPom() != null
+                        ? ctx.index().getRootPom().toString() : null);
+                diag.setModuleCount(ctx.index().getModuleCount());
+                diag.setSourceRootCount(ctx.index().getAllSourceRoots().size());
+                diag.setModules(ctx.index().getModules().stream()
+                        .map(MavenModule::getDisplayName).toList());
+                diag.setApplicationModuleCount(ctx.index().getApplicationModuleCount());
+                diag.setBusinessModuleCount(ctx.index().getBusinessModuleCount());
+                diag.setLibraryModuleCount(ctx.index().getLibraryModuleCount());
+                diag.setBomModuleCount(ctx.index().getBomModuleCount());
+                diag.setModuleTypes(ctx.index().getModules().stream()
+                        .filter(m -> !m.isAggregator())
+                        .collect(Collectors.toMap(
+                                MavenModule::getDisplayName,
+                                m -> m.getModuleType().name())));
             }
-            return communityClusterer.cluster(callGraph);
+            if (ctx.targetModules() != null) {
+                diag.setClasspathTargetModules(ctx.targetModules());
+            }
+            return diag;
         });
+    }
 
-        List<EndpointInfo> endpoints = endpointsFuture.join();
-        Map<String, CallGraphNode> callGraph = callGraphFuture.join();
-        List<FindingItem> findings = findingsFuture.join();
-        List<ExecutionFlow> flows = flowsFuture.join();
-        List<ClusterInfo> clusters = clustersFuture.join();
-        AnalyzerDiagnostics diagnostics = diagnosticsFuture.join();
+    // ====== 辅助方法 ======
 
-        AnalyzeResponse response = new AnalyzeResponse(endpoints, callGraph, findings, flows, clusters, diagnostics);
-        indexCache.put(canonicalPath, response);
+    private static boolean isScope(String actual, String... candidates) {
+        for (String c : candidates) if (c.equals(actual)) return true;
+        return false;
+    }
 
+    private void logSummary(String scope, List<EndpointInfo> endpoints,
+                             Map<String, CallGraphNode> callGraph, List<FindingItem> findings,
+                             List<ExecutionFlow> flows, List<ClusterInfo> clusters,
+                             AnalyzerDiagnostics diagnostics) {
         log.info("白盒分析完成: scope={} endpoints={} callgraph_nodes={} findings={} flows={} clusters={}",
                 scope, endpoints.size(), callGraph.size(), findings.size(), flows.size(), clusters.size());
         if (diagnostics != null) {
@@ -226,6 +249,5 @@ public class ProjectAnalyzerService {
                     diagnostics.getResolvedMedium(), diagnostics.getUnresolved(),
                     diagnostics.getClasspathSource(), diagnostics.getJarCount());
         }
-        return response;
     }
 }

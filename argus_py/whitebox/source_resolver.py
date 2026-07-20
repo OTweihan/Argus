@@ -6,6 +6,7 @@ import logging
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -32,7 +33,7 @@ class SourceResolver:
     """
 
     def __init__(self, work_dir: str | None = None) -> None:
-        self._work_dir = Path(work_dir) if work_dir else Path("/tmp/sources")
+        self._work_dir = Path(work_dir) if work_dir else Path(tempfile.gettempdir(), "argus_sources")
 
     def resolve(self, repo_url: str, branch: str | None = None) -> str:
         """解析源码路径。

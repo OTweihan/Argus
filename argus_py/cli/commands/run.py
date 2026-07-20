@@ -70,38 +70,8 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        prompt_extensions = _read_prompt_extensions(
-            planner_path=getattr(args, "planner_extension", None),
-            evaluator_path=getattr(args, "evaluator_extension", None),
-        )
-    except FileNotFoundError as exc:
-        cli_error(
-            "任务执行失败",
-            f"Prompt 扩展文件不存在：{exc}",
-            "请检查 --planner-extension / --evaluator-extension 路径是否正确。",
-        )
-        return 1
-    except PromptExtensionDecodeError as exc:
-        # 把 UnicodeDecodeError 翻译成中文友好提示，并附上具体的转码命令；
-        # Windows 用户保存为 GBK 默认编码时最容易遇到这一类问题。
-        cli_error(
-            "任务执行失败",
-            f"无法以 UTF-8 读取 --{exc.role}-extension 指向的文件 {exc.path}：{exc.reason}",
-            (
-                "请把该文件改存为 UTF-8（不带 BOM）后重试：\n"
-                "  - VSCode：右下角点击编码 → Save with Encoding → UTF-8\n"
-                f"  - PowerShell：(Get-Content '{exc.path}') | Set-Content '{exc.path}' -Encoding utf8"
-            ),
-        )
-        return 1
-    except PromptExtensionReadError as exc:
-        # 权限不足 / 目录路径 / IO 错误等其它 OSError。
-        cli_error(
-            "任务执行失败",
-            f"无法读取 --{exc.role}-extension 指向的文件 {exc.path}：{exc.cause}",
-            "请确认该路径是普通文件、当前用户具备读取权限。",
-        )
+    prompt_extensions = _resolve_prompt_extensions(args)
+    if prompt_extensions is None:
         return 1
 
     params = app.resolve_create_params(
@@ -123,33 +93,7 @@ async def run(args: argparse.Namespace) -> int:
         cli_info("任务已保存，未执行。")
         return 0
 
-    def browser_session_factory(current_task: Task) -> BrowserSession:
-        from argus_py.browser.singleton import shared_client
-
-        context_options = {"storage_state": str(auth_state_path)} if auth_state_path else None
-        return BrowserSession(
-            client=shared_client(headless=not args.headed, browser_type=args.browser),
-            screenshot_dir=SCREENSHOTS_DIR / current_task.task_id,
-            context_options=context_options,
-            stop_browser=False,
-        )
-
-    model_config = c.model_config_service
-    blackbox_runner = BlackboxRunner(
-        lifecycle=c.lifecycle_service,
-        reader=c.task_read_service,
-        log_service=c.log_service,
-        timeline_service=c.timeline_service,  # type: ignore[arg-type]
-        browser_session_factory=browser_session_factory,
-        model_config_service=model_config,
-    )
-    runner = TaskRunner(
-        lifecycle=c.lifecycle_service,
-        reader=c.task_read_service,
-        handlers={TaskType.BLACKBOX: blackbox_runner.run},
-        model_config_service=model_config,
-    )
-
+    runner = _build_runner(c, args, auth_state_path)
     cli_info("开始执行黑盒任务...")
     try:
         result = await runner.run(task)
@@ -170,6 +114,75 @@ async def run(args: argparse.Namespace) -> int:
 
     print_task_result(result, show_steps=True)
     return 0
+
+
+def _resolve_prompt_extensions(args: argparse.Namespace) -> dict[str, str] | None:
+    """读取 planner/evaluator prompt 扩展文件，失败时打印错误并返回 None。"""
+    try:
+        return _read_prompt_extensions(
+            planner_path=getattr(args, "planner_extension", None),
+            evaluator_path=getattr(args, "evaluator_extension", None),
+        )
+    except FileNotFoundError as exc:
+        cli_error(
+            "任务执行失败",
+            f"Prompt 扩展文件不存在：{exc}",
+            "请检查 --planner-extension / --evaluator-extension 路径是否正确。",
+        )
+        return None
+    except PromptExtensionDecodeError as exc:
+        cli_error(
+            "任务执行失败",
+            f"无法以 UTF-8 读取 --{exc.role}-extension 指向的文件 {exc.path}：{exc.reason}",
+            (
+                "请把该文件改存为 UTF-8（不带 BOM）后重试：\n"
+                "  - VSCode：右下角点击编码 → Save with Encoding → UTF-8\n"
+                f"  - PowerShell：(Get-Content '{exc.path}') | Set-Content '{exc.path}' -Encoding utf8"
+            ),
+        )
+        return None
+    except PromptExtensionReadError as exc:
+        cli_error(
+            "任务执行失败",
+            f"无法读取 --{exc.role}-extension 指向的文件 {exc.path}：{exc.cause}",
+            "请确认该路径是普通文件、当前用户具备读取权限。",
+        )
+        return None
+
+
+def _build_runner(
+    c,
+    args: argparse.Namespace,
+    auth_state_path: Path | None,
+) -> TaskRunner:
+    """构建黑盒 TaskRunner，含 browser session factory。"""
+
+    def browser_session_factory(current_task: Task) -> BrowserSession:
+        from argus_py.browser.singleton import shared_client
+
+        context_options = {"storage_state": str(auth_state_path)} if auth_state_path else None
+        return BrowserSession(
+            client=shared_client(headless=not args.headed, browser_type=args.browser),
+            screenshot_dir=SCREENSHOTS_DIR / current_task.task_id,
+            context_options=context_options,
+            stop_browser=False,
+        )
+
+    model_config = c.model_config_service
+    blackbox_runner = BlackboxRunner(
+        lifecycle=c.lifecycle_service,
+        reader=c.task_read_service,
+        log_service=c.log_service,
+        timeline_service=c.timeline_service,  # type: ignore[arg-type]
+        browser_session_factory=browser_session_factory,
+        model_config_service=model_config,
+    )
+    return TaskRunner(
+        lifecycle=c.lifecycle_service,
+        reader=c.task_read_service,
+        handlers={TaskType.BLACKBOX: blackbox_runner.run},
+        model_config_service=model_config,
+    )
 
 
 class PromptExtensionDecodeError(Exception):

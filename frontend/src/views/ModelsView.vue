@@ -102,28 +102,6 @@ const filteredModels = computed(() => {
   gap: 12px;
 }
 
-.card-title {
-  position: relative;
-  padding-left: 14px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-strong);
-  letter-spacing: -0.005em;
-}
-
-.card-title::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 18px;
-  background-image: var(--brand-gradient);
-  border-radius: 2px;
-  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
-}
-
 .filter-bar {
   flex-shrink: 0;
   padding: 18px 0 14px;

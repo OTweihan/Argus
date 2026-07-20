@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 
 from argus_py.blackbox.action_executor import ActionExecutor
-from argus_py.blackbox.evaluator import BlackboxEvaluator
+from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
 from argus_py.blackbox.events import BlackboxEvents
 from argus_py.blackbox.evidence import EvidenceCollector
 from argus_py.blackbox.finalizer import Finalizer
@@ -64,13 +64,10 @@ class BlackboxExecutionLoop:
         recovery_attempts = 0
         sequence: ActionSequence = ActionSequence(steps=[])
         _last_error: dict | None = None
-        # 评估器上一轮的 next_action，仅在下一次 plan_next 时使用一次
         _next_hint: str = ""
-
         first_plan = True
 
         while executed_steps < task_input.max_steps:
-            # ── 暂停/取消检测 ──
             if await self._check_cancelled(task):
                 return await self.finalizer.finalize(
                     self._reader.get_latest_task(task), owns_status
@@ -78,106 +75,29 @@ class BlackboxExecutionLoop:
 
             # ── 规划 ──
             if not sequence.steps:
-                if first_plan:
-                    sequence = await planner.plan_initial(task_input)
-                    first_plan = False
-                else:
-                    sequence, _last_error = await self._plan_next(
-                        task, latest_observation, planner, _last_error, _next_hint
-                    )
-                    _next_hint = ""
-                if not sequence.steps:
-                    raise TaskError("规划器未返回可执行动作。")
+                sequence, _last_error = await self._plan_phase(
+                    task, task_input, planner, latest_observation,
+                    first_plan, _last_error, _next_hint,
+                )
+                first_plan = False
+                _next_hint = ""
 
             # ── 执行 ──
-            for action_step in sequence.steps:
-                if executed_steps >= task_input.max_steps:
-                    break
-                executed_steps += 1
-
-                # 每个步骤前检查取消，避免长 batch 中停止不响应。
-                if await self._check_cancelled(task):
-                    return await self.finalizer.finalize(
-                        self._reader.get_latest_task(task), owns_status
-                    )
-
-                await self.events.action(
-                    task.task_id,
-                    executed_steps,
-                    action_step.action.value,
-                    action_step.selector,
-                    action_step.url,
+            task, latest_observation, sequence, executed_steps, recovery_attempts, _last_error = (
+                await self._execute_phase(
+                    task, session, sequence, executed_steps, recovery_attempts,
+                    _last_error, task_input.max_steps,
                 )
+            )
 
-                try:
-                    task, latest_observation = await self.action_executor.execute_action(
-                        task, session, action_step
-                    )
-                    recovery_attempts = 0
-                    _last_error = None
-                except TaskError as exc:
-                    task = self._reader.get_latest_task(task)
-                    _last_error = {
-                        "action": action_step.action.value,
-                        "error_code": exc.error_code,
-                        "error_message": str(exc),
-                        "step_number": executed_steps,
-                    }
-
-                    decision = self.recovery_policy.decide(exc, recovery_attempts)
-                    if decision is RecoveryAction.ABORT:
-                        raise
-                    if decision is RecoveryAction.RETRY:
-                        recovery_attempts += 1
-
-                    latest_observation = await self.evidence.safe_observation(session)
-                    sequence = ActionSequence(
-                        steps=[],
-                        summary=(
-                            "参数校验失败：重新规划。"
-                            if decision is RecoveryAction.REPLAN
-                            else "动作失败后重新观察页面并规划。"
-                        ),
-                    )
-                    break
-
-            # 当前批次无可用步骤 → 重新规划
             if not sequence.steps:
                 continue
 
             # ── 评估 ──
-            await self.events.evaluator_start(task.task_id, executed_steps, task.goal)
-
-            evaluation = await evaluator.evaluate(
-                task.goal,
-                latest_observation,
-                history=self.finalizer.history(task),
-            )
-
-            await self.events.evaluator_result(
-                task.task_id,
-                executed_steps,
-                evaluation.success,
-                evaluation.completed,
-                evaluation.reason,
-                len(evaluation.findings),
-            )
-
-            await self.events.flush()
-
+            evaluation = await self._evaluate_phase(task, latest_observation, evaluator, executed_steps)
             task = self.finalizer.append_evaluation(task, evaluation)
             if evaluation.completed:
-                task.result_summary = evaluation.reason
-                if evaluation.success:
-                    await self.events.complete(task.task_id)
-                    await self.events.flush()
-                    return await self.finalizer.finish_success(task, owns_status)
-
-                await self.events.fail(task.task_id, evaluation.reason or "评估判定失败")
-                await self.events.flush()
-                raise TaskError(evaluation.reason or "黑盒任务已完成，但评估结果为失败。")
-
-            # 把评估器的 next_action 暂存为下一次 plan_next 的提示
+                return await self._finalize_evaluation(task, evaluation, owns_status)
             _next_hint = evaluation.next_action or ""
 
             if executed_steps >= task_input.max_steps:
@@ -190,8 +110,117 @@ class BlackboxExecutionLoop:
             )
             _next_hint = ""
 
-        # ── 达到最大步骤 ──
         return await self._handle_max_steps(task, task_input, owns_status)
+
+    async def _plan_phase(
+        self,
+        task: Task,
+        task_input: BlackboxTaskInput,
+        planner: BlackboxPlanner,
+        latest_observation: str,
+        first_plan: bool,
+        last_error: dict | None,
+        next_hint: str,
+    ) -> tuple[ActionSequence, dict | None]:
+        """规划阶段：首次用 plan_initial，后续用 plan_next。"""
+        if first_plan:
+            sequence = await planner.plan_initial(task_input)
+        else:
+            sequence, last_error = await self._plan_next(
+                task, latest_observation, planner, last_error, next_hint
+            )
+        if not sequence.steps:
+            raise TaskError("规划器未返回可执行动作。")
+        return sequence, last_error
+
+    async def _execute_phase(
+        self,
+        task: Task,
+        session: BrowserSession,
+        sequence: ActionSequence,
+        executed_steps: int,
+        recovery_attempts: int,
+        last_error: dict | None,
+        max_steps: int,
+    ) -> tuple[Task, str, ActionSequence, int, int, dict | None]:
+        """执行当前批次动作，逐 step 处理错误与恢复。"""
+        latest_observation = ""
+        for action_step in sequence.steps:
+            if executed_steps >= max_steps:
+                break
+            executed_steps += 1
+
+            if await self._check_cancelled(task):
+                # 返回空序列触发外层的 finalize 逻辑
+                return task, latest_observation, ActionSequence(steps=[]), executed_steps, recovery_attempts, last_error
+
+            await self.events.action(
+                task.task_id, executed_steps,
+                action_step.action.value, action_step.selector, action_step.url,
+            )
+
+            try:
+                task, latest_observation = await self.action_executor.execute_action(
+                    task, session, action_step
+                )
+                recovery_attempts = 0
+                last_error = None
+            except TaskError as exc:
+                task = self._reader.get_latest_task(task)
+                last_error = {
+                    "action": action_step.action.value,
+                    "error_code": exc.error_code,
+                    "error_message": str(exc),
+                    "step_number": executed_steps,
+                }
+                decision = self.recovery_policy.decide(exc, recovery_attempts)
+                if decision is RecoveryAction.ABORT:
+                    raise
+                if decision is RecoveryAction.RETRY:
+                    recovery_attempts += 1
+                latest_observation = await self.evidence.safe_observation(session)
+                sequence = ActionSequence(
+                    steps=[],
+                    summary=(
+                        "参数校验失败：重新规划。"
+                        if decision is RecoveryAction.REPLAN
+                        else "动作失败后重新观察页面并规划。"
+                    ),
+                )
+                break
+        return task, latest_observation, sequence, executed_steps, recovery_attempts, last_error
+
+    async def _evaluate_phase(
+        self,
+        task: Task,
+        latest_observation: str,
+        evaluator: BlackboxEvaluator,
+        executed_steps: int,
+    ) -> EvaluationResult:
+        """评估阶段：调用 LLM 判定目标是否达成。"""
+        await self.events.evaluator_start(task.task_id, executed_steps, task.goal)
+        evaluation = await evaluator.evaluate(
+            task.goal, latest_observation,
+            history=self.finalizer.history(task),
+        )
+        await self.events.evaluator_result(
+            task.task_id, executed_steps,
+            evaluation.success, evaluation.completed,
+            evaluation.reason, len(evaluation.findings),
+        )
+        await self.events.flush()
+        return evaluation
+
+    async def _finalize_evaluation(self, task: Task, evaluation: EvaluationResult, owns_status: bool) -> Task:
+        """评估完成时的收尾：成功则 report，失败则抛异常。"""
+        task.result_summary = evaluation.reason
+        if evaluation.success:
+            await self.events.complete(task.task_id)
+            await self.events.flush()
+            return await self.finalizer.finish_success(task, owns_status)
+        await self.events.fail(task.task_id, evaluation.reason or "评估判定失败")
+        await self.events.flush()
+        raise TaskError(evaluation.reason or "黑盒任务已完成，但评估结果为失败。")
 
     async def _plan_next(
         self,

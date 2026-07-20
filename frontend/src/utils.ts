@@ -54,3 +54,13 @@ export function upsertById<T extends Record<K, string>, K extends keyof T>(
 export function sortBy<T>(items: T[], pick: (item: T) => number): T[] {
   return [...items].sort((a, b) => pick(a) - pick(b));
 }
+
+/** 清除 reactive 表单错误对象的所有键。 */
+export function clearFormErrors(formErrors: Record<string, string>): void {
+  for (const key of Object.keys(formErrors)) {
+    delete formErrors[key];
+  }
+}
+
+/** 下拉框"无选择"哨兵值。 */
+export const SENTINEL_DEFAULT = "__default__";

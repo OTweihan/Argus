@@ -10,7 +10,7 @@ import {
 } from "../api";
 import type { TaskPayload } from "../api";
 import type { ModelConfig, Project, Task } from "../types";
-import { errorMessage, nullableBoolean, nullableText, upsertById } from "../utils";
+import { clearFormErrors, errorMessage, nullableBoolean, nullableText, SENTINEL_DEFAULT, upsertById } from "../utils";
 import type { ParamEntry } from "../params";
 import { parseParamEntries } from "../params";
 import {
@@ -23,7 +23,7 @@ import { useDebounceFn } from "./useDebounceFn";
 import { useTaskList } from "./useTaskList";
 import { useTaskSelection } from "./useTaskSelection";
 
-interface TaskForm {
+export interface TaskForm {
     editingId: string | null;
     goal: string;
     name: string;
@@ -140,7 +140,7 @@ export function useTasks(opts: {
     }
 
     async function saveTask(): Promise<void> {
-        clearFormErrors();
+        clearFormErrors(formErrors);
         if (!String(taskForm.goal).trim()) {
             formErrors.goal = "目标不能为空";
             return;
@@ -159,8 +159,8 @@ export function useTasks(opts: {
         }
         parameters = mergePromptExtensions(parameters, taskForm.promptExtensions);
         try {
-            const modelConfigId = taskForm.modelConfigId === "__default__" ? null : taskForm.modelConfigId || null;
-            const captureScreenshots = taskForm.captureScreenshots === "__default__" ? null : nullableBoolean(taskForm.captureScreenshots as "" | "true" | "false");
+            const modelConfigId = taskForm.modelConfigId === SENTINEL_DEFAULT ? null : taskForm.modelConfigId || null;
+            const captureScreenshots = taskForm.captureScreenshots === SENTINEL_DEFAULT ? null : nullableBoolean(taskForm.captureScreenshots as "" | "true" | "false");
             const payload: TaskPayload = {
                 goal: String(taskForm.goal).trim(),
                 name: taskForm.name.trim() || null,
@@ -203,7 +203,7 @@ export function useTasks(opts: {
     function openNewTaskDialog(): void {
         resetTaskForm();
         error.value = "";
-        clearFormErrors();
+        clearFormErrors(formErrors);
         showTaskDialog.value = true;
     }
 
@@ -221,25 +221,19 @@ export function useTasks(opts: {
             maxSteps: task.maxSteps,
             timeoutSeconds: task.timeoutSeconds,
             captureScreenshots: task.captureScreenshots ? "true" : "false",
-            modelConfigId: (rest.modelConfigId as string) ?? "__default__",
+            modelConfigId: (rest.modelConfigId as string) ?? SENTINEL_DEFAULT,
             parameters: Object.entries(rest)
                 .filter(([k]) => k !== "modelConfigId")
                 .map(([key, value]) => ({key, value: String(value)})),
             promptExtensions,
         });
         error.value = "";
-        clearFormErrors();
+        clearFormErrors(formErrors);
         showTaskDialog.value = true;
     }
 
     function resetTaskForm(): void {
         Object.assign(taskForm, defaultTaskForm(projects.value[0]?.projectId ?? ""));
-    }
-
-    function clearFormErrors(): void {
-        for (const key of Object.keys(formErrors)) {
-            delete formErrors[key];
-        }
     }
 
     return {
@@ -273,8 +267,8 @@ function defaultTaskForm(projectId = ""): TaskForm {
         startUrl: "",
         maxSteps: null,
         timeoutSeconds: null,
-        captureScreenshots: "__default__",
-        modelConfigId: "__default__",
+        captureScreenshots: SENTINEL_DEFAULT,
+        modelConfigId: SENTINEL_DEFAULT,
         parameters: [],
         promptExtensions: emptyPromptExtensions(),
     };

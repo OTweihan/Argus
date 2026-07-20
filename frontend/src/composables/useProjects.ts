@@ -8,7 +8,7 @@ import {
     updateProject as apiUpdateProject,
 } from "../api";
 import type {Project} from "../types";
-import {errorMessage, nullableText, upsertById} from "../utils";
+import {clearFormErrors, errorMessage, nullableText, upsertById} from "../utils";
 import {dictToParamEntries, parseParamEntries} from "../params";
 import type {ParamEntry} from "../params";
 import {
@@ -48,7 +48,7 @@ export function useProjects(opts: {
     }
 
     async function saveProject(): Promise<void> {
-        clearFormErrors();
+        clearFormErrors(formErrors);
         if (!String(projectForm.name).trim()) {
             formErrors.name = "名称不能为空";
             return;
@@ -114,7 +114,7 @@ export function useProjects(opts: {
             promptExtensions,
         });
         error.value = "";
-        clearFormErrors();
+        clearFormErrors(formErrors);
         showProjectDialog.value = true;
     }
 
@@ -136,18 +136,12 @@ export function useProjects(opts: {
     function openNewProjectDialog(): void {
         resetProjectForm();
         error.value = "";
-        clearFormErrors();
+        clearFormErrors(formErrors);
         showProjectDialog.value = true;
     }
 
     function resetProjectForm(): void {
         Object.assign(projectForm, defaultProjectForm());
-    }
-
-    function clearFormErrors(): void {
-        for (const key of Object.keys(formErrors)) {
-            delete formErrors[key];
-        }
     }
 
     return {

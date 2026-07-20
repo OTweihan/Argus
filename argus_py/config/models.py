@@ -13,7 +13,7 @@ from argus_py.core.constants import (
 )
 from argus_py.core.enums import TaskType
 from argus_py.core.ids import generate_model_config_id
-from argus_py.project.models import parse_datetime
+from argus_py.utils.parse import parse_bool, parse_datetime, parse_float_default, parse_int_default
 
 ModelProvider = str
 
@@ -48,11 +48,11 @@ class ModelConfig:
             model_config_id=str(data.get("model_config_id") or generate_model_config_id()),
             api_key=str(data.get("api_key") or ""),
             completions_path=str(data.get("completions_path") or "/chat/completions"),
-            max_retries=_int_or_default(data.get("max_retries"), DEFAULT_LLM_MAX_RETRIES),
-            timeout_seconds=_float_or_default(data.get("timeout_seconds"), 120.0),
+            max_retries=parse_int_default(data.get("max_retries"), DEFAULT_LLM_MAX_RETRIES),
+            timeout_seconds=parse_float_default(data.get("timeout_seconds"), 120.0),
             task_type=_parse_task_type(data.get("task_type")),
-            is_default=_bool_or_default(data.get("is_default"), False),
-            enabled=_bool_or_default(data.get("enabled"), True),
+            is_default=parse_bool(data.get("is_default"), False),
+            enabled=parse_bool(data.get("enabled"), True),
             created_at=parse_datetime(data.get("created_at")) or utc_now(),
             updated_at=parse_datetime(data.get("updated_at")) or utc_now(),
         )
@@ -63,31 +63,3 @@ def _parse_task_type(value: Any) -> TaskType | None:
     if value is None or value == "":
         return None
     return TaskType(str(value))
-
-
-def _bool_or_default(value: Any, default: bool) -> bool:
-    if value is None or value == "":
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    return bool(value)
-
-
-def _int_or_default(value: Any, default: int) -> int:
-    """解析整数，允许 0。"""
-    if value is None or value == "":
-        return default
-    return int(value)
-
-
-def _float_or_default(value: Any, default: float) -> float:
-    """解析浮点数，允许 0。"""
-    if value is None or value == "":
-        return default
-    return float(value)

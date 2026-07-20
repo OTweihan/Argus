@@ -1,7 +1,10 @@
 # Argus 私网部署的最小 docker-compose 模板
 #
-# 启动：
+# 核心服务（不含 java-analyzer）：
 #   docker compose up -d --build
+#
+# 含 Java 源码分析（附加 java-analyzer）：
+#   docker compose --profile java up -d --build
 #
 # 升级到新版本：
 #   git pull && docker compose build && docker compose up -d
@@ -15,6 +18,7 @@
 # - config/ 通过 bind mount 让运维直接修改 server.yaml；
 #   .fernet_key 也写在这里（首次启动自动生成），切勿误删。
 # - outputs 用 named volume，避免 host 权限错乱。
+# - java-analyzer 使用 profiles: [java]，默认不启动；需要时加 --profile java。
 
 services:
   argus:
@@ -41,19 +45,7 @@ services:
       # 运行时产物：DB、screenshots、reports、traces、备份
       - argus-outputs:/app/outputs
 
-    healthcheck:
-      # 与 Dockerfile HEALTHCHECK 一致；compose v2 health 透传到 stack 健康度
-      test:
-        - CMD
-        - python3
-        - -c
-        - |
-          import urllib.request, sys
-          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+    # 健康检查已在 Dockerfile 中定义（HEALTHCHECK），compose 不再重复
 
     # 单副本是硬约束（见上文）；以下显式声明便于 swarm / k8s 转换时一目了然
     deploy:
@@ -63,6 +55,7 @@ services:
         max_attempts: 5
 
   java-analyzer:
+    profiles: [java]
     build:
       context: ./java_analyzer
       dockerfile: Dockerfile

@@ -89,7 +89,6 @@ class PlaywrightClient:
 
     async def stop(self) -> None:
         """关闭浏览器并释放 Playwright。"""
-        errors: list[Exception] = []
         self._connected = False
         # 移除 disconnected 监听器，避免 browser.close() 触发假阳性警告
         if self._browser is not None:
@@ -101,7 +100,7 @@ class PlaywrightClient:
             try:
                 await context.close()
             except Exception as exc:
-                errors.append(exc)
+                logger.debug("stop() 关闭浏览器上下文失败: %s", exc)
         self._contexts.clear()
         if self._browser is not None:
             try:

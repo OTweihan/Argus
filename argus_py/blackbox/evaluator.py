@@ -22,15 +22,7 @@ from argus_py.observability.llm_trace import (
 )
 from argus_py.task.models import Finding
 from argus_py.utils.jsonx import to_jsonable
-
-
-def _parse_bool(value: Any) -> bool:
-    """解析 LLM 返回的布尔值。"""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"true", "1", "yes", "y"}
-    return bool(value)
+from argus_py.utils.parse import parse_bool
 
 
 @dataclass
@@ -62,11 +54,11 @@ class EvaluationResult:
                 )
             )
         # completed=true 时 next_action 必须为空，避免下一轮把已完成任务又当作新提示
-        completed_flag = _parse_bool(data.get("completed"))
+        completed_flag = parse_bool(data.get("completed"))
         next_action_raw = "" if completed_flag else str(data.get("next_action") or "").strip()
         return cls(
             completed=completed_flag,
-            success=_parse_bool(data.get("success")),
+            success=parse_bool(data.get("success")),
             reason=str(data.get("reason") or ""),
             next_action=next_action_raw,
             findings=findings,

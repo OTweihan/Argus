@@ -74,19 +74,7 @@
 
 <script setup lang="ts">
 import {reactive, watch} from "vue";
-
-interface ModelForm {
-  editingId: string | null;
-  name: string;
-  provider: string;
-  model: string;
-  apiKey: string;
-  baseUrl: string;
-  maxRetries: number | null;
-  timeoutSeconds: number | null;
-  isDefault: boolean;
-  enabled: boolean;
-}
+import type { ModelForm } from "../../composables/useModels";
 
 const props = defineProps<{
   visible: boolean;

@@ -38,7 +38,7 @@
       </el-row>
       <el-form-item label="模型配置">
         <el-select v-model="localForm.modelConfigId" style="width:100%">
-          <el-option label="默认模型" value="__default__" />
+          <el-option label="默认模型" :value="SENTINEL_DEFAULT" />
           <el-option
             v-for="model in enabledModels" :key="model.modelConfigId" :label="model.name"
             :value="model.modelConfigId"
@@ -47,7 +47,7 @@
       </el-form-item>
       <el-form-item label="截图">
         <el-select v-model="localForm.captureScreenshots" style="width:100%">
-          <el-option label="使用项目默认" value="__default__" />
+          <el-option label="使用项目默认" :value="SENTINEL_DEFAULT" />
           <el-option label="开启" value="true" />
           <el-option label="关闭" value="false" />
         </el-select>
@@ -109,21 +109,9 @@ import {
   hasAnyExtension,
   type PromptExtensions,
 } from "../../promptExtensions";
+import type { TaskForm } from "../../composables/useTasks";
+import { SENTINEL_DEFAULT } from "../../utils";
 const PromptExtensionEditor = defineAsyncComponent(() => import("../prompt/PromptExtensionEditor.vue"));
-
-interface TaskForm {
-  editingId: string | null;
-  goal: string;
-  name: string;
-  projectId: string;
-  startUrl: string;
-  maxSteps: number | null;
-  timeoutSeconds: number | null;
-  captureScreenshots: string;
-  modelConfigId: string;
-  parameters: { key: string; value: string }[];
-  promptExtensions: PromptExtensions;
-}
 
 const props = defineProps<{
   visible: boolean;

@@ -29,8 +29,6 @@ import java.util.stream.Stream;
 public class MavenClasspathResolver {
 
     private static final Logger log = LoggerFactory.getLogger(MavenClasspathResolver.class);
-    private static final long OFFLINE_TIMEOUT_SECONDS = 60;
-    private static final long ONLINE_TIMEOUT_SECONDS = 600;
     private static final String CACHE_FILE = ".argus/classpath.txt";
     private static final String CACHE_DIR = ".argus/classpath";
     private static final int MAVEN_OUTPUT_TAIL_CHARS = 4000;
@@ -81,9 +79,10 @@ public class MavenClasspathResolver {
             String mvnExec = detectMavenExecutable(sourcePath, config);
             if (mvnExec != null) {
                 // 3. 离线模式（短超时）
-                log.info("[CLASSPATH] Step B: starting offline Maven generation (timeout={}s) ...", OFFLINE_TIMEOUT_SECONDS);
+                long offlineTimeout = config.getOfflineTimeoutSeconds();
+                log.info("[CLASSPATH] Step B: starting offline Maven generation (timeout={}s) ...", offlineTimeout);
                 MavenConfig offlineConfig = config.withOffline(true);
-                ClasspathResult offlineResult = generateClasspath(sourcePath, mvnExec, offlineConfig, OFFLINE_TIMEOUT_SECONDS, progress);
+                ClasspathResult offlineResult = generateClasspath(sourcePath, mvnExec, offlineConfig, offlineTimeout, progress);
                 if (offlineResult.isAvailable()) {
                     log.info("[CLASSPATH] Step B: offline Maven succeeded — {} jars", offlineResult.getJars().size());
                     return offlineResult;
@@ -91,9 +90,10 @@ public class MavenClasspathResolver {
                 log.warn("[CLASSPATH] Step B: offline Maven failed — {}", offlineResult.getErrors());
 
                 // 4. 联网模式（长超时）
-                log.info("[CLASSPATH] Step C: starting online Maven generation (timeout={}s) ...", ONLINE_TIMEOUT_SECONDS);
+                long onlineTimeout = config.getOnlineTimeoutSeconds();
+                log.info("[CLASSPATH] Step C: starting online Maven generation (timeout={}s) ...", onlineTimeout);
                 MavenConfig onlineConfig = config.withOffline(false);
-                ClasspathResult onlineResult = generateClasspath(sourcePath, mvnExec, onlineConfig, ONLINE_TIMEOUT_SECONDS, progress);
+                ClasspathResult onlineResult = generateClasspath(sourcePath, mvnExec, onlineConfig, onlineTimeout, progress);
                 if (onlineResult.isAvailable()) {
                     log.info("[CLASSPATH] Step C: online Maven succeeded — {} jars", onlineResult.getJars().size());
                     return onlineResult;
@@ -302,36 +302,6 @@ public class MavenClasspathResolver {
     }
 
     /**
-     * 仅从缓存解析（CACHE_ONLY 模式）。
-     */
-    private ClasspathResult resolveFromCacheOnly(MavenModuleIndex moduleIndex, String moduleSelector,
-                                                  MavenConfig config) {
-        var optModule = moduleIndex.findModule(moduleSelector);
-        if (optModule.isEmpty()) {
-            return ClasspathResult.unavailable("Module not found: " + moduleSelector);
-        }
-
-        String moduleKey = optModule.get().getDisplayName();
-        Path cacheFile = moduleIndex.getBasedir().resolve(CACHE_DIR).resolve(toCacheFileName(moduleKey));
-        Path metaFile = moduleIndex.getBasedir().resolve(CACHE_DIR).resolve(toMetaFileName(moduleKey));
-
-        if (!Files.exists(cacheFile)) {
-            return ClasspathResult.unavailable("No cache for module: " + moduleKey);
-        }
-
-        ClasspathResult cached = readClasspathFile(cacheFile, "cache-" + moduleKey);
-        if (!cached.hasValidJars()) {
-            return ClasspathResult.unavailable("Empty cache for module: " + moduleKey);
-        }
-
-        if (!isCacheValid(metaFile, moduleIndex, config)) {
-            return ClasspathResult.unavailable("Stale cache for module: " + moduleKey);
-        }
-
-        return cached;
-    }
-
-    /**
      * source-only 降级。
      */
     private ClasspathResult fallbackToSourceOnly(String moduleKey) {
@@ -359,15 +329,42 @@ public class MavenClasspathResolver {
             pb.directory(workDir.toFile());
             pb.redirectErrorStream(true);
             Process process = pb.start();
+
+            // 在后台线程消费 stdout，避免管道缓冲区满导致死锁
+            StringBuilder outputCapture = new StringBuilder();
+            Thread outputReader = new Thread(() -> {
+                try (var reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (outputCapture.length() < MAVEN_OUTPUT_TAIL_CHARS * 2) {
+                            outputCapture.append(line).append("\n");
+                        }
+                    }
+                } catch (IOException ignored) {
+                    // 进程退出后管道关闭，正常行为
+                }
+            }, "mvn-install-reader");
+            outputReader.setDaemon(true);
+            outputReader.start();
+
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
+                outputReader.interrupt();
                 log.warn("[CLASSPATH] Reactor install timed out after {}s", timeoutSeconds);
                 return false;
             }
+            try { outputReader.join(1000); } catch (InterruptedException ignored) {}
+
             int exitCode = process.exitValue();
             if (exitCode != 0) {
-                log.warn("[CLASSPATH] Reactor install failed with exit code {}", exitCode);
+                String tail = outputCapture.toString();
+                if (tail.length() > MAVEN_OUTPUT_TAIL_CHARS) {
+                    tail = tail.substring(tail.length() - MAVEN_OUTPUT_TAIL_CHARS);
+                }
+                log.warn("[CLASSPATH] Reactor install failed with exit code {}; tail: {}",
+                        exitCode, tail);
                 return false;
             }
             log.info("[CLASSPATH] Reactor install completed successfully");

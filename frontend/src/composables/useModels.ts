@@ -9,9 +9,9 @@ import {
     updateModel as apiUpdateModel,
 } from "../api";
 import type {ModelConfig} from "../types";
-import {errorMessage, nullableText, sortBy} from "../utils";
+import {clearFormErrors, errorMessage, nullableText, sortBy} from "../utils";
 
-interface ModelForm {
+export interface ModelForm {
     editingId: string | null;
     name: string;
     provider: string;
@@ -47,7 +47,7 @@ export function useModels(opts: {
     }
 
     async function saveModel(): Promise<void> {
-        clearFormErrors();
+        clearFormErrors(formErrors);
         if (!String(modelForm.name).trim()) {
             formErrors.modelName = "名称不能为空";
             return;
@@ -99,7 +99,7 @@ export function useModels(opts: {
             enabled: model.enabled,
         });
         error.value = "";
-        clearFormErrors();
+        clearFormErrors(formErrors);
         showModelDialog.value = true;
     }
 
@@ -145,7 +145,7 @@ export function useModels(opts: {
     function openNewModelDialog(): void {
         resetModelForm();
         error.value = "";
-        clearFormErrors();
+        clearFormErrors(formErrors);
         showModelDialog.value = true;
     }
 
@@ -170,12 +170,6 @@ export function useModels(opts: {
 
     function showDialog(title: string, dialogMessage: string, tone: "success" | "error" | "info"): void {
         dialog.value = {title, message: dialogMessage, tone};
-    }
-
-    function clearFormErrors(): void {
-        for (const key of Object.keys(formErrors)) {
-            delete formErrors[key];
-        }
     }
 
     return {

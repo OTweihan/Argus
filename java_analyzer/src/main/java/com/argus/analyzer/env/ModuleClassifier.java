@@ -9,7 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -23,6 +25,12 @@ import java.util.stream.Stream;
 public class ModuleClassifier {
 
     private static final Logger log = LoggerFactory.getLogger(ModuleClassifier.class);
+
+    /**
+     * classifyAll 扫描完成后的信号缓存，避免 scoreModule 重复
+     * scanSignals()。线程安全由调用方保证（当前为单线程调用）。
+     */
+    private final Map<MavenModule, Signals> _signalsCache = new HashMap<>();
 
     // Library 关键词：artifactId 匹配其中之一则判定为基础设施/公共模块
     private static final Pattern LIBRARY_KEYWORDS = Pattern.compile(
@@ -41,6 +49,7 @@ public class ModuleClassifier {
      * 已标记 AGGREGATOR 的模块跳过扫描。
      */
     public void classifyAll(MavenModuleIndex index) {
+        _signalsCache.clear();
         for (MavenModule module : index.getModules()) {
             if (module.getModuleType() == ModuleType.AGGREGATOR) {
                 // 扫描阶段已标记，检查是否应转为 BOM
@@ -49,7 +58,10 @@ public class ModuleClassifier {
                 }
                 continue;
             }
-            ModuleType type = classifySingle(module);
+            // 先 scanSignals，结果缓存供后续 scoreModule() 复用
+            Signals signals = scanSignals(module);
+            _signalsCache.put(module, signals);
+            ModuleType type = classifySingle(module, signals);
             module.setModuleType(type);
             log.debug("[CLASSIFIER] Module {}: classified as {}", module.getDisplayName(), type);
         }
@@ -86,11 +98,13 @@ public class ModuleClassifier {
     // ====== 单模块分类 ======
 
     ModuleType classifySingle(MavenModule module) {
+        return classifySingle(module, scanSignals(module));
+    }
+
+    ModuleType classifySingle(MavenModule module, Signals signals) {
         if (module.isPomPackaging() && module.getSourceRoots().isEmpty()) {
             return isBomModule(module) ? ModuleType.BOM : ModuleType.AGGREGATOR;
         }
-
-        Signals signals = scanSignals(module);
         boolean hasSpringBootApp = signals.hasSpringBootApplication();
         boolean hasMainClass = signals.hasMainClass();
         int bizScore = signals.businessScore();
@@ -176,10 +190,12 @@ public class ModuleClassifier {
                         if (!signals.hasMain && content.contains("public static void main")) {
                             signals.hasMain = true;
                         }
-                    } catch (IOException ignored) {
+                    } catch (IOException ex) {
+                        log.debug("[CLASSIFIER] Failed to read {}: {}", javaFile, ex.toString());
                     }
                 }
-            } catch (IOException ignored) {
+            } catch (IOException ex) {
+                log.debug("[CLASSIFIER] Failed to walk source dir {}: {}", srcDir, ex.toString());
             }
         }
         return signals;
@@ -192,7 +208,8 @@ public class ModuleClassifier {
             return 50; // 应用模块默认高分
         }
         if (module.getModuleType() == ModuleType.BUSINESS) {
-            Signals s = scanSignals(module);
+            // 优先复用 classifyAll 阶段的扫描缓存，避免重复 I/O
+            Signals s = _signalsCache.getOrDefault(module, scanSignals(module));
             return s.businessScore();
         }
         return 0;

@@ -112,11 +112,6 @@ const open = ref(props.defaultOpen);
   animation: fadeIn 0.18s ease;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 .dbg-code {
   margin: 0;
   padding: 14px;

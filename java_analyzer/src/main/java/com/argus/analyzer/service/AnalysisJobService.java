@@ -4,6 +4,8 @@ import com.argus.analyzer.api.dto.AnalysisJobEvent;
 import com.argus.analyzer.api.dto.AnalysisJobStatusResponse;
 import com.argus.analyzer.api.dto.AnalyzeRequest;
 import com.argus.analyzer.api.dto.AnalyzeResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -20,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AnalysisJobService {
 
     private static final int MAX_EVENTS = 200;
+    private static final Logger log = LoggerFactory.getLogger(AnalysisJobService.class);
 
     private final ProjectAnalyzerService analyzerService;
     private final Map<String, AnalysisJob> jobs = new ConcurrentHashMap<>();
@@ -54,6 +57,7 @@ public class AnalysisJobService {
             job.addEvent("analysis", "INFO", "Analysis job completed");
             job.markSucceeded();
         } catch (Exception e) {
+            log.error("Analysis job {} failed: {}", job.jobId, e.getMessage(), e);
             job.addEvent("analysis", "ERROR", e.getMessage());
             job.markFailed(e);
         }
