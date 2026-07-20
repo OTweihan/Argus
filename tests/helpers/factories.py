@@ -1,4 +1,4 @@
-"""测试工厂：统一构建服务栈，避免各测试文件重复搭建 storage / service / queue。"""
+"""测试工厂：统一构建服务栈，使用 SQLite 存储对齐生产环境。"""
 
 from __future__ import annotations
 
@@ -14,16 +14,17 @@ from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.application import TaskApplicationService
-from argus_py.task.event import _NullTimelineService
+from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.query import TaskQueryService
 from argus_py.task.read import TaskReadService
-from argus_py.task.storage import TaskFileStorage
+from argus_py.task.storage import TaskSQLiteStorage
 
 
 @dataclass
 class AppStack:
+    """测试服务栈，所有服务使用 SQLite 存储对齐生产环境。"""
     app: TaskApplicationService
     lifecycle: TaskLifecycleService
     reader: TaskReadService
@@ -31,7 +32,7 @@ class AppStack:
     query: TaskQueryService
     trace_reader: TraceReadService
     debug_builder: DebugBundleBuilder
-    timeline: _NullTimelineService
+    timeline: TaskTimelineService
     project_service: ProjectService
     queue: TaskQueue
 
@@ -44,17 +45,17 @@ def make_app_stack(
     """构建完整的服务栈，供单测和 e2e 测试复用。
 
     Args:
-        tmp_path: pytest 提供的临时目录，各测试隔离。
+        tmp_path: pytest 提供的临时目录，各测试隔离（SQLite 数据库建在此目录下）。
         event_publisher: 可选的事件发布回调，e2e 测试传入 EventBus.publish。
     """
-    storage = TaskFileStorage(tmp_path / "tasks")
+    storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=event_publisher)
     reader = TaskReadService(storage)
     log = TaskLogService(storage, event_publisher=event_publisher)
     query = TaskQueryService(storage)
     trace_reader = TraceReadService()
     debug_builder = DebugBundleBuilder()
-    timeline = _NullTimelineService()
+    timeline = TaskTimelineService(storage, event_publisher=event_publisher)
     project_service = ProjectService(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
         task_read_service=reader,

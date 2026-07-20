@@ -1,8 +1,7 @@
-"""运行时容器：框架无关的组合根。
+"""运行时容器：框架无关的组合根，直接构造子服务而非经过 deprecated facade。
 
-负责按正确顺序创建和组装所有运行时对象。各消费者（FastAPI、CLI、Worker 独立进程）
-通过此容器获取已装配好的服务实例，而不是自行组装。
-"""
+各消费者（FastAPI、CLI、Worker 独立进程）通过此容器
+获取已装配好的服务实例，而不是自行组装。"""
 
 from __future__ import annotations
 
@@ -26,12 +25,14 @@ from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.read import TaskReadService
-from argus_py.task.service import TaskService
+from argus_py.task.service import TaskService  # backward compat
+from argus_py.task.storage import TaskSQLiteStorage
 
 
 @dataclass(frozen=True)
 class RuntimeContainer:
-    """运行时容器：保存所有已初始化服务的引用。"""
+    """运行时容器：保存所有已初始化服务的引用。
+    新代码优先使用具体子服务而非 ``task_service`` facade。"""
 
     settings: ServerSettings
     event_bus: EventBus
@@ -70,26 +71,31 @@ def create_container() -> RuntimeContainer:
     audit_service = AuditService(
         event_publisher=event_bus.publish if settings.observability_audit_logging else None,
     )
-
     set_audit_service(audit_service)
 
+    model_config_service = ModelConfigService()
+    task_queue = TaskQueue(max_size=settings.scheduler_queue_max_size)
+
+    # ── 直接构造子服务，绕过 deprecated TaskService facade ──
+    storage = TaskSQLiteStorage()
+    lifecycle_service = TaskLifecycleService(storage, event_publisher=event_bus.publish)
+    log_service = TaskLogService(storage, event_publisher=event_bus.publish)
+    task_read_service = TaskReadService(storage)
+    trace_reader_service = TraceReadService()
+    debug_bundle_builder = DebugBundleBuilder()
+    timeline_service = (
+        TaskTimelineService(storage, event_publisher=event_bus.publish)
+        if isinstance(storage, TaskSQLiteStorage)
+        else _NullTimelineService()
+    )
+
+    # backward compat: 保持 task_service facade 可用
+    # 新代码通过容器字段直接获取子服务
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="TaskService is deprecated", category=DeprecationWarning
         )
-        task_service = TaskService(event_publisher=event_bus.publish)
-
-    model_config_service = ModelConfigService()
-
-    task_queue = TaskQueue(max_size=settings.scheduler_queue_max_size)
-
-    # 提取子服务（新代码直接使用子服务，不用 task_service facade）
-    lifecycle_service = task_service.lifecycle
-    log_service = task_service.log
-    task_read_service = task_service.reader
-    trace_reader_service = task_service.trace_reader
-    debug_bundle_builder = task_service.debug_builder
-    timeline_service = task_service.timeline
+        task_service = TaskService(storage=storage, event_publisher=event_bus.publish)
 
     project_service = ProjectService(task_read_service=task_read_service)
 
