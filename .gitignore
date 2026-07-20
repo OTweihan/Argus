@@ -70,6 +70,9 @@ CLAUDE.md
 # Claude Code local config
 .claude/
 
+# CodeGraph index (由 codegraph init 生成，本地索引不入库)
+.codegraph/
+
 # MCP server config
 .mcp.json
 
