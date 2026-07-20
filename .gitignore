@@ -1,83 +1,67 @@
-# Byte-compiled / optimized / DLL files
+# =============================================================================
+# Python
+# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Test cache
 .pytest_cache/
-
-# Virtual environments
 .venv/
 venv/
-
-# Distribution / packaging
 dist/
 build/
 *.egg-info/
 *.egg
 
-# IDE
+# =============================================================================
+# OS & IDE
+# =============================================================================
+.DS_Store
+Thumbs.db
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Playwright
-.playwright/
-
-# Output files (keep directory structure, ignore contents)
-outputs/logs/*
-!outputs/logs/.gitkeep
-outputs/screenshots/*
-!outputs/screenshots/.gitkeep
-outputs/reports/*
-!outputs/reports/.gitkeep
-outputs/temp/*
-!outputs/temp/.gitkeep
-outputs/data/*
-!outputs/data/.gitkeep
-outputs/traces/*
-outputs/data/backups/*
-outputs/_pytest_*
-
-frontend/node_modules/
-frontend/dist/
-frontend/src/components.d.ts
-
-# Vite build 产物：由 `cd frontend && pnpm build` 生成，不入 git。
-# 详见 README 「Web 控制台构建产物」节。
-argus_py/api/static/assets/
-argus_py/api/static/index.html
-
-# OpenAPI intermediate build artifact（codegen 中间产物，不含 git）
-openapi.json
-
-# Environment
+# =============================================================================
+# Environment & secrets
+# =============================================================================
 .env
 .env.local
-
-# OS
-.DS_Store
-Thumbs.db
 config/llm.local.env
 config/.fernet_key
 config/browser-states/*.json
 
-# GitNexus
-AGENTS.md
-CLAUDE.md
+# =============================================================================
+# Runtime outputs（由 Dockerfile / 应用自动创建，不入库）
+# =============================================================================
+outputs/
 
-# Claude Code local config
-.claude/
+# =============================================================================
+# Frontend & build artifacts
+# =============================================================================
+frontend/node_modules/
+frontend/dist/
+frontend/src/components.d.ts
+argus_py/api/static/assets/
+argus_py/api/static/index.html
+openapi.json
 
-# CodeGraph index (由 codegraph init 生成，本地索引不入库)
-.codegraph/
-
-# Java 分析器 classpath 缓存
+# =============================================================================
+# Java 分析器
+# =============================================================================
+.java-version
 .argus/
 
-# MCP server config
-.mcp.json
+# =============================================================================
+# Claude Code & CodeGraph（本地索引/配置不入库）
+# =============================================================================
+CLAUDE.md
+.claude/
+.codegraph/
 
-# Temp response data
+# =============================================================================
+# Other
+# =============================================================================
+.playwright/
+.mcp.json
 p1_response.json
