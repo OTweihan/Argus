@@ -1,0 +1,50 @@
+# Argus 核心服务 docker-compose（不含 java-analyzer）
+#
+# 用法：
+#   docker compose -f docker-compose.core.yml up -d --build
+#
+# 如需 Java 源码分析能力，使用完整 docker-compose.yml：
+#   docker compose up -d --build
+
+services:
+  argus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: argus:latest
+    container_name: argus
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      PYTHONUNBUFFERED: "1"
+      WEB_CONCURRENCY: "1"
+
+    volumes:
+      - ./config:/app/config
+      - argus-outputs:/app/outputs
+
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import urllib.request, sys
+          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+volumes:
+  argus-outputs:
+    name: argus-outputs
