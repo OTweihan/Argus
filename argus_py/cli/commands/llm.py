@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from typing import TYPE_CHECKING
 
 from argus_py.cli.io import cli_error, cli_info, cli_print
 from argus_py.config.service import ModelConfigService
 from argus_py.llm import LLMClient
+
+if TYPE_CHECKING:
+    from argus_py.cli._types import SubParserAdder
 
 LLM_CONNECTION_CHECK_PROMPT = "Reply only: ok"
 LLM_CONNECTION_CHECK_MAX_TOKENS = 4
 LLM_CONNECTION_CHECK_TEMPERATURE = 0.0
 
 
-def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
+def build_parser(subparsers: "SubParserAdder") -> None:
     """添加 llm 子命令解析器。"""
     llm_parser = subparsers.add_parser("llm", help="大模型调用调试命令")
     llm_subparsers = llm_parser.add_subparsers(dest="llm_command")

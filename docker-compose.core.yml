@@ -1,7 +1,0 @@
-# Argus 核心服务（不含 java-analyzer）
-#
-# 已迁移到 docker-compose.yml 的 profiles 模式。
-# 直接使用默认的 docker compose（不加 --profile java 即为核心服务）：
-#   docker compose up -d --build
-#
-# 本文件保留向后兼容：等同于 docker compose up -d --build

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession
@@ -13,12 +14,14 @@ from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.core.paths import SCREENSHOTS_DIR
 from argus_py.execution.runner import TaskRunner
-from argus_py.runtime.container import create_container
-from argus_py.task.application import TaskApplicationService
+from argus_py.runtime.container import create_container, create_task_application_service
 from argus_py.task.models import Task
 
+if TYPE_CHECKING:
+    from argus_py.cli._types import SubParserAdder
 
-def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
+
+def build_parser(subparsers: "SubParserAdder") -> None:
     """添加 run 子命令解析器。"""
     from argus_py.cli.utils import positive_int
 
@@ -53,13 +56,7 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
 async def run(args: argparse.Namespace) -> int:
     """创建并执行黑盒任务。"""
     c = create_container()
-    app = TaskApplicationService(
-        lifecycle=c.lifecycle_service,
-        task_read=c.task_read_service,
-        queue=c.task_queue,
-        project_service=c.project_service,
-        model_config_service=c.model_config_service,
-    )
+    app = create_task_application_service(c)
     auth_state_arg = getattr(args, "auth_state", None)
     auth_state_path = resolve_auth_state_path(auth_state_arg) if auth_state_arg else None
     if auth_state_path is not None and not auth_state_path.exists():
@@ -173,7 +170,7 @@ def _build_runner(
         lifecycle=c.lifecycle_service,
         reader=c.task_read_service,
         log_service=c.log_service,
-        timeline_service=c.timeline_service,  # type: ignore[arg-type]
+        timeline_service=c.timeline_service,
         browser_session_factory=browser_session_factory,
         model_config_service=model_config,
     )

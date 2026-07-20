@@ -1,12 +1,12 @@
 import asyncio
 
 import pytest
-from argus_py.api.dependencies import load_server_settings
 from argus_py.api.routes import projects as project_routes
 from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
 from argus_py.api.schemas.config import ModelConfigUpdateRequest
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
+from argus_py.config.server_settings import load_server_settings
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.infra.queue import TaskQueue

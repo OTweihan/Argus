@@ -15,6 +15,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 WORKDIR /app
 COPY --from=build /build/target/java-analyzer-*.jar app.jar
 EXPOSE 8081
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -sf http://127.0.0.1:8081/actuator/health || exit 1
 ENTRYPOINT ["java", "-jar", "app.jar"]

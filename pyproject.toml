@@ -36,7 +36,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "mypy>=1.8",
-    # ruff 负责 format + lint + import 排序，替代原先的 black + isort。
+    # ruff 负责 format + lint + import 排序。
     "ruff>=0.6,<1.0",
     "pre-commit>=3.7",
     "types-PyYAML>=6.0",

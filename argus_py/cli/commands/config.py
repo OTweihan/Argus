@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+from typing import TYPE_CHECKING
 
 from argus_py.cli.io import cli_error, cli_info, cli_print
 from argus_py.cli.messages import llm_field_label, llm_message
@@ -13,8 +14,11 @@ from argus_py.core.constants import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MAX_RETRIE
 from argus_py.core.exceptions import ModelConfigError
 from argus_py.core.ids import generate_model_config_id
 
+if TYPE_CHECKING:
+    from argus_py.cli._types import SubParserAdder
 
-def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
+
+def build_parser(subparsers: "SubParserAdder") -> None:
     """添加 config 子命令解析器。"""
     config_parser = subparsers.add_parser("config", help="交互式配置命令")
     config_subparsers = config_parser.add_subparsers(dest="config_command")

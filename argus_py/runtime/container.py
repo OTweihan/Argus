@@ -1,4 +1,4 @@
-"""运行时容器：框架无关的组合根，直接构造子服务而非经过 deprecated facade。
+"""运行时容器：框架无关的组合根，直接构造子服务。
 
 各消费者（FastAPI、CLI、Worker 独立进程）通过此容器
 获取已装配好的服务实例，而不是自行组装。"""
@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import asyncio
-import warnings
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from argus_py.config.server_settings import ServerSettings, load_server_settings
 from argus_py.config.service import ModelConfigService
@@ -24,20 +24,22 @@ from argus_py.project.service import ProjectService
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
+from argus_py.task.query import TaskQueryService
 from argus_py.task.read import TaskReadService
-from argus_py.task.service import TaskService  # backward compat
 from argus_py.task.storage import TaskSQLiteStorage
+
+if TYPE_CHECKING:
+    from argus_py.task.application import TaskApplicationService
 
 
 @dataclass(frozen=True)
 class RuntimeContainer:
-    """运行时容器：保存所有已初始化服务的引用。
-    新代码优先使用具体子服务而非 ``task_service`` facade。"""
+    """运行时容器：保存所有已初始化服务的引用。"""
 
     settings: ServerSettings
     event_bus: EventBus
     audit_service: AuditService
-    task_service: TaskService
+    task_query_service: TaskQueryService
     lifecycle_service: TaskLifecycleService
     log_service: TaskLogService
     task_read_service: TaskReadService
@@ -49,6 +51,19 @@ class RuntimeContainer:
     task_queue: TaskQueue
     task_worker: TaskWorker
     llm_semaphore: asyncio.Semaphore | None
+
+
+def create_task_application_service(container: RuntimeContainer) -> TaskApplicationService:
+    """创建 TaskApplicationService，聚合容器中的子服务。"""
+    from argus_py.task.application import TaskApplicationService
+
+    return TaskApplicationService(
+        lifecycle=container.lifecycle_service,
+        task_read=container.task_read_service,
+        queue=container.task_queue,
+        project_service=container.project_service,
+        model_config_service=container.model_config_service,
+    )
 
 
 @lru_cache
@@ -76,11 +91,12 @@ def create_container() -> RuntimeContainer:
     model_config_service = ModelConfigService()
     task_queue = TaskQueue(max_size=settings.scheduler_queue_max_size)
 
-    # ── 直接构造子服务，绕过 deprecated TaskService facade ──
+    # ── 直接构造子服务 ──
     storage = TaskSQLiteStorage()
     lifecycle_service = TaskLifecycleService(storage, event_publisher=event_bus.publish)
     log_service = TaskLogService(storage, event_publisher=event_bus.publish)
     task_read_service = TaskReadService(storage)
+    task_query_service = TaskQueryService(storage=storage)
     trace_reader_service = TraceReadService()
     debug_bundle_builder = DebugBundleBuilder()
     timeline_service = (
@@ -88,14 +104,6 @@ def create_container() -> RuntimeContainer:
         if isinstance(storage, TaskSQLiteStorage)
         else _NullTimelineService()
     )
-
-    # backward compat: 保持 task_service facade 可用
-    # 新代码通过容器字段直接获取子服务
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message="TaskService is deprecated", category=DeprecationWarning
-        )
-        task_service = TaskService(storage=storage, event_publisher=event_bus.publish)
 
     project_service = ProjectService(task_read_service=task_read_service)
 
@@ -117,7 +125,7 @@ def create_container() -> RuntimeContainer:
         settings=settings,
         event_bus=event_bus,
         audit_service=audit_service,
-        task_service=task_service,
+        task_query_service=task_query_service,
         lifecycle_service=lifecycle_service,
         log_service=log_service,
         task_read_service=task_read_service,

@@ -2,7 +2,6 @@ package com.argus.analyzer.env;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,7 +17,6 @@ import java.util.stream.Stream;
  * 保留此类仅为 API 兼容，内部委托给 ModuleClassifier。
  */
 @Deprecated
-@Component
 public class ApplicationModuleDetector {
 
     private static final Logger log = LoggerFactory.getLogger(ApplicationModuleDetector.class);

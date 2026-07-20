@@ -22,7 +22,7 @@ public class FindingDetector {
     private static final Logger log = LoggerFactory.getLogger(FindingDetector.class);
 
     private static final Pattern URL_PATTERN = Pattern.compile(
-            "https?://[\\w.-]+(:\\d+)?(/[\\w./%-]*)?",
+            "https?://[\\w][\\w.-]+\\.[a-zA-Z]{2,}(:\\d+)?(/[\\w./%-]*)?",
             Pattern.CASE_INSENSITIVE
     );
 

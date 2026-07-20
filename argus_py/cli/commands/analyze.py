@@ -10,14 +10,13 @@ from argus_py.cli.utils import load_latest_task
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
-from argus_py.runtime.container import create_container
-from argus_py.task.application import TaskApplicationService
+from argus_py.runtime.container import create_container, create_task_application_service
 
 if TYPE_CHECKING:
-    pass
+    from argus_py.cli._types import SubParserAdder
 
 
-def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
+def build_parser(subparsers: "SubParserAdder") -> None:
     """添加 analyze 子命令解析器。"""
     parser = subparsers.add_parser("analyze", help="执行白盒代码分析任务")
     parser.add_argument(
@@ -76,13 +75,7 @@ def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF00
 async def run(args: argparse.Namespace) -> int:
     """创建并执行白盒分析任务。"""
     c = create_container()
-    app = TaskApplicationService(
-        lifecycle=c.lifecycle_service,
-        task_read=c.task_read_service,
-        queue=c.task_queue,
-        project_service=c.project_service,
-        model_config_service=c.model_config_service,
-    )
+    app = create_task_application_service(c)
 
     repo = getattr(args, "repo", None)
     source_path = getattr(args, "source_path", None)

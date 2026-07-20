@@ -9,11 +9,6 @@ disable_existing_loggers: false
 # 日志格式
 # =========================
 formatters:
-  # 标准格式：时间 [级别] logger 名称 消息（保留供脚本/调试使用）
-  standard:
-    format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    datefmt: "%Y-%m-%dT%H:%M:%S"
-
   # 控制台人类可读格式：附带常用链路上下文字段，配合 ContextLogFilter 注入
   # 字段缺失时由 defaults 占位，避免抛 KeyError
   human:
@@ -25,11 +20,6 @@ formatters:
       operation: "-"
       event: "-"
       status: "-"
-
-  # 旧的简洁格式，保留向后兼容，不再作为默认 console formatter
-  simple:
-    format: "%(asctime)s [%(levelname)s] %(message)s"
-    datefmt: "%Y-%m-%dT%H:%M:%S"
 
   # 结构化 JSON：写入文件供后续 ELK/OpenTelemetry 等采集
   json:

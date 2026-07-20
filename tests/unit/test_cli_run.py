@@ -9,7 +9,6 @@ from argus_py.cli import utils as cli_utils
 from argus_py.cli.commands import auth as auth_cmd
 from argus_py.cli.commands import run as run_cmd
 from argus_py.core.enums import TaskStatus
-from argus_py.runtime.container import RuntimeContainer
 from argus_py.task.models import Task
 from argus_py.task.strategy import TaskExecutionLimits, resolve_execution_limits
 
@@ -42,12 +41,32 @@ class FakeTaskService:
         return self.task
 
 
+def _mock_resolve_params(goal, start_url, max_steps=None, timeout_seconds=None,
+                         capture_screenshots=True, parameters=None, project_id=None,
+                         **kwargs):
+    """Mock resolve_create_params：调用真实的 resolve_execution_limits 计算限制。"""
+    limits = resolve_execution_limits(goal, start_url, max_steps, timeout_seconds)
+
+    return {
+        "goal": goal,
+        "start_url": start_url,
+        "max_steps": limits.max_steps,
+        "timeout_seconds": limits.timeout_seconds,
+        "capture_screenshots": capture_screenshots,
+    }
+
+
 @pytest.fixture(autouse=True)
 def _patch_container(monkeypatch) -> FakeTaskService:
     """把 CLI run() 中的 create_container 替换为返回 FakeTaskService 的容器。"""
     fake_service = FakeTaskService()
-    container = mock.MagicMock(spec=RuntimeContainer)
-    container.task_service = fake_service
+    container = mock.MagicMock()
+
+    # create_task_application_service() 返回的 mock 委托到 FakeTaskService
+    mock_app = mock.MagicMock()
+    mock_app.create_task.side_effect = fake_service.create_task
+    mock_app.resolve_create_params.side_effect = _mock_resolve_params
+
     container.lifecycle_service = mock.MagicMock()
     container.task_read_service = mock.MagicMock()
     container.log_service = mock.MagicMock()
@@ -56,6 +75,7 @@ def _patch_container(monkeypatch) -> FakeTaskService:
     container.task_queue = mock.MagicMock()
     container.project_service = mock.MagicMock()
     monkeypatch.setattr(run_cmd, "create_container", lambda: container)
+    monkeypatch.setattr(run_cmd, "create_task_application_service", lambda c: mock_app)
     return fake_service
 
 

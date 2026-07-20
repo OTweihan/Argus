@@ -37,7 +37,7 @@ outputs/temp/*
 outputs/data/*
 !outputs/data/.gitkeep
 outputs/traces/*
-!outputs/traces/.gitkeep
+outputs/data/backups/*
 outputs/_pytest_*
 
 frontend/node_modules/
@@ -72,6 +72,9 @@ CLAUDE.md
 
 # CodeGraph index (由 codegraph init 生成，本地索引不入库)
 .codegraph/
+
+# Java 分析器 classpath 缓存
+.argus/
 
 # MCP server config
 .mcp.json

@@ -8,6 +8,7 @@ import sys
 from collections.abc import Coroutine
 from typing import Any
 
+from argus_py.cli._types import SubParserAdder  # noqa: F401
 from argus_py.cli.commands import analyze, auth, browser, config, run, serve
 from argus_py.cli.commands import llm as llm_cmd
 from argus_py.cli.io import setup_cli_logging

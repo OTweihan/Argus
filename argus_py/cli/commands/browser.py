@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING
 
 from argus_py.browser import BrowserSession, PlaywrightClient
 from argus_py.cli.io import cli_info, cli_print
 from argus_py.core.paths import SCREENSHOTS_DIR, resolve_project_path
 
+if TYPE_CHECKING:
+    from argus_py.cli._types import SubParserAdder
 
-def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
+
+def build_parser(subparsers: "SubParserAdder") -> None:
     """添加 browser 子命令解析器。"""
 
     browser_parser = subparsers.add_parser("browser", help="浏览器封装调试命令")

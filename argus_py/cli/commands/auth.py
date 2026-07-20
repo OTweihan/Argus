@@ -7,6 +7,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from argus_py.browser import BrowserSession, PlaywrightClient
@@ -18,8 +19,11 @@ from argus_py.cli.utils import (
 from argus_py.core.paths import BROWSER_STATES_DIR
 from argus_py.observability import audit
 
+if TYPE_CHECKING:
+    from argus_py.cli._types import SubParserAdder
 
-def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
+
+def build_parser(subparsers: "SubParserAdder") -> None:
     """添加 auth 子命令解析器。"""
     auth_parser = subparsers.add_parser("auth", help="浏览器登录态管理命令")
     auth_subparsers = auth_parser.add_subparsers(dest="auth_command")

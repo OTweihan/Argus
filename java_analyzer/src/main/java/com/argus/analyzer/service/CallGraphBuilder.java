@@ -111,7 +111,7 @@ public class CallGraphBuilder {
                     ResolutionType.SYMBOL_SOLVER, Confidence.HIGH,
                     List.of(), sourceFile, line
             );
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             log.debug("[RESOLVE] Symbol-solver fallback on {}:{} — {}", sourceFile, line, ex.toString());
         }
 
@@ -147,7 +147,7 @@ public class CallGraphBuilder {
             int genericStart = typeName.indexOf('<');
             if (genericStart > 0) typeName = typeName.substring(0, genericStart);
             return typeName;
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             log.debug("[RESOLVE] Scope-type fallback failed — {}", ex.toString());
             return null;
         }

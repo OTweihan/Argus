@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
 
-from argus_py.config.server_settings import load_server_settings  # noqa: F401
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.events import EventBus
@@ -18,11 +17,10 @@ from argus_py.observability.context import run_in_thread
 from argus_py.observability.debug_bundle import DebugBundleBuilder
 from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
-from argus_py.runtime.container import create_container
+from argus_py.runtime.container import create_container, create_task_application_service
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.query import TaskQueryService
 from argus_py.task.read import TaskReadService
-from argus_py.task.service import TaskService
 
 if TYPE_CHECKING:
     from argus_py.task.application import TaskApplicationService
@@ -36,11 +34,6 @@ def get_event_bus() -> EventBus:
 @lru_cache
 def get_audit_service() -> AuditService:
     return create_container().audit_service
-
-
-@lru_cache
-def get_task_service() -> TaskService:
-    return create_container().task_service
 
 
 @lru_cache
@@ -65,22 +58,13 @@ def get_task_worker() -> TaskWorker:
 
 @lru_cache
 def get_task_app_service() -> "TaskApplicationService":
-    from argus_py.task.application import TaskApplicationService
-
-    c = create_container()
-    return TaskApplicationService(
-        lifecycle=c.lifecycle_service,
-        task_read=c.task_read_service,
-        queue=c.task_queue,
-        project_service=c.project_service,
-        model_config_service=c.model_config_service,
-    )
+    return create_task_application_service(create_container())
 
 
 @lru_cache
 def get_task_query_service() -> TaskQueryService:
     """返回 TaskQueryService（从容器直接提取）。"""
-    return create_container().task_service.query
+    return create_container().task_query_service
 
 
 @lru_cache
@@ -128,7 +112,6 @@ def reset_all_dependencies() -> None:
     """
     get_event_bus.cache_clear()
     get_audit_service.cache_clear()
-    get_task_service.cache_clear()
     get_project_service.cache_clear()
     get_model_config_service.cache_clear()
     get_task_queue.cache_clear()

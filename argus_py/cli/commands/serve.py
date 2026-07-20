@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import argparse
 import os
+from typing import TYPE_CHECKING
 
 from argus_py.cli.io import cli_cancelled, cli_error, cli_info
 from argus_py.config.server_settings import SERVER_CONFIG_ENV, load_server_settings
 from argus_py.core.paths import resolve_project_path
+
+if TYPE_CHECKING:
+    from argus_py.cli._types import SubParserAdder
 
 _MULTI_WORKER_ENV_VARS = ("WEB_CONCURRENCY", "UVICORN_WORKERS")
 
@@ -37,7 +41,7 @@ def _detect_multi_worker_env() -> tuple[str, int] | None:
     return None
 
 
-def build_parser(subparsers: argparse._SubParsersAction) -> None:  # noqa: SLF001
+def build_parser(subparsers: "SubParserAdder") -> None:
     """添加 serve 子命令解析器。"""
     parser = subparsers.add_parser("serve", help="启动 FastAPI Web 服务")
     parser.add_argument("--host", help="监听地址；不传时读取 config/server.yaml")

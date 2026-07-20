@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -114,16 +115,11 @@ class AuthTokenMiddleware:
 
     async def _reject(self, scope_type: str, send: Send) -> None:
         if scope_type == "http":
+            from argus_py.api.errors import error_payload
+
             body = jsonable_encoder(
-                {
-                    "error": {
-                        "code": "UNAUTHORIZED",
-                        "message": "需要有效的 API Token。",
-                        "details": {},
-                    }
-                }
+                error_payload("UNAUTHORIZED", "需要有效的 API Token。")
             )
-            import json
 
             payload = json.dumps(body).encode("utf-8")
             await send(

@@ -54,7 +54,7 @@ class PlaywrightClient:
             try:
                 self._browser.remove_listener("disconnected", self._on_disconnected)
             except Exception:
-                pass
+                logger.debug("start() 移除断开连接监听器失败", exc_info=True)
             try:
                 await self._browser.close()
             except Exception:
@@ -95,7 +95,7 @@ class PlaywrightClient:
             try:
                 self._browser.remove_listener("disconnected", self._on_disconnected)
             except Exception:
-                pass
+                logger.debug("stop() 移除断开连接监听器失败", exc_info=True)
         for context in list(self._contexts):
             try:
                 await context.close()

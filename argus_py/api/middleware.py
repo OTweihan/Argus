@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -214,15 +213,6 @@ def _error_response(
     details: dict | None = None,
 ) -> JSONResponse:
     """生成统一错误响应。"""
-    return JSONResponse(
-        status_code=http_status,
-        content=jsonable_encoder(
-            {
-                "error": {
-                    "code": code,
-                    "message": message,
-                    "details": details or {},
-                }
-            }
-        ),
-    )
+    from argus_py.api.errors import error_response
+
+    return error_response(code, message, http_status, details)

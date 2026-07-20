@@ -16,20 +16,21 @@ import App from "./App.vue";
 const isDev = import.meta.env.DEV;
 
 window.onerror = (_message, _source, _lineno, _colno, error) => {
+  console.error("[window.onerror]", error);
   if (isDev) return; // 开发环境保持控制台原生行为
   ElNotification.error({
     title: "运行时错误",
-    message: error?.message ?? "未知脚本错误",
+    message: "发生未知脚本错误，请刷新页面后重试。",
     duration: 5000,
   });
 };
 
 window.addEventListener("unhandledrejection", (event) => {
+  console.error("[unhandledrejection]", event.reason);
   if (isDev) return;
-  const reason = event.reason;
   ElNotification.error({
     title: "未处理的 Promise 拒绝",
-    message: reason?.message ?? String(reason),
+    message: "请求处理异常，请稍后重试。",
     duration: 5000,
   });
 });
@@ -42,8 +43,8 @@ app.config.errorHandler = (err, _instance, info) => {
   console.error(`[Vue errorHandler] ${info}`, err);
   if (isDev) return;
   ElNotification.error({
-    title: "Vue 渲染异常",
-    message: err instanceof Error ? err.message : String(err),
+    title: "页面渲染异常",
+    message: "页面渲染异常，请刷新页面后重试。",
     duration: 5000,
   });
 };

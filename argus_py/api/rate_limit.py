@@ -29,7 +29,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -183,18 +182,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 
 def _rate_limited_response(rule_name: str, retry_after: int) -> JSONResponse:
-    return JSONResponse(
-        status_code=429,
+    from argus_py.api.errors import error_response
+
+    return error_response(
+        code="RATE_LIMITED",
+        message="请求过于频繁，请稍后再试。",
+        http_status=429,
+        details={"rule": rule_name, "retryAfter": retry_after},
         headers={"Retry-After": str(retry_after)},
-        content=jsonable_encoder(
-            {
-                "error": {
-                    "code": "RATE_LIMITED",
-                    "message": "请求过于频繁，请稍后再试。",
-                    "details": {"rule": rule_name, "retryAfter": retry_after},
-                }
-            }
-        ),
     )
 
 

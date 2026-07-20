@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -34,11 +35,16 @@ def main() -> None:
 
 
 def _parse_args() -> Path:
-    args = sys.argv[1:]
-    output = _PROJECT_ROOT / "openapi.json"
-    if args and args[0] == "--output" and len(args) > 1:
-        output = Path(args[1])
-    return output
+    parser = argparse.ArgumentParser(description="导出 FastAPI OpenAPI JSON 架构")
+    default = _PROJECT_ROOT / "openapi.json"
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=default,
+        help=f"输出文件路径（默认：{default}）",
+    )
+    args = parser.parse_args()
+    return args.output
 
 
 if __name__ == "__main__":

@@ -30,7 +30,8 @@ public class ExecutionFlowTracer {
 
             List<FlowStep> steps = new ArrayList<>();
             Set<String> visited = new HashSet<>();
-            dfs(callGraph, entryKey, 0, visited, steps);
+            Set<String> pathNodes = new HashSet<>();
+            dfs(callGraph, entryKey, 0, visited, pathNodes, steps);
 
             int maxDepth = steps.stream().mapToInt(FlowStep::getDepth).max().orElse(0);
             flows.add(new ExecutionFlow(entryKey, steps, maxDepth));
@@ -40,31 +41,39 @@ public class ExecutionFlowTracer {
     }
 
     private void dfs(Map<String, CallGraphNode> callGraph, String currentKey,
-                     int depth, Set<String> visited, List<FlowStep> steps) {
-        if (depth > MAX_DEPTH || visited.contains(currentKey)) {
+                     int depth, Set<String> visited, Set<String> pathNodes, List<FlowStep> steps) {
+        if (depth > MAX_DEPTH || pathNodes.contains(currentKey)) {
             return;
         }
 
-        visited.add(currentKey);
+        pathNodes.add(currentKey);
 
-        CallGraphNode node = callGraph.get(currentKey);
-        if (node == null) {
-            return;
-        }
-
-        steps.add(new FlowStep(depth, currentKey, node.getClassName(), node.getMethodName()));
-
-        for (CallEdge callee : node.getCalleeDetails()) {
-            String calleeKey = callee.getTo();
-            if (callGraph.containsKey(calleeKey)) {
-                dfs(callGraph, calleeKey, depth + 1, visited, steps);
-            } else {
-                // External / unresolved call — record as leaf at next depth
-                String[] parts = calleeKey.split("#", 2);
-                String clazz = parts.length > 1 ? parts[0] : "";
-                String method = parts.length > 1 ? parts[1] : calleeKey;
-                steps.add(new FlowStep(depth + 1, calleeKey, clazz, method));
+        try {
+            CallGraphNode node = callGraph.get(currentKey);
+            if (node == null) {
+                return;
             }
+
+            // 仅当节点首次被访问时才添加步骤（全局去重），
+            // 但允许通过不同路径重新进入以追踪其下游调用者。
+            if (visited.add(currentKey)) {
+                steps.add(new FlowStep(depth, currentKey, node.getClassName(), node.getMethodName()));
+            }
+
+            for (CallEdge callee : node.getCalleeDetails()) {
+                String calleeKey = callee.getTo();
+                if (callGraph.containsKey(calleeKey)) {
+                    dfs(callGraph, calleeKey, depth + 1, visited, pathNodes, steps);
+                } else {
+                    // External / unresolved call — record as leaf at next depth
+                    String[] parts = calleeKey.split("#", 2);
+                    String clazz = parts.length > 1 ? parts[0] : "";
+                    String method = parts.length > 1 ? parts[1] : calleeKey;
+                    steps.add(new FlowStep(depth + 1, calleeKey, clazz, method));
+                }
+            }
+        } finally {
+            pathNodes.remove(currentKey);
         }
     }
 }
