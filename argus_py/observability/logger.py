@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,7 +34,7 @@ _BUILTIN_RECORD_ATTRS: frozenset[str] = frozenset(
         "processName",
         "relativeCreated",
         "stack_info",
-        "taskName",  # Python 3.12+
+        *(["taskName"] if sys.version_info >= (3, 12) else []),  # Python 3.12+
         "thread",
         "threadName",
     }
@@ -129,3 +130,30 @@ def _truncate(text: str, max_length: int = _MAX_EXCEPTION_LENGTH) -> str:
 def get_observable_logger(name: str) -> logging.Logger:
     """获取带语义命名的 logger。"""
     return logging.getLogger(name)
+
+
+class MaxLevelFilter(logging.Filter):
+    """日志级别上限过滤器：只允许低于指定级别的记录通过。
+
+    与 ``app_file`` handler 配合使用：app_file 记录 DEBUG-WARNING 级别，
+    ERROR 以上留给 ``error_file`` handler，避免双重写入。
+
+    用法（logging.yaml）：:
+
+        filters:
+          max_warning:
+            (): argus_py.observability.logger.MaxLevelFilter
+            max_level: WARNING
+
+    原理：Python 的日志级别数值越高越严重（DEBUG=10, WARNING=30, ERROR=40）。
+    设置 ``max_level=logging.WARNING`` 后，ERROR(40) >= WARNING(30) 被过滤。
+    """
+
+    def __init__(self, max_level: int | str = logging.WARNING) -> None:
+        super().__init__()
+        if isinstance(max_level, str):
+            max_level = logging._nameToLevel.get(max_level.upper(), logging.WARNING)  # noqa: SLF001
+        self.max_level = max_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno < self.max_level

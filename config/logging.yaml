@@ -43,6 +43,11 @@ filters:
   context:
     (): argus_py.observability.logger.ContextLogFilter
 
+  # 只允许低于 WARNING 的日志通过；ERROR+ 唯一写 error_file，避免双重写入
+  max_warning:
+    (): argus_py.observability.logger.MaxLevelFilter
+    max_level: WARNING
+
 # =========================
 # Handler
 # =========================
@@ -57,6 +62,8 @@ handlers:
       - context
 
   # 主业务日志文件（结构化 JSON，按大小滚动）
+  # 注：app_file 带 max_warning 过滤器，只记录 DEBUG-WARNING；
+  # ERROR+ 由 error_file handler 独占，避免双重写入。
   app_file:
     class: logging.handlers.RotatingFileHandler
     level: DEBUG
@@ -67,6 +74,7 @@ handlers:
     backupCount: 20
     filters:
       - context
+      - max_warning
 
   # 错误专用文件：仅捕获 ERROR/CRITICAL，方便单独排查或对接告警
   error_file:
