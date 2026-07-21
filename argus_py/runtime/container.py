@@ -24,7 +24,6 @@ from argus_py.project.service import ProjectService
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
-from argus_py.task.query import TaskQueryService
 from argus_py.task.read import TaskReadService
 from argus_py.task.storage import TaskSQLiteStorage
 
@@ -39,7 +38,6 @@ class RuntimeContainer:
     settings: ServerSettings
     event_bus: EventBus
     audit_service: AuditService
-    task_query_service: TaskQueryService
     lifecycle_service: TaskLifecycleService
     log_service: TaskLogService
     task_read_service: TaskReadService
@@ -96,7 +94,6 @@ def create_container() -> RuntimeContainer:
     lifecycle_service = TaskLifecycleService(storage, event_publisher=event_bus.publish)
     log_service = TaskLogService(storage, event_publisher=event_bus.publish)
     task_read_service = TaskReadService(storage)
-    task_query_service = TaskQueryService(storage=storage)
     trace_reader_service = TraceReadService()
     debug_bundle_builder = DebugBundleBuilder()
     timeline_service = (
@@ -125,7 +122,6 @@ def create_container() -> RuntimeContainer:
         settings=settings,
         event_bus=event_bus,
         audit_service=audit_service,
-        task_query_service=task_query_service,
         lifecycle_service=lifecycle_service,
         log_service=log_service,
         task_read_service=task_read_service,

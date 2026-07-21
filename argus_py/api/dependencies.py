@@ -19,7 +19,6 @@ from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.runtime.container import create_container, create_task_application_service
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
-from argus_py.task.query import TaskQueryService
 from argus_py.task.read import TaskReadService
 
 if TYPE_CHECKING:
@@ -59,12 +58,6 @@ def get_task_worker() -> TaskWorker:
 @lru_cache
 def get_task_app_service() -> "TaskApplicationService":
     return create_task_application_service(create_container())
-
-
-@lru_cache
-def get_task_query_service() -> TaskQueryService:
-    """返回 TaskQueryService（从容器直接提取）。"""
-    return create_container().task_query_service
 
 
 @lru_cache
@@ -116,7 +109,6 @@ def reset_all_dependencies() -> None:
     get_model_config_service.cache_clear()
     get_task_queue.cache_clear()
     get_task_worker.cache_clear()
-    get_task_query_service.cache_clear()
     get_task_timeline_service.cache_clear()
     get_task_read_service.cache_clear()
     get_trace_reader_service.cache_clear()
