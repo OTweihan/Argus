@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -15,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from argus_py.core.ids import generate_id
 from argus_py.core.paths import OUTPUT_DIR
-from argus_py.observability.context import current_context
+from argus_py.observability.context import current_context, run_in_thread
 from argus_py.observability.redaction import _is_sensitive_key
 
 logger = logging.getLogger(__name__)
@@ -224,7 +223,7 @@ async def write_trace(record: LLMTraceRecord) -> None:
     受 server.yaml observability.llm_trace 和环境变量 LLM_TRACE_ENABLED / LLM_TRACE_MAX_SIZE_MB 控制。
 
     写入路径优先走 ``LLMTraceWriter`` 后台批量写入（已启动时）；未启动或
-    enqueue 失败时回退到 ``asyncio.to_thread`` 同步 append，保证 CLI / 测试场景兼容。
+    enqueue 失败时回退到 ``run_in_thread`` 同步 append，保证 CLI / 测试场景兼容。
     model_dump / 脱敏 / 序列化均在后台线程执行，不阻塞事件循环。
     """
     _ensure_config()
@@ -248,7 +247,7 @@ async def write_trace(record: LLMTraceRecord) -> None:
         return
 
     # Fallback: 在 IO 线程中同步写入（CLI / 测试 / writer 队列满）。
-    await asyncio.to_thread(_sync_write_trace, file_path, record)
+    await run_in_thread(_sync_write_trace, file_path, record)
 
 
 def _sync_write_trace(file_path: Path, record: LLMTraceRecord) -> None:

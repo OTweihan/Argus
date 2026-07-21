@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from argus_py.core.enums import FindingSeverity, FindingType
+from argus_py.observability.context import run_in_thread
 from argus_py.task.models import Finding, Task
 from argus_py.whitebox.client import WhiteboxClient
 from argus_py.whitebox.models import AnalyzerDiagnostics, WhiteboxFinding, WhiteboxResult
@@ -56,14 +56,14 @@ class WhiteboxRunner:
             # Step 1: 解析源码（在 IO 线程执行，不阻塞事件循环）
             if repo_url:
                 if branch:
-                    resolved_path = await asyncio.to_thread(
+                    resolved_path = await run_in_thread(
                         self._source_resolver.resolve, repo_url, branch
                     )
                 else:
-                    resolved_path = await asyncio.to_thread(self._source_resolver.resolve, repo_url)
+                    resolved_path = await run_in_thread(self._source_resolver.resolve, repo_url)
             else:
                 assert source_path is not None  # 已在入口处校验
-                resolved_path = await asyncio.to_thread(
+                resolved_path = await run_in_thread(
                     self._source_resolver.resolve_path, source_path
                 )
 
@@ -101,7 +101,7 @@ class WhiteboxRunner:
                 len(result.clusters),
             )
         finally:
-            await asyncio.to_thread(self._source_resolver.cleanup)
+            await run_in_thread(self._source_resolver.cleanup)
 
         return task
 

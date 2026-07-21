@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any
 
 from argus_py.blackbox.evaluator import EvaluationResult
 from argus_py.core.enums import FindingSeverity, FindingType, TaskStatus
+from argus_py.observability.context import run_in_thread
 from argus_py.redaction import redact_href, redact_step_params
 from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.lifecycle import TaskLifecycleService
@@ -81,7 +81,7 @@ class Finalizer:
 
     async def generate_report(self, task: Task) -> Task:
         """生成任务报告并回写 HTML 报告路径（在 IO 线程执行，不阻塞事件循环）。"""
-        return await asyncio.to_thread(
+        return await run_in_thread(
             generate_report_safely, task, self.report_generator, self._lifecycle.save_task
         )
 

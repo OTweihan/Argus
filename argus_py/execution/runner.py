@@ -11,6 +11,7 @@ from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.observability.aspect import log_operation
+from argus_py.observability.context import run_in_thread
 from argus_py.report.generator import ReportGenerator, generate_report_safely
 from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
@@ -104,7 +105,7 @@ class TaskRunner:
 
     async def _generate_report(self, task: Task) -> Task:
         """生成任务报告并回写 HTML 报告路径（在 IO 线程执行，不阻塞事件循环）。"""
-        return await asyncio.to_thread(
+        return await run_in_thread(
             generate_report_safely, task, self.report_generator, self.lifecycle.save_task
         )
 
