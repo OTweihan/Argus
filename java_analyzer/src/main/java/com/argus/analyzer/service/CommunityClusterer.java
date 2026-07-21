@@ -27,8 +27,8 @@ public class CommunityClusterer {
             String caller = entry.getKey();
             adjacency.computeIfAbsent(caller, k -> new HashSet<>());
 
-            for (CallEdge callee : entry.getValue().getCalleeDetails()) {
-                String calleeKey = callee.getTo();
+            for (CallEdge callee : entry.getValue().calleeDetails()) {
+                String calleeKey = callee.to();
                 if (callGraph.containsKey(calleeKey)) {
                     adjacency.computeIfAbsent(caller, k -> new HashSet<>()).add(calleeKey);
                     adjacency.computeIfAbsent(calleeKey, k -> new HashSet<>()).add(caller);

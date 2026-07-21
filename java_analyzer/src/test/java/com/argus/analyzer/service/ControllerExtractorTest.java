@@ -1,7 +1,10 @@
 package com.argus.analyzer.service;
 
 import com.argus.analyzer.api.dto.EndpointInfo;
+import com.argus.analyzer.env.MavenModuleScanner;
+import com.argus.analyzer.env.MavenProjectLocator;
 import com.argus.analyzer.support.SourceFileScanner;
+import com.argus.analyzer.support.SourceScannerCache;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +29,10 @@ class ControllerExtractorTest {
     void setUp() throws IOException {
         ParserConfiguration config = new ParserConfiguration();
         config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21);
-        extractor = new ControllerExtractor(new SourceFileScanner(new JavaParser(config)));
+        extractor = new ControllerExtractor(new SourceFileScanner(
+            new JavaParser(config),
+            new SourceScannerCache(new MavenProjectLocator(), new MavenModuleScanner())
+        ));
         createTestProject(tempDir);
     }
 
@@ -36,18 +42,18 @@ class ControllerExtractorTest {
         assertThat(endpoints).isNotEmpty();
 
         EndpointInfo helloEndpoint = endpoints.stream()
-                .filter(e -> e.getPath().equals("/api/hello"))
+                .filter(e -> e.path().equals("/api/hello"))
                 .findFirst()
                 .orElse(null);
         assertThat(helloEndpoint).isNotNull();
-        assertThat(helloEndpoint.getHttpMethod()).isEqualTo("GET");
+        assertThat(helloEndpoint.httpMethod()).isEqualTo("GET");
     }
 
     @Test
     void shouldExtractMultipleHttpMethods() {
         List<EndpointInfo> endpoints = extractor.extract(tempDir);
         assertThat(endpoints)
-                .extracting(EndpointInfo::getHttpMethod)
+                .extracting(EndpointInfo::httpMethod)
                 .contains("GET", "POST");
     }
 

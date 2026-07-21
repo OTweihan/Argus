@@ -1,7 +1,10 @@
 package com.argus.analyzer.service;
 
 import com.argus.analyzer.api.dto.FindingItem;
+import com.argus.analyzer.env.MavenModuleScanner;
+import com.argus.analyzer.env.MavenProjectLocator;
 import com.argus.analyzer.support.SourceFileScanner;
+import com.argus.analyzer.support.SourceScannerCache;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +29,10 @@ class FindingDetectorTest {
     void setUp() throws IOException {
         ParserConfiguration config = new ParserConfiguration();
         config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21);
-        detector = new FindingDetector(new SourceFileScanner(new JavaParser(config)));
+        detector = new FindingDetector(new SourceFileScanner(
+            new JavaParser(config),
+            new SourceScannerCache(new MavenProjectLocator(), new MavenModuleScanner())
+        ));
         createTestFiles(tempDir);
     }
 
@@ -34,7 +40,7 @@ class FindingDetectorTest {
     void shouldDetectEmptyCatch() {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
-                .filteredOn(f -> "EMPTY_CATCH".equals(f.getRuleId()))
+                .filteredOn(f -> "EMPTY_CATCH".equals(f.ruleId()))
                 .isNotEmpty();
     }
 
@@ -42,7 +48,7 @@ class FindingDetectorTest {
     void shouldDetectHardcodedUrls() {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
-                .filteredOn(f -> "HARDCODED_URL".equals(f.getRuleId()))
+                .filteredOn(f -> "HARDCODED_URL".equals(f.ruleId()))
                 .isNotEmpty();
     }
 
@@ -50,7 +56,7 @@ class FindingDetectorTest {
     void shouldDetectSystemOut() {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
-                .filteredOn(f -> "SYSTEM_OUT".equals(f.getRuleId()))
+                .filteredOn(f -> "SYSTEM_OUT".equals(f.ruleId()))
                 .isNotEmpty();
     }
 
@@ -58,7 +64,7 @@ class FindingDetectorTest {
     void shouldDetectPrintStackTrace() {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
-                .filteredOn(f -> "PRINT_STACKTRACE".equals(f.getRuleId()))
+                .filteredOn(f -> "PRINT_STACKTRACE".equals(f.ruleId()))
                 .isNotEmpty();
     }
 

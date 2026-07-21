@@ -23,7 +23,7 @@ public class ExecutionFlowTracer {
         Set<String> allKeys = callGraph.keySet();
 
         for (EndpointInfo ep : endpoints) {
-            String entryKey = ep.getControllerClass() + "#" + ep.getControllerMethod();
+            String entryKey = ep.controllerClass() + "#" + ep.controllerMethod();
             if (!allKeys.contains(entryKey)) {
                 continue;
             }
@@ -33,7 +33,7 @@ public class ExecutionFlowTracer {
             Set<String> pathNodes = new HashSet<>();
             dfs(callGraph, entryKey, 0, visited, pathNodes, steps);
 
-            int maxDepth = steps.stream().mapToInt(FlowStep::getDepth).max().orElse(0);
+            int maxDepth = steps.stream().mapToInt(FlowStep::depth).max().orElse(0);
             flows.add(new ExecutionFlow(entryKey, steps, maxDepth));
         }
 
@@ -57,11 +57,11 @@ public class ExecutionFlowTracer {
             // 仅当节点首次被访问时才添加步骤（全局去重），
             // 但允许通过不同路径重新进入以追踪其下游调用者。
             if (visited.add(currentKey)) {
-                steps.add(new FlowStep(depth, currentKey, node.getClassName(), node.getMethodName()));
+                steps.add(new FlowStep(depth, currentKey, node.className(), node.methodName()));
             }
 
-            for (CallEdge callee : node.getCalleeDetails()) {
-                String calleeKey = callee.getTo();
+            for (CallEdge callee : node.calleeDetails()) {
+                String calleeKey = callee.to();
                 if (callGraph.containsKey(calleeKey)) {
                     dfs(callGraph, calleeKey, depth + 1, visited, pathNodes, steps);
                 } else {

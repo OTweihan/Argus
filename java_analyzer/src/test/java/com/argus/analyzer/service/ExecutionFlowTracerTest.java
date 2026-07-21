@@ -1,11 +1,15 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.api.dto.CallEdge;
 import com.argus.analyzer.api.dto.CallGraphNode;
+import com.argus.analyzer.api.dto.Confidence;
 import com.argus.analyzer.api.dto.EndpointInfo;
 import com.argus.analyzer.api.dto.ExecutionFlow;
 import com.argus.analyzer.api.dto.FlowStep;
+import com.argus.analyzer.api.dto.ResolutionType;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,10 +34,10 @@ class ExecutionFlowTracerTest {
 
         assertThat(flows).hasSize(1);
         ExecutionFlow flow = flows.getFirst();
-        assertThat(flow.getEntryPoint()).isEqualTo("UserController#getUser");
-        assertThat(flow.getCallDepth()).isEqualTo(1);
-        assertThat(flow.getSteps()).hasSize(2);
-        assertThat(flow.getSteps()).extracting(FlowStep::getMethodKey)
+        assertThat(flow.entryPoint()).isEqualTo("UserController#getUser");
+        assertThat(flow.callDepth()).isEqualTo(1);
+        assertThat(flow.steps()).hasSize(2);
+        assertThat(flow.steps()).extracting(FlowStep::methodKey)
                 .containsExactly("UserController#getUser", "UserService#findById");
     }
 
@@ -52,8 +56,8 @@ class ExecutionFlowTracerTest {
 
         assertThat(flows).hasSize(1);
         ExecutionFlow flow = flows.getFirst();
-        assertThat(flow.getCallDepth()).isEqualTo(2);
-        assertThat(flow.getSteps()).extracting(FlowStep::getMethodKey)
+        assertThat(flow.callDepth()).isEqualTo(2);
+        assertThat(flow.steps()).extracting(FlowStep::methodKey)
                 .containsExactly("UserController#getUser", "UserService#findById", "UserRepository#findById");
     }
 
@@ -77,7 +81,7 @@ class ExecutionFlowTracerTest {
         assertThat(flows).hasSize(1);
         ExecutionFlow flow = flows.getFirst();
         // Should visit all reachable nodes: controller → service branches → repos
-        assertThat(flow.getSteps()).extracting(FlowStep::getMethodKey)
+        assertThat(flow.steps()).extracting(FlowStep::methodKey)
                 .contains("OrderController#create", "OrderService#create", "InventoryService#checkStock");
     }
 
@@ -113,9 +117,9 @@ class ExecutionFlowTracerTest {
         assertThat(flows).hasSize(1);
         ExecutionFlow flow = flows.getFirst();
         // External call recorded as leaf step
-        assertThat(flow.getSteps()).extracting(FlowStep::getMethodKey)
+        assertThat(flow.steps()).extracting(FlowStep::methodKey)
                 .containsExactly("UserController#getUser", "userService.findById");
-        assertThat(flow.getSteps().get(1).getDepth()).isEqualTo(1);
+        assertThat(flow.steps().get(1).depth()).isEqualTo(1);
     }
 
     @Test
@@ -141,10 +145,16 @@ class ExecutionFlowTracerTest {
     // ---- helpers
 
     private CallGraphNode node(String className, String methodName, String... callees) {
-        return new CallGraphNode(className, methodName, methodName + "()", List.of(callees));
+        List<CallEdge> edges = new ArrayList<>();
+        for (String callee : callees) {
+            edges.add(new CallEdge(
+                callee, "", "", ResolutionType.UNRESOLVED, Confidence.UNKNOWN, List.of(), "", 0
+            ));
+        }
+        return new CallGraphNode(className, methodName, methodName + "()", edges);
     }
 
     private List<String> flowSteps(ExecutionFlow flow) {
-        return flow.getSteps().stream().map(FlowStep::getMethodKey).toList();
+        return flow.steps().stream().map(FlowStep::methodKey).toList();
     }
 }

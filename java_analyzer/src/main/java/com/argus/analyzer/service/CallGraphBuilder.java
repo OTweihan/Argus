@@ -65,7 +65,7 @@ public class CallGraphBuilder {
                         calleeDetails.add(edge);
 
                         totalCalls++;
-                        switch (edge.getConfidence()) {
+                        switch (edge.confidence()) {
                             case HIGH -> resolvedHigh++;
                             case MEDIUM -> resolvedMedium++;
                             case UNKNOWN -> unresolved++;

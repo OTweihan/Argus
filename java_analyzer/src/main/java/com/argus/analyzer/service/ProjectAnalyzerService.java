@@ -63,7 +63,7 @@ public class ProjectAnalyzerService {
     }
 
     public AnalyzeResponse analyze(AnalyzeRequest request, AnalysisProgressListener progress) {
-        Path sourcePath = sourceLocator.resolve(request.getSourcePath());
+        Path sourcePath = sourceLocator.resolve(request.sourcePath());
         String canonicalPath = sourcePath.toAbsolutePath().normalize().toString();
 
         AnalyzeResponse cached = indexCache.get(canonicalPath);
@@ -72,11 +72,11 @@ public class ProjectAnalyzerService {
             return cached;
         }
 
-        String scope = request.getScope() != null ? request.getScope() : "all";
-        MavenConfig mavenConfig = request.getMaven() != null ? request.getMaven() : new MavenConfig();
+        String scope = request.scope() != null ? request.scope() : "all";
+        MavenConfig mavenConfig = request.maven() != null ? request.maven() : new MavenConfig();
 
         // P0-P1: 模块索引 + classpath 解析
-        ModuleContext ctx = resolveModuleContext(sourcePath, scope, mavenConfig, request.getTargetModules(),
+        ModuleContext ctx = resolveModuleContext(sourcePath, scope, mavenConfig, request.targetModules(),
                 progress);
 
         // Step 1: 无依赖的独立分析并行执行

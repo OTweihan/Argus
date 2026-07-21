@@ -1,7 +1,11 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.api.dto.CallEdge;
 import com.argus.analyzer.api.dto.CallGraphNode;
+import com.argus.analyzer.env.MavenModuleScanner;
+import com.argus.analyzer.env.MavenProjectLocator;
 import com.argus.analyzer.support.SourceFileScanner;
+import com.argus.analyzer.support.SourceScannerCache;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,30 +30,34 @@ class CallGraphBuilderTest {
     void setUp() throws IOException {
         ParserConfiguration config = new ParserConfiguration();
         config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21);
-        builder = new CallGraphBuilder(new SourceFileScanner(new JavaParser(config)));
+        builder = new CallGraphBuilder(new SourceFileScanner(
+            new JavaParser(config),
+            new SourceScannerCache(new MavenProjectLocator(), new MavenModuleScanner())
+        ));
         createTestProject(tempDir);
     }
 
     @Test
     void shouldBuildCallGraph() {
-        Map<String, CallGraphNode> graph = builder.build(tempDir);
+        Map<String, CallGraphNode> graph = builder.build(tempDir).graph();
         assertThat(graph).isNotEmpty();
 
         // Controller → Service 调用链
         CallGraphNode controllerNode = graph.get("com.example.demo.UserController#getUser");
         assertThat(controllerNode).isNotNull();
         // 符号解析器可解析同文件内的跨类调用
-        assertThat(controllerNode.getCallees())
+        assertThat(controllerNode.calleeDetails())
+                .extracting(CallEdge::to)
                 .contains("com.example.demo.UserService#findById");
     }
 
     @Test
     void shouldIncludeServiceMethods() {
-        Map<String, CallGraphNode> graph = builder.build(tempDir);
+        Map<String, CallGraphNode> graph = builder.build(tempDir).graph();
 
         CallGraphNode serviceNode = graph.get("com.example.demo.UserService#findById");
         assertThat(serviceNode).isNotNull();
-        assertThat(serviceNode.getMethodSignature()).contains("User findById");
+        assertThat(serviceNode.methodSignature()).contains("User findById");
     }
 
     @Test
@@ -64,7 +72,7 @@ class CallGraphBuilderTest {
                 }
                 """);
 
-        Map<String, CallGraphNode> graph = builder.build(tempDir);
+        Map<String, CallGraphNode> graph = builder.build(tempDir).graph();
         assertThat(graph).doesNotContainKey("com.example.Generated#generatedMethod");
     }
 
@@ -75,7 +83,7 @@ class CallGraphBuilderTest {
         Files.createDirectories(invalidDir);
         Files.writeString(invalidDir.resolve("Broken.java"), "this is not valid java code");
 
-        Map<String, CallGraphNode> graph = builder.build(tempDir);
+        Map<String, CallGraphNode> graph = builder.build(tempDir).graph();
         // 可解析的文件仍然正常
         assertThat(graph).isNotEmpty();
     }

@@ -1,9 +1,13 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.api.dto.CallEdge;
 import com.argus.analyzer.api.dto.CallGraphNode;
 import com.argus.analyzer.api.dto.ClusterInfo;
+import com.argus.analyzer.api.dto.Confidence;
+import com.argus.analyzer.api.dto.ResolutionType;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +49,7 @@ class CommunityClustererTest {
         assertThat(clusters).hasSize(2);
         // Each cluster should have 3 members
         for (ClusterInfo cluster : clusters) {
-            assertThat(cluster.getMemberCount()).isEqualTo(3);
+            assertThat(cluster.memberCount()).isEqualTo(3);
         }
     }
 
@@ -68,9 +72,9 @@ class CommunityClustererTest {
         List<ClusterInfo> clusters = clusterer.cluster(graph);
 
         // All nodes may be in one cluster or split into few — verify no overlap and all accounted for
-        int totalMembers = clusters.stream().mapToInt(ClusterInfo::getMemberCount).sum();
+        int totalMembers = clusters.stream().mapToInt(ClusterInfo::memberCount).sum();
         assertThat(totalMembers).isEqualTo(5);
-        assertThat(clusters).allMatch(c -> c.getMemberCount() >= 1);
+        assertThat(clusters).allMatch(c -> c.memberCount() >= 1);
     }
 
     @Test
@@ -88,6 +92,12 @@ class CommunityClustererTest {
     // ---- helpers
 
     private CallGraphNode node(String className, String methodName, String... callees) {
-        return new CallGraphNode(className, methodName, methodName + "()", List.of(callees));
+        List<CallEdge> edges = new ArrayList<>();
+        for (String callee : callees) {
+            edges.add(new CallEdge(
+                callee, "", "", ResolutionType.UNRESOLVED, Confidence.UNKNOWN, List.of(), "", 0
+            ));
+        }
+        return new CallGraphNode(className, methodName, methodName + "()", edges);
     }
 }
