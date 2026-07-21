@@ -17,7 +17,6 @@ from argus_py.task.application import TaskApplicationService
 from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
-from argus_py.task.query import TaskQueryService
 from argus_py.task.read import TaskReadService
 from argus_py.task.storage import TaskSQLiteStorage
 
@@ -29,7 +28,6 @@ class AppStack:
     lifecycle: TaskLifecycleService
     reader: TaskReadService
     log: TaskLogService
-    query: TaskQueryService
     trace_reader: TraceReadService
     debug_builder: DebugBundleBuilder
     timeline: TaskTimelineService
@@ -52,7 +50,6 @@ def make_app_stack(
     lifecycle = TaskLifecycleService(storage, event_publisher=event_publisher)
     reader = TaskReadService(storage)
     log = TaskLogService(storage, event_publisher=event_publisher)
-    query = TaskQueryService(storage)
     trace_reader = TraceReadService()
     debug_builder = DebugBundleBuilder()
     timeline = TaskTimelineService(storage, event_publisher=event_publisher)
@@ -73,7 +70,6 @@ def make_app_stack(
         lifecycle=lifecycle,
         reader=reader,
         log=log,
-        query=query,
         trace_reader=trace_reader,
         debug_builder=debug_builder,
         timeline=timeline,
