@@ -11,26 +11,16 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 - **文件：** `argus_py/whitebox/models.py`
 - **完成于：** `c212a3a`（泛型 `from_dict` 消除 ~200 行反序列化样板）、`6bdefdc`（19 个测试覆盖 17 个边界场景）
 
-### 2. `TaskQueryService` 门面进一步扁平化
+### 2. `TaskQueryService` 门面进一步扁平化 ✅ 已完成
 
-- **文件：** `argus_py/task/query.py`、`argus_py/runtime/container.py`、`argus_py/api/dependencies.py`
-- **现状：** 已删除 328 行的 `TaskService`，但 `TaskQueryService`（~115 行）仍然是一个兼容门面——其所有方法委托给 `TaskReadService`、`TraceReadService`、`DebugBundleBuilder`，而这三者已经直接暴露在 `RuntimeContainer` 上
-- **调用方：** `argus_py/api/routes/health.py:53` 调用 `get_task_query_service()`
-- **方案：**
-  1. 在 `health.py` 中直接使用 `TaskReadService` 的方法
-  2. 移除 `TaskQueryService` 及 `container.task_query_service` 字段
-- **风险：** 低 — 仅一个调用点
+- **文件：** `argus_py/task/query.py`（已删除）、`argus_py/runtime/container.py`、`argus_py/api/dependencies.py`
+- **完成于：** `211c5db`（删除 115 行纯委托门面，health.py 直接使用 TaskReadService）、`39485c6`（测试栈清理）
 
-### 3. `MavenClasspathResolver.java` 拆分（969 行）
+### 3. `MavenClasspathResolver.java` 拆分（969 行） ✅ 已完成
 
 - **文件：** `java_analyzer/src/main/java/com/argus/analyzer/env/MavenClasspathResolver.java`
-- **现状：** 单一文件承担 4 项职责：Maven 可执行文件检测（8 步链）、classpath 缓存管理、Maven 进程运行、旧版解析
-- **方案（3 遍迭代）：**
-  1. 提取 `MavenExecutableLocator`（~150 行）—— mvnw/mvn 查找链
-  2. 提取 `ClasspathCacheManager`（~100 行）—— `.argus/` 目录、缓存哈希、过期检查
-  3. 提取 `MavenProcessRunner`（~200 行）—— 进程生成、stdout/stderr 读取、超时
-- **风险：** 高 — 零测试覆盖；建议先补测试再重构
-- **建议推进时机：** 独立分支，充分测试
+- **完成于：** 待提交
+- **拆分结果：** 10 个文件，最大 312 行，门面仅 47 行
 
 ---
 
@@ -82,6 +72,26 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 - **现状：** 已有 `shouldDetectCycles` 和 `shouldTraceBranchingCalls` 测试通过，但**未覆盖跨分支共享节点的重新访问场景**（本次修复的核心场景）
 - **建议新增测试用例：** 构造两个端点共享公共依赖的调用图，验证第二个端点能完整追踪通过共享节点的下游调用
 - **风险：** 无，纯新增测试
+
+### 9. `MavenExecutor` 异常体系接入 — `fail()` → 类型化异常
+
+- **文件：**
+  - `java_analyzer/.../env/classpath/maven/MavenExecutor.java`（当前仍用 `fail()` → `ClasspathResult` 模式）
+  - `java_analyzer/.../env/classpath/gateway/MavenClasspathGateway.java`（需新增 catch 层）
+- **现状：** 5 个异常类（`ClasspathException`、`MavenNotFoundException`、`MavenExecutionException`、`MavenTimeoutException`、`ClasspathGenerationException`）已创建，接口设计合理（含 `exitCode`、`commandLine`、`outputTail`），但 `MavenExecutor` 仍用旧 `fail()` 方法构造 `ClasspathResult`，未抛出类型化异常
+- **方案：**
+  1. `MavenExecutor` 中 `executeMaven()` 改为抛 `ClasspathException` 子类：
+     - timeout → `MavenTimeoutException`
+     - exit ≠ 0 → `MavenExecutionException`
+     - 文件未生成 → `ClasspathGenerationException`
+     - IOException → `ClasspathGenerationException`
+  2. `MavenClasspathGateway` 捕获类型化异常并转为 `ClasspathResult`（保持上层 Resolver 对异常的零感知）
+  3. 删除 `MavenExecutor.fail()` 3 个重载
+- **收益：**
+  - 上层可通过 `catch (MavenTimeoutException)` / `catch (MavenExecutionException)` 做差异化处理
+  - `MavenExecutionException.outputTail` 让上层无需查日志即可排查
+  - 替代字符串判断的脆弱模式
+- **风险：** 低 — 行为不变（异常 → ClasspathResult 转换在 Gateway 层），纯内部重构
 
 ---
 
