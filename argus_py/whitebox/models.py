@@ -2,8 +2,140 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+import types
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass
+from functools import lru_cache
+from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
+
+from argus_py.utils.casing import to_camel
+
+# === 泛型 from_dict 基础设施 ===
+
+_T = TypeVar("_T")
+
+
+class _MissingType:
+    """独立 sentinel，区分"key 不存在"和"key 存在但值为 None"。"""
+
+    def __repr__(self) -> str:
+        return "<MISSING>"
+
+
+_MISSING = _MissingType()
+
+
+@lru_cache(maxsize=None)
+def _get_type_hints_cached(cls: type) -> dict[str, Any]:
+    """缓存 get_type_hints 结果，避免每次 from_dict 重复解析。"""
+    try:
+        return get_type_hints(cls)
+    except NameError as e:
+        raise TypeError(f"Cannot resolve type annotations for {cls.__name__}: {e}") from e
+
+
+def _is_dataclass_type(ftype: Any) -> bool:
+    """判断类型是否为 dataclass（用 is_dataclass，不依赖 hasattr(from_dict)）。"""
+    return isinstance(ftype, type) and is_dataclass(ftype)
+
+
+def _handle_null_value(ftype: Any) -> Any:
+    """处理 Java JSON 中字段值为 null 的情况。
+
+    检查顺序至关重要：Union 必须先于 list/dict 检查，
+    否则 ``list[str] | None`` 收到 null 时会被误判为集合空值。
+    """
+    origin = get_origin(ftype)
+    args = get_args(ftype)
+
+    # 1. Optional / Union — 例如 list[str] | None 收到 null 应返回 None
+    if origin in (Union, types.UnionType):
+        if type(None) in args:
+            return None
+
+    # 2. 集合类型 null → _MISSING → 走 default_factory
+    if origin in (list, dict):
+        return _MISSING
+
+    # 3. 裸 dataclass / 标量 null → _MISSING
+    return _MISSING
+
+
+def _convert_value(raw: Any, ftype: Any) -> Any:
+    """根据类型注解递归转换值（含 null 元素）。
+
+    关键原则：Union 只负责拆包，真正类型转换递归走自身。
+    入口处的 None 前置检查用于处理 list/dict 内部元素为 null 的情况
+    （如 ``list[Dataclass | None]`` 含 null 元素）。
+    """
+    # 处理 list/dict 内部可能出现的 null 元素
+    if raw is None:
+        return _handle_null_value(ftype)
+
+    origin = get_origin(ftype)
+    args = get_args(ftype)
+
+    # --- Union 拆包（不可提前终止，必须递归） ---
+    if origin in (Union, types.UnionType):
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1:
+            return _convert_value(raw, non_none[0])  # 递归！
+        return raw  # 多非 None 分支（极少），保守透传
+
+    # --- list ---
+    if origin is list:
+        inner = args[0] if args else None
+        if inner is not None:
+            return [_convert_value(item, inner) for item in raw]
+        return raw
+
+    # --- dict ---
+    if origin is dict:
+        value_type = args[1] if len(args) >= 2 else None
+        if value_type is not None:
+            return {k: _convert_value(v, value_type) for k, v in raw.items()}
+        return raw
+
+    # --- 裸 dataclass ---
+    if _is_dataclass_type(ftype):
+        return ftype.from_dict(raw)
+
+    # --- 标量 (int, str, bool, float) ---
+    return raw
+
+
+def _from_camel_dict(cls: type[Any], data: dict[str, Any]) -> Any:
+    """从 camelCase JSON dict 泛型反序列化为 dataclass 实例。
+
+    对每个字段：
+    1. 通过 metadata["json_key"] 或 to_camel(field_name) 确定 JSON key
+    2. key 缺失 → 有默认值用默认值，无默认值传 None 兜底
+    3. 值为 null → 通过 _handle_null_value 分发
+    4. 值非 null → 通过 _convert_value 递归转换
+    """
+    hints = _get_type_hints_cached(cls)  # type: ignore[arg-type]  # lru_cache wrapper type-stub issue
+    kwargs: dict[str, Any] = {}
+
+    for fd in fields(cls):
+        # json_key 扩展点：优先 metadata，fallback to_camel
+        json_key: str = fd.metadata.get("json_key", to_camel(fd.name))
+        raw = data.get(json_key, _MISSING)
+
+        if raw is _MISSING:
+            # JSON 中没有此 key
+            if fd.default is not MISSING or fd.default_factory is not MISSING:
+                continue  # 有默认值 → 用默认值
+            kwargs[fd.name] = None  # 无默认值 → None 兜底
+            continue
+
+        if raw is None:
+            converted = _handle_null_value(hints.get(fd.name, fd.type))
+        else:
+            converted = _convert_value(raw, hints.get(fd.name, fd.type))
+
+        if converted is not _MISSING:
+            kwargs[fd.name] = converted
+
+    return cls(**kwargs)
 
 
 @dataclass
@@ -34,14 +166,7 @@ class Endpoint:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Endpoint:
-        return cls(
-            path=data.get("path", ""),
-            http_method=data.get("httpMethod", ""),
-            controller_class=data.get("controllerClass", ""),
-            controller_method=data.get("controllerMethod", ""),
-            parameters=data.get("parameters", []),
-            return_type=data.get("returnType", ""),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -59,16 +184,7 @@ class CallEdge:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CallEdge:
-        return cls(
-            to=data.get("to", ""),
-            method_name=data.get("methodName", ""),
-            type_name=data.get("typeName", ""),
-            resolution_type=data.get("resolutionType", "UNRESOLVED"),
-            confidence=data.get("confidence", "UNKNOWN"),
-            candidates=data.get("candidates", []),
-            source_file=data.get("sourceFile", ""),
-            line=data.get("line", 0),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -82,12 +198,7 @@ class CallGraphNode:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CallGraphNode:
-        return cls(
-            class_name=data.get("className", ""),
-            method_name=data.get("methodName", ""),
-            method_signature=data.get("methodSignature", ""),
-            callee_details=[CallEdge.from_dict(ce) for ce in data.get("calleeDetails", [])],
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -98,6 +209,8 @@ class CallGraph:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CallGraph:
+        if not isinstance(data, dict):
+            return cls()
         return cls(
             nodes={key: CallGraphNode.from_dict(node) for key, node in data.items()},
         )
@@ -112,10 +225,7 @@ class ParseFailureDetail:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ParseFailureDetail:
-        return cls(
-            file=data.get("file", ""),
-            problems=data.get("problems", []),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -158,41 +268,7 @@ class AnalyzerDiagnostics:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalyzerDiagnostics:
-        return cls(
-            total_source_files=data.get("totalSourceFiles", 0),
-            parsed_file_count=data.get("parsedFileCount", 0),
-            failed_file_count=data.get("failedFileCount", 0),
-            failed_files=[
-                ParseFailureDetail.from_dict(ff) for ff in (data.get("failedFiles") or [])
-            ],
-            total_calls=data.get("totalCalls", 0),
-            resolved_high=data.get("resolvedHigh", 0),
-            resolved_medium=data.get("resolvedMedium", 0),
-            resolved_low=data.get("resolvedLow", 0),
-            unresolved=data.get("unresolved", 0),
-            classpath_available=data.get("classpathAvailable", False),
-            jar_count=data.get("jarCount", 0),
-            classpath_source=data.get("classpathSource", ""),
-            classpath_warnings=data.get("classpathWarnings", []),
-            classpath_errors=data.get("classpathErrors", []),
-            classpath_command=data.get("classpathCommand", ""),
-            classpath_exit_code=data.get("classpathExitCode"),
-            classpath_duration_ms=data.get("classpathDurationMs"),
-            classpath_stdout_tail=data.get("classpathStdoutTail", ""),
-            classpath_stderr_tail=data.get("classpathStderrTail", ""),
-            classpath_timed_out=data.get("classpathTimedOut", False),
-            application_module_count=data.get("applicationModuleCount", 0),
-            business_module_count=data.get("businessModuleCount", 0),
-            library_module_count=data.get("libraryModuleCount", 0),
-            bom_module_count=data.get("bomModuleCount", 0),
-            module_types=data.get("moduleTypes", {}),
-            root_pom=data.get("rootPom", ""),
-            module_count=data.get("moduleCount", 0),
-            source_root_count=data.get("sourceRootCount", 0),
-            modules=data.get("modules", []),
-            classpath_target_modules=data.get("classpathTargetModules", []),
-            classpath_failed_modules=data.get("classpathFailedModules", []),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -203,6 +279,10 @@ class WhiteboxJobEvent:
     stage: str = ""
     level: str = ""
     message: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WhiteboxJobEvent:
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -220,24 +300,7 @@ class WhiteboxJobStatus:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxJobStatus:
-        return cls(
-            job_id=data.get("jobId", ""),
-            status=data.get("status", ""),
-            stage=data.get("stage", ""),
-            created_at=data.get("createdAt", ""),
-            started_at=data.get("startedAt"),
-            finished_at=data.get("finishedAt"),
-            error=data.get("error"),
-            events=[
-                WhiteboxJobEvent(
-                    timestamp=e.get("timestamp", ""),
-                    stage=e.get("stage", ""),
-                    level=e.get("level", ""),
-                    message=e.get("message", ""),
-                )
-                for e in data.get("events", [])
-            ],
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -254,15 +317,7 @@ class WhiteboxFinding:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxFinding:
-        return cls(
-            rule_id=data.get("ruleId", ""),
-            severity=data.get("severity", ""),
-            title=data.get("title", ""),
-            description=data.get("description", ""),
-            file_path=data.get("filePath", ""),
-            line_number=data.get("lineNumber", 0),
-            snippet=data.get("snippet", ""),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -276,12 +331,7 @@ class FlowStep:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FlowStep:
-        return cls(
-            depth=data.get("depth", 0),
-            method_key=data.get("methodKey", ""),
-            class_name=data.get("className", ""),
-            method_name=data.get("methodName", ""),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -294,11 +344,7 @@ class ExecutionFlow:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExecutionFlow:
-        return cls(
-            entry_point=data.get("entryPoint", ""),
-            steps=[FlowStep.from_dict(s) for s in data.get("steps", [])],
-            call_depth=data.get("callDepth", 0),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -312,12 +358,7 @@ class ClusterInfo:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ClusterInfo:
-        return cls(
-            cluster_id=data.get("clusterId", ""),
-            suggested_label=data.get("suggestedLabel", ""),
-            member_keys=data.get("memberKeys", []),
-            member_count=data.get("memberCount", 0),
-        )
+        return _from_camel_dict(cls, data)
 
 
 @dataclass
@@ -334,12 +375,4 @@ class WhiteboxResult:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxResult:
         """从 Java API 响应的 JSON dict 反序列化。"""
-        raw_diag = data.get("diagnostics")
-        return cls(
-            endpoints=[Endpoint.from_dict(e) for e in data.get("endpoints", [])],
-            call_graph=CallGraph.from_dict(data.get("callGraph", {})),
-            findings=[WhiteboxFinding.from_dict(f) for f in data.get("findings", [])],
-            execution_flows=[ExecutionFlow.from_dict(ef) for ef in data.get("executionFlows", [])],
-            clusters=[ClusterInfo.from_dict(c) for c in data.get("clusters", [])],
-            diagnostics=AnalyzerDiagnostics.from_dict(raw_diag) if raw_diag else None,
-        )
+        return _from_camel_dict(cls, data)
