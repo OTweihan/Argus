@@ -6,13 +6,10 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 
 ## 高优先级（代码质量/安全影响大）
 
-### 1. `whitebox/models.py` 反序列化样板去重
+### 1. `whitebox/models.py` 反序列化样板去重 ✅ 已完成
 
 - **文件：** `argus_py/whitebox/models.py`
-- **现状：** 12 个 dataclass 各自实现手动 `from_dict`，约 350 行重复的 `data.get("camelCaseField", default)` 调用
-- **方案：** 创建蛇形→驼峰自动映射辅助函数，将每个类从 ~25 行缩减到 ~5 行
-- **风险：** 中等 — `from_dict` 影响所有 Java 分析器响应解析，测试需全面覆盖
-- **建议推进时机：** 有完整的 Java 分析器端到端测试时进行
+- **完成于：** `c212a3a`（泛型 `from_dict` 消除 ~200 行反序列化样板）、`6bdefdc`（19 个测试覆盖 17 个边界场景）
 
 ### 2. `TaskQueryService` 门面进一步扁平化
 
