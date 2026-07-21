@@ -105,4 +105,12 @@ public class ClasspathResult {
     public boolean hasValidJars() {
         return jars != null && !jars.isEmpty();
     }
+
+    /** Adds a warning, ensuring the warnings list is mutable. */
+    public void addWarning(String warning) {
+        if (warnings == null) {
+            warnings = new java.util.ArrayList<>();
+        }
+        warnings.add(warning);
+    }
 }
