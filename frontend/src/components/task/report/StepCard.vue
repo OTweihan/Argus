@@ -76,13 +76,12 @@
           <p class="screenshot-path">
             截图：<code>{{ step.screenshotPath }}</code>
           </p>
-          <img
+          <AuthenticatedImage
             class="screenshot"
-            :src="screenshotUrl(taskId, step.screenshotPath)"
+            :path="screenshotPath(taskId, step.screenshotPath)"
             :alt="'步骤 ' + step.stepNumber + ' 截图'"
-            loading="lazy"
             @click="$emit('open-lightbox', step.screenshotPath)"
-          >
+          />
         </div>
       </div>
     </div>
@@ -92,7 +91,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { ReportTaskLog } from "../../../types";
-import { screenshotUrl } from "../../../api";
+import { screenshotPath } from "../../../api";
+import AuthenticatedImage from "../../AuthenticatedImage.vue";
 import { formatDate, prettyJson } from "./reportUtils";
 
 defineProps<{

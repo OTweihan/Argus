@@ -11,6 +11,9 @@
               <span class="dot" :class="eventStatus" />
               <span>事件流：{{ eventStatusText }}</span>
             </div>
+            <el-button v-if="hasApiToken" plain @click="lockConsole">
+              清除 Token
+            </el-button>
             <el-button class="refresh-btn" type="primary" plain @click="loadAll">
               <svg
                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -55,15 +58,34 @@
           </el-button>
         </template>
       </el-dialog>
+
+      <el-dialog
+        v-model="authRequired"
+        title="API Token 验证"
+        width="420px"
+        :show-close="false"
+        :close-on-click-modal="false"
+        :close-on-press-escape="false"
+        append-to-body
+      >
+        <p>服务已启用 API Token，请输入后继续。Token 仅保存在当前标签页会话中。</p>
+        <el-input v-model="tokenInput" type="password" show-password autocomplete="current-password" @keyup.enter="unlockConsole" />
+        <template #footer>
+          <el-button type="primary" :disabled="!tokenInput.trim()" @click="unlockConsole">
+            验证
+          </el-button>
+        </template>
+      </el-dialog>
     </el-container>
   </el-config-provider>
 </template>
 
 <script setup lang="ts">
-import {computed, defineAsyncComponent, onBeforeMount, shallowRef} from "vue";
+import {computed, defineAsyncComponent, onBeforeMount, ref, shallowRef} from "vue";
 import type {Language} from "element-plus/es/locale";
 import SidebarMenu from "./components/layout/SidebarMenu.vue";
 import {useConsoleApp} from "./composables/useConsoleApp";
+import {authRequired, clearApiToken, hasApiToken, setApiToken} from "./auth";
 
 // 路由级懒加载：四个视图按需加载，减小首屏 JS 体积
 const DashboardView = defineAsyncComponent(() => import("./views/DashboardView.vue"));
@@ -90,6 +112,7 @@ onBeforeMount(async () => {
 });
 
 const consoleApp = useConsoleApp();
+const tokenInput = ref("");
 
 const {
   view,
@@ -103,6 +126,18 @@ const {
   changeView,
   dialogVisible,
 } = consoleApp;
+
+async function unlockConsole(): Promise<void> {
+  if (!tokenInput.value.trim()) return;
+  setApiToken(tokenInput.value);
+  tokenInput.value = "";
+  await loadAll();
+}
+
+function lockConsole(): void {
+  clearApiToken();
+  window.location.reload();
+}
 
 const currentView = computed(() => {
   switch (view.value) {

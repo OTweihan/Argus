@@ -262,7 +262,12 @@
             <path d="M5 5l10 10M15 5l-10 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
           </svg>
         </button>
-        <img class="lightbox-img" :src="screenshotSrc(lightboxSrc)" alt="截图全屏预览">
+        <AuthenticatedImage
+          class="lightbox-img"
+          :path="screenshotPath(taskId, lightboxSrc)"
+          alt="截图全屏预览"
+          :lazy="false"
+        />
       </div>
     </Teleport>
   </div>
@@ -271,7 +276,8 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
 import type {ReportData} from "../types";
-import {screenshotUrl} from "../api";
+import {screenshotPath} from "../api";
+import AuthenticatedImage from "../components/AuthenticatedImage.vue";
 import {useScrollSpy} from "../composables/useScrollSpy";
 import ReportHero from "../components/report/ReportHero.vue";
 import ReportMetrics from "../components/report/ReportMetrics.vue";
@@ -312,10 +318,6 @@ const stepCount = computed(() => displaySteps.value.length);
 const reportJson = computed(() => rawJsonOpen.value ? prettyJson(props.report) : '');
 
 // --- functions ---
-function screenshotSrc(path: string): string {
-  return screenshotUrl(props.taskId, path);
-}
-
 function scrollTo(id: string): void {
   const el = document.getElementById(id);
   if (el) {

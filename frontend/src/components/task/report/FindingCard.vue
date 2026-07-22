@@ -46,13 +46,12 @@
           <p class="screenshot-path">
             截图：<code>{{ finding.screenshotPath }}</code>
           </p>
-          <img
+          <AuthenticatedImage
             class="screenshot"
-            :src="screenshotUrl(taskId, finding.screenshotPath)"
+            :path="screenshotPath(taskId, finding.screenshotPath)"
             :alt="finding.title + ' 截图'"
-            loading="lazy"
             @click="$emit('open-lightbox', finding.screenshotPath!)"
-          >
+          />
         </div>
       </div>
     </div>
@@ -62,7 +61,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { ReportFinding } from "../../../types";
-import { screenshotUrl } from "../../../api";
+import { screenshotPath } from "../../../api";
+import AuthenticatedImage from "../../AuthenticatedImage.vue";
 import { formatDate } from "./reportUtils";
 
 defineProps<{

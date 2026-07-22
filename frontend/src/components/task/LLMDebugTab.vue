@@ -22,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { debugBundleUrl } from "../../api";
+import { debugBundlePath, openAuthenticatedResource } from "../../api";
 import TraceDetailPanel from "./debug/TraceDetailPanel.vue";
 import TraceListPanel from "./debug/TraceListPanel.vue";
 import { useTraceList } from "./debug/useTraceList";
@@ -39,8 +39,11 @@ const {
   onFilterChange,
 } = useTraceList({ taskId: () => props.taskId });
 
-function downloadDebugBundle() {
-  window.open(debugBundleUrl(props.taskId), "_blank");
+async function downloadDebugBundle(): Promise<void> {
+  await openAuthenticatedResource(
+    debugBundlePath(props.taskId),
+    `debug-${props.taskId}.zip`,
+  );
 }
 </script>
 

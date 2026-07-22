@@ -1,3 +1,5 @@
+import { getApiToken, requireApiToken } from "../auth";
+
 export const API_BASE = (import.meta.env.VITE_ARGUS_API_BASE ?? "/argus/api").replace(/\/$/, "");
 const DEFAULT_REQUEST_TIMEOUT_MS = Number(
     import.meta.env.VITE_ARGUS_API_TIMEOUT_MS ?? 180000,
@@ -114,12 +116,14 @@ export async function request<T>(
 ): Promise<T> {
     let response: Response;
     const requestSignal = createRequestSignal(init.signal ?? undefined);
+    const token = getApiToken();
     try {
         response = await fetch(`${API_BASE}${path}`, {
             ...init,
             signal: requestSignal.signal,
             headers: {
                 "Content-Type": "application/json",
+                ...(token ? {Authorization: `Bearer ${token}`} : {}),
                 ...(init.headers ?? {}),
             },
         });
@@ -153,6 +157,7 @@ export async function request<T>(
     const body = await parseResponseBody<T>(response, contentType);
 
     if (!response.ok) {
+        if (response.status === 401) requireApiToken();
         const apiError = apiErrorFromBody(body, response.status);
         if (apiError) throw apiError;
         throw new ApiError(`请求失败：HTTP ${response.status}`, response.status, "HTTP_ERROR", {
@@ -163,8 +168,65 @@ export async function request<T>(
     return body as T;
 }
 
+export async function requestBlob(path: string): Promise<Blob> {
+    const token = getApiToken();
+    let response: Response;
+    try {
+        response = await fetch(`${API_BASE}${path}`, {
+            headers: token ? {Authorization: `Bearer ${token}`} : {},
+        });
+    } catch (error) {
+        throw new ApiError(
+            error instanceof Error ? `无法下载资源：${error.message}` : "无法下载资源。",
+            0,
+            "NETWORK_ERROR",
+            {path},
+        );
+    }
+    if (response.status === 401) requireApiToken();
+    if (!response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+        const body = await parseResponseBody<unknown>(response, contentType);
+        throw apiErrorFromBody(body, response.status)
+            ?? new ApiError(`资源请求失败：HTTP ${response.status}`, response.status);
+    }
+    return response.blob();
+}
+
+export async function loadObjectUrl(path: string): Promise<string> {
+    return URL.createObjectURL(await requestBlob(path));
+}
+
+export async function openAuthenticatedResource(path: string, filename?: string): Promise<void> {
+    const popup = filename ? null : window.open("about:blank", "_blank");
+    if (popup) popup.opener = null;
+    let objectUrl: string;
+    try {
+        objectUrl = await loadObjectUrl(path);
+    } catch (error) {
+        popup?.close();
+        throw error;
+    }
+    if (filename) {
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = filename;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+        return;
+    }
+    if (popup) popup.location.replace(objectUrl);
+    else window.open(objectUrl, "_blank", "noopener");
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
 export function reportUrl(taskId: string, json = false, download = false): string {
     const path = `${API_BASE}/tasks/${encodeURIComponent(taskId)}/${json ? "report.json" : "report"}`;
+    return download ? `${path}?download=true` : path;
+}
+
+export function reportPath(taskId: string, json = false, download = false): string {
+    const path = `/tasks/${encodeURIComponent(taskId)}/${json ? "report.json" : "report"}`;
     return download ? `${path}?download=true` : path;
 }
 
@@ -173,6 +235,15 @@ export function screenshotUrl(taskId: string, screenshotPath: string): string {
     return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/screenshots/${encodeURIComponent(filename)}`;
 }
 
+export function screenshotPath(taskId: string, rawPath: string): string {
+    const filename = rawPath.replace(/\\/g, "/").split("/").pop() ?? "";
+    return `/tasks/${encodeURIComponent(taskId)}/screenshots/${encodeURIComponent(filename)}`;
+}
+
 export function debugBundleUrl(taskId: string): string {
     return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/debug-bundle`;
+}
+
+export function debugBundlePath(taskId: string): string {
+    return `/tasks/${encodeURIComponent(taskId)}/debug-bundle`;
 }

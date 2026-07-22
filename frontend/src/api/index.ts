@@ -1,4 +1,15 @@
-export {ApiError, debugBundleUrl, reportUrl, screenshotUrl} from "./client";
+export {
+    ApiError,
+    debugBundlePath,
+    debugBundleUrl,
+    loadObjectUrl,
+    openAuthenticatedResource,
+    reportPath,
+    reportUrl,
+    requestBlob,
+    screenshotPath,
+    screenshotUrl,
+} from "./client";
 export type {
     ProjectPayload,
     TaskPayload,

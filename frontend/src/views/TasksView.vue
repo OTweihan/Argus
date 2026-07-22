@@ -149,13 +149,12 @@
 </template>
 
 <script setup lang="ts">
-import {defineAsyncComponent, ref} from "vue";
+import {defineAsyncComponent} from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
-import {getTask, reportUrl} from "../api";
-import {errorMessage} from "../utils";
 import {injectConsoleApp} from "../composables/useConsoleApp";
+import {useTaskViewActions} from "../composables/useTaskViewActions";
 import type {Task} from "../types";
 // 任务详情页三个大体积 Tab 组件按需加载，避免拖慢任务列表首屏
 const ReportView = defineAsyncComponent(() => import("./ReportView.vue"));
@@ -171,24 +170,10 @@ const {
   addParam, removeParam, onPageChange, onPageSizeChange, onTaskEvent, selectTask,
 } = injectConsoleApp();
 
-const detailVisible = ref(false);
-const detailLoading = ref(false);
-const detailTask = ref<Task | null>(null);
-
-async function showTaskDetail(taskId: string): Promise<void> {
-  detailVisible.value = true;
-  detailLoading.value = true;
-  const cached = allTasks.value.find((t) => t.taskId === taskId) ?? null;
-  detailTask.value = cached;
-  try {
-    detailTask.value = await getTask(taskId);
-  } catch (caught) {
-    error.value = errorMessage(caught);
-    if (!cached) detailVisible.value = false;
-  } finally {
-    detailLoading.value = false;
-  }
-}
+const {
+  detailVisible, detailLoading, detailTask, showTaskDetail,
+  openHtmlReport, downloadHtmlReport, downloadJsonReport,
+} = useTaskViewActions({allTasks, selectedTask, error});
 
 async function showTaskReport(taskId: string): Promise<void> {
   await selectTask(taskId, "report");
@@ -198,23 +183,6 @@ function editTask(task: Task): void {
   openEditTaskDialog(task);
 }
 
-function openHtmlReport(): void {
-  if (selectedTask.value) {
-    window.open(reportUrl(selectedTask.value.taskId), "_blank");
-  }
-}
-
-function downloadHtmlReport(): void {
-  if (selectedTask.value) {
-    window.open(reportUrl(selectedTask.value.taskId, false, true), "_blank");
-  }
-}
-
-function downloadJsonReport(): void {
-  if (selectedTask.value) {
-    window.open(reportUrl(selectedTask.value.taskId, true, true), "_blank");
-  }
-}
 </script>
 
 <style scoped>

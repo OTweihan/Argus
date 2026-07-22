@@ -1,4 +1,5 @@
 import type { TaskEvent } from "./types";
+import { getApiToken } from "./auth";
 
 type EventHandler = (event: TaskEvent) => void;
 type StatusHandler = (
@@ -64,9 +65,11 @@ export class TaskEventStream {
   }
 
   private openSocket(endpoint: string, sinceSeq?: number): void {
-    // 如果已知上次 sequence，拼接到查询参数以便后端做部分回放
-    const url = sinceSeq !== undefined ? `${endpoint}?sinceSeq=${sinceSeq}` : endpoint;
-    const socket = new WebSocket(url);
+    const url = new URL(endpoint);
+    if (sinceSeq !== undefined) url.searchParams.set("sinceSeq", String(sinceSeq));
+    const token = getApiToken();
+    if (token) url.searchParams.set("token", token);
+    const socket = new WebSocket(url.toString());
     this.socket = socket;
     this.lastMessageTime = Date.now();
     this.startHeartbeat();
