@@ -13,26 +13,28 @@ import { ElLoading, ElNotification } from "element-plus";
 import App from "./App.vue";
 
 // ── 全局未捕获错误处理 ──────────────────────────────────────────
-const isDev = import.meta.env.DEV;
+
+const ERROR_NOTIFICATION_DURATION = 5000;
+
+/** 全局错误统一处理：记录日志 + 生产环境弹窗提示用户。 */
+function reportGlobalError(
+  consolePrefix: string,
+  title: string,
+  message: string,
+  error?: unknown,
+): void {
+  console.error(consolePrefix, error);
+  // 开发环境避免重复弹窗污染调试体验
+  if (import.meta.env.DEV) return;
+  ElNotification.error({ title, message, duration: ERROR_NOTIFICATION_DURATION });
+}
 
 window.onerror = (_message, _source, _lineno, _colno, error) => {
-  console.error("[window.onerror]", error);
-  if (isDev) return; // 开发环境保持控制台原生行为
-  ElNotification.error({
-    title: "运行时错误",
-    message: "发生未知脚本错误，请刷新页面后重试。",
-    duration: 5000,
-  });
+  reportGlobalError("[window.onerror]", "运行时错误", "发生未知脚本错误，请刷新页面后重试。", error);
 };
 
 window.addEventListener("unhandledrejection", (event) => {
-  console.error("[unhandledrejection]", event.reason);
-  if (isDev) return;
-  ElNotification.error({
-    title: "未处理的 Promise 拒绝",
-    message: "请求处理异常，请稍后重试。",
-    duration: 5000,
-  });
+  reportGlobalError("[unhandledrejection]", "未处理的 Promise 拒绝", "请求处理异常，请稍后重试。", event.reason);
 });
 
 // ── 应用启动 ────────────────────────────────────────────────────
@@ -40,13 +42,7 @@ window.addEventListener("unhandledrejection", (event) => {
 const app = createApp(App);
 
 app.config.errorHandler = (err, _instance, info) => {
-  console.error(`[Vue errorHandler] ${info}`, err);
-  if (isDev) return;
-  ElNotification.error({
-    title: "页面渲染异常",
-    message: "页面渲染异常，请刷新页面后重试。",
-    duration: 5000,
-  });
+  reportGlobalError(`[Vue errorHandler] ${info}`, "页面渲染异常", "页面渲染异常，请刷新页面后重试。", err);
 };
 
 // 模板使用的 v-loading 指令需要显式注册，不再依赖 use(ElementPlus) 全量注册
