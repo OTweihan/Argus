@@ -16,12 +16,7 @@ from argus_py.whitebox.models import (
     CallEdge,
     CallGraph,
     CallGraphNode,
-    ClusterInfo,
     Endpoint,
-    ExecutionFlow,
-    FlowStep,
-    ParseFailureDetail,
-    WhiteboxFinding,
     WhiteboxJobEvent,
     WhiteboxJobStatus,
     WhiteboxResult,
@@ -70,9 +65,7 @@ def test_list_dataclass():
             "className": "com.example.X",
             "methodName": "foo",
             "methodSignature": "void foo()",
-            "calleeDetails": [
-                {"to": "com.example.Service", "methodName": "greet"}
-            ],
+            "calleeDetails": [{"to": "com.example.Service", "methodName": "greet"}],
         }
     )
     assert len(node.callee_details) == 1
@@ -102,9 +95,7 @@ def test_optional_list_dataclass_value():
             "status": "RUNNING",
             "stage": "s",
             "createdAt": "2026-01-01",
-            "events": [
-                {"timestamp": "t1", "stage": "s1", "level": "INFO", "message": "ok"}
-            ],
+            "events": [{"timestamp": "t1", "stage": "s1", "level": "INFO", "message": "ok"}],
         }
     )
     assert len(status.events) == 1
@@ -234,6 +225,7 @@ def test_json_key_alias():
 
 
 # --- 17. list[Dataclass | None] 含 null 元素 ---
+
 
 @dataclass
 class _NullableEvent:

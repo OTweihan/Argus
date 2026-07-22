@@ -54,19 +54,17 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 - **完成于：** `007e9ee`
 - **方案：** 提取 `reportGlobalError(consolePrefix, title, message, error?)` 模块级 helper + `ERROR_NOTIFICATION_DURATION` 常量，三个全局处理器各简化为一行调用。helper 保留在 `main.ts` 以避免给 `utils.ts` 引入 Element Plus 依赖
 
-### 8. `ExecutionFlowTracer` DFS 修复补充回归测试
+### 8. `ExecutionFlowTracer` DFS 修复补充回归测试 ✅ 已完成
 
 - **文件：** `java_analyzer/src/test/java/com/argus/analyzer/service/ExecutionFlowTracerTest.java`
-- **现状：** 已有 `shouldDetectCycles` 和 `shouldTraceBranchingCalls` 测试通过，但**未覆盖跨分支共享节点的重新访问场景**（本次修复的核心场景）
-- **建议新增测试用例：** 构造两个端点共享公共依赖的调用图，验证第二个端点能完整追踪通过共享节点的下游调用
-- **风险：** 无，纯新增测试
+- **完成内容：** `shouldTraceSharedNodeAcrossBranches` 覆盖共享节点重新进入、下游节点不丢失且输出不重复。
 
-### 9. `MavenExecutor` 异常体系接入 — `fail()` → 类型化异常
+### 9. `MavenExecutor` 异常体系接入 — `fail()` → 类型化异常 ✅ 已完成
 
 - **文件：**
   - `java_analyzer/.../env/classpath/maven/MavenExecutor.java`（当前仍用 `fail()` → `ClasspathResult` 模式）
   - `java_analyzer/.../env/classpath/gateway/MavenClasspathGateway.java`（需新增 catch 层）
-- **现状：** 5 个异常类（`ClasspathException`、`MavenNotFoundException`、`MavenExecutionException`、`MavenTimeoutException`、`ClasspathGenerationException`）已创建，接口设计合理（含 `exitCode`、`commandLine`、`outputTail`），但 `MavenExecutor` 仍用旧 `fail()` 方法构造 `ClasspathResult`，未抛出类型化异常
+- **完成内容：** Executor 抛出类型化异常，Gateway 统一转换回 `ClasspathResult`，并保留命令、耗时、stdout/stderr 尾部和 timeout 诊断。
 - **方案：**
   1. `MavenExecutor` 中 `executeMaven()` 改为抛 `ClasspathException` 子类：
      - timeout → `MavenTimeoutException`
@@ -80,6 +78,15 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
   - `MavenExecutionException.outputTail` 让上层无需查日志即可排查
   - 替代字符串判断的脆弱模式
 - **风险：** 低 — 行为不变（异常 → ClasspathResult 转换在 Gateway 层），纯内部重构
+
+### 10. 全仓可靠性与安全优化 ✅ 已完成
+
+- Java 分析缓存升级为请求键 + 源码内容指纹、single-flight、有界 LRU。
+- Java 异步作业和内部分析使用独立有界执行器，作业结果具备容量与 TTL 回收。
+- Python 补齐 Whitebox HTTP 客户端、SQLite 连接池、IO executor 与 Worker 停机生命周期。
+- 限流示例对齐真实 `/argus/api` 路径，Token 桶增加机会式清理。
+- Web 控制台支持 sessionStorage Token、Bearer API、鉴权 WebSocket 与 Blob 资源加载。
+- CI 对齐 `master` 分支并将 Playwright smoke 恢复为阻断项。
 
 ---
 

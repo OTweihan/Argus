@@ -139,10 +139,13 @@ ARGUS_API_TOKEN=请生成一个32字节以上的随机串
 |---------|---------------|
 | `/health` | 否（反代/容器健康检查匿名探测） |
 | `/`、`/assets/...` SPA 静态 | 否（浏览器加载 HTML 无法带 header） |
-| `/api/*` | **是**（`Authorization: Bearer <token>`） |
-| `/ws/*` | **是**（浏览器走 `?token=<token>`，CLI 可走 Bearer 头） |
+| `/argus/api/*` | **是**（`Authorization: Bearer <token>`） |
+| `/argus/api/ws/*` | **是**（浏览器走 `?token=<token>`，CLI 可走 Bearer 头） |
 
-校验使用 `hmac.compare_digest` 防时序侧信道。**不要把 token 写进 git**。更强的访问控制（多用户、SSO、token 轮换）请走反代 + SSO，不要扩这套实现。
+Web 控制台第一次收到 401 时会显示 Token 输入框，Token 只保存在当前标签页的
+`sessionStorage`；关闭标签页即清除。截图、报告和调试包均通过带 Bearer 头的请求加载，
+不会把 Token 放进普通 HTTP URL 或前端构建产物。校验使用 `hmac.compare_digest`
+防时序侧信道。**不要把 token 写进 git**。更强的访问控制请走反代 + SSO。
 
 ---
 
@@ -254,6 +257,6 @@ middleware 自动注入：
 - [ ] `/docs` 能打开，能创建模型配置并 `/test` 成功（验证 LLM 连通性）
 - [ ] 备份脚本通过定时任务每日跑一次
 - [ ] WEB_CONCURRENCY 没被 K8s / Helm chart 设成 > 1
-- [ ] 若启用 `ARGUS_API_TOKEN`：前端构建带上 token 注入，定时 rotate 流程已就绪
+- [ ] 若启用 `ARGUS_API_TOKEN`：确认控制台会话输入可用，定时 rotate 流程已就绪
 - [ ] 若启用 `rate_limit.enabled` 且部署在反代后：`trust_forwarded: true` 已开
 - [ ] 若启用 `events.max_subscribers`：值不低于预期并发用户数的 5 倍

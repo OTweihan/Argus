@@ -140,10 +140,14 @@ When enabled:
 |-------------|---------------|
 | `/health` | No (for reverse proxy / container health checks) |
 | `/`, `/assets/...` (SPA static) | No (browser loads HTML without headers) |
-| `/api/*` | **Yes** (`Authorization: Bearer <token>`) |
-| `/ws/*` | **Yes** (browser uses `?token=<token>`, CLI can use Bearer header) |
+| `/argus/api/*` | **Yes** (`Authorization: Bearer <token>`) |
+| `/argus/api/ws/*` | **Yes** (browser uses `?token=<token>`, CLI can use Bearer header) |
 
-Validation uses `hmac.compare_digest` for timing-attack resistance. **Do not commit the token to git.** For stronger access control (multi-user, SSO, token rotation), use a reverse proxy.
+After the first 401, the web console prompts for the Token and keeps it only in the current
+tab's `sessionStorage`; closing the tab clears it. Screenshots, reports, and debug bundles are
+loaded through authenticated requests, so the Token is not embedded in normal HTTP URLs or
+frontend build artifacts. Validation uses `hmac.compare_digest`. **Do not commit the token to git.**
+For stronger access control, use a reverse proxy with SSO.
 
 ---
 
@@ -255,6 +259,6 @@ Middleware automatically injects:
 - [ ] `/docs` opens, model config can be created and `/test` succeeds
 - [ ] Backup script scheduled daily
 - [ ] `WEB_CONCURRENCY` not set > 1 by K8s / Helm chart
-- [ ] If `ARGUS_API_TOKEN` enabled: frontend build includes token injection, rotation workflow ready
+- [ ] If `ARGUS_API_TOKEN` enabled: console session unlock works and rotation workflow is ready
 - [ ] If `rate_limit.enabled` and behind reverse proxy: `trust_forwarded: true` is set
 - [ ] If `events.max_subscribers` set: value >= 5× expected concurrent users

@@ -8,7 +8,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -17,7 +17,7 @@ on:
       - 'README.*'
       - '.pre-commit-config.yaml'
   pull_request:
-    branches: [main]
+    branches: [master]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -165,7 +165,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [backend]
-    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v5
