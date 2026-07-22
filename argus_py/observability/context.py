@@ -19,7 +19,7 @@ _actor: ContextVar[str | None] = ContextVar("argus_actor", default=None)
 _io_executor: ThreadPoolExecutor | None = None
 
 
-def set_io_executor(executor: ThreadPoolExecutor) -> None:
+def set_io_executor(executor: ThreadPoolExecutor | None) -> None:
     """设置全局 IO 线程池。"""
     global _io_executor
     _io_executor = executor

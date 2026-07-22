@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -13,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from argus_py.api.auth import DEFAULT_PROTECTED_PREFIXES, AuthTokenMiddleware
-from argus_py.api.dependencies import get_task_worker
+from argus_py.api.dependencies import get_task_worker, reset_all_dependencies
 from argus_py.api.middleware import configure_middleware
 from argus_py.api.routes import (
     config,
@@ -116,16 +115,25 @@ def create_app() -> FastAPI:
             max_workers=min(32, (os.cpu_count() or 1) * 4),
             thread_name_prefix="argus-io",
         )
-        asyncio.get_running_loop().set_default_executor(executor)
         set_io_executor(executor)
-        await get_task_worker().start()
+        worker = get_task_worker()
         try:
+            await worker.start()
             yield
         finally:
-            await get_task_worker().stop(settings.scheduler_shutdown_timeout_seconds)
-            await shutdown_container()
-            # writer 先 stop 以 flush 残留 trace；超时 5s 与 worker 一致。
-            stop_trace_writer(timeout=settings.scheduler_shutdown_timeout_seconds)
+            try:
+                await worker.stop(settings.scheduler_shutdown_timeout_seconds)
+            finally:
+                try:
+                    # writer 先 stop 以 flush 残留 trace；超时与 worker 一致。
+                    stop_trace_writer(timeout=settings.scheduler_shutdown_timeout_seconds)
+                finally:
+                    try:
+                        await shutdown_container()
+                    finally:
+                        reset_all_dependencies()
+                        set_io_executor(None)
+                        executor.shutdown(wait=True, cancel_futures=True)
 
     application = FastAPI(
         title=f"{PROJECT_NAME} API",

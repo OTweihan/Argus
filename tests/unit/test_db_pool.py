@@ -60,10 +60,21 @@ class TestDbPoolBasic:
         assert stats["max_size"] == 4
         c1 = pool._acquire(pool._rw_pool, "_rw_size", read_only=False)
         assert pool.pool_stats()["rw_total"] == 1
+        assert pool.pool_stats()["rw_active"] == 1
         pool._release(c1, pool._rw_pool, "_rw_size")
         assert pool.pool_stats()["rw_total"] == 1
-        # 归还后队列有空位，active = max_size - qsize
+        assert pool.pool_stats()["rw_active"] == 0
         assert pool.pool_stats()["max_size"] == 4
+
+    def test_drain_closes_borrowed_connection_when_returned(self, tmp_path: Path) -> None:
+        pool = DbPool(tmp_path / "test_drain_borrowed.db", max_pool_size=1)
+        connection = pool._acquire(pool._rw_pool, "_rw_size", read_only=False)
+        pool.drain()
+        assert pool.pool_stats()["rw_total"] == 1
+        pool._release(connection, pool._rw_pool, "_rw_size")
+        assert pool.pool_stats()["rw_total"] == 0
+        with pytest.raises(RuntimeError, match="closed"):
+            pool._acquire(pool._rw_pool, "_rw_size", read_only=False)
 
     def test_pool_max_size_respected(self, tmp_path: Path) -> None:
         """池满时 _acquire 不创建新连接，统计不超 max_size。"""

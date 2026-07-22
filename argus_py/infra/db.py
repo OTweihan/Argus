@@ -61,6 +61,7 @@ class DbPool:
         self._ro_pool: queue.Queue[sqlite3.Connection] = queue.Queue(maxsize=max_pool_size)
         self._ro_size = 0
         self._lock = threading.Lock()
+        self._closed = False
 
     # ── 公共接口 ────────────────────────────────────────────────────────────
 
@@ -101,31 +102,35 @@ class DbPool:
             self._release(connection, self._rw_pool, "_rw_size")
 
     def drain(self) -> None:
-        """关闭池中所有连接，重置计数器。"""
-        self._drain_pool(self._rw_pool)
-        self._rw_size = 0
-        self._drain_pool(self._ro_pool)
-        self._ro_size = 0
+        """永久关闭连接池；已借出的连接在归还时关闭。"""
+        with self._lock:
+            self._closed = True
+            self._rw_size -= self._drain_pool(self._rw_pool)
+            self._ro_size -= self._drain_pool(self._ro_pool)
 
     def pool_stats(self) -> dict[str, int]:
         """返回各池的活跃 / 最大连接数。"""
-        return {
-            "rw_active": self._max_size - self._rw_pool.qsize(),
-            "rw_total": self._rw_size,
-            "ro_active": self._max_size - self._ro_pool.qsize(),
-            "ro_total": self._ro_size,
-            "max_size": self._max_size,
-        }
+        with self._lock:
+            return {
+                "rw_active": max(0, self._rw_size - self._rw_pool.qsize()),
+                "rw_total": self._rw_size,
+                "ro_active": max(0, self._ro_size - self._ro_pool.qsize()),
+                "ro_total": self._ro_size,
+                "max_size": self._max_size,
+            }
 
     # ── 内部 ────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _drain_pool(pool: queue.Queue[sqlite3.Connection]) -> None:
+    def _drain_pool(pool: queue.Queue[sqlite3.Connection]) -> int:
+        closed = 0
         while True:
             try:
                 pool.get_nowait().close()
+                closed += 1
             except queue.Empty:
                 break
+        return closed
 
     def _new_conn(self, read_only: bool) -> sqlite3.Connection:
         """创建新连接并设置运行时参数。
@@ -156,29 +161,54 @@ class DbPool:
         read_only: bool,
     ) -> sqlite3.Connection:
         """从池中取连接，池空且未达上限时创建新连接。"""
-        try:
-            return pool.get_nowait()
-        except queue.Empty:
-            pass
         with self._lock:
+            if self._closed:
+                raise RuntimeError(f"Database pool is closed: {self._db_path}")
+            try:
+                return pool.get_nowait()
+            except queue.Empty:
+                pass
             current_size = getattr(self, size_attr)
             if current_size < self._max_size:
+                try:
+                    connection = self._new_conn(read_only)
+                except Exception:
+                    raise
                 setattr(self, size_attr, current_size + 1)
-                return self._new_conn(read_only)
-        # 所有连接都被借出 — 阻塞等待归还
-        return pool.get()
+                return connection
+        # 所有连接都被借出 — 分段等待，以便 drain 后及时退出。
+        while True:
+            try:
+                connection = pool.get(timeout=0.1)
+            except queue.Empty:
+                with self._lock:
+                    if self._closed:
+                        raise RuntimeError(f"Database pool is closed: {self._db_path}")
+                continue
+            with self._lock:
+                if self._closed:
+                    connection.close()
+                    setattr(self, size_attr, max(0, getattr(self, size_attr) - 1))
+                    raise RuntimeError(f"Database pool is closed: {self._db_path}")
+                return connection
 
-    @staticmethod
     def _release(
+        self,
         connection: sqlite3.Connection,
         pool: queue.Queue[sqlite3.Connection],
         size_attr: str,
     ) -> None:
         """归还连接至池；池满则关闭。"""
-        try:
-            pool.put_nowait(connection)
-        except queue.Full:
-            connection.close()
+        with self._lock:
+            if self._closed:
+                connection.close()
+                setattr(self, size_attr, max(0, getattr(self, size_attr) - 1))
+                return
+            try:
+                pool.put_nowait(connection)
+            except queue.Full:
+                connection.close()
+                setattr(self, size_attr, max(0, getattr(self, size_attr) - 1))
 
 
 def set_default_pool_max_size(size: int) -> None:
@@ -205,6 +235,16 @@ def get_db_pool(db_path: str | Path = DEFAULT_DB_PATH, max_pool_size: int | None
             if resolved not in _DB_POOLS:  # double-check
                 _DB_POOLS[resolved] = DbPool(resolved, max_pool_size)
     return _DB_POOLS[resolved]
+
+
+def close_all_db_pools() -> None:
+    """关闭并移除进程内所有 SQLite 连接池。"""
+    global _DB_POOLS
+    with _DB_POOLS_LOCK:
+        pools = list(_DB_POOLS.values())
+        _DB_POOLS = {}
+    for pool in pools:
+        pool.drain()
 
 
 _MIN_SQLITE_VERSION = (3, 35, 0)
@@ -483,6 +523,7 @@ __all__ = [
     "ConnectFn",
     "DbPool",
     "connect",
+    "close_all_db_pools",
     "get_db_pool",
     "set_default_pool_max_size",
     "init_database",

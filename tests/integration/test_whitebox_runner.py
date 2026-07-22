@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -142,6 +143,56 @@ async def test_runner_whitebox_with_mock_client(app_stack) -> None:
     wb = result.parameters.get("_whitebox_result", {})
     assert len(wb.get("endpoints", [])) == 1
     assert len(wb.get("callGraph", {})) == 1
+    mock_client.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_whitebox_runner_closes_owned_client(monkeypatch, tmp_path) -> None:
+    from argus_py.whitebox import runner as runner_module
+    from argus_py.whitebox.models import CallGraph, WhiteboxResult
+    from argus_py.whitebox.runner import WhiteboxRunner
+    from argus_py.whitebox.source_resolver import SourceResolver
+
+    mock_client = AsyncMock()
+    mock_client.analyze.return_value = WhiteboxResult(call_graph=CallGraph(nodes={}))
+    monkeypatch.setattr(runner_module, "WhiteboxClient", lambda: mock_client)
+    resolver = AsyncMock(spec=SourceResolver)
+    resolver.resolve_path.return_value = str(tmp_path)
+    task = Task(
+        task_type=TaskType.WHITEBOX,
+        goal="白盒分析",
+        parameters={"source_path": str(tmp_path)},
+    )
+
+    await WhiteboxRunner(source_resolver=resolver).run(task)
+
+    mock_client.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [RuntimeError("failed"), asyncio.CancelledError()])
+async def test_whitebox_runner_closes_owned_client_on_failure_or_cancel(
+    monkeypatch, tmp_path, failure: BaseException
+) -> None:
+    from argus_py.whitebox import runner as runner_module
+    from argus_py.whitebox.runner import WhiteboxRunner
+    from argus_py.whitebox.source_resolver import SourceResolver
+
+    mock_client = AsyncMock()
+    mock_client.analyze.side_effect = failure
+    monkeypatch.setattr(runner_module, "WhiteboxClient", lambda: mock_client)
+    resolver = AsyncMock(spec=SourceResolver)
+    resolver.resolve_path.return_value = str(tmp_path)
+    task = Task(
+        task_type=TaskType.WHITEBOX,
+        goal="白盒分析",
+        parameters={"source_path": str(tmp_path)},
+    )
+
+    with pytest.raises(type(failure)):
+        await WhiteboxRunner(source_resolver=resolver).run(task)
+
+    mock_client.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -56,8 +56,19 @@ class TaskWorker:
         """停止后台 Worker。"""
         if not self._started:
             return
-        await self.queue.request_stop(len(self._tasks))
-        done, pending = await asyncio.wait(self._tasks, timeout=timeout_seconds)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout_seconds)
+        try:
+            await asyncio.wait_for(
+                self.queue.request_stop(len(self._tasks)),
+                timeout=max(0.0, deadline - loop.time()),
+            )
+        except TimeoutError:
+            logger.warning("Worker 停止信号投递超时，将取消剩余任务")
+        done, pending = await asyncio.wait(
+            self._tasks,
+            timeout=max(0.0, deadline - loop.time()),
+        )
         for task in pending:
             task.cancel()
         if pending:

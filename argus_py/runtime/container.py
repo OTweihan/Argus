@@ -146,5 +146,8 @@ async def shutdown_container() -> None:
     安全可重入：未初始化的资源静默跳过。
     """
     from argus_py.browser.singleton import stop_shared_client
+    from argus_py.infra.db import close_all_db_pools
 
     await stop_shared_client()
+    close_all_db_pools()
+    create_container.cache_clear()

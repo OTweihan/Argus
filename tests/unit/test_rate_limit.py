@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
+from importlib import import_module
 from typing import Any
 
 import pytest
@@ -99,6 +101,16 @@ class TestTokenBucketLimiter:
         assert limiter.purge_idle(idle_seconds=3600.0) == 0
         assert limiter.purge_idle(idle_seconds=-1.0) == 1
         assert limiter.snapshot()["bucket_count"] == 0
+
+    def test_opportunistic_maintenance_removes_idle_buckets(self) -> None:
+        limiter = TokenBucketLimiter()
+        now = time.monotonic()
+        limiter._buckets[("stale", "rule")] = (0.0, now - 601)
+        limiter._last_maintenance = now - 61
+
+        limiter.try_acquire(("current", "rule"), capacity=1, refill_per_sec=1)
+
+        assert ("stale", "rule") not in limiter._buckets
 
 
 class TestBuildRules:
@@ -238,3 +250,28 @@ class TestRateLimitMiddleware:
         assert client.post("/tasks", headers={"x-forwarded-for": "10.0.0.1"}).status_code == 429
         # 不同 XFF 各自独立
         assert client.post("/tasks", headers={"x-forwarded-for": "10.0.0.2"}).status_code == 200
+
+
+def test_real_app_prefix_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    from argus_py.config.server_settings import load_server_settings
+
+    app_module = import_module("argus_py.api.app")
+    settings = replace(
+        load_server_settings(),
+        rate_limit_enabled=True,
+        rate_limit_routes=[
+            {
+                "name": "create_task",
+                "method": "POST",
+                "path": "/argus/api/tasks",
+                "requests_per_minute": 1,
+                "burst": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(app_module, "load_server_settings", lambda: settings)
+    application = app_module.create_app()
+    client = TestClient(application)
+
+    assert client.post("/argus/api/tasks", json={}).status_code == 422
+    assert client.post("/argus/api/tasks", json={}).status_code == 429

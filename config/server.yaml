@@ -52,27 +52,27 @@ rate_limit:
   routes: []
     # - name: create_task
     #   method: POST
-    #   path: /tasks
+    #   path: /argus/api/tasks
     #   requests_per_minute: 60   # 持续速率
     #   burst: 20                 # 突发上限（同时也是桶容量）
     # - name: start_task
     #   method: POST
-    #   path: /tasks/*/start
+    #   path: /argus/api/tasks/*/start
     #   requests_per_minute: 60
     #   burst: 20
     # - name: restart_task
     #   method: POST
-    #   path: /tasks/*/restart
+    #   path: /argus/api/tasks/*/restart
     #   requests_per_minute: 60
     #   burst: 20
     # - name: test_model
     #   method: POST
-    #   path: /config/models/test
+    #   path: /argus/api/config/models/test
     #   requests_per_minute: 20
     #   burst: 5
     # - name: preview_prompt
     #   method: POST
-    #   path: /prompts/preview
+    #   path: /argus/api/prompts/preview
     #   requests_per_minute: 30
     #   burst: 10
 

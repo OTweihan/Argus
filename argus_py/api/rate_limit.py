@@ -83,6 +83,9 @@ class TokenBucketLimiter:
     def __init__(self) -> None:
         self._buckets: dict[tuple[str, str], tuple[float, float]] = {}
         self._lock = threading.Lock()
+        self._last_maintenance = time.monotonic()
+        self._maintenance_interval = 60.0
+        self._idle_seconds = 600.0
 
     def try_acquire(
         self, key: tuple[str, str], capacity: float, refill_per_sec: float
@@ -92,6 +95,9 @@ class TokenBucketLimiter:
             return True, 0.0
         now = time.monotonic()
         with self._lock:
+            if now - self._last_maintenance >= self._maintenance_interval:
+                self._purge_idle_locked(now - self._idle_seconds)
+                self._last_maintenance = now
             tokens, last = self._buckets.get(key, (capacity, now))
             tokens = min(capacity, tokens + (now - last) * refill_per_sec)
             if tokens >= 1.0:
@@ -105,9 +111,14 @@ class TokenBucketLimiter:
         """删除超过 ``idle_seconds`` 未访问的桶，返回清理数量。"""
         threshold = time.monotonic() - idle_seconds
         with self._lock:
-            stale = [k for k, (_, last) in self._buckets.items() if last < threshold]
-            for k in stale:
-                self._buckets.pop(k, None)
+            removed = self._purge_idle_locked(threshold)
+            self._last_maintenance = time.monotonic()
+        return removed
+
+    def _purge_idle_locked(self, threshold: float) -> int:
+        stale = [k for k, (_, last) in self._buckets.items() if last < threshold]
+        for key in stale:
+            self._buckets.pop(key, None)
         return len(stale)
 
     def snapshot(self) -> dict[str, int]:

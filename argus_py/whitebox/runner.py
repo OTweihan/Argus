@@ -25,7 +25,7 @@ class WhiteboxRunner:
         client: WhiteboxClient | None = None,
         source_resolver: SourceResolver | None = None,
     ) -> None:
-        self._client = client or WhiteboxClient()
+        self._client = client
         self._source_resolver = source_resolver or SourceResolver()
 
     async def run(self, task: Task) -> Task:
@@ -52,6 +52,7 @@ class WhiteboxRunner:
         if not repo_url and not source_path:
             raise ValueError("parameters 必须包含 repo_url 或 source_path")
 
+        client = self._client or WhiteboxClient()
         try:
             # Step 1: 解析源码（在 IO 线程执行，不阻塞事件循环）
             if repo_url:
@@ -63,13 +64,11 @@ class WhiteboxRunner:
                     resolved_path = await run_in_thread(self._source_resolver.resolve, repo_url)
             else:
                 assert source_path is not None  # 已在入口处校验
-                resolved_path = await run_in_thread(
-                    self._source_resolver.resolve_path, source_path
-                )
+                resolved_path = await run_in_thread(self._source_resolver.resolve_path, source_path)
 
             # Step 2: 调用 Java 分析服务
             logger.info("开始白盒分析: path=%s scope=%s", resolved_path, scope)
-            result = await self._client.analyze(resolved_path, scope=scope, maven=maven)
+            result = await client.analyze(resolved_path, scope=scope, maven=maven)
 
             # Step 3: 写 Findings
             task.findings = _map_findings(result.findings)
@@ -101,7 +100,11 @@ class WhiteboxRunner:
                 len(result.clusters),
             )
         finally:
-            await run_in_thread(self._source_resolver.cleanup)
+            try:
+                await run_in_thread(self._source_resolver.cleanup)
+            finally:
+                if self._client is None:
+                    await client.close()
 
         return task
 
