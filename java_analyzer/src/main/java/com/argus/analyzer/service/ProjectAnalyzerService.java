@@ -13,11 +13,13 @@ import com.argus.analyzer.support.SourceLocator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,6 +37,7 @@ public class ProjectAnalyzerService {
     private final MavenClasspathResolver classpathResolver;
     private final SourceFileScanner sourceFileScanner;
     private final ModuleClassifier moduleClassifier;
+    private final Executor analysisWorkerExecutor;
 
     public ProjectAnalyzerService(ControllerExtractor controllerExtractor,
                                   CallGraphBuilder callGraphBuilder,
@@ -45,7 +48,8 @@ public class ProjectAnalyzerService {
                                   ProjectIndexCache indexCache,
                                   MavenClasspathResolver classpathResolver,
                                   SourceFileScanner sourceFileScanner,
-                                  ModuleClassifier moduleClassifier) {
+                                  ModuleClassifier moduleClassifier,
+                                  @Qualifier("analysisWorkerExecutor") Executor analysisWorkerExecutor) {
         this.controllerExtractor = controllerExtractor;
         this.callGraphBuilder = callGraphBuilder;
         this.findingDetector = findingDetector;
@@ -56,6 +60,7 @@ public class ProjectAnalyzerService {
         this.classpathResolver = classpathResolver;
         this.sourceFileScanner = sourceFileScanner;
         this.moduleClassifier = moduleClassifier;
+        this.analysisWorkerExecutor = analysisWorkerExecutor;
     }
 
     public AnalyzeResponse analyze(AnalyzeRequest request) {
@@ -64,19 +69,23 @@ public class ProjectAnalyzerService {
 
     public AnalyzeResponse analyze(AnalyzeRequest request, AnalysisProgressListener progress) {
         Path sourcePath = sourceLocator.resolve(request.sourcePath());
-        String canonicalPath = sourcePath.toAbsolutePath().normalize().toString();
-
-        AnalyzeResponse cached = indexCache.get(canonicalPath);
-        if (cached != null) {
-            progress.onEvent("cache", "INFO", "Analysis result loaded from cache");
-            return cached;
-        }
-
         String scope = request.scope() != null ? request.scope() : "all";
         MavenConfig mavenConfig = request.maven() != null ? request.maven() : new MavenConfig();
+        var cacheKey = indexCache.createKey(sourcePath, scope, request.targetModules(), mavenConfig);
+        var cached = indexCache.getOrCompute(cacheKey, () -> analyzeUncached(
+                sourcePath, scope, mavenConfig, request.targetModules(), progress));
+        if (cached.cacheHit()) {
+            progress.onEvent("cache", "INFO", "Analysis result loaded from cache");
+        }
+        return cached.response();
+    }
+
+    private AnalyzeResponse analyzeUncached(Path sourcePath, String scope, MavenConfig mavenConfig,
+                                             List<String> requestedTargets,
+                                             AnalysisProgressListener progress) {
 
         // P0-P1: 模块索引 + classpath 解析
-        ModuleContext ctx = resolveModuleContext(sourcePath, scope, mavenConfig, request.targetModules(),
+        ModuleContext ctx = resolveModuleContext(sourcePath, scope, mavenConfig, requestedTargets,
                 progress);
 
         // Step 1: 无依赖的独立分析并行执行
@@ -88,19 +97,20 @@ public class ProjectAnalyzerService {
                 sourcePath, ctx.classpathJars(), scope);
 
         // Step 2: 依赖 callgraph 的衍生分析
-        var graph = callGraphFuture.thenApply(r -> r != null ? r.graph() : Map.<String, CallGraphNode>of());
+        var graph = callGraphFuture.thenApplyAsync(
+                r -> r != null ? r.graph() : Map.<String, CallGraphNode>of(), analysisWorkerExecutor);
         var diagnostics = buildDiagnostics(callGraphFuture, ctx);
 
         var flowsFuture = endpointsFuture.thenCombineAsync(graph, (eps, g) -> {
             if (!isScope(scope, "flows", "all") || eps.isEmpty() || g.isEmpty())
                 return List.<ExecutionFlow>of();
             return executionFlowTracer.trace(g, eps);
-        });
+        }, analysisWorkerExecutor);
         var clustersFuture = graph.thenApplyAsync(g -> {
             if (!isScope(scope, "clusters", "all") || g.isEmpty())
                 return List.<ClusterInfo>of();
             return communityClusterer.cluster(g);
-        });
+        }, analysisWorkerExecutor);
 
         // Step 3: 收集结果
         List<EndpointInfo> endpoints = endpointsFuture.join();
@@ -111,8 +121,6 @@ public class ProjectAnalyzerService {
         AnalyzerDiagnostics diag = diagnostics.join();
 
         AnalyzeResponse response = new AnalyzeResponse(endpoints, callGraph, findings, flows, clusters, diag);
-        indexCache.put(canonicalPath, response);
-
         logSummary(scope, endpoints, callGraph, findings, flows, clusters, diag);
         return response;
     }
@@ -170,20 +178,23 @@ public class ProjectAnalyzerService {
     private CompletableFuture<List<EndpointInfo>> launchEndpointExtraction(
             Path sourcePath, List<Path> cp, String scope) {
         if (!isScope(scope, "endpoints", "all", "flows")) return CompletableFuture.completedFuture(List.of());
-        return CompletableFuture.supplyAsync(() -> controllerExtractor.extract(sourcePath, cp));
+        return CompletableFuture.supplyAsync(
+                () -> controllerExtractor.extract(sourcePath, cp), analysisWorkerExecutor);
     }
 
     private CompletableFuture<CallGraphBuilder.BuildResult> launchCallGraphBuild(
             Path sourcePath, List<Path> cp, String scope) {
         if (!isScope(scope, "callgraph", "all", "flows", "clusters"))
             return CompletableFuture.completedFuture(null);
-        return CompletableFuture.supplyAsync(() -> callGraphBuilder.build(sourcePath, cp));
+        return CompletableFuture.supplyAsync(
+                () -> callGraphBuilder.build(sourcePath, cp), analysisWorkerExecutor);
     }
 
     private CompletableFuture<List<FindingItem>> launchFindingDetection(
             Path sourcePath, List<Path> cp, String scope) {
         if (!isScope(scope, "all")) return CompletableFuture.completedFuture(List.of());
-        return CompletableFuture.supplyAsync(() -> findingDetector.detect(sourcePath, cp));
+        return CompletableFuture.supplyAsync(
+                () -> findingDetector.detect(sourcePath, cp), analysisWorkerExecutor);
     }
 
     // ====== Diagnostics 组装 ======
@@ -226,7 +237,7 @@ public class ProjectAnalyzerService {
                 diag.setClasspathTargetModules(ctx.targetModules());
             }
             return diag;
-        });
+        }, analysisWorkerExecutor);
     }
 
     // ====== 辅助方法 ======

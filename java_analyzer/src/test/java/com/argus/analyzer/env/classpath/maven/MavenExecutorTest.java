@@ -3,6 +3,7 @@ package com.argus.analyzer.env.classpath.maven;
 import com.argus.analyzer.env.ClasspathGenerationException;
 import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.service.AnalysisProgressListener;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,12 +37,19 @@ class MavenExecutorTest {
 
     private MavenExecutor executor;
     private MavenConfig config;
+    private ExecutorService streamExecutor;
 
     @BeforeEach
     void setUp() {
-        executor = new MavenExecutor();
+        streamExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        executor = new MavenExecutor(streamExecutor);
         config = new MavenConfig();
         config.setOffline(true);
+    }
+
+    @AfterEach
+    void tearDown() {
+        streamExecutor.close();
     }
 
     @Test

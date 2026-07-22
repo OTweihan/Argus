@@ -4,6 +4,7 @@ import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.env.MavenExecutionException;
 import com.argus.analyzer.env.MavenTimeoutException;
 import com.argus.analyzer.service.AnalysisProgressListener;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -12,6 +13,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,12 +36,19 @@ class MavenExecutorMavenIT {
 
     private MavenExecutor executor;
     private MavenConfig config;
+    private ExecutorService streamExecutor;
 
     @BeforeEach
     void setUp() {
-        executor = new MavenExecutor();
+        streamExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        executor = new MavenExecutor(streamExecutor);
         config = new MavenConfig();
         config.setOffline(true);
+    }
+
+    @AfterEach
+    void tearDown() {
+        streamExecutor.close();
     }
 
     @Test

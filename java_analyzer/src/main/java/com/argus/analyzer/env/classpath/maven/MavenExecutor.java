@@ -9,6 +9,7 @@ import com.argus.analyzer.env.classpath.parser.ClasspathFileReader;
 import com.argus.analyzer.service.AnalysisProgressListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -21,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -35,8 +37,10 @@ public class MavenExecutor {
     private static final int MAVEN_OUTPUT_TAIL_CHARS = 4000;
 
     private final ClasspathFileReader fileReader = new ClasspathFileReader();
+    private final ExecutorService streamExecutor;
 
-    public MavenExecutor() {
+    public MavenExecutor(@Qualifier("mavenStreamExecutor") ExecutorService streamExecutor) {
+        this.streamExecutor = streamExecutor;
     }
 
     /**
@@ -158,7 +162,11 @@ public class MavenExecutor {
             }
             log.info("[CLASSPATH] Reactor install completed successfully");
             return true;
-        } catch (IOException | InterruptedException e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[CLASSPATH] Reactor install interrupted: {}", e.getMessage());
+            return false;
+        } catch (IOException e) {
             log.warn("[CLASSPATH] Reactor install failed: {}", e.getMessage());
             return false;
         }
@@ -180,9 +188,9 @@ public class MavenExecutor {
 
             Process process = pb.start();
             CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(
-                    () -> readStream(process.getInputStream(), "stdout", progress));
+                    () -> readStream(process.getInputStream(), "stdout", progress), streamExecutor);
             CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(
-                    () -> readStream(process.getErrorStream(), "stderr", progress));
+                    () -> readStream(process.getErrorStream(), "stderr", progress), streamExecutor);
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 
@@ -231,7 +239,7 @@ public class MavenExecutor {
             throw new ClasspathGenerationException("Maven execution failed: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ClasspathGenerationException("Maven execution interrupted");
+            throw new ClasspathGenerationException("Maven execution interrupted", e);
         }
     }
 

@@ -13,3 +13,19 @@ management:
   endpoint:
     health:
       show-details: never
+
+argus:
+  analysis:
+    cache:
+      ttl-minutes: 30
+      max-entries: 128
+    jobs:
+      threads: 2
+      queue-capacity: 32
+      max-entries: 1000
+      retention-seconds: 1800
+      cleanup-interval-ms: 60000
+    workers:
+      # 0 = min(8, max(2, available processors))
+      threads: 0
+      queue-capacity: 64

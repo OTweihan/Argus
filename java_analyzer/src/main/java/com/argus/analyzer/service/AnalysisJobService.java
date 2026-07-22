@@ -7,6 +7,9 @@ import com.argus.analyzer.api.dto.AnalyzeResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -15,8 +18,9 @@ import java.util.Deque;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
 @Service
 public class AnalysisJobService {
@@ -26,18 +30,42 @@ public class AnalysisJobService {
 
     private final ProjectAnalyzerService analyzerService;
     private final Map<String, AnalysisJob> jobs = new ConcurrentHashMap<>();
+    private final Executor jobExecutor;
+    private final int maxJobs;
+    private final long retentionSeconds;
 
-    public AnalysisJobService(ProjectAnalyzerService analyzerService) {
+    public AnalysisJobService(ProjectAnalyzerService analyzerService,
+                              @Qualifier("analysisJobExecutor") Executor jobExecutor,
+                              @Value("${argus.analysis.jobs.max-entries:1000}") int maxJobs,
+                              @Value("${argus.analysis.jobs.retention-seconds:1800}") long retentionSeconds) {
         this.analyzerService = analyzerService;
+        this.jobExecutor = jobExecutor;
+        this.maxJobs = Math.max(1, maxJobs);
+        this.retentionSeconds = Math.max(1, retentionSeconds);
     }
 
-    public AnalysisJobStatusResponse submit(AnalyzeRequest request) {
+    public synchronized AnalysisJobStatusResponse submit(AnalyzeRequest request) {
+        cleanupExpiredJobs();
+        if (jobs.size() >= maxJobs) {
+            throw new RejectedExecutionException("Analysis job capacity reached: " + maxJobs);
+        }
         String jobId = UUID.randomUUID().toString();
         AnalysisJob job = new AnalysisJob(jobId);
         jobs.put(jobId, job);
 
-        CompletableFuture.runAsync(() -> runJob(job, request));
+        try {
+            jobExecutor.execute(() -> runJob(job, request));
+        } catch (RejectedExecutionException error) {
+            jobs.remove(jobId);
+            throw error;
+        }
         return job.toStatusResponse();
+    }
+
+    @Scheduled(fixedDelayString = "${argus.analysis.jobs.cleanup-interval-ms:60000}")
+    public void cleanupExpiredJobs() {
+        Instant cutoff = Instant.now().minusSeconds(retentionSeconds);
+        jobs.entrySet().removeIf(entry -> entry.getValue().finishedBefore(cutoff));
     }
 
     public AnalysisJobStatusResponse getStatus(String jobId) {
@@ -132,6 +160,10 @@ public class AnalysisJobService {
                 throw new IllegalStateException("Analysis job is not complete: " + status);
             }
             return result;
+        }
+
+        private synchronized boolean finishedBefore(Instant cutoff) {
+            return finishedAt != null && finishedAt.isBefore(cutoff);
         }
     }
 }
