@@ -78,6 +78,37 @@ argus --version
 playwright install chromium
 ```
 
+### 本地开发一键启动
+
+项目提供零依赖的 Node.js 开发进程管理器，可在 Windows、macOS 和 Linux 上同时
+启动 Python API、Vue 前端和 Java 分析器，并在当前终端统一显示日志。
+
+先使用 uv 创建锁定的 Python 环境并安装前端依赖：
+
+```bash
+uv sync --frozen --extra browser --dev
+pnpm --dir frontend install --frozen-lockfile
+```
+
+检查 uv、Python、pnpm、Maven/JDK 及开发端口，但不启动服务：
+
+```bash
+node scripts/dev.mjs --check
+```
+
+一键启动全部服务：
+
+```bash
+node scripts/dev.mjs
+```
+
+启动完成后访问前端 `http://127.0.0.1:5173`。Python 和前端支持热更新；Java
+源码修改后需要按 `Ctrl+C` 停止，再重新启动整组服务。任一服务异常退出时，管理器
+也会停止其余服务，避免残留半套开发环境。
+
+每次启动的汇总日志和各服务日志保存在
+`outputs/logs/dev/<启动时间>/`。日志可能包含敏感运行信息，请勿未经检查直接外传。
+
 ### 配置 LLM
 
 ```bash
