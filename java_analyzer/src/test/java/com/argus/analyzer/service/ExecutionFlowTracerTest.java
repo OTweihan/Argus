@@ -85,6 +85,73 @@ class ExecutionFlowTracerTest {
                 .contains("OrderController#create", "OrderService#create", "InventoryService#checkStock");
     }
 
+    /**
+     * Regression test for visited/pathNodes separation (commit f3f8a9e).
+     *
+     * When a shared node (SharedService#transform) is reachable from two different
+     * branches within the same endpoint's call graph, it must be:
+     * 1. Re-entered per traversal path (so its downstream callees are NOT missed), but
+     * 2. Emitted only once globally as a FlowStep (no duplicate entries).
+     *
+     * Before the fix, a single visited Set blocked re-entry entirely — the second
+     * branch would stop at SharedService and skip RepositoryX entirely.
+     *
+     * <pre>
+     * TestController#create
+     * ├── ServiceA#process → SharedService#transform → RepositoryX#save
+     * └── ServiceB#process → SharedService#transform → RepositoryX#save
+     * </pre>
+     */
+    @Test
+    void shouldTraceSharedNodeAcrossBranches() {
+        Map<String, CallGraphNode> graph = new LinkedHashMap<>();
+        graph.put("TestController#create", node("TestController", "create",
+                "ServiceA#process", "ServiceB#process"));
+        graph.put("ServiceA#process", node("ServiceA", "process",
+                "SharedService#transform"));
+        graph.put("ServiceB#process", node("ServiceB", "process",
+                "SharedService#transform"));
+        graph.put("SharedService#transform", node("SharedService", "transform",
+                "RepositoryX#save"));
+        graph.put("RepositoryX#save", node("RepositoryX", "save"));
+
+        List<EndpointInfo> endpoints = List.of(
+                new EndpointInfo("/test", "POST", "TestController", "create", List.of(), "void")
+        );
+
+        List<ExecutionFlow> flows = tracer.trace(graph, endpoints);
+
+        assertThat(flows).hasSize(1);
+        List<String> keys = flowSteps(flows.getFirst());
+
+        // 1. All 5 unique nodes present — order independent
+        assertThat(keys).containsExactlyInAnyOrder(
+                "TestController#create",
+                "ServiceA#process",
+                "ServiceB#process",
+                "SharedService#transform",
+                "RepositoryX#save"
+        );
+
+        // 2. No duplicate entries (visited dedup works)
+        assertThat(keys).doesNotHaveDuplicates();
+
+        // 3. SharedService appears exactly once (visited dedup)
+        assertThat(keys.stream()
+                .filter(k -> k.equals("SharedService#transform"))
+                .count()).isEqualTo(1);
+
+        // 4. RepositoryX is present — proves DFS re-entered SharedService
+        //    and traced its downstream callees (this was the lost node before the fix)
+        assertThat(keys).contains("RepositoryX#save");
+
+        // 5. ServiceB is present — proves the second branch was not skipped
+        assertThat(keys).contains("ServiceB#process");
+
+        // 6. Depth ≥ 2
+        assertThat(flows.getFirst().callDepth()).isGreaterThanOrEqualTo(2);
+    }
+
     @Test
     void shouldDetectCycles() {
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
