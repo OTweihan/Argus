@@ -1,11 +1,13 @@
 package com.argus.analyzer.env;
 
 /**
- * Maven executable not found after exhausting the 8-step detection chain.
+ * Maven executable not found after exhausting the detection chain.
  */
-public class MavenNotFoundException extends ClasspathException {
+public class MavenNotFoundException extends MavenException {
 
-    public MavenNotFoundException(String message) {
-        super(message);
+    private static final long serialVersionUID = 1L;
+
+    public MavenNotFoundException(String message, String commandLine) {
+        super(message, commandLine);
     }
 }

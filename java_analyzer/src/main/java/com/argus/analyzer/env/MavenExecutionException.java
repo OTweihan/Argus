@@ -3,28 +3,41 @@ package com.argus.analyzer.env;
 /**
  * Maven process completed with a non-zero exit code.
  */
-public class MavenExecutionException extends ClasspathException {
+public class MavenExecutionException extends MavenException {
+
+    private static final long serialVersionUID = 1L;
 
     private final int exitCode;
-    private final String commandLine;
-    private final String outputTail;
+    private final String stderrTail;
+    private final long durationMs;
+    private final String stdoutTail;
 
-    public MavenExecutionException(String message, int exitCode, String commandLine, String outputTail) {
-        super(message);
+    public MavenExecutionException(String message, int exitCode, String commandLine,
+                                    String stderrTail, long durationMs, String stdoutTail) {
+        super(message, commandLine);
         this.exitCode = exitCode;
-        this.commandLine = commandLine;
-        this.outputTail = outputTail;
+        this.stderrTail = stderrTail;
+        this.durationMs = durationMs;
+        this.stdoutTail = stdoutTail;
     }
 
-    public int getExitCode() {
+    @Override
+    public Integer exitCode() {
         return exitCode;
     }
 
-    public String getCommandLine() {
-        return commandLine;
+    @Override
+    public String stderrTail() {
+        return stderrTail;
     }
 
-    public String getOutputTail() {
-        return outputTail;
+    @Override
+    public long durationMs() {
+        return durationMs;
+    }
+
+    @Override
+    public String stdoutTail() {
+        return stdoutTail;
     }
 }
