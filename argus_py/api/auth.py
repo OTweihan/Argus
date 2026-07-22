@@ -17,13 +17,14 @@
 from __future__ import annotations
 
 import hmac
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi.encoders import jsonable_encoder
+from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from argus_py.api.errors import error_response
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class AuthTokenMiddleware:
 
         provided = self._extract_token(scope)
         if provided is None or not hmac.compare_digest(provided, self._token):
-            await self._reject(scope_type, send)
+            await self._reject(scope, receive, send)
             return
 
         await self._app(scope, receive, send)
@@ -113,27 +114,17 @@ class AuthTokenMiddleware:
             return None
         return None
 
-    async def _reject(self, scope_type: str, send: Send) -> None:
+    async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
+        scope_type = scope.get("type")
+
         if scope_type == "http":
-            from argus_py.api.errors import error_payload
-
-            body = jsonable_encoder(
-                error_payload("UNAUTHORIZED", "需要有效的 API Token。")
+            response: Response = error_response(
+                "UNAUTHORIZED",
+                "需要有效的 API Token。",
+                401,
+                headers={"WWW-Authenticate": 'Bearer realm="argus"'},
             )
-
-            payload = json.dumps(body).encode("utf-8")
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": 401,
-                    "headers": [
-                        (b"content-type", b"application/json"),
-                        (b"www-authenticate", b'Bearer realm="argus"'),
-                        (b"content-length", str(len(payload)).encode("ascii")),
-                    ],
-                }
-            )
-            await send({"type": "http.response.body", "body": payload})
+            await response(scope, receive, send)
             return
 
         # WebSocket：尚未 accept 时直接 close；策略违例对应 1008
