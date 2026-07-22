@@ -1,7 +1,10 @@
 package com.argus.analyzer.env.classpath.maven;
 
+import com.argus.analyzer.env.ClasspathGenerationException;
 import com.argus.analyzer.env.ClasspathResult;
 import com.argus.analyzer.env.MavenConfig;
+import com.argus.analyzer.env.MavenExecutionException;
+import com.argus.analyzer.env.MavenTimeoutException;
 import com.argus.analyzer.env.classpath.parser.ClasspathFileReader;
 import com.argus.analyzer.service.AnalysisProgressListener;
 import org.slf4j.Logger;
@@ -50,10 +53,8 @@ public class MavenExecutor {
         try {
             Files.createDirectories(outputDir);
         } catch (IOException e) {
-            List<String> cmd = new ArrayList<>();
-            cmd.add(mvnExec);
-            cmd.add("dependency:build-classpath");
-            return fail("Failed to create .argus directory: " + e.getMessage(), cmd);
+            throw new ClasspathGenerationException(
+                    "Failed to create .argus directory: " + e.getMessage(), e);
         }
         Path outputFile = outputDir.resolve("classpath.txt");
         return generateClasspathForModule(sourcePath, outputFile, mvnExec, config, timeoutSeconds, null, progress);
@@ -170,54 +171,46 @@ public class MavenExecutor {
         log.info("[CLASSPATH] Executing: {}", commandLine);
         progress.onEvent("classpath", "INFO", "Executing Maven classpath command: " + commandLine);
 
+        long started = System.nanoTime();
+        long durationMs = -1;
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(workDir.toFile());
             pb.redirectErrorStream(false);
 
-            long started = System.nanoTime();
             Process process = pb.start();
             CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(
                     () -> readStream(process.getInputStream(), "stdout", progress));
             CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(
                     () -> readStream(process.getErrorStream(), "stderr", progress));
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-            long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 
             if (!finished) {
                 process.destroyForcibly();
                 String stdout = awaitOutput(stdoutFuture);
                 String stderr = awaitOutput(stderrFuture);
-                ClasspathResult result = fail("Maven classpath generation timed out after " + timeoutSeconds + "s",
-                        commandLine);
-                result.setDurationMs(durationMs);
-                result.setStdoutTail(tail(stdout));
-                result.setStderrTail(tail(stderr));
-                result.setTimedOut(true);
                 progress.onEvent("classpath", "ERROR", "Maven classpath generation timed out after "
                         + timeoutSeconds + "s");
-                return result;
+                throw new MavenTimeoutException(
+                        "Maven classpath generation timed out after " + timeoutSeconds + "s",
+                        timeoutSeconds, commandLine, durationMs, tail(stdout), tail(stderr));
             }
 
             int exitCode = process.exitValue();
             String stdout = awaitOutput(stdoutFuture);
             String stderr = awaitOutput(stderrFuture);
             if (exitCode != 0) {
-                ClasspathResult result = fail("Maven exited with code " + exitCode + ": " + tail(stderr),
-                        commandLine, exitCode);
-                result.setDurationMs(durationMs);
-                result.setStdoutTail(tail(stdout));
-                result.setStderrTail(tail(stderr));
                 progress.onEvent("classpath", "ERROR", "Maven exited with code " + exitCode);
-                return result;
+                throw new MavenExecutionException(
+                        "Maven exited with code " + exitCode + ": " + tail(stderr),
+                        exitCode, commandLine, tail(stderr), durationMs, tail(stdout));
             }
 
             if (!Files.exists(outputFile)) {
-                ClasspathResult result = fail("Maven completed but classpath file was not created", commandLine, exitCode);
-                result.setDurationMs(durationMs);
-                result.setStdoutTail(tail(stdout));
-                result.setStderrTail(tail(stderr));
-                return result;
+                throw new ClasspathGenerationException(
+                        "Maven completed but classpath file was not created",
+                        commandLine, exitCode, durationMs, tail(stdout), tail(stderr));
             }
 
             String mode = config.isOffline() ? "offline-" : "online-";
@@ -235,24 +228,11 @@ public class MavenExecutor {
             return result;
 
         } catch (IOException e) {
-            return fail("Maven execution failed: " + e.getMessage(), commandLine);
+            throw new ClasspathGenerationException("Maven execution failed: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return fail("Maven execution interrupted", commandLine);
+            throw new ClasspathGenerationException("Maven execution interrupted");
         }
-    }
-
-    private ClasspathResult fail(String reason, List<String> cmd) {
-        return fail(reason, String.join(" ", cmd), null);
-    }
-
-    private ClasspathResult fail(String reason, String commandLine) {
-        return fail(reason, commandLine, null);
-    }
-
-    private ClasspathResult fail(String reason, String commandLine, Integer exitCode) {
-        return new ClasspathResult(false, false, true, List.of(), "none",
-                List.of(reason), List.of(reason), commandLine, exitCode);
     }
 
     private String readStream(InputStream stream) {
