@@ -56,6 +56,7 @@ openapi.json
 # Claude Code & CodeGraph（本地索引/配置不入库）
 # =============================================================================
 CLAUDE.md
+AGENTS.md
 .claude/
 .codegraph/
 
