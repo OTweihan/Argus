@@ -76,7 +76,7 @@ const ERROR_COLOR = "\u001b[31m";
 const SUCCESS_COLOR = "\u001b[32m";
 const DIM_COLOR = "\u001b[90m";
 const ANSI_PATTERN =
-  /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+  /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007|(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/g;
 
 let tools = null;
 let shuttingDown = false;
@@ -557,10 +557,10 @@ async function main() {
 }
 
 process.once("SIGINT", () => {
-  void shutdown(130, "收到 Ctrl+C，正在停止全部服务……");
+  void shutdown(130, "收到 Ctrl+C，正在停止全部服务");
 });
 process.once("SIGTERM", () => {
-  void shutdown(143, "收到终止信号，正在停止全部服务……");
+  void shutdown(143, "收到终止信号，正在停止全部服务");
 });
 
 try {
