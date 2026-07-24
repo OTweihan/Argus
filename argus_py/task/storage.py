@@ -97,6 +97,22 @@ class TaskSQLiteStorage:
     def get_task_status(self, task_id: str) -> str | None:
         return self._tasks.get_task_status(task_id)
 
+    def update_external_job_checkpoint(
+        self,
+        task_id: str,
+        external_job_status: str,
+        external_job_last_polled_at: str,
+        *,
+        expected_status: str | None = None,
+    ) -> int:
+        """窄更新：只写 external_job 字段，不覆盖 status。"""
+        return self._tasks.update_external_job_checkpoint(
+            task_id,
+            external_job_status,
+            external_job_last_polled_at,
+            expected_status=expected_status,
+        )
+
     def save(self, task: Task) -> Task:
         return self._tasks.save(task)
 

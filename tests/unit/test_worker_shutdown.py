@@ -11,7 +11,7 @@ from argus_py.infra.worker import TaskWorker
 async def test_stop_timeout_includes_full_queue_signal_delivery() -> None:
     queue = TaskQueue(max_size=1)
     await queue.enqueue("queued-task")
-    worker = TaskWorker(queue=queue, lifecycle=None, reader=None)  # type: ignore[arg-type]
+    worker = TaskWorker(queue=queue, lifecycle=None, reader=None, handlers={})  # type: ignore[arg-type]
     blocker = asyncio.create_task(asyncio.Event().wait())
     worker._tasks = [blocker]  # type: ignore[list-item]
     worker._started = True

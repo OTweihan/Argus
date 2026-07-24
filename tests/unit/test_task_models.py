@@ -125,7 +125,6 @@ async def test_task_runner(tmp_path, has_handler):
 
     runner = TaskRunner(
         lifecycle=lifecycle,
-        reader=reader,
         handlers=handlers,
         report_generator=ReportGenerator(tmp_path / "reports"),
     )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +43,7 @@ class TaskLifecycleService(_StorageEventBase):
         timeout_seconds: int = DEFAULT_TASK_TIMEOUT_S,
         capture_screenshots: bool = True,
         parameters: dict[str, Any] | None = None,
+        whitebox_config_json: str | None = None,
     ) -> Task:
         """创建任务并保存初始快照。"""
         task = Task(
@@ -55,6 +56,7 @@ class TaskLifecycleService(_StorageEventBase):
             timeout_seconds=timeout_seconds,
             capture_screenshots=capture_screenshots,
             parameters=parameters or {},
+            whitebox_config_json=whitebox_config_json,
         )
         self.storage.save(task)
         self._publish("task.created", task, {"task": _task_summary(task)})
@@ -79,6 +81,7 @@ class TaskLifecycleService(_StorageEventBase):
         timeout_seconds: int,
         capture_screenshots: bool,
         parameters: dict[str, Any],
+        whitebox_config_json: str | None = None,
     ) -> Task:
         """更新待执行任务的基础信息。"""
         resolved = self._resolve_task(task)
@@ -94,6 +97,8 @@ class TaskLifecycleService(_StorageEventBase):
         resolved.timeout_seconds = timeout_seconds
         resolved.capture_screenshots = capture_screenshots
         resolved.parameters = parameters
+        if whitebox_config_json is not None:
+            resolved.whitebox_config_json = whitebox_config_json
         self.storage.save(resolved)
         self._publish("task.updated", resolved, {"task": _task_summary(resolved)})
         audit("task.update", task_id=resolved.task_id, task=_task_summary(resolved))
@@ -153,7 +158,7 @@ class TaskLifecycleService(_StorageEventBase):
         return task
 
     def _persist_status(self, task: Task) -> None:
-        """持久化状态变更。"""
+        """持久化状态变更（仅更新状态与租约相关字段，不做全量覆盖）。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             self.storage.update_task(
                 task.task_id,
@@ -163,6 +168,8 @@ class TaskLifecycleService(_StorageEventBase):
                 error_message=task.error_message,
                 result_summary=task.result_summary,
                 report_path=task.report_path,
+                worker_id=task.worker_id,
+                worker_lease_expires_at=task.worker_lease_expires_at,
             )
         else:
             self.storage.save(task)
@@ -210,6 +217,8 @@ class TaskLifecycleService(_StorageEventBase):
             timeout_seconds=resolved.timeout_seconds,
             capture_screenshots=resolved.capture_screenshots,
             parameters=dict(resolved.parameters),
+            whitebox_config_json=resolved.whitebox_config_json,
+            execution_attempt=resolved.execution_attempt + 1,
         )
         self.storage.save(new_task)
         self._publish("task.created", new_task, {"task": _task_summary(new_task)})
@@ -221,9 +230,15 @@ class TaskLifecycleService(_StorageEventBase):
         )
         return new_task
 
-    def start_task(self, task: Task | str) -> Task:
-        """将任务标记为运行中。"""
-        return self.update_status(self._resolve_task(task), TaskStatus.RUNNING)
+    def start_task(self, task: Task | str, worker_id: str | None = None) -> Task:
+        """将任务标记为运行中，并写入 worker 租约。"""
+        resolved = self._resolve_task(task)
+        if worker_id:
+            resolved.worker_id = worker_id
+            resolved.worker_lease_expires_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=resolved.timeout_seconds + 120)
+            ).isoformat()
+        return self.update_status(resolved, TaskStatus.RUNNING)
 
     def complete_task(
         self,
@@ -231,24 +246,43 @@ class TaskLifecycleService(_StorageEventBase):
         result_summary: str | None = None,
         report_path: str | None = None,
     ) -> Task:
-        """将任务标记为完成。"""
+        """将任务标记为完成。
+
+        先全量持久化 task（确保 findings/result_json 等 handler 写入的
+        字段落盘），再走局部状态更新。避免 _persist_status 只写 6 个字段
+        导致白盒分析结果丢失。
+        """
         resolved = self._resolve_task(task)
         if result_summary is not None:
             resolved.result_summary = result_summary
         if report_path is not None:
             resolved.report_path = report_path
+        self.storage.save(resolved)
         return self.update_status(resolved, TaskStatus.COMPLETED)
 
     def fail_task(self, task: Task | str, error_message: str) -> Task:
-        """将任务标记为失败。"""
-        return self.update_status(self._resolve_task(task), TaskStatus.FAILED, error_message)
+        """将任务标记为失败。
+
+        先全量持久化再局部更新状态，避免 handler 写入的额外字段丢失。
+        """
+        resolved = self._resolve_task(task)
+        self.storage.save(resolved)
+        return self.update_status(resolved, TaskStatus.FAILED, error_message)
 
     def timeout_task(self, task: Task | str, error_message: str = "任务执行超时。") -> Task:
-        """将任务标记为超时。"""
-        return self.update_status(self._resolve_task(task), TaskStatus.TIMEOUT, error_message)
+        """将任务标记为超时。
+
+        先全量持久化再局部更新状态，避免 handler 写入的额外字段丢失。
+        """
+        resolved = self._resolve_task(task)
+        self.storage.save(resolved)
+        return self.update_status(resolved, TaskStatus.TIMEOUT, error_message)
 
     def cancel_task(self, task: Task | str) -> Task:
-        """将任务标记为取消。"""
+        """将任务标记为取消。
+
+        先全量持久化再局部更新状态，避免 handler 写入的额外字段丢失。
+        """
         resolved = self._resolve_task(task)
         token = self.get_cancellation_token(resolved.task_id)
         token.cancel()
@@ -258,6 +292,7 @@ class TaskLifecycleService(_StorageEventBase):
             status="cancelled",
             previous_status=resolved.status.value,
         )
+        self.storage.save(resolved)
         return self.update_status(resolved, TaskStatus.CANCELLED)
 
     def pause_task(self, task: Task | str) -> Task:

@@ -279,6 +279,8 @@ class WhiteboxJobEvent:
     stage: str = ""
     level: str = ""
     message: str = ""
+    sequence: int = 0
+    event_id: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxJobEvent:

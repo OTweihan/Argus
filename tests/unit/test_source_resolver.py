@@ -25,7 +25,7 @@ def test_resolve_path_valid_directory(temp_work_dir: str) -> None:
     """验证 resolve_path 返回有效目录的规范化路径。"""
     resolver = SourceResolver(work_dir=temp_work_dir)
     result = resolver.resolve_path(temp_work_dir)
-    assert result == str(Path(temp_work_dir).resolve())
+    assert result.resolved_path == str(Path(temp_work_dir).resolve())
 
 
 def test_resolve_path_non_existent(temp_work_dir: str) -> None:
@@ -49,7 +49,7 @@ def test_resolve_local_path(temp_work_dir: str) -> None:
     """验证 resolve() 对本地目录路径的处理。"""
     resolver = SourceResolver(work_dir=temp_work_dir)
     result = resolver.resolve(temp_work_dir)
-    assert result == str(Path(temp_work_dir).resolve())
+    assert result.resolved_path == str(Path(temp_work_dir).resolve())
 
 
 def test_resolve_empty_url_raises(temp_work_dir: str) -> None:

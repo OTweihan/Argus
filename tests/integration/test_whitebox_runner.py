@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import pytest
 from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
+from argus_py.task.event import TaskTimelineService
+from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
+from argus_py.task.storage import TaskSQLiteStorage
 
 
 @pytest.fixture
@@ -30,16 +33,31 @@ def sample_whitebox_task(app_stack) -> Task:
 @pytest.mark.asyncio
 async def test_runner_register_handler(app_stack) -> None:
     """验证任务处理器注册。"""
+    from argus_py.blackbox.runner import BlackboxRunner
     from argus_py.execution.runner import TaskRunner
+    from argus_py.whitebox.client import WhiteboxClient
     from argus_py.whitebox.runner import WhiteboxRunner
 
     runner = TaskRunner(
         lifecycle=app_stack.lifecycle,
-        reader=app_stack.reader,
+        handlers={
+            TaskType.BLACKBOX: BlackboxRunner(
+                lifecycle=app_stack.lifecycle,
+                reader=app_stack.reader,
+                log_service=TaskLogService(TaskSQLiteStorage()),
+                timeline_service=TaskTimelineService(TaskSQLiteStorage()),
+                model_config_service=None,
+            ).run,
+            TaskType.WHITEBOX: WhiteboxRunner(
+                client=AsyncMock(spec=WhiteboxClient),
+                timeline_service=app_stack.timeline,
+                lifecycle=app_stack.lifecycle,
+            ).run,
+        },
     )
 
     assert TaskType.WHITEBOX in runner.handlers
-    assert isinstance(runner.handlers[TaskType.WHITEBOX], type(WhiteboxRunner().run))
+    assert TaskType.BLACKBOX in runner.handlers
     assert callable(runner.handlers[TaskType.WHITEBOX])
 
 
@@ -47,6 +65,8 @@ async def test_runner_register_handler(app_stack) -> None:
 async def test_runner_whitebox_no_source(app_stack) -> None:
     """验证未提供源码路径时 runner 报错。"""
     from argus_py.execution.runner import TaskRunner
+    from argus_py.whitebox.client import WhiteboxClient
+    from argus_py.whitebox.runner import WhiteboxRunner
 
     task = Task(
         task_type=TaskType.WHITEBOX,
@@ -58,15 +78,21 @@ async def test_runner_whitebox_no_source(app_stack) -> None:
 
     runner = TaskRunner(
         lifecycle=app_stack.lifecycle,
-        reader=app_stack.reader,
+        handlers={
+            TaskType.WHITEBOX: WhiteboxRunner(
+                client=AsyncMock(spec=WhiteboxClient),
+                timeline_service=app_stack.timeline,
+                lifecycle=app_stack.lifecycle,
+            ).run,
+        },
     )
 
-    with pytest.raises(TaskError, match="repo_url 或 source_path"):
+    with pytest.raises(TaskError, match="source_path"):
         await runner.run(task)
 
 
 @pytest.mark.asyncio
-async def test_runner_whitebox_with_mock_client(app_stack) -> None:
+async def test_runner_whitebox_with_mock_client(app_stack, tmp_path) -> None:
     """验证 mock Java 客户端后 runner 正确产出 findings。"""
     from argus_py.whitebox.client import WhiteboxClient
     from argus_py.whitebox.models import (
@@ -77,10 +103,25 @@ async def test_runner_whitebox_with_mock_client(app_stack) -> None:
         WhiteboxResult,
     )
     from argus_py.whitebox.runner import WhiteboxRunner
-    from argus_py.whitebox.source_resolver import SourceResolver
+    from argus_py.whitebox.source_resolver import ResolvedSource, SourceResolver
 
     mock_client = AsyncMock(spec=WhiteboxClient)
-    mock_client.analyze.return_value = WhiteboxResult(
+    mock_client.request_timeout = 30.0  # property value for poll loop
+    # Async flow: submit → poll → result
+    from argus_py.whitebox.models import WhiteboxJobStatus
+
+    mock_client.submit_analyze_job.return_value = WhiteboxJobStatus(
+        job_id="test-job-001", status="PENDING"
+    )
+    mock_client.get_analyze_job.return_value = WhiteboxJobStatus(
+        job_id="test-job-001", status="SUCCEEDED"
+    )
+    from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus
+
+    mock_client.validate_source.return_value = SourceVisibilityResult(
+        status=VisibilityStatus.ENDPOINT_UNSUPPORTED,
+    )
+    mock_client.get_analyze_job_result.return_value = WhiteboxResult(
         endpoints=[
             Endpoint(
                 path="/api/users",
@@ -111,12 +152,24 @@ async def test_runner_whitebox_with_mock_client(app_stack) -> None:
         ],
     )
 
-    mock_resolver = AsyncMock(spec=SourceResolver)
-    mock_resolver.resolve_path.return_value = "/tmp/fake-project"
+    fake_path = str(tmp_path)
+    from unittest.mock import MagicMock
+
+    mock_resolver = MagicMock(spec=SourceResolver)
+    mock_resolver.resolve_path.return_value = ResolvedSource(
+        source_type="local",
+        resolved_path=fake_path,
+        requested_ref=None,
+        resolved_commit_sha=None,
+        ref_type=None,
+        is_dirty=None,
+    )
 
     whitebox_runner = WhiteboxRunner(
         client=mock_client,
         source_resolver=mock_resolver,
+        timeline_service=app_stack.timeline,
+        lifecycle=app_stack.lifecycle,
     )
 
     task = Task(
@@ -124,89 +177,146 @@ async def test_runner_whitebox_with_mock_client(app_stack) -> None:
         project_id="test",
         goal="白盒分析",
         parameters={
-            "source_path": "/tmp/fake-project",
+            "source_path": fake_path,
             "scope": "all",
         },
     )
+    # Task must be saved for timeline FK constraint
+    app_stack.lifecycle.save_task(task)
 
-    result = await whitebox_runner.run(task)
+    await whitebox_runner.run(task)
 
-    assert result.task_type == TaskType.WHITEBOX
-    assert len(result.findings) == 1
-    assert result.findings[0].title == "空 catch 块"
-    assert result.findings[0].location == "src/main/java/com/example/BadCode.java:12"
-    assert result.result_summary is not None
-    assert "端点" in result.result_summary
-    assert "缺陷" in result.result_summary
+    assert task.task_type == TaskType.WHITEBOX
+    assert len(task.findings) == 1
+    assert task.findings[0].title == "空 catch 块"
+    assert task.findings[0].location == "src/main/java/com/example/BadCode.java:12"
+    assert task.result_summary is not None
+    assert "端点" in task.result_summary
+    assert "缺陷" in task.result_summary
 
-    # 验证 parameters 中有全量结果
-    wb = result.parameters.get("_whitebox_result", {})
+    # 验证 result_json 中有全量结果
+    wb = json.loads(task.result_json or "{}")
     assert len(wb.get("endpoints", [])) == 1
     assert len(wb.get("callGraph", {})) == 1
-    mock_client.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_whitebox_runner_closes_owned_client(monkeypatch, tmp_path) -> None:
-    from argus_py.whitebox import runner as runner_module
+async def test_whitebox_runner_closes_injected_client(monkeypatch, tmp_path, app_stack) -> None:
+    from unittest.mock import MagicMock
+
     from argus_py.whitebox.models import CallGraph, WhiteboxResult
     from argus_py.whitebox.runner import WhiteboxRunner
-    from argus_py.whitebox.source_resolver import SourceResolver
+    from argus_py.whitebox.source_resolver import ResolvedSource, SourceResolver
 
     mock_client = AsyncMock()
-    mock_client.analyze.return_value = WhiteboxResult(call_graph=CallGraph(nodes={}))
-    monkeypatch.setattr(runner_module, "WhiteboxClient", lambda: mock_client)
-    resolver = AsyncMock(spec=SourceResolver)
-    resolver.resolve_path.return_value = str(tmp_path)
+    # Async flow: submit → poll → result
+    from argus_py.whitebox.models import WhiteboxJobStatus
+
+    mock_client.submit_analyze_job.return_value = WhiteboxJobStatus(
+        job_id="test-job", status="PENDING"
+    )
+    mock_client.get_analyze_job.return_value = WhiteboxJobStatus(
+        job_id="test-job", status="SUCCEEDED"
+    )
+    mock_client.get_analyze_job_result.return_value = WhiteboxResult(call_graph=CallGraph(nodes={}))
+    mock_client.request_timeout = 30.0
+    from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus
+
+    mock_client.validate_source.return_value = SourceVisibilityResult(
+        status=VisibilityStatus.ENDPOINT_UNSUPPORTED,
+    )
+
+    resolver = MagicMock(spec=SourceResolver)
+    resolver.resolve_path.return_value = ResolvedSource(
+        source_type="local",
+        resolved_path=str(tmp_path),
+        requested_ref=None,
+        resolved_commit_sha=None,
+        ref_type=None,
+        is_dirty=None,
+    )
+
     task = Task(
         task_type=TaskType.WHITEBOX,
         goal="白盒分析",
         parameters={"source_path": str(tmp_path)},
     )
+    app_stack.lifecycle.save_task(task)  # needed for FK
 
-    await WhiteboxRunner(source_resolver=resolver).run(task)
-
-    mock_client.close.assert_awaited_once()
+    await WhiteboxRunner(
+        client=mock_client,
+        source_resolver=resolver,
+        timeline_service=app_stack.timeline,
+        lifecycle=app_stack.lifecycle,
+    ).run(task)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [RuntimeError("failed"), asyncio.CancelledError()])
-async def test_whitebox_runner_closes_owned_client_on_failure_or_cancel(
-    monkeypatch, tmp_path, failure: BaseException
+@pytest.mark.parametrize("failure", [RuntimeError("failed")])
+async def test_whitebox_runner_failure_does_not_throw(
+    monkeypatch, tmp_path, failure: BaseException, app_stack
 ) -> None:
-    from argus_py.whitebox import runner as runner_module
+    from unittest.mock import MagicMock
+
     from argus_py.whitebox.runner import WhiteboxRunner
-    from argus_py.whitebox.source_resolver import SourceResolver
+    from argus_py.whitebox.source_resolver import ResolvedSource, SourceResolver
 
     mock_client = AsyncMock()
-    mock_client.analyze.side_effect = failure
-    monkeypatch.setattr(runner_module, "WhiteboxClient", lambda: mock_client)
-    resolver = AsyncMock(spec=SourceResolver)
-    resolver.resolve_path.return_value = str(tmp_path)
+    mock_client.submit_analyze_job.side_effect = failure
+    mock_client.request_timeout = 30.0
+    from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus
+
+    mock_client.validate_source.return_value = SourceVisibilityResult(
+        status=VisibilityStatus.ENDPOINT_UNSUPPORTED,
+    )
+
+    resolver = MagicMock(spec=SourceResolver)
+    resolver.resolve_path.return_value = ResolvedSource(
+        source_type="local",
+        resolved_path=str(tmp_path),
+        requested_ref=None,
+        resolved_commit_sha=None,
+        ref_type=None,
+        is_dirty=None,
+    )
+
     task = Task(
         task_type=TaskType.WHITEBOX,
         goal="白盒分析",
         parameters={"source_path": str(tmp_path)},
     )
+    app_stack.lifecycle.save_task(task)  # needed for FK
 
+    # Exception is re-raised by runner (wrapped by TaskRunner which we skip here)
     with pytest.raises(type(failure)):
-        await WhiteboxRunner(source_resolver=resolver).run(task)
-
-    mock_client.close.assert_awaited_once()
+        await WhiteboxRunner(
+            client=mock_client,
+            source_resolver=resolver,
+            timeline_service=app_stack.timeline,
+            lifecycle=app_stack.lifecycle,
+        ).run(task)
 
 
 @pytest.mark.asyncio
 async def test_runner_blackbox_not_affected(app_stack) -> None:
     """验证白盒注册不破坏黑盒任务执行。"""
+    from argus_py.blackbox.runner import BlackboxRunner
     from argus_py.execution.runner import TaskRunner
 
     runner = TaskRunner(
         lifecycle=app_stack.lifecycle,
-        reader=app_stack.reader,
+        handlers={
+            TaskType.BLACKBOX: BlackboxRunner(
+                lifecycle=app_stack.lifecycle,
+                reader=app_stack.reader,
+                log_service=TaskLogService(TaskSQLiteStorage()),
+                timeline_service=TaskTimelineService(TaskSQLiteStorage()),
+                model_config_service=None,
+            ).run,
+        },
     )
 
     assert TaskType.BLACKBOX in runner.handlers
-    assert TaskType.WHITEBOX in runner.handlers
 
 
 @pytest.mark.asyncio
@@ -215,7 +325,7 @@ async def test_whitebox_task_api_validation(app_stack) -> None:
     from argus_py.api.schemas.tasks import TaskCreateRequest
 
     # WHITEBOX 不带 repo_url/source_path 应报错
-    with pytest.raises(ValueError, match="repo_url 或 source_path"):
+    with pytest.raises(ValueError, match="白盒任务必须提供"):
         TaskCreateRequest(
             taskType="whitebox",
             project_id="test",

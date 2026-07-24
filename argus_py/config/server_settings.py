@@ -67,6 +67,10 @@ class ServerSettings:
     rate_limit_enabled: bool = False
     rate_limit_trust_forwarded: bool = False
     rate_limit_routes: list[dict[str, Any]] = field(default_factory=list)
+    # 白盒分析
+    java_analyzer_url: str = "http://localhost:8081"
+    java_analyzer_request_timeout: float = 30.0
+    whitebox_allowed_source_roots: list[str] = field(default_factory=list)
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -80,6 +84,7 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
     observability = data.get("observability") or {}
     llm_trace = observability.get("llm_trace") or {}
     llm = data.get("llm") or {}
+    whitebox = data.get("whitebox") or {}
     rate_limit = data.get("rate_limit") or {}
     rate_limit_routes_raw = rate_limit.get("routes") or []
     rate_limit_routes = [item for item in rate_limit_routes_raw if isinstance(item, dict)]
@@ -135,6 +140,11 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         rate_limit_enabled=_as_bool(rate_limit.get("enabled"), False),
         rate_limit_trust_forwarded=_as_bool(rate_limit.get("trust_forwarded"), False),
         rate_limit_routes=rate_limit_routes,
+        java_analyzer_url=str(whitebox.get("java_analyzer_url", "http://localhost:8081")),
+        java_analyzer_request_timeout=_as_float(
+            whitebox.get("java_analyzer_request_timeout"), 30.0, minimum=1.0
+        ),
+        whitebox_allowed_source_roots=_as_str_list(whitebox.get("allowed_source_roots"), []),
     )
 
 

@@ -60,7 +60,12 @@ def _build_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
     """
     stack = make_app_stack(tmp_path)
     model_cfg_service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db"))
-    worker = TaskWorker(queue=stack.queue, lifecycle=stack.lifecycle, reader=stack.reader)
+    worker = TaskWorker(
+        queue=stack.queue,
+        lifecycle=stack.lifecycle,
+        reader=stack.reader,
+        handlers={},
+    )
     event_bus = EventBus(history_limit=50)
 
     app = FastAPI(title="Argus API Test")

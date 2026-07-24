@@ -636,6 +636,14 @@ export interface components {
              * Format: date-time
              */
             createdAt: string;
+            /** Ruleid */
+            ruleId?: string | null;
+            /** Rulecategory */
+            ruleCategory?: string | null;
+            /** Confidence */
+            confidence?: string | null;
+            /** Fingerprint */
+            fingerprint?: string | null;
         };
         /**
          * FindingSeverity
@@ -1044,6 +1052,8 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
+            /** Whiteboxconfig */
+            whiteboxConfig?: unknown | null;
         };
         /**
          * TaskLogResponse
@@ -1237,6 +1247,8 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
+            /** Whiteboxconfig */
+            whiteboxConfig?: unknown | null;
         };
         /** ValidationError */
         ValidationError: {

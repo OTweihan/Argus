@@ -17,7 +17,10 @@ class FindingRepository:
         """追加单条发现项。"""
         with self._pool.tx() as conn:
             conn.execute(
-                "INSERT INTO findings (finding_id, task_id, title, description, severity, finding_type, url, location, screenshot_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO findings (finding_id, task_id, title, description, "
+                "severity, finding_type, url, location, screenshot_path, created_at, "
+                "rule_id, rule_category, confidence, fingerprint) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 finding_to_row(task_id, finding),
             )
 

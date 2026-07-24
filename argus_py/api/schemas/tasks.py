@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from argus_py.api.schemas.base import ApiModel, blank_to_none, strip_text
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
@@ -54,6 +54,10 @@ class FindingResponse(ApiModel):
     location: str | None = None
     screenshot_path: str | None = Field(default=None, alias="screenshotPath")
     created_at: datetime = Field(alias="createdAt")
+    rule_id: str | None = Field(default=None, alias="ruleId")
+    rule_category: str | None = Field(default=None, alias="ruleCategory")
+    confidence: str | None = None
+    fingerprint: str | None = None
 
     @classmethod
     def from_finding(cls, finding: Finding) -> "FindingResponse":
@@ -79,6 +83,7 @@ class TaskCreateRequest(ApiModel):
     capture_screenshots: bool | None = Field(default=None, alias="captureScreenshots")
     model_config_id: str | None = Field(default=None, alias="modelConfigId", max_length=64)
     parameters: dict[str, Any] = Field(default_factory=dict, max_length=_PARAMS_MAX_KEYS)
+    whitebox_config: Any | None = Field(default=None, alias="whiteboxConfig")
 
     @field_validator("goal", "project_id", mode="before")
     @classmethod
@@ -98,6 +103,18 @@ class TaskCreateRequest(ApiModel):
         """空白可选文本统一视为未填写。"""
         return blank_to_none(value)
 
+    @field_validator("whitebox_config", mode="before")
+    @classmethod
+    def parse_whitebox_config(cls, value: object) -> object:
+        """将 whiteboxConfig dict 解析为 WhiteboxTaskConfig。"""
+        if value is None or isinstance(value, BaseModel):
+            return value
+        from argus_py.whitebox.config import WhiteboxTaskConfig
+
+        if isinstance(value, dict):
+            return WhiteboxTaskConfig.model_validate(value)
+        return value
+
     @field_validator("parameters")
     @classmethod
     def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
@@ -111,15 +128,26 @@ class TaskCreateRequest(ApiModel):
 
     @model_validator(mode="after")
     def validate_by_task_type(self) -> "TaskCreateRequest":
-        """按任务类型校验必填字段。
+        """按任务类型校验。
 
-        白盒任务：parameters 需要 ``repo_url`` 或 ``source_path``。
-        黑盒任务在本层不做强制校验（CLI/前端自行保证），保持与原有行为兼容。
+        白盒任务：whiteboxConfig 或 parameters 中必须提供源码信息。
+        新旧配置不能同时存在。
         """
-        if self.task_type == TaskType.WHITEBOX:
-            params = self.parameters or {}
-            if not params.get("repo_url") and not params.get("source_path"):
-                raise ValueError("白盒任务的 parameters 必须包含 repo_url 或 source_path")
+        from argus_py.whitebox.config import LEGACY_WHITEBOX_PARAM_KEYS
+
+        is_wb = self.task_type == TaskType.WHITEBOX
+        has_config = self.whitebox_config is not None
+        legacy_keys_present = LEGACY_WHITEBOX_PARAM_KEYS & set((self.parameters or {}).keys())
+
+        if is_wb and has_config and legacy_keys_present:
+            raise ValueError(
+                f"whiteboxConfig 与 parameters 中的白盒字段不能同时提供。"
+                f"冲突字段: {', '.join(sorted(legacy_keys_present))}"
+            )
+        if is_wb and not has_config and not legacy_keys_present:
+            raise ValueError("白盒任务必须提供 whiteboxConfig 或 parameters.repo_url / source_path")
+        if not is_wb and has_config:
+            raise ValueError("非白盒任务不能提供 whiteboxConfig")
         return self
 
 

@@ -2,7 +2,8 @@
 {% block content %}
 {% set status = report.task.status %}
 {% set summary = report.summary or report.task.resultSummary or "未记录结果摘要。" %}
-{% set wb = report.task.parameters._whitebox_result or {} %}
+{% set raw = report.task.resultJson %}
+{% set wb = raw | load_json or {} if raw is string else raw or {} %}
 {% set endpoints = wb.endpoints or [] %}
 {% set call_graph = wb.callGraph or {} %}
 {% set execution_flows = wb.executionFlows or [] %}

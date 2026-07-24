@@ -178,9 +178,7 @@ def _build_runner(
     )
     return TaskRunner(
         lifecycle=c.lifecycle_service,
-        reader=c.task_read_service,
         handlers={TaskType.BLACKBOX: blackbox_runner.run},
-        model_config_service=model_config,
     )
 
 

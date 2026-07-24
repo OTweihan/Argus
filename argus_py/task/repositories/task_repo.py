@@ -37,8 +37,18 @@ class TaskRepository:
                   task_id, goal, name, start_url, task_type, status, project_id,
                   max_steps, timeout_seconds, capture_screenshots, current_step, parameters_json,
                   created_at, started_at, completed_at, report_path,
-                  result_summary, error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  result_summary, error_message,
+                  whitebox_config_json, whitebox_config_schema_version,
+                  result_json, result_schema_version, result_size_bytes,
+                  source_type, source_repo_url, source_requested_ref,
+                  source_resolved_commit_sha, source_ref_type, source_dirty,
+                  external_job_id, external_job_status,
+                  external_job_submitted_at, external_job_last_polled_at,
+                  worker_id, worker_lease_expires_at, execution_attempt
+                ) VALUES (
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 ON CONFLICT(task_id) DO UPDATE SET
                   goal = excluded.goal, name = excluded.name,
                   start_url = excluded.start_url, task_type = excluded.task_type,
@@ -52,7 +62,25 @@ class TaskRepository:
                   completed_at = excluded.completed_at,
                   report_path = excluded.report_path,
                   result_summary = excluded.result_summary,
-                  error_message = excluded.error_message
+                  error_message = excluded.error_message,
+                  whitebox_config_json = excluded.whitebox_config_json,
+                  whitebox_config_schema_version = excluded.whitebox_config_schema_version,
+                  result_json = excluded.result_json,
+                  result_schema_version = excluded.result_schema_version,
+                  result_size_bytes = excluded.result_size_bytes,
+                  source_type = excluded.source_type,
+                  source_repo_url = excluded.source_repo_url,
+                  source_requested_ref = excluded.source_requested_ref,
+                  source_resolved_commit_sha = excluded.source_resolved_commit_sha,
+                  source_ref_type = excluded.source_ref_type,
+                  source_dirty = excluded.source_dirty,
+                  external_job_id = excluded.external_job_id,
+                  external_job_status = excluded.external_job_status,
+                  external_job_submitted_at = excluded.external_job_submitted_at,
+                  external_job_last_polled_at = excluded.external_job_last_polled_at,
+                  worker_id = excluded.worker_id,
+                  worker_lease_expires_at = excluded.worker_lease_expires_at,
+                  execution_attempt = excluded.execution_attempt
                 """,
                 task_to_row(task),
             )
@@ -82,6 +110,35 @@ class TaskRepository:
         with self._pool.ro_conn() as conn:
             row = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row["status"] if row else None
+
+    def update_external_job_checkpoint(
+        self,
+        task_id: str,
+        external_job_status: str,
+        external_job_last_polled_at: str,
+        *,
+        expected_status: str | None = None,
+    ) -> int:
+        """窄更新：只写 external_job_status 和 external_job_last_polled_at。
+
+        不覆盖 status 等已有字段，避免与并发取消/超时产生竞态。
+        ``expected_status`` 可选，传入时做 CAS 保护。
+        返回受影响行数。
+        """
+        params: list[Any] = [external_job_status, external_job_last_polled_at, task_id]
+        cond = ""
+        if expected_status is not None:
+            cond = " AND status = ?"
+            params.insert(-1, expected_status)
+
+        with self._pool.tx() as conn:
+            cursor = conn.execute(
+                f"UPDATE tasks SET external_job_status = ?, "
+                f"external_job_last_polled_at = ? "
+                f"WHERE task_id = ?{cond}",
+                params,
+            )
+        return cursor.rowcount
 
     def load(self, task_id: str) -> Task:
         """读取任务，包含关联的日志和发现项。"""
@@ -118,6 +175,23 @@ class TaskRepository:
             "report_path",
             "result_summary",
             "error_message",
+            "whitebox_config_json",
+            "result_json",
+            "result_schema_version",
+            "result_size_bytes",
+            "source_type",
+            "source_repo_url",
+            "source_requested_ref",
+            "source_resolved_commit_sha",
+            "source_ref_type",
+            "source_dirty",
+            "external_job_id",
+            "external_job_status",
+            "external_job_submitted_at",
+            "external_job_last_polled_at",
+            "worker_id",
+            "worker_lease_expires_at",
+            "execution_attempt",
         }
         updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
         if not updates:

@@ -66,6 +66,10 @@ class Finding:
     location: str | None = None
     screenshot_path: str | None = None
     created_at: datetime = field(default_factory=utc_now)
+    rule_id: str | None = None
+    rule_category: str | None = None
+    confidence: str | None = None
+    fingerprint: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Finding":
@@ -83,6 +87,10 @@ class Finding:
             location=data.get("location"),
             screenshot_path=data.get("screenshot_path"),
             created_at=_parse_datetime(data.get("created_at")) or utc_now(),
+            rule_id=data.get("rule_id"),
+            rule_category=data.get("rule_category"),
+            confidence=data.get("confidence"),
+            fingerprint=data.get("fingerprint"),
         )
 
 
@@ -109,6 +117,24 @@ class Task:
     report_path: str | None = None
     result_summary: str | None = None
     error_message: str | None = None
+    whitebox_config_json: str | None = None
+    whitebox_config_schema_version: int = 1
+    result_json: str | None = None
+    result_schema_version: int | None = None
+    result_size_bytes: int | None = None
+    source_type: str | None = None
+    source_repo_url: str | None = None
+    source_requested_ref: str | None = None
+    source_resolved_commit_sha: str | None = None
+    source_ref_type: str | None = None
+    source_dirty: bool | None = None
+    external_job_id: str | None = None
+    external_job_status: str | None = None
+    external_job_submitted_at: str | None = None
+    external_job_last_polled_at: str | None = None
+    worker_id: str | None = None
+    worker_lease_expires_at: str | None = None
+    execution_attempt: int = 1
 
     def __post_init__(self) -> None:
         """初始化内部缓存字段。"""
@@ -162,4 +188,26 @@ class Task:
             report_path=data.get("report_path"),
             result_summary=data.get("result_summary"),
             error_message=data.get("error_message"),
+            whitebox_config_json=data.get("whitebox_config_json"),
+            whitebox_config_schema_version=int(data.get("whitebox_config_schema_version", 1)),
+            result_json=data.get("result_json"),
+            result_schema_version=data.get("result_schema_version"),
+            result_size_bytes=data.get("result_size_bytes"),
+            source_type=data.get("source_type"),
+            source_repo_url=data.get("source_repo_url"),
+            source_requested_ref=data.get("source_requested_ref"),
+            source_resolved_commit_sha=data.get("source_resolved_commit_sha"),
+            source_ref_type=data.get("source_ref_type"),
+            source_dirty=(
+                _parse_bool(data.get("source_dirty"), default=False)
+                if data.get("source_dirty") is not None
+                else None
+            ),
+            external_job_id=data.get("external_job_id"),
+            external_job_status=data.get("external_job_status"),
+            external_job_submitted_at=data.get("external_job_submitted_at"),
+            external_job_last_polled_at=data.get("external_job_last_polled_at"),
+            worker_id=data.get("worker_id"),
+            worker_lease_expires_at=data.get("worker_lease_expires_at"),
+            execution_attempt=int(data.get("execution_attempt", 1)),
         )

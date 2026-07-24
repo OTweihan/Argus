@@ -39,6 +39,7 @@ def _get_env(template_dir: str | Path) -> Environment:
         )
         _ENV.filters["pretty_json"] = _pretty_json
         _ENV.filters["datetime_short"] = _datetime_short
+        _ENV.filters["load_json"] = _load_json
     return _ENV
 
 
@@ -93,3 +94,16 @@ def _datetime_short(value: Any) -> str:
     if resolved.tzinfo is not None:
         resolved = resolved.astimezone()
     return resolved.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _load_json(value: Any) -> dict:
+    """安全解析 JSON 字符串，失败返回空 dict。"""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            result = json.loads(value)
+            return result if isinstance(result, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}

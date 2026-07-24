@@ -87,6 +87,7 @@ async def create_task(
         capture_screenshots=request.capture_screenshots,
         model_config_id=request.model_config_id,
         parameters=request.parameters,
+        whitebox_config=request.whitebox_config,
     )
     task = await _acall_sync(app.create_task, **params)
     return TaskResponse.from_task(task)

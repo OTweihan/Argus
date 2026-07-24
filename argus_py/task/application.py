@@ -85,6 +85,7 @@ class TaskApplicationService:
         capture_screenshots: bool | None = None,
         model_config_id: str | None = None,
         parameters: dict[str, Any] | None = None,
+        whitebox_config: Any | None = None,
     ) -> dict[str, Any]:
         """解析任务参数：URL 校验 + 项目默认值合并 + 模型配置校验 + 执行限制推断。
 
@@ -94,6 +95,7 @@ class TaskApplicationService:
         is_whitebox = task_type == TaskType.WHITEBOX
 
         if not is_whitebox:
+            # ── 黑盒 ──
             start_url = start_url or (project.base_url if project else None)
             if not start_url:
                 raise TaskError("任务需要 startUrl，或项目需要配置 baseUrl。")
@@ -102,8 +104,46 @@ class TaskApplicationService:
                 raise TaskError(f"startUrl 校验失败：{result.error_message}")
 
             limits = resolve_execution_limits(goal, start_url, max_steps, timeout_seconds)
+            whitebox_config_json: str | None = None
         else:
+            # ── 白盒 ──
             from argus_py.task.strategy import TaskExecutionLimits
+            from argus_py.whitebox.config import WhiteboxTaskConfig
+
+            # 1. 提取原始输入
+            if whitebox_config is not None:
+                raw = whitebox_config.model_dump(exclude_unset=True)
+            else:
+                raw = dict(parameters or {})
+
+            # 2. 项目默认值（仅 scope/target_modules/maven，不含源码位置）
+            project_defaults: dict[str, Any] = {}
+            if project:
+                for key in ("scope", "target_modules", "maven"):
+                    if key in project.parameters:
+                        project_defaults[key] = project.parameters[key]
+
+            # 3. maven 深度合并
+            if "maven" in project_defaults and "maven" in raw:
+                raw["maven"] = {**project_defaults["maven"], **raw["maven"]}
+                del project_defaults["maven"]
+
+            # 4. 合并 + 统一校验
+            merged = {**project_defaults, **raw}
+            config = WhiteboxTaskConfig.model_validate(merged)
+
+            # 5. 持久化配置
+            persisted = config.to_persisted()
+            whitebox_config_json = persisted.model_dump_json()
+
+            # 6. parameters 仅保留白盒执行参数，不含源码位置
+            params: dict[str, Any] = {
+                "scope": config.scope,
+                "target_modules": config.target_modules,
+            }
+            if config.maven:
+                params["maven"] = config.maven.model_dump(exclude_none=True)
+            parameters = params
 
             limits = TaskExecutionLimits(
                 max_steps=max_steps or 1,
@@ -136,6 +176,7 @@ class TaskApplicationService:
             "timeout_seconds": limits.timeout_seconds,
             "capture_screenshots": capture_screenshots,
             "parameters": merged_params,
+            **({"whitebox_config_json": whitebox_config_json} if whitebox_config_json else {}),
         }
 
     # ── 创建/更新 ──

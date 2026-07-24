@@ -53,6 +53,7 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
         queue=stack.queue,
         lifecycle=stack.lifecycle,
         reader=stack.reader,
+        handlers={},
     )
     await worker.start()
     try:

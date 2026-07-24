@@ -22,6 +22,7 @@ TIMELINE_PHASES = {
     "executor": "动作执行",
     "evaluator": "Evaluator LLM 调用",
     "report": "报告生成",
+    "whitebox": "白盒分析",
 }
 
 TIMELINE_EVENT_TYPES = [
@@ -36,6 +37,16 @@ TIMELINE_EVENT_TYPES = [
     "report",
     "complete",
     "fail",
+    # 白盒事件
+    "whitebox_source_resolved",
+    "whitebox_source_validated",
+    "whitebox_submitted",
+    "whitebox_progress",
+    "whitebox_succeeded",
+    "whitebox_failed",
+    "whitebox_cancelled",
+    "whitebox_timed_out",
+    "whitebox_interrupted",
 ]
 
 

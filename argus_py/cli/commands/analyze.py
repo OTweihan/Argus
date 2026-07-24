@@ -145,8 +145,7 @@ async def run(args: argparse.Namespace) -> int:
 
     runner = TaskRunner(
         lifecycle=c.lifecycle_service,
-        reader=c.task_read_service,
-        model_config_service=c.model_config_service,
+        handlers=c.task_handlers,
     )
 
     cli_info("开始执行白盒分析...")

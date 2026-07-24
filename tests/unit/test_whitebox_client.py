@@ -29,7 +29,7 @@ def _mock_bad_json_response() -> MagicMock:
 
 @pytest.fixture(scope="module")
 def client() -> WhiteboxClient:
-    return WhiteboxClient(base_url="http://test-host:8081", timeout=10, max_retries=1)
+    return WhiteboxClient(base_url="http://test-host:8081", request_timeout=10)
 
 
 @pytest.mark.asyncio
@@ -69,7 +69,7 @@ async def test_analyze_success(client: WhiteboxClient) -> None:
 
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = _mock_response(200, mock_response_data)
+        mock_http.request.return_value = _mock_response(200, mock_response_data)
         mock_get_client.return_value = mock_http
 
         result = await client.analyze("/tmp/test-project", scope="all")
@@ -89,7 +89,7 @@ async def test_analyze_empty_response(client: WhiteboxClient) -> None:
     """验证空结果的正确处理。"""
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = _mock_response(
+        mock_http.request.return_value = _mock_response(
             200, {"endpoints": [], "callGraph": {}, "findings": []}
         )
         mock_get_client.return_value = mock_http
@@ -106,7 +106,7 @@ async def test_analyze_diagnostics_classpath_details(client: WhiteboxClient) -> 
     """验证 classpath 诊断字段可反序列化。"""
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = _mock_response(
+        mock_http.request.return_value = _mock_response(
             200,
             {
                 "endpoints": [],
@@ -140,7 +140,7 @@ async def test_analyze_diagnostics_classpath_details(client: WhiteboxClient) -> 
 async def test_analyze_wraps_invalid_json(client: WhiteboxClient) -> None:
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = _mock_bad_json_response()
+        mock_http.request.return_value = _mock_bad_json_response()
         mock_get_client.return_value = mock_http
 
         with pytest.raises(WhiteboxClientError, match="有效 JSON"):
@@ -151,7 +151,7 @@ async def test_analyze_wraps_invalid_json(client: WhiteboxClient) -> None:
 async def test_submit_analyze_job_wraps_invalid_json(client: WhiteboxClient) -> None:
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = _mock_bad_json_response()
+        mock_http.request.return_value = _mock_bad_json_response()
         mock_get_client.return_value = mock_http
 
         with pytest.raises(WhiteboxClientError, match="有效 JSON"):
@@ -162,7 +162,7 @@ async def test_submit_analyze_job_wraps_invalid_json(client: WhiteboxClient) -> 
 async def test_get_analyze_job_result_wraps_invalid_json(client: WhiteboxClient) -> None:
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.get.return_value = _mock_bad_json_response()
+        mock_http.request.return_value = _mock_bad_json_response()
         mock_get_client.return_value = mock_http
 
         with pytest.raises(WhiteboxClientError, match="有效 JSON"):
@@ -175,7 +175,7 @@ async def test_analyze_wraps_non_object_response(client: WhiteboxClient) -> None
     response.json.return_value = []
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = response
+        mock_http.request.return_value = response
         mock_get_client.return_value = mock_http
 
         with pytest.raises(WhiteboxClientError, match="响应结构不是对象"):
@@ -184,33 +184,33 @@ async def test_analyze_wraps_non_object_response(client: WhiteboxClient) -> None
 
 @pytest.mark.asyncio
 async def test_analyze_http_error(client: WhiteboxClient) -> None:
-    """验证 HTTP 错误时抛出 WhiteboxClientError。"""
+    """验证 HTTP 错误时抛出类型化异常。"""
+    from argus_py.whitebox.client import WhiteboxPermanentError
+
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        err_resp = _mock_response(400, {})
-        request = httpx.Request("POST", "http://test-host:8081/argus/api/analyze")
-        err_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "400 Bad Request", request=request, response=httpx.Response(400, request=request)
-        )
-        mock_http.post.return_value = err_resp
+        err_resp = _mock_response(400, {"error": "bad request"})
+        err_resp.is_success = False
+        mock_http.request.return_value = err_resp
         mock_get_client.return_value = mock_http
 
-        with pytest.raises(WhiteboxClientError):
+        with pytest.raises(WhiteboxPermanentError):
             await client.analyze("/tmp/test-project")
 
 
 @pytest.mark.asyncio
-async def test_analyze_retry_then_fail(client: WhiteboxClient) -> None:
-    """验证重试耗尽后抛出 WhiteboxClientError。"""
+async def test_analyze_connect_error_fails(client: WhiteboxClient) -> None:
+    """验证连接错误时抛出 WhiteboxClientError（同步 analyze 包装瞬态错误）。"""
+
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.side_effect = httpx.ConnectError("Connection refused")
+        mock_http.request.side_effect = httpx.ConnectError("Connection refused")
         mock_get_client.return_value = mock_http
 
         with pytest.raises(WhiteboxClientError):
             await client.analyze("/tmp/test-project")
 
-    assert mock_http.post.call_count == client._max_retries
+    assert mock_http.request.call_count == 1  # analyze does not retry
 
 
 @pytest.mark.asyncio
@@ -245,7 +245,7 @@ async def test_analyze_scope_callgraph(client: WhiteboxClient) -> None:
     """验证 scope 参数正确传递。"""
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = _mock_response(
+        mock_http.request.return_value = _mock_response(
             200, {"endpoints": [], "callGraph": {}, "findings": []}
         )
         mock_get_client.return_value = mock_http
@@ -254,7 +254,7 @@ async def test_analyze_scope_callgraph(client: WhiteboxClient) -> None:
             "/tmp/test", scope="callgraph", target_modules=["han-modules/han-admin"]
         )
 
-        call_kwargs = mock_http.post.call_args.kwargs
+        call_kwargs = mock_http.request.call_args.kwargs
         assert call_kwargs["json"]["scope"] == "callgraph"
         assert call_kwargs["json"]["targetModules"] == ["han-modules/han-admin"]
 
@@ -264,34 +264,40 @@ async def test_submit_and_query_analyze_job(client: WhiteboxClient) -> None:
     """验证异步作业接口请求和状态解析。"""
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()
-        mock_http.post.return_value = _mock_response(
-            200,
-            {
-                "jobId": "job-1",
-                "status": "RUNNING",
-                "stage": "classpath",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "events": [
+
+        def _request_side_effect(method, path, **kwargs):
+            if method == "POST":
+                return _mock_response(
+                    200,
                     {
-                        "timestamp": "2026-05-25T00:00:01Z",
+                        "jobId": "job-1",
+                        "status": "RUNNING",
                         "stage": "classpath",
-                        "level": "INFO",
-                        "message": "Executing Maven",
-                    }
-                ],
-            },
-        )
-        mock_http.get.return_value = _mock_response(
-            200,
-            {
-                "jobId": "job-1",
-                "status": "SUCCEEDED",
-                "stage": "complete",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "finishedAt": "2026-05-25T00:00:02Z",
-                "events": [],
-            },
-        )
+                        "createdAt": "2026-05-25T00:00:00Z",
+                        "events": [
+                            {
+                                "timestamp": "2026-05-25T00:00:01Z",
+                                "stage": "classpath",
+                                "level": "INFO",
+                                "message": "Executing Maven",
+                            }
+                        ],
+                    },
+                )
+            # GET
+            return _mock_response(
+                200,
+                {
+                    "jobId": "job-1",
+                    "status": "SUCCEEDED",
+                    "stage": "complete",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "finishedAt": "2026-05-25T00:00:02Z",
+                    "events": [],
+                },
+            )
+
+        mock_http.request.side_effect = _request_side_effect
         mock_get_client.return_value = mock_http
 
         submitted = await client.submit_analyze_job("/tmp/test-project")

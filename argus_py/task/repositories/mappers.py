@@ -9,7 +9,7 @@ from argus_py.core.constants import utc_now
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.task.models import Finding, Task, TaskLog
 
-# list_task_summaries 所需的 task 列（排除 parameters_json 等大字段）
+# list_task_summaries 所需的 task 列（排除 whitebox_config_json / result_json 等大字段）
 _TASK_SUMMARY_COLUMNS = (
     "task_id",
     "goal",
@@ -57,6 +57,24 @@ def task_to_row(task: Task) -> tuple[Any, ...]:
         task.report_path,
         task.result_summary,
         task.error_message,
+        task.whitebox_config_json,
+        task.whitebox_config_schema_version,
+        task.result_json,
+        task.result_schema_version,
+        task.result_size_bytes,
+        task.source_type,
+        task.source_repo_url,
+        task.source_requested_ref,
+        task.source_resolved_commit_sha,
+        task.source_ref_type,
+        1 if task.source_dirty else 0 if task.source_dirty is not None else None,
+        task.external_job_id,
+        task.external_job_status,
+        task.external_job_submitted_at,
+        task.external_job_last_polled_at,
+        task.worker_id,
+        task.worker_lease_expires_at,
+        task.execution_attempt,
     )
 
 
@@ -92,6 +110,10 @@ def finding_to_row(task_id: str, finding: Finding) -> tuple[Any, ...]:
         finding.location,
         finding.screenshot_path,
         finding.created_at.isoformat(),
+        finding.rule_id,
+        finding.rule_category,
+        finding.confidence,
+        finding.fingerprint,
     )
 
 
@@ -140,6 +162,26 @@ def row_to_task(
         report_path=task_row["report_path"],
         result_summary=task_row["result_summary"],
         error_message=task_row["error_message"],
+        whitebox_config_json=task_row["whitebox_config_json"],
+        whitebox_config_schema_version=task_row["whitebox_config_schema_version"],
+        result_json=task_row["result_json"],
+        result_schema_version=task_row["result_schema_version"],
+        result_size_bytes=task_row["result_size_bytes"],
+        source_type=task_row["source_type"],
+        source_repo_url=task_row["source_repo_url"],
+        source_requested_ref=task_row["source_requested_ref"],
+        source_resolved_commit_sha=task_row["source_resolved_commit_sha"],
+        source_ref_type=task_row["source_ref_type"],
+        source_dirty=(
+            bool(task_row["source_dirty"]) if task_row["source_dirty"] is not None else None
+        ),
+        external_job_id=task_row["external_job_id"],
+        external_job_status=task_row["external_job_status"],
+        external_job_submitted_at=task_row["external_job_submitted_at"],
+        external_job_last_polled_at=task_row["external_job_last_polled_at"],
+        worker_id=task_row["worker_id"],
+        worker_lease_expires_at=task_row["worker_lease_expires_at"],
+        execution_attempt=task_row["execution_attempt"],
     )
 
 
@@ -204,4 +246,8 @@ def row_to_finding(row: Any) -> Finding:
         location=row["location"],
         screenshot_path=row["screenshot_path"],
         created_at=_parse_datetime(row["created_at"]) or utc_now(),
+        rule_id=row["rule_id"],
+        rule_category=row["rule_category"],
+        confidence=row["confidence"],
+        fingerprint=row["fingerprint"],
     )
