@@ -8,7 +8,7 @@
   独立，CLI 一次性命令默认不会把 logger 输出与用户输出混在一起。
 - ``setup_cli_logging`` 提供 CLI 专用的精简日志配置：只走 console，
   默认 WARNING，``--verbose`` 时降到 INFO/DEBUG，避免和 server 进程
-  争抢 ``outputs/logs/argus.log``。
+  争抢 ``outputs/logs/runtime/python/argus.log``。
 """
 
 from __future__ import annotations

@@ -63,6 +63,7 @@ COPY --from=frontend /workspace/argus_py/api/static /app/argus_py/api/static
 # 持久化挂载点：DB、截图、trace、日志全部在此
 RUN mkdir -p /app/outputs/data \
              /app/outputs/screenshots \
+             /app/outputs/logs/runtime/python \
              /app/outputs/logs \
              /app/outputs/reports \
              /app/outputs/traces \

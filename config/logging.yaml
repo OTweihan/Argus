@@ -58,7 +58,7 @@ handlers:
     class: logging.handlers.RotatingFileHandler
     level: DEBUG
     formatter: json
-    filename: outputs/logs/argus.log
+    filename: outputs/logs/runtime/python/argus.log
     encoding: utf-8
     maxBytes: 10485760
     backupCount: 20
@@ -71,7 +71,7 @@ handlers:
     class: logging.handlers.RotatingFileHandler
     level: ERROR
     formatter: json
-    filename: outputs/logs/argus.error.log
+    filename: outputs/logs/runtime/python/argus.error.log
     encoding: utf-8
     maxBytes: 10485760
     backupCount: 20
@@ -82,7 +82,7 @@ handlers:
     class: logging.handlers.RotatingFileHandler
     level: INFO
     formatter: json
-    filename: outputs/logs/argus.audit.log
+    filename: outputs/logs/runtime/python/argus.audit.log
     encoding: utf-8
     maxBytes: 10485760
     backupCount: 10
@@ -94,7 +94,7 @@ handlers:
     class: logging.handlers.RotatingFileHandler
     level: DEBUG
     formatter: json
-    filename: outputs/logs/argus.access.log
+    filename: outputs/logs/runtime/python/argus.access.log
     encoding: utf-8
     maxBytes: 10485760
     backupCount: 20

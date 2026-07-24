@@ -145,8 +145,8 @@ def _make_file(path: Path, age_days: float) -> Path:
 class TestCleanupOutputs:
     def test_removes_old_files_in_target_dirs(self, tmp_path: Path) -> None:
         root = tmp_path / "outputs"
-        old = _make_file(root / "logs" / "old.log", age_days=40)
-        new = _make_file(root / "logs" / "new.log", age_days=1)
+        old = _make_file(root / "logs" / "runtime" / "python" / "argus.log.1", age_days=40)
+        new = _make_file(root / "logs" / "runtime" / "python" / "argus.log.2", age_days=1)
 
         code = cleanup_outputs.main(["--root", str(root), "--days", "30", "--targets", "logs"])
         assert code == 0
@@ -192,3 +192,139 @@ class TestCleanupOutputs:
         assert not (root / "temp" / "task-001").exists()
         # 但顶层 target 目录本身保留
         assert (root / "temp").exists()
+
+    # ── _match_rotated_log() 单元测试 ────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            ("argus.log.1", ("runtime-general", 30)),
+            ("argus.error.log.2", ("runtime-error", 30)),
+            ("argus.access.log.3.gz", ("runtime-access", 14)),
+            ("argus.audit.log.4", ("runtime-audit", 180)),
+            # 非标准文件名不匹配
+            ("argus.audit.log.backup", None),
+            ("argus.logging", None),
+            (".1", None),
+            ("1", None),
+            ("argus.log", None),
+            ("argus.log.1.zip", None),
+            ("argus.log.1.gz.tmp", None),
+            ("argus.logging.1", None),
+        ],
+    )
+    def test_match_rotated_log(
+        self,
+        filename: str,
+        expected: tuple[str, int] | None,
+    ) -> None:
+        assert cleanup_outputs._match_rotated_log(filename) == expected
+
+    # ── 类别保留期端到端测试 ─────────────────────────────────────────────
+
+    def test_category_based_retention_for_logs(self, tmp_path: Path) -> None:
+        """验证四类保留期：audit 180 天、access 14 天、error 30 天、dev 14 天。"""
+        root = tmp_path / "outputs"
+
+        # audit: 179 天保留，181 天删除
+        audit_keep = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.audit.log.1", age_days=179
+        )
+        audit_del = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.audit.log.2", age_days=181
+        )
+
+        # dev: 13 天保留，15 天删除
+        dev_keep = _make_file(root / "logs" / "dev" / "run-new" / "combined.log", age_days=13)
+        dev_del = _make_file(root / "logs" / "dev" / "run-old" / "combined.log", age_days=15)
+
+        # access: 15 天删除
+        access_del = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.access.log.1", age_days=15
+        )
+
+        # error: 29 天保留，31 天删除
+        error_keep = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.error.log.1", age_days=29
+        )
+        error_del = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.error.log.2", age_days=31
+        )
+
+        code = cleanup_outputs.main(["--root", str(root), "--days", "30", "--targets", "logs"])
+        assert code == 0
+
+        assert audit_keep.exists()
+        assert not audit_del.exists()
+        assert dev_keep.exists()
+        assert not dev_del.exists()
+        assert not access_del.exists()
+        assert error_keep.exists()
+        assert not error_del.exists()
+
+    def test_active_logs_never_deleted(self, tmp_path: Path) -> None:
+        """验证 4 个当前主日志文件即使超龄也不被删除。"""
+        root = tmp_path / "outputs"
+        argus_log = _make_file(root / "logs" / "runtime" / "python" / "argus.log", age_days=100)
+        error_log = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.error.log", age_days=100
+        )
+        audit_log = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.audit.log", age_days=200
+        )
+        access_log = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.access.log", age_days=100
+        )
+
+        code = cleanup_outputs.main(["--root", str(root), "--days", "30", "--targets", "logs"])
+        assert code == 0
+        assert argus_log.exists()
+        assert error_log.exists()
+        assert audit_log.exists()
+        assert access_log.exists()
+
+    def test_unclassified_logs_fallback_to_days(self, tmp_path: Path) -> None:
+        """验证未分类日志回退到 --days。"""
+        root = tmp_path / "outputs"
+        custom_keep = _make_file(root / "logs" / "custom" / "plugin-new.log", age_days=6)
+        custom_del = _make_file(root / "logs" / "custom" / "plugin-old.log", age_days=8)
+
+        code = cleanup_outputs.main(["--root", str(root), "--days", "7", "--targets", "logs"])
+        assert code == 0
+        assert custom_keep.exists()
+        assert not custom_del.exists()
+
+    def test_days_does_not_override_category_rules(self, tmp_path: Path) -> None:
+        """--days 7 不覆盖 audit 的 180 天保留期。"""
+        root = tmp_path / "outputs"
+        audit_file = _make_file(
+            root / "logs" / "runtime" / "python" / "argus.audit.log.1", age_days=40
+        )
+
+        code = cleanup_outputs.main(["--root", str(root), "--days", "7", "--targets", "logs"])
+        assert code == 0
+        assert audit_file.exists()
+
+    def test_dry_run_logs_category(self, tmp_path: Path) -> None:
+        """dry-run 输出含类别标签且不实际删除。"""
+        root = tmp_path / "outputs"
+        old = _make_file(root / "logs" / "runtime" / "python" / "argus.log.1", age_days=40)
+
+        code = cleanup_outputs.main(
+            ["--root", str(root), "--days", "30", "--targets", "logs", "--dry-run"]
+        )
+        assert code == 0
+        assert old.exists()  # dry-run 不真删
+
+    def test_non_logs_target_still_uses_days(self, tmp_path: Path) -> None:
+        """非 logs 目标仍使用 --days 阈值。"""
+        root = tmp_path / "outputs"
+        old = _make_file(root / "screenshots" / "old.png", age_days=10)
+        new = _make_file(root / "screenshots" / "new.png", age_days=3)
+
+        code = cleanup_outputs.main(
+            ["--root", str(root), "--days", "7", "--targets", "screenshots"]
+        )
+        assert code == 0
+        assert not old.exists()
+        assert new.exists()

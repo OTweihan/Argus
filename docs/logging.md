@@ -85,13 +85,46 @@ argus_py
 | Handler | 级别 | 格式 | 保存 | 适用场景 |
 |---------|------|------|------|----------|
 | `console` | INFO | 人类可读 + 链路字段 | stdout | 容器日志 `docker logs`、开发调试 |
-| `app_file` | DEBUG | JSON | `outputs/logs/argus.log` | 全量结构化日志，ELK / 离线排查 |
-| `error_file` | ERROR | JSON | `outputs/logs/argus.error.log` | 告警对接、ERROR 独立检索 |
-| `audit_file` | INFO | JSON | `outputs/logs/argus.audit.log` | 审计事件只写此文件 |
-| `access_file` | DEBUG | JSON | `outputs/logs/argus.access.log` | HTTP 访问日志 |
+| `app_file` | DEBUG | JSON | `outputs/logs/runtime/python/argus.log` | 全量结构化日志，ELK / 离线排查 |
+| `error_file` | ERROR | JSON | `outputs/logs/runtime/python/argus.error.log` | 告警对接、ERROR 独立检索 |
+| `audit_file` | INFO | JSON | `outputs/logs/runtime/python/argus.audit.log` | 审计事件只写此文件 |
+| `access_file` | DEBUG | JSON | `outputs/logs/runtime/python/argus.access.log` | HTTP 访问日志 |
 
 所有文件 handler 使用 `RotatingFileHandler`，单文件 10MB，保留 20 个备份
 （audit_file 保留 10 个）。
+
+### 日志目录布局
+
+```text
+outputs/logs/
+├── dev/<run-id>/              # 开发会话（dev.mjs）
+│   ├── combined.log
+│   ├── python.log
+│   ├── frontend.log
+│   └── java.log
+└── runtime/python/            # Python 运行时结构化日志
+    ├── argus.log              # 当前文件（受保护，清理脚本不删除）
+    ├── argus.log.1            # 轮转文件（清理脚本按类别删除）
+    ├── argus.error.log
+    ├── argus.audit.log
+    └── argus.access.log
+```
+
+### 清理保留策略
+
+`scripts/cleanup_outputs.py` 对 `logs` 目标按文件路径使用差异化保留期：
+
+| 类别 | 路径 | 清理阈值 | 说明 |
+|------|------|---------|------|
+| 开发会话 | `logs/dev/<run-id>/**` | 14 天 | 按文件 mtime 分别清理 |
+| 普通运行（轮转） | `argus.log.N[.gz]` | 30 天 | 故障排查 |
+| 错误（轮转） | `argus.error.log.N[.gz]` | 30 天 | 同上 |
+| 访问（轮转） | `argus.access.log.N[.gz]` | 14 天 | 访问量大 |
+| 审计（轮转） | `argus.audit.log.N[.gz]` | 180 天 | 审计线索 |
+| 未分类 | 其他路径 | `--days`（默认 30 天） | 回退 |
+
+- 对于 `runtime/python/` 下的四类标准结构化日志，**清理脚本只删除超龄轮转文件**（如 `argus.log.1`、`argus.log.2.gz`），不删除当前主日志文件（`argus.log` 等）。开发会话日志和未分类日志仍按各自策略清理。
+- **保留期是清理上限**，实际可用时长受 `RotatingFileHandler` 的 `maxBytes` 和 `backupCount` 约束。
 
 ---
 
