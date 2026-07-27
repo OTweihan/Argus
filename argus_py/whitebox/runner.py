@@ -29,6 +29,7 @@ from argus_py.whitebox.client import (
     WhiteboxClient,
     WhiteboxJobNotFoundError,
     WhiteboxPermanentError,
+    WhiteboxResultNotReadyError,
     WhiteboxTransientError,
 )
 from argus_py.whitebox.config import (
@@ -106,10 +107,12 @@ class WhiteboxRunner:
 
         # 1. 统一 deadline
         deadline = time.monotonic() + task.timeout_seconds
+        resolved: ResolvedSource | None = None
+        remote_may_be_running = False
 
         try:
             # 2. 源码解析 + 立即持久化快照
-            resolved = await self._resolve_source(exec_config, deadline)
+            resolved = await self._resolve_source(exec_config, task.task_id, deadline)
             self._write_snapshot(task, resolved, source_repo_url)
             await run_in_thread(self._lifecycle.save_task, task)
             await self._safe_emit(
@@ -118,6 +121,7 @@ class WhiteboxRunner:
                 data={
                     "source_type": resolved.source_type,
                     "commit_sha": resolved.resolved_commit_sha,
+                    "content_sha256": resolved.content_sha256,
                     "ref_type": resolved.ref_type,
                     "dirty": resolved.is_dirty,
                 },
@@ -131,6 +135,9 @@ class WhiteboxRunner:
             )
 
             # 4. 提交 + 持久化 job_id
+            # 从发起 POST 开始就必须假定远端可能已接收；
+            # 即使本地超时没拿到 job_id，也不能立即删除快照。
+            remote_may_be_running = True
             job_id = await self._submit_job(task, resolved, exec_config)
             await self._safe_emit(
                 "whitebox_submitted",
@@ -140,6 +147,7 @@ class WhiteboxRunner:
 
             # 5. 轮询
             await self._poll(task, job_id, deadline)
+            remote_may_be_running = False
 
             # 6. 获取结果（含 409 重试）
             result = await self._get_result_with_retry(job_id, deadline)
@@ -191,7 +199,11 @@ class WhiteboxRunner:
                 "whitebox_cancelled",
                 task.task_id,
                 summary=str(exc),
-                data={"jobId": exc.job_id, "origin": exc.origin},
+                data={
+                    "jobId": exc.job_id,
+                    "origin": exc.origin,
+                    "errorCode": exc.error_code,
+                },
             )
             raise
         except WhiteboxTaskTimeout as exc:
@@ -199,24 +211,47 @@ class WhiteboxRunner:
                 "whitebox_timed_out",
                 task.task_id,
                 summary=str(exc),
-                data={"jobId": exc.job_id},
+                data={
+                    "jobId": exc.job_id,
+                    "errorCode": exc.error_code,
+                },
             )
             raise
         except Exception as exc:
+            error_data: dict[str, object] = {}
+            if hasattr(exc, "error_code") and exc.error_code:
+                error_data["errorCode"] = exc.error_code
             await self._safe_emit_terminal(
                 "whitebox_failed",
                 task.task_id,
                 summary=str(exc),
+                data=error_data,
             )
             raise
         finally:
             await self._safe_flush()
+            if resolved is not None and (
+                not remote_may_be_running
+                or task.external_job_status
+                in {"SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "EXPIRED"}
+            ):
+                try:
+                    await run_in_thread(self._source_resolver.release, resolved)
+                except Exception:
+                    logger.exception("清理白盒源码快照失败: %s", resolved.resolved_path)
+            elif resolved is not None and remote_may_be_running:
+                logger.info(
+                    "保留白盒源码快照（远端状态不确定，由 24h TTL 回收）: %s remote_status=%s",
+                    resolved.resolved_path,
+                    task.external_job_status,
+                )
 
     # ── 源码解析 ──────────────────────────────────────────────────────────────
 
     async def _resolve_source(
         self,
         config: ExecutionWhiteboxConfig,
+        task_id: str,
         deadline: float,
     ) -> ResolvedSource:
         """解析源码，剩余时间超过 10s 才开始克隆。"""
@@ -232,10 +267,12 @@ class WhiteboxRunner:
                     self._source_resolver.resolve,
                     config.repo_url,
                     config.ref,
+                    clone_id=task_id,
                 )
             return await run_in_thread(
                 self._source_resolver.resolve_path,
                 config.source_path,
+                snapshot_id=task_id,
             )
         except SourceResolutionError as exc:
             raise WhiteboxSourceResolutionError(str(exc)) from exc
@@ -274,25 +311,15 @@ class WhiteboxRunner:
         visibility = await self._client.validate_source(resolved_path)
 
         if visibility.status is VisibilityStatus.ENDPOINT_UNSUPPORTED:
-            logger.warning("Java 不支持 validate-source 端点，跳过校验")
-            await self._safe_emit(
-                "whitebox_source_validated",
-                task_id,
-                data={"skipped": True, "reason": visibility.reason},
+            raise WhiteboxVisibilityError(
+                f"Java 不支持 validate-source 端点，"
+                f"请升级 Java 分析器或确认版本兼容。"
+                f"（原因: {visibility.reason}）"
             )
-            return
         if visibility.status is VisibilityStatus.ANALYZER_UNAVAILABLE:
-            # Java 暂时不可达（网络/启动中）—— 降级继续，本地已有 is_dir() 校验
-            logger.warning(
-                "Java 不可达，跳过跨进程可见性校验: %s",
-                visibility.reason,
+            raise WhiteboxVisibilityError(
+                f"Java 分析器不可达，无法完成跨进程可见性校验。（原因: {visibility.reason}）"
             )
-            await self._safe_emit(
-                "whitebox_source_validated",
-                task_id,
-                data={"skipped": True, "reason": visibility.reason},
-            )
-            return
         if visibility.status is not VisibilityStatus.VALIDATED:
             raise WhiteboxVisibilityError(visibility.reason or "可见性校验失败")
         if not visibility.readable:
@@ -319,7 +346,9 @@ class WhiteboxRunner:
         job_status = await self._client.submit_analyze_job(
             source_path=resolved.resolved_path,
             scope=config.scope,
-            maven=config.maven.model_dump(exclude_none=True) if config.maven else None,
+            maven=config.maven.model_dump(exclude_none=True, by_alias=True)
+            if config.maven
+            else None,
             target_modules=config.target_modules or None,
             client_request_id=f"{task.task_id}:{task.execution_attempt}",
         )
@@ -348,8 +377,17 @@ class WhiteboxRunner:
             # 取消检查
             token = self._lifecycle.get_cancellation_token(task.task_id)
             if token.is_cancelled:
-                await self._cancel_remote_job(job_id)
-                raise WhiteboxTaskCancelled(job_id=job_id, origin="local")
+                # 阶段一：只停止轮询，不尝试取消远端作业
+                # Java 没有可协作取消机制，调用 DELETE 只会设置状态而不会中断分析线程
+                logger.warning(
+                    "任务 %s 已取消，停止轮询远端作业 %s（远端作业可能仍在运行）",
+                    task.task_id,
+                    job_id,
+                )
+                raise WhiteboxTaskCancelled(
+                    job_id=job_id,
+                    origin="local",
+                )
 
             remaining = baseline_deadline - time.monotonic()
             if remaining <= 0:
@@ -484,12 +522,18 @@ class WhiteboxRunner:
 
     # ── 取消远端作业 ──────────────────────────────────────────────────────────
 
-    async def _cancel_remote_job(self, job_id: str) -> None:
-        """best-effort 取消远端作业。"""
-        try:
-            await self._client.cancel_job(job_id)
-        except Exception:
-            pass
+    async def _cancel_remote_job(self, job_id: str) -> bool:
+        """阶段一：不实现远端取消。
+
+        Java 没有可协作取消机制。设置 CANCELLED 状态不会中断分析线程，
+        PENDING 作业的 markRunning() 也会覆盖 CANCELLED。
+        首版只停止 Python 侧轮询，明确标注"远端作业可能仍在运行"。
+        """
+        logger.info(
+            "远端作业 %s 取消失败（阶段一未实现远端取消），只停止本地轮询",
+            job_id,
+        )
+        return False
 
     # ── 时间线安全封装 ────────────────────────────────────────────────────────
 
@@ -729,7 +773,3 @@ def _serialize_whitebox_result(
             "scope": scope,
         },
     }
-
-
-# 导入延迟以破解循环
-from argus_py.whitebox.client import WhiteboxResultNotReadyError  # noqa: E402

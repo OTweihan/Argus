@@ -9,13 +9,18 @@ public record AnalyzeRequest(
     @NotBlank(message = "sourcePath is required") String sourcePath,
     String scope,
     List<String> targetModules,
-    MavenConfig maven
+    MavenConfig maven,
+    String clientRequestId
 ) {
     public AnalyzeRequest {
         if (scope == null) scope = "all";
     }
 
     public AnalyzeRequest(String sourcePath, String scope) {
-        this(sourcePath, scope, null, null);
+        this(sourcePath, scope, null, null, null);
+    }
+
+    public AnalyzeRequest(String sourcePath, String scope, List<String> targetModules, MavenConfig maven) {
+        this(sourcePath, scope, targetModules, maven, null);
     }
 }

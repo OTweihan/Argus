@@ -24,9 +24,12 @@ class SourceType(StrEnum):
 
 
 class ClasspathMode(StrEnum):
-    AUTO = "auto"
-    FILE = "file"
-    MAVEN = "maven"
+    """Classpath 解析策略 — 与 Java ClasspathMode 对齐。"""
+
+    AUTO = "AUTO"
+    CACHE_ONLY = "CACHE_ONLY"
+    MAVEN = "MAVEN"
+    SOURCE_ONLY = "SOURCE_ONLY"
 
 
 # ── 旧参数字段集合（用于新旧冲突检测） ──────────────────────────────────────
@@ -128,6 +131,17 @@ class WhiteboxMavenConfig(BaseModel):
     online_timeout_seconds: int | None = Field(
         default=None, ge=1, le=7200, alias="onlineTimeoutSeconds"
     )
+    prepare_reactor_artifacts: bool = Field(default=False, alias="prepareReactorArtifacts")
+
+    @field_validator("classpath_mode", mode="before")
+    @classmethod
+    def _normalize_classpath_mode(cls, v: object) -> object:
+        """将 CLI 的连字符格式 (cache-only) 规范化为 Java 格式 (CACHE_ONLY)。"""
+        if isinstance(v, str):
+            normalized = v.upper().replace("-", "_")
+            if normalized in {"AUTO", "CACHE_ONLY", "MAVEN", "SOURCE_ONLY"}:
+                return normalized
+        return v
 
 
 class WhiteboxTaskConfig(BaseModel):

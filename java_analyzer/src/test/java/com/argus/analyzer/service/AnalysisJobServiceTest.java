@@ -61,6 +61,9 @@ class AnalysisJobServiceTest {
 
         assertThat(status.status()).isEqualTo("FAILED");
         assertThat(status.error()).isEqualTo("analysis failed");
+        assertThat(status.events()).isNotEmpty();
+        assertThat(status.events()).extracting(event -> event.sequence()).doesNotHaveDuplicates();
+        assertThat(status.events()).allMatch(event -> event.eventId() != null);
         assertThatThrownBy(() -> service.getResult(submitted.jobId()))
                 .isInstanceOf(IllegalStateException.class);
     }
@@ -77,5 +80,34 @@ class AnalysisJobServiceTest {
 
         assertThatThrownBy(() -> service.getStatus(submitted.jobId()))
                 .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    void shouldReuseJobForSameClientRequestIdAndParameters() {
+        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
+        List<Runnable> queued = new ArrayList<>();
+        AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 10, 1800);
+        AnalyzeRequest idempotent = new AnalyzeRequest(
+                "C:\\project", "all", List.of("module-a"), null, "task-1:1");
+
+        var first = service.submit(idempotent);
+        var second = service.submit(idempotent);
+
+        assertThat(second.jobId()).isEqualTo(first.jobId());
+        assertThat(queued).hasSize(1);
+    }
+
+    @Test
+    void shouldRejectSameClientRequestIdWithDifferentParameters() {
+        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
+        List<Runnable> queued = new ArrayList<>();
+        AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 10, 1800);
+        service.submit(new AnalyzeRequest(
+                "C:\\project", "all", List.of("module-a"), null, "task-1:1"));
+
+        assertThatThrownBy(() -> service.submit(new AnalyzeRequest(
+                "C:\\project", "flows", List.of("module-a"), null, "task-1:1")))
+                .isInstanceOf(AnalysisJobService.IdempotencyConflictException.class);
+        assertThat(queued).hasSize(1);
     }
 }

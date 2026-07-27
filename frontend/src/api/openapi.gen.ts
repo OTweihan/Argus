@@ -567,6 +567,12 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ClasspathMode
+         * @description Classpath 解析策略 — 与 Java ClasspathMode 对齐。
+         * @enum {string}
+         */
+        ClasspathMode: "AUTO" | "CACHE_ONLY" | "MAVEN" | "SOURCE_ONLY";
+        /**
          * ConfigSummaryResponse
          * @description 配置摘要响应，不包含敏感值。
          */
@@ -1020,6 +1026,11 @@ export interface components {
             event_bus: string;
         };
         /**
+         * SourceType
+         * @enum {string}
+         */
+        SourceType: "git" | "local";
+        /**
          * StepResult
          * @description 步骤执行结果。
          * @enum {string}
@@ -1052,8 +1063,7 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
-            /** Whiteboxconfig */
-            whiteboxConfig?: unknown | null;
+            whiteboxConfig?: components["schemas"]["WhiteboxTaskConfig"] | null;
         };
         /**
          * TaskLogResponse
@@ -1247,8 +1257,7 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
-            /** Whiteboxconfig */
-            whiteboxConfig?: unknown | null;
+            whiteboxConfig?: components["schemas"]["WhiteboxTaskConfig"] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1262,6 +1271,68 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * WhiteboxMavenConfig
+         * @description Maven 配置（与 Java 端 MavenConfig 对齐）。
+         */
+        WhiteboxMavenConfig: {
+            /**
+             * Autodetect
+             * @default true
+             */
+            autoDetect: boolean;
+            /**
+             * Generateclasspath
+             * @default true
+             */
+            generateClasspath: boolean;
+            /** Classpathfile */
+            classpathFile?: string | null;
+            /** Executable */
+            executable?: string | null;
+            /** Settingsxml */
+            settingsXml?: string | null;
+            /** Localrepository */
+            localRepository?: string | null;
+            /**
+             * Offline
+             * @default false
+             */
+            offline: boolean;
+            /** @default AUTO */
+            classpathMode: components["schemas"]["ClasspathMode"];
+            /** Offlinetimeoutseconds */
+            offlineTimeoutSeconds?: number | null;
+            /** Onlinetimeoutseconds */
+            onlineTimeoutSeconds?: number | null;
+            /**
+             * Preparereactorartifacts
+             * @default false
+             */
+            prepareReactorArtifacts: boolean;
+        };
+        /**
+         * WhiteboxTaskConfig
+         * @description 白盒任务类型化配置（API 层，支持 camelCase 输入）。
+         */
+        WhiteboxTaskConfig: {
+            /** @default local */
+            sourceType: components["schemas"]["SourceType"];
+            /** Repourl */
+            repoUrl?: string | null;
+            /** Sourcepath */
+            sourcePath?: string | null;
+            /** Ref */
+            ref?: string | null;
+            /**
+             * Scope
+             * @default all
+             */
+            scope: string;
+            /** Targetmodules */
+            targetModules?: string[];
+            maven?: components["schemas"]["WhiteboxMavenConfig"] | null;
         };
     };
     responses: never;

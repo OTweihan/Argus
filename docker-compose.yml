@@ -36,6 +36,9 @@ services:
       PYTHONUNBUFFERED: "1"
       # 显式 1：与 CLI guard 一致，K8s 注入 WEB_CONCURRENCY > 1 会被拒启
       WEB_CONCURRENCY: "1"
+      # Python clone/copy 的源码快照与 Java 使用相同绝对路径
+      ARGUS_WHITEBOX_SOURCE_WORK_DIR: "/tmp/sources"
+      ARGUS_JAVA_ANALYZER_URL: "http://java-analyzer:8081"
       # 若内部 LLM 用域名访问 SSO，可在此追加：
       # ARGUS_PROJECT_ROOT: "/app"
 
@@ -44,6 +47,8 @@ services:
       - ./config:/app/config
       # 运行时产物：DB、screenshots、reports、traces、备份
       - argus-outputs:/app/outputs
+      # 白盒源码快照：与 Java Analyzer 共享
+      - java-analyzer-sources:/tmp/sources
 
     # 健康检查已在 Dockerfile 中定义（HEALTHCHECK），compose 不再重复
 

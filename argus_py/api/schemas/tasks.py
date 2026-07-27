@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from argus_py.api.schemas.base import ApiModel, blank_to_none, strip_text
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
@@ -18,6 +18,7 @@ from argus_py.redaction import (
     redact_step_params,
 )
 from argus_py.task.models import Finding, Task, TaskLog
+from argus_py.whitebox.config import WhiteboxTaskConfig
 
 
 class TaskLogResponse(ApiModel):
@@ -83,7 +84,7 @@ class TaskCreateRequest(ApiModel):
     capture_screenshots: bool | None = Field(default=None, alias="captureScreenshots")
     model_config_id: str | None = Field(default=None, alias="modelConfigId", max_length=64)
     parameters: dict[str, Any] = Field(default_factory=dict, max_length=_PARAMS_MAX_KEYS)
-    whitebox_config: Any | None = Field(default=None, alias="whiteboxConfig")
+    whitebox_config: WhiteboxTaskConfig | None = Field(default=None, alias="whiteboxConfig")
 
     @field_validator("goal", "project_id", mode="before")
     @classmethod
@@ -107,10 +108,8 @@ class TaskCreateRequest(ApiModel):
     @classmethod
     def parse_whitebox_config(cls, value: object) -> object:
         """将 whiteboxConfig dict 解析为 WhiteboxTaskConfig。"""
-        if value is None or isinstance(value, BaseModel):
+        if value is None or isinstance(value, WhiteboxTaskConfig):
             return value
-        from argus_py.whitebox.config import WhiteboxTaskConfig
-
         if isinstance(value, dict):
             return WhiteboxTaskConfig.model_validate(value)
         return value

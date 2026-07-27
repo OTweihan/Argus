@@ -79,6 +79,36 @@ llm:
 
 未列入的内网地址在 `/config/models/test` 与持久化创建 / 更新模型配置时都会被拒绝，错误码 `MODEL_CONFIG_ERROR`。
 
+### 白盒源码快照
+
+Python 会先将 Git 或本地源码物化为任务独立快照，Java Analyzer 只分析该快照。
+两个容器必须以同一绝对路径挂载同一个 volume。仓库自带的
+`docker-compose.yml` 已将 `java-analyzer-sources` 同时挂载到两个服务的 `/tmp/sources`，
+并为 Python 设置：
+
+```text
+ARGUS_WHITEBOX_SOURCE_WORK_DIR=/tmp/sources
+ARGUS_JAVA_ANALYZER_URL=http://java-analyzer:8081
+```
+
+非容器部署可在 `config/server.yaml` 中配置：
+
+```yaml
+whitebox:
+  source_work_dir: /path/visible/to/python-and-java
+  allowed_source_roots:
+    - /srv/projects
+```
+
+快照在远端作业确认结束后按任务清理。Python 取消、超时或断网时无法确认 Java
+是否仍在读取，因此保留快照，由 24 小时 TTL 清理回收。
+
+> **手动清理源码卷**：TTL 只由 Python 容器维护。若 Python 容器停止超过 24
+> 小时，`java-analyzer-sources` 卷持续增长。可用以下命令手动清理：
+> `docker compose down -v`（会同时删除 outputs 卷），或删除
+> `argus-java-analyzer-sources` 卷后重启：`docker volume rm argus-java-analyzer-sources`
+> 再 `docker compose --profile java up -d`。
+
 ### Body 大小限制
 
 ```yaml

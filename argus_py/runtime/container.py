@@ -121,6 +121,7 @@ def create_container() -> RuntimeContainer:
 
     # ── 白盒：SourceResolver ──
     source_resolver = SourceResolver(
+        work_dir=settings.whitebox_source_work_dir,
         allowed_roots=[Path(p) for p in settings.whitebox_allowed_source_roots],
     )
 

@@ -119,7 +119,9 @@ async def test_runner_whitebox_with_mock_client(app_stack, tmp_path) -> None:
     from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus
 
     mock_client.validate_source.return_value = SourceVisibilityResult(
-        status=VisibilityStatus.ENDPOINT_UNSUPPORTED,
+        status=VisibilityStatus.VALIDATED,
+        exists=True,
+        readable=True,
     )
     mock_client.get_analyze_job_result.return_value = WhiteboxResult(
         endpoints=[
@@ -198,6 +200,7 @@ async def test_runner_whitebox_with_mock_client(app_stack, tmp_path) -> None:
     wb = json.loads(task.result_json or "{}")
     assert len(wb.get("endpoints", [])) == 1
     assert len(wb.get("callGraph", {})) == 1
+    mock_resolver.release.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -223,7 +226,9 @@ async def test_whitebox_runner_closes_injected_client(monkeypatch, tmp_path, app
     from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus
 
     mock_client.validate_source.return_value = SourceVisibilityResult(
-        status=VisibilityStatus.ENDPOINT_UNSUPPORTED,
+        status=VisibilityStatus.VALIDATED,
+        exists=True,
+        readable=True,
     )
 
     resolver = MagicMock(spec=SourceResolver)
@@ -267,7 +272,9 @@ async def test_whitebox_runner_failure_does_not_throw(
     from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus
 
     mock_client.validate_source.return_value = SourceVisibilityResult(
-        status=VisibilityStatus.ENDPOINT_UNSUPPORTED,
+        status=VisibilityStatus.VALIDATED,
+        exists=True,
+        readable=True,
     )
 
     resolver = MagicMock(spec=SourceResolver)
@@ -295,6 +302,58 @@ async def test_whitebox_runner_failure_does_not_throw(
             timeline_service=app_stack.timeline,
             lifecycle=app_stack.lifecycle,
         ).run(task)
+
+
+@pytest.mark.asyncio
+async def test_whitebox_runner_preserves_snapshot_when_remote_may_still_run(
+    tmp_path, app_stack
+) -> None:
+    from unittest.mock import MagicMock
+
+    from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus, WhiteboxClient
+    from argus_py.whitebox.exceptions import WhiteboxTaskCancelled
+    from argus_py.whitebox.models import WhiteboxJobStatus
+    from argus_py.whitebox.runner import WhiteboxRunner
+    from argus_py.whitebox.source_resolver import ResolvedSource, SourceResolver
+
+    mock_client = AsyncMock(spec=WhiteboxClient)
+    mock_client.request_timeout = 30.0
+    mock_client.validate_source.return_value = SourceVisibilityResult(
+        status=VisibilityStatus.VALIDATED,
+        exists=True,
+        readable=True,
+    )
+    mock_client.submit_analyze_job.return_value = WhiteboxJobStatus(
+        job_id="still-running", status="PENDING"
+    )
+    resolver = MagicMock(spec=SourceResolver)
+    resolver.resolve_path.return_value = ResolvedSource(
+        source_type="local",
+        resolved_path=str(tmp_path),
+        requested_ref=None,
+        resolved_commit_sha="snapshot",
+        ref_type=None,
+        is_dirty=None,
+        managed_snapshot=True,
+    )
+    task = Task(
+        task_type=TaskType.WHITEBOX,
+        goal="白盒分析",
+        parameters={"source_path": str(tmp_path)},
+    )
+    app_stack.lifecycle.save_task(task)
+    app_stack.lifecycle.get_cancellation_token(task.task_id).cancel()
+
+    with pytest.raises(WhiteboxTaskCancelled):
+        await WhiteboxRunner(
+            client=mock_client,
+            source_resolver=resolver,
+            timeline_service=app_stack.timeline,
+            lifecycle=app_stack.lifecycle,
+            poll_interval=0,
+        ).run(task)
+
+    resolver.release.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ package com.argus.analyzer.api;
 import com.argus.analyzer.api.dto.AnalyzeRequest;
 import com.argus.analyzer.api.dto.AnalyzeResponse;
 import com.argus.analyzer.api.dto.AnalysisJobStatusResponse;
+import com.argus.analyzer.api.dto.ValidateSourceRequest;
 import com.argus.analyzer.service.AnalysisJobService;
 import com.argus.analyzer.service.ProjectAnalyzerService;
 import jakarta.validation.Valid;
@@ -15,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 @RestController
@@ -34,9 +38,21 @@ public class AnalysisController {
         return analyzerService.analyze(request);
     }
 
+    @PostMapping("/analyze/validate-source")
+    public Map<String, Boolean> validateSource(@Valid @RequestBody ValidateSourceRequest request) {
+        Path path = Path.of(request.sourcePath());
+        boolean exists = Files.exists(path);
+        boolean readable = exists && Files.isReadable(path);
+        return Map.of("exists", exists, "readable", readable);
+    }
+
     @PostMapping("/analyze/jobs")
     public AnalysisJobStatusResponse submitJob(@Valid @RequestBody AnalyzeRequest request) {
-        return jobService.submit(request);
+        try {
+            return jobService.submit(request);
+        } catch (AnalysisJobService.IdempotencyConflictException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
+        }
     }
 
     @GetMapping("/analyze/jobs/{jobId}")

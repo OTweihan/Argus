@@ -279,7 +279,7 @@ class WhiteboxJobEvent:
     stage: str = ""
     level: str = ""
     message: str = ""
-    sequence: int = 0
+    sequence: int = -1
     event_id: str = ""
 
     @classmethod

@@ -72,6 +72,8 @@ scheduler:
 events:
   history_limit: "-1"
   subscriber_queue_size: "0"
+whitebox:
+  source_work_dir: "D:/shared/sources"
 """.strip(),
         encoding="utf-8",
     )
@@ -87,6 +89,22 @@ events:
     assert settings.scheduler_queue_max_size == 0
     assert settings.events_history_limit == 0
     assert settings.events_subscriber_queue_size == 1
+    assert settings.whitebox_source_work_dir == "D:/shared/sources"
+
+
+def test_whitebox_source_work_dir_env_overrides_yaml(tmp_path, monkeypatch):
+    config_path = tmp_path / "server.yaml"
+    config_path.write_text(
+        "whitebox:\n  source_work_dir: D:/yaml/sources\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ARGUS_WHITEBOX_SOURCE_WORK_DIR", "D:/env/sources")
+    monkeypatch.setenv("ARGUS_JAVA_ANALYZER_URL", "http://java-analyzer:8081")
+
+    settings = load_server_settings(str(config_path))
+
+    assert settings.whitebox_source_work_dir == "D:/env/sources"
+    assert settings.java_analyzer_url == "http://java-analyzer:8081"
 
 
 def test_api_requests_normalize_blank_text_fields():

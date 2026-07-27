@@ -14,6 +14,8 @@ from argus_py.utils.parse import parse_bool as _as_bool
 
 DEFAULT_SERVER_CONFIG = "config/server.yaml"
 SERVER_CONFIG_ENV = "ARGUS_SERVER_CONFIG"
+WHITEBOX_SOURCE_WORK_DIR_ENV = "ARGUS_WHITEBOX_SOURCE_WORK_DIR"
+JAVA_ANALYZER_URL_ENV = "ARGUS_JAVA_ANALYZER_URL"
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,7 @@ class ServerSettings:
     java_analyzer_url: str = "http://localhost:8081"
     java_analyzer_request_timeout: float = 30.0
     whitebox_allowed_source_roots: list[str] = field(default_factory=list)
+    whitebox_source_work_dir: str | None = None
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -140,11 +143,18 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         rate_limit_enabled=_as_bool(rate_limit.get("enabled"), False),
         rate_limit_trust_forwarded=_as_bool(rate_limit.get("trust_forwarded"), False),
         rate_limit_routes=rate_limit_routes,
-        java_analyzer_url=str(whitebox.get("java_analyzer_url", "http://localhost:8081")),
+        java_analyzer_url=(
+            os.getenv(JAVA_ANALYZER_URL_ENV)
+            or str(whitebox.get("java_analyzer_url", "http://localhost:8081"))
+        ),
         java_analyzer_request_timeout=_as_float(
             whitebox.get("java_analyzer_request_timeout"), 30.0, minimum=1.0
         ),
         whitebox_allowed_source_roots=_as_str_list(whitebox.get("allowed_source_roots"), []),
+        whitebox_source_work_dir=(
+            os.getenv(WHITEBOX_SOURCE_WORK_DIR_ENV)
+            or _as_optional_str(whitebox.get("source_work_dir"))
+        ),
     )
 
 
@@ -173,6 +183,14 @@ def _as_float(value: Any, default: float, minimum: float | None = None) -> float
     except (TypeError, ValueError):
         resolved = default
     return max(minimum, resolved) if minimum is not None else resolved
+
+
+def _as_optional_str(value: Any) -> str | None:
+    """将可选配置值转为非空字符串。"""
+    if value is None:
+        return None
+    resolved = str(value).strip()
+    return resolved or None
 
 
 def _as_str_list(value: Any, default: list[str]) -> list[str]:
