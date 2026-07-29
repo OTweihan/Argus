@@ -14,22 +14,6 @@ from argus_py.task.models import Task
 from argus_py.task.storage import TaskSQLiteStorage
 
 
-@pytest.fixture
-def sample_whitebox_task(app_stack) -> Task:
-    """创建一个白盒任务。"""
-    params = app_stack.app.resolve_create_params(
-        goal="白盒分析",
-        start_url=None,
-        task_type=TaskType.WHITEBOX,
-        project_id="test-project",
-        parameters={
-            "source_path": "/tmp/fake-project",
-            "scope": "all",
-        },
-    )
-    return app_stack.app.create_task(**params)
-
-
 @pytest.mark.asyncio
 async def test_runner_register_handler(app_stack) -> None:
     """验证任务处理器注册。"""
@@ -410,3 +394,192 @@ async def test_whitebox_task_api_validation(app_stack) -> None:
         parameters={"repo_url": "https://github.com/user/repo.git"},
     )
     assert req.task_type == TaskType.WHITEBOX
+
+
+@pytest.mark.asyncio
+async def test_cancel_emits_timeline_event(app_stack, tmp_path) -> None:
+    """取消白盒任务时应发出 whitebox_cancelled 时间线事件。"""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from argus_py.whitebox.client import SourceVisibilityResult, VisibilityStatus, WhiteboxClient
+    from argus_py.whitebox.exceptions import WhiteboxTaskCancelled
+    from argus_py.whitebox.models import WhiteboxJobStatus
+    from argus_py.whitebox.runner import WhiteboxRunner
+    from argus_py.whitebox.source_resolver import ResolvedSource, SourceResolver
+
+    mock_client = AsyncMock(spec=WhiteboxClient)
+    mock_client.request_timeout = 30.0
+    mock_client.validate_source.return_value = SourceVisibilityResult(
+        status=VisibilityStatus.VALIDATED,
+        exists=True,
+        readable=True,
+    )
+    mock_client.submit_analyze_job.return_value = WhiteboxJobStatus(
+        job_id="timeline-job", status="PENDING"
+    )
+
+    resolver = MagicMock(spec=SourceResolver)
+    resolver.resolve_path.return_value = ResolvedSource(
+        source_type="local",
+        resolved_path=str(tmp_path),
+        requested_ref=None,
+        resolved_commit_sha=None,
+        ref_type=None,
+        is_dirty=None,
+        managed_snapshot=True,
+    )
+
+    task = Task(
+        task_type=TaskType.WHITEBOX,
+        goal="白盒分析",
+        parameters={"source_path": str(tmp_path)},
+    )
+    app_stack.lifecycle.save_task(task)
+    # 预置取消信号
+    app_stack.lifecycle.get_cancellation_token(task.task_id).cancel()
+
+    with pytest.raises(WhiteboxTaskCancelled):
+        await WhiteboxRunner(
+            client=mock_client,
+            source_resolver=resolver,
+            timeline_service=app_stack.timeline,
+            lifecycle=app_stack.lifecycle,
+            poll_interval=0,
+        ).run(task)
+
+    # 验证时间线事件已发出
+    events = app_stack.timeline.list_by_task(task.task_id)
+    event_types = [e.event_type for e in events]
+    assert "whitebox_cancelled" in event_types, (
+        f"取消时应发出 whitebox_cancelled 事件，实际事件: {event_types}"
+    )
+
+    # 验证事件携带正确的 jobId 和 origin
+    cancel_event = next(e for e in events if e.event_type == "whitebox_cancelled")
+    assert cancel_event.data.get("jobId") == "timeline-job"
+    assert cancel_event.data.get("origin") == "local"
+
+
+@pytest.mark.asyncio
+async def test_update_task_preserves_whitebox_config(app_stack) -> None:
+    """更新白盒 pending 任务时 whitebox_config 不应被静默丢弃。"""
+    from argus_py.whitebox.config import WhiteboxMavenConfig, WhiteboxTaskConfig
+
+    # 1. 创建项目
+    project = app_stack.project_service.create_project(
+        name="update-test",
+        description="test",
+        base_url="https://example.com",
+    )
+
+    # 2. 创建白盒任务
+    params = app_stack.app.resolve_create_params(
+        goal="白盒分析",
+        start_url=None,
+        task_type=TaskType.WHITEBOX,
+        project_id=project.project_id,
+        whitebox_config=WhiteboxTaskConfig(
+            source_type="local",  # type: ignore[arg-type]
+            source_path="/tmp/original-path",
+            scope="callgraph",
+            target_modules=["mod-a"],
+            maven=WhiteboxMavenConfig(classpath_mode="MAVEN", offline=True),  # type: ignore[arg-type]
+        ),
+    )
+    task = app_stack.app.create_task(**params)
+
+    # 验证初始持久化
+    assert task.whitebox_config_json is not None
+    saved = json.loads(task.whitebox_config_json)
+    assert saved["source_path"] == "/tmp/original-path"
+    assert saved["scope"] == "callgraph"
+    assert saved["maven"]["classpath_mode"] == "MAVEN"
+    assert saved["maven"]["offline"] is True
+
+    # 2. 更新配置
+    new_config = WhiteboxTaskConfig(
+        source_type="local",  # type: ignore[arg-type]
+        source_path="/tmp/updated-path",
+        scope="endpoints",
+        target_modules=["mod-b", "mod-c"],
+    )
+    updated_params = app_stack.app.resolve_create_params(
+        goal="更新后的白盒分析",
+        start_url=None,
+        task_type=TaskType.WHITEBOX,
+        project_id=project.project_id,
+        whitebox_config=new_config,
+    )
+    updated_task, _ = await app_stack.app.update_task(task.task_id, updated_params)
+
+    # 3. 验证更新后的持久化
+    assert updated_task.whitebox_config_json is not None
+    saved = json.loads(updated_task.whitebox_config_json)
+    assert saved["source_path"] == "/tmp/updated-path"
+    assert saved["scope"] == "endpoints"
+    assert saved["target_modules"] == ["mod-b", "mod-c"]
+    assert updated_task.goal == "更新后的白盒分析"
+
+
+@pytest.mark.asyncio
+async def test_maven_none_in_merge_does_not_crash(app_stack) -> None:
+    """whiteboxConfig.maven=null 与项目默认 maven 合并时不应抛出 TypeError。
+
+    复现条件：项目 parameters 中有 maven 默认值，任务 whiteboxConfig
+    中 maven 字段为 None/未提供 → raw["maven"] 不存在或为 None，
+    isinstance(raw["maven"], dict) 守卫应正确跳过合并。
+    """
+    from argus_py.whitebox.config import WhiteboxTaskConfig
+
+    # 创建带 maven 默认值的项目
+    project = app_stack.project_service.create_project(
+        name="maven-test",
+        description="test",
+        base_url="https://example.com",
+        parameters={
+            "maven": {
+                "classpath_mode": "CACHE_ONLY",
+                "offline": True,
+            },
+        },
+    )
+
+    # whiteboxConfig 不含 maven → raw 中无 "maven" key
+    params = app_stack.app.resolve_create_params(
+        goal="白盒分析",
+        start_url=None,
+        task_type=TaskType.WHITEBOX,
+        project_id=project.project_id,
+        whitebox_config=WhiteboxTaskConfig(
+            source_type="local",  # type: ignore[arg-type]
+            source_path="/tmp/test-project",
+            scope="all",
+        ),
+    )
+    task = app_stack.app.create_task(**params)
+    assert task.task_id
+
+    # whiteboxConfig.maven 显式为 None → model_dump(exclude_unset=True) 后不存在
+    params2 = app_stack.app.resolve_create_params(
+        goal="白盒分析 2",
+        start_url=None,
+        task_type=TaskType.WHITEBOX,
+        project_id=project.project_id,
+        whitebox_config=WhiteboxTaskConfig(
+            source_type="local",  # type: ignore[arg-type]
+            source_path="/tmp/test-project-2",
+            scope="all",
+            maven=None,
+        ),
+    )
+    task2 = app_stack.app.create_task(**params2)
+    assert task2.task_id
+
+    # 验证项目默认 maven 被正确合并到 parameters（两个分支行为一致）
+    assert "maven" in task.parameters
+    assert task.parameters["maven"]["classpath_mode"] == "CACHE_ONLY"
+    assert task.parameters["maven"]["offline"] is True
+
+    assert "maven" in task2.parameters
+    assert task2.parameters["maven"]["classpath_mode"] == "CACHE_ONLY"
+    assert task2.parameters["maven"]["offline"] is True
