@@ -112,6 +112,7 @@ async def update_task(
         capture_screenshots=request.capture_screenshots,
         model_config_id=request.model_config_id,
         parameters=request.parameters,
+        whitebox_config=request.whitebox_config,
     )
     updated, sched = await _acall(app.update_task, task_id, params)
     return TaskResponse.from_task(updated, scheduler_status=sched)

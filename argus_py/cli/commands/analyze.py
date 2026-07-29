@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_success, print_task_result
 from argus_py.cli.utils import load_latest_task
@@ -11,6 +11,7 @@ from argus_py.core.enums import TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
 from argus_py.runtime.container import create_container, create_task_application_service
+from argus_py.whitebox.config import SourceType, WhiteboxMavenConfig, WhiteboxTaskConfig
 
 if TYPE_CHECKING:
     from argus_py.cli._types import SubParserAdder
@@ -33,11 +34,18 @@ def build_parser(subparsers: "SubParserAdder") -> None:
     )
     parser.add_argument(
         "--scope",
-        choices=("all", "endpoints", "callgraph"),
+        choices=("all", "changed", "modules", "endpoints", "callgraph", "flows", "clusters"),
         default="all",
-        help="分析范围：all=完整分析，endpoints=仅抽接口，callgraph=仅调用图（默认 all）",
+        help="分析范围（默认 all）：all=完整分析、changed=增量变更、modules=指定模块、"
+        "endpoints=仅抽取端点、callgraph=仅调用图、flows=执行流、clusters=功能聚类",
     )
     parser.add_argument("--project", help="关联项目 ID")
+    parser.add_argument(
+        "--target-modules",
+        nargs="*",
+        default=None,
+        help="目标 Maven 模块列表（空格分隔，scope=modules 时必填）",
+    )
     parser.add_argument(
         "--maven-classpath-file",
         help="classpath 文件路径（相对于项目根目录）",
@@ -82,6 +90,7 @@ async def run(args: argparse.Namespace) -> int:
     branch = getattr(args, "branch", None)
     scope = getattr(args, "scope", "all")
     project_id = getattr(args, "project", None)
+    target_modules: list[str] = getattr(args, "target_modules", None) or []
     maven_classpath_file = getattr(args, "maven_classpath_file", None)
     maven_executable = getattr(args, "maven_executable", None)
     maven_settings = getattr(args, "maven_settings", None)
@@ -99,40 +108,55 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    parameters: dict[str, object] = {
-        "scope": scope,
-    }
-    if repo:
-        parameters["repo_url"] = repo
-    if source_path:
-        parameters["source_path"] = source_path
-    if branch:
-        parameters["branch"] = branch
+    # ── 构造类型化白盒配置 ──
+    maven_config: WhiteboxMavenConfig | None = None
+    if any(
+        [
+            maven_classpath_file,
+            maven_executable,
+            maven_settings,
+            local_repository,
+            maven_offline,
+            classpath_mode,
+            prepare_reactor,
+        ]
+    ):
+        maven_kwargs: dict[str, Any] = {}
+        if maven_classpath_file:
+            maven_kwargs["classpath_file"] = maven_classpath_file
+        if maven_executable:
+            maven_kwargs["executable"] = maven_executable
+        if maven_settings:
+            maven_kwargs["settings_xml"] = maven_settings
+        if local_repository:
+            maven_kwargs["local_repository"] = local_repository
+        if maven_offline:
+            maven_kwargs["offline"] = True
+        if classpath_mode:
+            maven_kwargs["classpath_mode"] = classpath_mode
+        if prepare_reactor:
+            maven_kwargs["prepare_reactor_artifacts"] = True
+        maven_config = WhiteboxMavenConfig(**maven_kwargs)
 
-    maven_config: dict[str, object] = {}
-    if maven_classpath_file:
-        maven_config["classpathFile"] = maven_classpath_file
-    if maven_executable:
-        maven_config["executable"] = maven_executable
-    if maven_settings:
-        maven_config["settingsXml"] = maven_settings
-    if local_repository:
-        maven_config["localRepository"] = local_repository
-    if maven_offline:
-        maven_config["offline"] = True
-    if classpath_mode:
-        maven_config["classpathMode"] = classpath_mode
-    if prepare_reactor:
-        maven_config["prepareReactorArtifacts"] = True
-    if maven_config:
-        parameters["maven"] = maven_config
+    config_kwargs: dict[str, Any] = {
+        "source_type": SourceType.GIT if repo else SourceType.LOCAL,
+        "repo_url": repo,
+        "source_path": source_path,
+        "ref": branch,
+        "scope": scope,
+        "target_modules": target_modules,
+    }
+    if maven_config is not None:
+        config_kwargs["maven"] = maven_config
+    config = WhiteboxTaskConfig(**config_kwargs)
 
     params = app.resolve_create_params(
         goal="白盒分析",
         start_url=None,
         task_type=TaskType.WHITEBOX,
         project_id=project_id,
-        parameters=parameters,
+        parameters={},
+        whitebox_config=config,
     )
 
     task = app.create_task(**params)
@@ -142,6 +166,8 @@ async def run(args: argparse.Namespace) -> int:
         cli_info(f"仓库：{repo}")
     if source_path:
         cli_info(f"源码路径：{source_path}")
+    if target_modules:
+        cli_info(f"目标模块：{', '.join(target_modules)}")
 
     runner = TaskRunner(
         lifecycle=c.lifecycle_service,

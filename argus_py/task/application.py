@@ -123,8 +123,8 @@ class TaskApplicationService:
                     if key in project.parameters:
                         project_defaults[key] = project.parameters[key]
 
-            # 3. maven 深度合并
-            if "maven" in project_defaults and "maven" in raw:
+            # 3. maven 深度合并（仅当 raw["maven"] 为 dict 时才安全解包）
+            if "maven" in project_defaults and "maven" in raw and isinstance(raw["maven"], dict):
                 raw["maven"] = {**project_defaults["maven"], **raw["maven"]}
                 del project_defaults["maven"]
 
