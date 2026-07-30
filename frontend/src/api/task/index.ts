@@ -74,3 +74,216 @@ export function getDashboardStats(recentLimit?: number): Promise<DashboardStats>
     const query = recentLimit !== undefined ? `?recentLimit=${recentLimit}` : "";
     return request<DashboardStats>(`/tasks/stats${query}`);
 }
+
+// ── 白盒分析执行 ──────────────────────────────────────────
+
+export type AnalysisRunSummary = {
+    analysisId: string;
+    taskId: string;
+    sourceSnapshotId: string;
+    resolvedCommitSha?: string | null;
+    runStatus: string;
+    externalJobId?: string | null;
+    externalJobStatus?: string | null;
+    failureCode?: string | null;
+    failureMessage?: string | null;
+    stopReason?: string | null;
+    completeness: {
+        status: string;
+        issues: { code: string; level: string; message: string; affectedCount?: number | null; totalCount?: number | null }[];
+        metrics: {
+            eligibleSourceFiles: number;
+            parsedSourceFiles: number;
+            totalCalls: number;
+            resolvedCalls: number;
+        };
+    };
+    endpointCount: number;
+    callGraphNodeCount: number;
+    executionFlowCount: number;
+    clusterCount: number;
+    findingCount: number;
+    findingSeverityCounts: Record<string, number>;
+    createdAt: string;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    projectionCompletedAt?: string | null;
+};
+
+/** @deprecated Alias — use AnalysisRunSummary directly */
+export type AnalysisRunListItem = AnalysisRunSummary;
+
+export interface PageResponse<T> {
+    items: T[];
+    nextCursor?: string | null;
+    total?: number | null;
+    hasMore: boolean;
+}
+
+export interface EndpointInfo {
+    endpointId: string;
+    endpointFingerprint: string;
+    analysisId: string;
+    httpMethod: string;
+    normalizedPath: string;
+    normalizedPathTemplate: string;
+    isTemplated: boolean;
+    pathSegmentCount: number;
+    controllerClass?: string | null;
+    controllerMethod?: string | null;
+    parameters: string[];
+    returnType?: string | null;
+    sourceLocation?: {
+        filePath: string;
+        startLine: number;
+        startColumn?: number | null;
+        endLine?: number | null;
+        endColumn?: number | null;
+    } | null;
+    entryCallNodeId?: string | null;
+}
+
+export interface CallNodeInfo {
+    callNodeId: string;
+    callNodeFingerprint: string;
+    className: string;
+    methodName: string;
+    methodSignature?: string | null;
+    sourceLocation?: {
+        filePath: string;
+        startLine: number;
+        startColumn?: number | null;
+        endLine?: number | null;
+        endColumn?: number | null;
+    } | null;
+    calleeCount: number;
+}
+
+export interface CallEdgeInfo {
+    callEdgeId: string;
+    fromNodeId: string;
+    toNodeId: string;
+    toClassName?: string | null;
+    toMethodName?: string | null;
+    resolutionType: string;
+    confidence?: string | null;
+}
+
+export interface ExecutionFlowStepInfo {
+    flowStepId: string;
+    stepIndex: number;
+    depth: number;
+    methodKey: string;
+    className?: string | null;
+    methodName?: string | null;
+    callNodeId?: string | null;
+}
+
+export interface ExecutionFlowInfo {
+    executionFlowId: string;
+    entryPoint: string;
+    callDepth: number;
+    steps: ExecutionFlowStepInfo[];
+}
+
+export interface DiagnosticsInfo {
+    totalSourceFiles: number;
+    eligibleSourceFiles: number;
+    parsedFileCount: number;
+    failedFileCount: number;
+    failedFiles: string[];
+    totalCalls: number;
+    resolvedHigh: number;
+    resolvedMedium: number;
+    resolvedLow: number;
+    unresolved: number;
+    classpathAvailable: boolean;
+    jarCount: number;
+    classpathSource?: string | null;
+    classpathWarnings: string[];
+    classpathErrors: string[];
+    moduleCount: number;
+    applicationModuleCount: number;
+}
+
+export function listAnalysisRuns(
+    taskId: string, offset?: number, limit?: number,
+): Promise<PageResponse<AnalysisRunListItem>> {
+    const params = new URLSearchParams();
+    if (offset !== undefined) params.set("offset", String(offset));
+    if (limit !== undefined) params.set("limit", String(limit));
+    const query = params.toString();
+    return request<PageResponse<AnalysisRunListItem>>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs${query ? `?${query}` : ""}`,
+    );
+}
+
+export function getAnalysisRunSummary(
+    taskId: string, analysisId: string,
+): Promise<AnalysisRunSummary> {
+    return request<AnalysisRunSummary>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}`,
+    );
+}
+
+export function listAnalysisEndpoints(
+    taskId: string, analysisId: string, cursor?: string | null, limit?: number,
+): Promise<PageResponse<EndpointInfo>> {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    if (limit !== undefined) params.set("limit", String(limit));
+    const query = params.toString();
+    return request<PageResponse<EndpointInfo>>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/endpoints${query ? `?${query}` : ""}`,
+    );
+}
+
+export function listAnalysisCallNodes(
+    taskId: string, analysisId: string,
+    className?: string | null, methodName?: string | null,
+    cursor?: string | null, limit?: number,
+): Promise<PageResponse<CallNodeInfo>> {
+    const params = new URLSearchParams();
+    if (className) params.set("className", className);
+    if (methodName) params.set("methodName", methodName);
+    if (cursor) params.set("cursor", cursor);
+    if (limit !== undefined) params.set("limit", String(limit));
+    const query = params.toString();
+    return request<PageResponse<CallNodeInfo>>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/call-nodes${query ? `?${query}` : ""}`,
+    );
+}
+
+export function listAnalysisCallEdges(
+    taskId: string, analysisId: string,
+    entryNodeId?: string | null, cursor?: string | null, limit?: number,
+): Promise<PageResponse<CallEdgeInfo>> {
+    const params = new URLSearchParams();
+    if (entryNodeId) params.set("entryNodeId", entryNodeId);
+    if (cursor) params.set("cursor", cursor);
+    if (limit !== undefined) params.set("limit", String(limit));
+    const query = params.toString();
+    return request<PageResponse<CallEdgeInfo>>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/call-graph${query ? `?${query}` : ""}`,
+    );
+}
+
+export function listAnalysisExecutionFlows(
+    taskId: string, analysisId: string, cursor?: string | null, limit?: number,
+): Promise<PageResponse<ExecutionFlowInfo>> {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    if (limit !== undefined) params.set("limit", String(limit));
+    const query = params.toString();
+    return request<PageResponse<ExecutionFlowInfo>>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/execution-flows${query ? `?${query}` : ""}`,
+    );
+}
+
+export function getAnalysisDiagnostics(
+    taskId: string, analysisId: string,
+): Promise<DiagnosticsInfo> {
+    return request<DiagnosticsInfo>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/diagnostics`,
+    );
+}

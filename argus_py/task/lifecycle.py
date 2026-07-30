@@ -309,6 +309,85 @@ class TaskLifecycleService(_StorageEventBase):
         token.resume()
         return self.update_status(resolved, TaskStatus.RUNNING)
 
+    # ── 分析执行（阶段二：白盒结果）──────────────────────────────
+
+    def create_analysis_run(
+        self,
+        analysis_id: str,
+        task_id: str,
+        source_snapshot_id: str,
+        *,
+        resolved_commit_sha: str | None = None,
+        external_job_id: str | None = None,
+        result_schema_version: int = 1,
+        config_json: str | None = None,
+    ) -> Any:
+        """创建分析执行记录（SQLite 后端；FileStorage 返回 None）。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            from argus_py.analysis.models import AnalysisRun
+            from argus_py.core.constants import utc_now as _utc_now
+
+            now = _utc_now().isoformat()
+            run = AnalysisRun(
+                analysis_id=analysis_id,
+                task_id=task_id,
+                source_snapshot_id=source_snapshot_id,
+                resolved_commit_sha=resolved_commit_sha,
+                run_status="QUEUED",
+                completeness_status="NOT_EVALUATED",
+                external_job_id=external_job_id,
+                result_schema_version=result_schema_version,
+                config_json=config_json or "{}",
+                created_at=now,
+                updated_at=now,
+            )
+            self.storage.create_analysis_run(run)
+            return run
+        return None
+
+    def start_analysis_run(self, analysis_id: str) -> None:
+        """分析执行：QUEUED → SUBMITTING → RUNNING。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.update_analysis_run_status(analysis_id, "SUBMITTING")
+            self.storage.update_analysis_run_status(analysis_id, "RUNNING")
+
+    def save_analysis_raw_result(self, analysis_id: str, raw_json: str, digest: str) -> None:
+        """事务 1：独立保存 Java 原始响应（审计留存）。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.save_analysis_raw_result(analysis_id, raw_json, digest)
+
+    def complete_analysis_projection(
+        self,
+        analysis_id: str,
+        *,
+        completeness: str,
+        quality_issues_json: str,
+        result_digest: str,
+        projection_data: dict[str, Any],
+    ) -> None:
+        """事务 2：投影写入 + 标记 SUCCEEDED，同一事务。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.complete_analysis_projection(
+                analysis_id,
+                completeness=completeness,
+                quality_issues_json=quality_issues_json,
+                result_digest=result_digest,
+                projection_data=projection_data,
+            )
+
+    def mark_analysis_failed(
+        self, analysis_id: str, failure_code: str, failure_message: str
+    ) -> None:
+        """事务 3：投影失败标记。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.mark_analysis_failed(analysis_id, failure_code, failure_message)
+
+    def save_task_findings(self, task: Task) -> None:
+        """持久化任务的 findings 列表（含 snippet / analysis_id）。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            for finding in task.findings:
+                self.storage.append_finding(task.task_id, finding)
+
 
 def _task_summary(task: Task) -> dict[str, Any]:
     """生成轻量任务摘要，避免每个事件重复携带完整日志。"""

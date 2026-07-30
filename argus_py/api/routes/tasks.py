@@ -19,7 +19,24 @@ from argus_py.api.schemas import (
     TaskSummaryResponse,
     TaskUpdateRequest,
 )
-from argus_py.core.enums import TaskStatus
+from argus_py.api.schemas.analysis import (
+    AnalysisRunListResponse,
+    AnalysisRunSummaryResponse,
+    CallEdgeResponse,
+    CallGraphPageResponse,
+    CallNodePageResponse,
+    CallNodeResponse,
+    CompletenessMetricsResponse,
+    CompletenessResponse,
+    DiagnosticsResponse,
+    EndpointPageResponse,
+    EndpointResponse,
+    ExecutionFlowPageResponse,
+    ExecutionFlowResponse,
+    ExecutionFlowStepResponse,
+    SourceLocationResponse,
+)
+from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.observability.context import run_in_thread
 from argus_py.task.application import TaskAppError, TaskApplicationService
 from argus_py.task.strategy import infer_execution_limits
@@ -211,7 +228,12 @@ async def get_task(
 ) -> TaskResponse:
     """查询任务详情。"""
     task, sched = await app.get_task_with_scheduler(task_id)
-    return TaskResponse.from_task(task, scheduler_status=sched)
+    response = TaskResponse.from_task(task, scheduler_status=sched)
+    if task.task_type == TaskType.WHITEBOX:
+        latest = await run_in_thread(app.get_latest_analysis_run, task_id)
+        if latest:
+            response.latest_analysis_run = _build_analysis_run_summary(latest)
+    return response
 
 
 @router.post("/{task_id}/start", response_model=TaskStartResponse)
@@ -268,3 +290,363 @@ async def resume_task(
     """恢复暂停的任务。"""
     task = await _acall(app.resume_task, task_id)
     return TaskResponse.from_task(task)
+
+
+# ════════════════════════════════════════════════════════════════
+# 分析执行（阶段二：白盒结果查询）
+# ════════════════════════════════════════════════════════════════
+
+
+def _build_source_location(row: dict[str, Any] | None) -> SourceLocationResponse | None:
+    if not row or not row.get("source_file"):
+        return None
+    return SourceLocationResponse(
+        file_path=row["source_file"],
+        start_line=row.get("source_start_line", 1),
+        start_column=row.get("source_start_column"),
+        end_line=row.get("source_end_line"),
+        end_column=row.get("source_end_column"),
+    )
+
+
+@router.get("/{task_id}/analysis-runs", response_model=AnalysisRunListResponse)
+async def list_analysis_runs(
+    task_id: TaskIdPath,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, gt=0, le=200),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> AnalysisRunListResponse:
+    """列出任务的所有分析执行记录。"""
+    runs, total = await run_in_thread(app.list_analysis_runs, task_id, offset=offset, limit=limit)
+    summaries: list[AnalysisRunSummaryResponse] = []
+    for run in runs:
+        summary = _build_analysis_run_summary(run)
+        # 列表视图可选的按需补充计数
+        counts = await run_in_thread(app.get_analysis_counts, run.analysis_id)
+        summary.endpoint_count = counts.get("analysis_endpoints", 0)
+        summary.call_graph_node_count = counts.get("analysis_call_nodes", 0)
+        summary.execution_flow_count = counts.get("analysis_execution_flows", 0)
+        summary.finding_count = counts.get("findings", 0)
+        summaries.append(summary)
+    return AnalysisRunListResponse(
+        items=summaries,
+        total=total,
+        has_more=(offset + limit) < total,
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}",
+    response_model=AnalysisRunSummaryResponse,
+)
+async def get_analysis_run_summary(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> AnalysisRunSummaryResponse:
+    """获取单次分析执行的摘要（含完整性结论和各类 count）。"""
+    run = await run_in_thread(app.get_analysis_run, analysis_id)
+    if run is None or run.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+    counts = await run_in_thread(app.get_analysis_counts, analysis_id)
+    diag = await run_in_thread(app.get_analysis_diagnostics, analysis_id)
+    metrics = CompletenessMetricsResponse(
+        eligible_source_files=diag.get("eligible_source_files", 0) if diag else 0,
+        parsed_source_files=diag.get("parsed_file_count", 0) if diag else 0,
+        total_calls=diag.get("total_calls", 0) if diag else 0,
+        resolved_calls=(
+            (diag.get("resolved_high", 0) + diag.get("resolved_medium", 0)) if diag else 0
+        ),
+    )
+    completeness = CompletenessResponse(
+        status=run.completeness_status,
+        issues=[],
+        metrics=metrics,
+    )
+    return AnalysisRunSummaryResponse(
+        analysis_id=run.analysis_id,
+        task_id=run.task_id,
+        source_snapshot_id=run.source_snapshot_id,
+        resolved_commit_sha=run.resolved_commit_sha,
+        run_status=run.run_status,
+        external_job_id=run.external_job_id,
+        external_job_status=run.external_job_status,
+        failure_code=run.failure_code,
+        failure_message=run.failure_message,
+        stop_reason=run.stop_reason,
+        completeness=completeness,
+        endpoint_count=counts.get("analysis_endpoints", 0),
+        call_graph_node_count=counts.get("analysis_call_nodes", 0),
+        execution_flow_count=counts.get("analysis_execution_flows", 0),
+        cluster_count=0,
+        finding_count=counts.get("findings", 0),
+        created_at=run.created_at or "",
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        projection_completed_at=run.projection_completed_at,
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}/endpoints",
+    response_model=EndpointPageResponse,
+)
+async def list_analysis_endpoints(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=100, gt=0, le=200),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> EndpointPageResponse:
+    """获取分析执行的端点列表（游标分页）。"""
+    await _check_analysis_belongs(analysis_id, task_id, app)
+    items, next_cursor, total, has_more = await run_in_thread(
+        app.list_analysis_endpoints,
+        analysis_id,
+        cursor=cursor,
+        limit=limit,
+    )
+    eps = [
+        EndpointResponse(
+            endpoint_id=ep["endpoint_id"],
+            endpoint_fingerprint=ep["endpoint_fingerprint"],
+            analysis_id=analysis_id,
+            http_method=ep["http_method"],
+            normalized_path=ep["normalized_path_template"],
+            normalized_path_template=ep["normalized_path_template"],
+            is_templated=ep.get("is_templated", False),
+            path_segment_count=ep.get("path_segment_count", 1),
+            controller_class=ep.get("controller_class"),
+            controller_method=ep.get("controller_method"),
+            parameters=ep.get("parameters", []),
+            return_type=ep.get("return_type"),
+            source_location=_build_source_location(ep),
+            entry_call_node_id=ep.get("entry_call_node_id"),
+        )
+        for ep in items
+    ]
+    return EndpointPageResponse(
+        items=eps,
+        next_cursor=next_cursor,
+        total=total,
+        has_more=has_more,
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}/call-nodes",
+    response_model=CallNodePageResponse,
+)
+async def list_analysis_call_nodes(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    class_name: str | None = Query(default=None, alias="className"),
+    method_name: str | None = Query(default=None, alias="methodName"),
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=100, gt=0, le=200),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> CallNodePageResponse:
+    """获取分析执行的调用图节点列表（支持类名/方法名搜索）。"""
+    await _check_analysis_belongs(analysis_id, task_id, app)
+    items, next_cursor, total, has_more = await run_in_thread(
+        app.list_analysis_call_nodes,
+        analysis_id,
+        class_name=class_name,
+        method_name=method_name,
+        cursor=cursor,
+        limit=limit,
+    )
+    nodes = [
+        CallNodeResponse(
+            call_node_id=cn["call_node_id"],
+            call_node_fingerprint=cn["call_node_fingerprint"],
+            class_name=cn["class_name"],
+            method_name=cn["method_name"],
+            method_signature=cn.get("method_signature"),
+            source_location=_build_source_location(cn),
+            callee_count=0,
+        )
+        for cn in items
+    ]
+    return CallNodePageResponse(
+        items=nodes,
+        next_cursor=next_cursor,
+        total=total,
+        has_more=has_more,
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}/call-graph",
+    response_model=CallGraphPageResponse,
+)
+async def list_analysis_call_edges(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    entry_node_id: str | None = Query(default=None, alias="entryNodeId"),
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=100, gt=0, le=200),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> CallGraphPageResponse:
+    """获取分析执行的调用图边列表（可按入口节点过滤）。"""
+    await _check_analysis_belongs(analysis_id, task_id, app)
+    items, next_cursor, total, has_more = await run_in_thread(
+        app.list_analysis_call_edges,
+        analysis_id,
+        entry_node_id=entry_node_id,
+        cursor=cursor,
+        limit=limit,
+    )
+    edges = [
+        CallEdgeResponse(
+            call_edge_id=ce["call_edge_id"],
+            from_node_id=ce["from_node_id"],
+            to_node_id=ce["to_node_id"],
+            to_class_name=ce.get("to_class_name"),
+            to_method_name=ce.get("to_method_name"),
+            resolution_type=ce.get("resolution_type") or "UNKNOWN",
+            confidence=ce.get("confidence"),
+            source_location=_build_source_location(ce),
+        )
+        for ce in items
+    ]
+    return CallGraphPageResponse(
+        items=edges,
+        next_cursor=next_cursor,
+        total=total,
+        has_more=has_more,
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}/execution-flows",
+    response_model=ExecutionFlowPageResponse,
+)
+async def list_analysis_execution_flows(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=100, gt=0, le=200),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> ExecutionFlowPageResponse:
+    """获取分析执行的执行流列表。"""
+    await _check_analysis_belongs(analysis_id, task_id, app)
+    items, next_cursor, total, has_more = await run_in_thread(
+        app.list_analysis_execution_flows,
+        analysis_id,
+        cursor=cursor,
+        limit=limit,
+    )
+    flows = []
+    for flow in items:
+        flow_id = flow["execution_flow_id"]
+        steps_raw = await run_in_thread(app.get_analysis_flow_steps, flow_id)
+        steps = [
+            ExecutionFlowStepResponse(
+                flow_step_id=step["flow_step_id"],
+                step_index=step["step_index"],
+                depth=step.get("depth", 0),
+                method_key=step["method_key"],
+                class_name=step.get("class_name"),
+                method_name=step.get("method_name"),
+                call_node_id=step.get("call_node_id"),
+            )
+            for step in steps_raw
+        ]
+        flows.append(
+            ExecutionFlowResponse(
+                execution_flow_id=flow["execution_flow_id"],
+                entry_point=flow["entry_point"],
+                call_depth=flow.get("call_depth", 0),
+                steps=steps,
+            )
+        )
+    return ExecutionFlowPageResponse(
+        items=flows,
+        next_cursor=next_cursor,
+        total=total,
+        has_more=has_more,
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}/diagnostics",
+    response_model=DiagnosticsResponse,
+)
+async def get_analysis_diagnostics(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> DiagnosticsResponse:
+    """获取分析执行的诊断详情。"""
+    await _check_analysis_belongs(analysis_id, task_id, app)
+    diag = await run_in_thread(app.get_analysis_diagnostics, analysis_id)
+    if diag is None:
+        raise HTTPException(status_code=404, detail="Diagnostics not found")
+    return DiagnosticsResponse(
+        total_source_files=diag["total_source_files"],
+        eligible_source_files=diag["eligible_source_files"],
+        parsed_file_count=diag["parsed_file_count"],
+        failed_file_count=diag["failed_file_count"],
+        failed_files=diag["failed_files"],
+        total_calls=diag["total_calls"],
+        resolved_high=diag["resolved_high"],
+        resolved_medium=diag["resolved_medium"],
+        resolved_low=diag["resolved_low"],
+        unresolved=diag["unresolved"],
+        classpath_available=diag["classpath_available"],
+        jar_count=diag["jar_count"],
+        classpath_source=diag["classpath_source"],
+        classpath_warnings=diag["classpath_warnings"],
+        classpath_errors=diag["classpath_errors"],
+        module_count=diag["module_count"],
+        application_module_count=diag["application_module_count"],
+    )
+
+
+async def _check_analysis_belongs(
+    analysis_id: str,
+    task_id: str,
+    app: TaskApplicationService,
+) -> None:
+    """校验 analysis_run 属于指定 task_id。"""
+    run = await run_in_thread(app.get_analysis_run, analysis_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+    if run.task_id != task_id:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+
+
+def _build_analysis_run_summary(run: Any) -> AnalysisRunSummaryResponse:
+    """从 AnalysisRun 实体构造摘要响应（精简版，不做 DB 查询）。"""
+    return AnalysisRunSummaryResponse(
+        analysis_id=run.analysis_id,
+        task_id=run.task_id,
+        source_snapshot_id=run.source_snapshot_id,
+        resolved_commit_sha=run.resolved_commit_sha,
+        run_status=run.run_status,
+        external_job_id=run.external_job_id,
+        external_job_status=run.external_job_status,
+        failure_code=run.failure_code,
+        failure_message=run.failure_message,
+        stop_reason=run.stop_reason,
+        completeness=CompletenessResponse(
+            status=run.completeness_status,
+            issues=[],
+            metrics=CompletenessMetricsResponse(
+                eligible_source_files=0,
+                parsed_source_files=0,
+                total_calls=0,
+                resolved_calls=0,
+            ),
+        ),
+        endpoint_count=0,
+        call_graph_node_count=0,
+        execution_flow_count=0,
+        cluster_count=0,
+        finding_count=0,
+        created_at=run.created_at or "",
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        projection_completed_at=run.projection_completed_at,
+    )

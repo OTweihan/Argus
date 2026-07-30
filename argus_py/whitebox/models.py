@@ -307,7 +307,11 @@ class WhiteboxJobStatus:
 
 @dataclass
 class WhiteboxFinding:
-    """白盒代码缺陷/坏味道。"""
+    """白盒代码缺陷/坏味道。
+
+    与 Java DTO 1:1 对齐，通过 _from_camel_dict 反序列化。
+    Java 分析器是 ruleCategory / analysisConfidence 的唯一来源。
+    """
 
     rule_id: str
     severity: str
@@ -316,9 +320,38 @@ class WhiteboxFinding:
     file_path: str
     line_number: int
     snippet: str = ""
+    # 规则语义（Java 返回枚举；无法确定时使用 UNKNOWN，不使用 null）
+    rule_category: str | None = None
+    analysis_confidence: str | None = None
+    # 结构化源码位置（Java 端新增字段，权威来源；兼容旧字段 file_path + line_number）
+    source_location: SourceLocationData | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboxFinding:
+        return _from_camel_dict(cls, data)
+
+
+@dataclass
+class SourceLocationData:
+    """结构化源码位置 — Java 端权威字段。
+
+    行号从 1 开始；列号可为 null（表示不可用）。
+    与 API 层的 SourceLocationResponse 对应，不含 pydantic 依赖。
+    """
+
+    file_path: str = ""
+    start_line: int = 0
+    start_column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
+
+    @property
+    def is_valid(self) -> bool:
+        """至少包含有效文件路径和 >=1 的行号。"""
+        return bool(self.file_path) and self.start_line >= 1
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SourceLocationData:
         return _from_camel_dict(cls, data)
 
 

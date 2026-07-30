@@ -1,7 +1,7 @@
 """白盒任务执行器。
 
 编排：配置恢复 → SourceResolver → 可见性校验 → 异步作业提交/轮询 →
-结果获取 → Findings 映射。
+结果获取 → Findings 映射 → 结构化投影。
 
 异常通过类型化 ``WhiteboxTaskError`` 子类表达，由 ``TaskRunner``
 统一映射为任务终态。
@@ -16,7 +16,9 @@ import time
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
+from uuid import uuid4
 
+from argus_py.analysis.enums import CompletenessStatus, QualityIssueCode
 from argus_py.core.constants import utc_now
 from argus_py.core.enums import FindingSeverity, FindingType, TaskStatus
 from argus_py.observability.context import run_in_thread
@@ -48,6 +50,7 @@ from argus_py.whitebox.exceptions import (
 )
 from argus_py.whitebox.models import (
     AnalyzerDiagnostics,
+    SourceLocationData,
     WhiteboxFinding,
     WhiteboxResult,
 )
@@ -105,6 +108,9 @@ class WhiteboxRunner:
             else config.to_persisted().source_repo_url
         )
 
+        # 0.5 预分配 analysis_id（创建 AnalysisRun 在源码解析后完成）
+        analysis_id = uuid4().hex
+
         # 1. 统一 deadline
         deadline = time.monotonic() + task.timeout_seconds
         resolved: ResolvedSource | None = None
@@ -127,6 +133,17 @@ class WhiteboxRunner:
                 },
             )
 
+            # 2.5 创建 AnalysisRun（源码快照已就绪）
+            await run_in_thread(
+                self._lifecycle.create_analysis_run,
+                analysis_id=analysis_id,
+                task_id=task.task_id,
+                source_snapshot_id=resolved.content_sha256 or analysis_id,
+                resolved_commit_sha=resolved.resolved_commit_sha,
+                result_schema_version=1,
+                config_json=task.whitebox_config_json or "{}",
+            )
+
             # 3. 可见性校验
             await self._check_visibility(
                 resolved.resolved_path,
@@ -144,6 +161,10 @@ class WhiteboxRunner:
                 task.task_id,
                 data={"jobId": job_id},
             )
+            await run_in_thread(
+                self._lifecycle.start_analysis_run,
+                analysis_id,
+            )
 
             # 5. 轮询
             await self._poll(task, job_id, deadline)
@@ -154,6 +175,7 @@ class WhiteboxRunner:
             task.findings = _map_findings(
                 result.findings,
                 source_root=resolved.resolved_path,
+                analysis_id=analysis_id,
             )
             diag_summary = _build_diag_summary(result.diagnostics)
             endpoint_count = len(result.endpoints)
@@ -174,6 +196,14 @@ class WhiteboxRunner:
             )
             task.result_schema_version = 1
             task.result_size_bytes = len(task.result_json)
+
+            # 6.5 持久化 findings 到 DB + 结构化投影 + 标记 SUCCEEDED
+            await run_in_thread(self._lifecycle.save_task_findings, task)
+            await _persist_analysis_result(
+                self._lifecycle,
+                analysis_id,
+                result,
+            )
 
             await self._safe_emit_terminal(
                 "whitebox_succeeded",
@@ -205,6 +235,12 @@ class WhiteboxRunner:
                     "errorCode": exc.error_code,
                 },
             )
+            await run_in_thread(
+                self._lifecycle.mark_analysis_failed,
+                analysis_id,
+                "TASK_CANCELLED",
+                str(exc),
+            )
             raise
         except WhiteboxTaskTimeout as exc:
             await self._safe_emit_terminal(
@@ -216,6 +252,12 @@ class WhiteboxRunner:
                     "errorCode": exc.error_code,
                 },
             )
+            await run_in_thread(
+                self._lifecycle.mark_analysis_failed,
+                analysis_id,
+                "TASK_TIMEOUT",
+                str(exc),
+            )
             raise
         except Exception as exc:
             error_data: dict[str, object] = {}
@@ -226,6 +268,12 @@ class WhiteboxRunner:
                 task.task_id,
                 summary=str(exc),
                 data=error_data,
+            )
+            await run_in_thread(
+                self._lifecycle.mark_analysis_failed,
+                analysis_id,
+                "ANALYSIS_FAILED",
+                str(exc),
             )
             raise
         finally:
@@ -575,6 +623,39 @@ def _map_severity(severity: str) -> FindingSeverity:
     return mapping.get(severity.upper(), FindingSeverity.INFO)
 
 
+def _map_finding_type(rule_category: str | None) -> FindingType:
+    """从 RuleCategory 枚举做确定性映射到 FindingType。
+
+    不做 severity 推导、不做 rule_id 前缀猜测。
+    """
+    if not rule_category:
+        return FindingType.UNKNOWN
+    mapping: dict[str, FindingType] = {
+        "SECURITY": FindingType.SECURITY,
+        "BUG": FindingType.FUNCTIONAL,
+        "PERFORMANCE": FindingType.PERFORMANCE,
+        "STYLE": FindingType.STYLE,
+        "CODE_SMELL": FindingType.CODE_QUALITY,
+        "UNKNOWN": FindingType.UNKNOWN,
+    }
+    return mapping.get(rule_category.upper(), FindingType.UNKNOWN)
+
+
+def _resolve_source_location(wf: WhiteboxFinding) -> SourceLocationData | None:
+    """优先使用结构化 source_location，回退兼容 file_path + line_number。
+
+    start_line 必须 >=1，不可伪造第 0 行。
+    """
+    if wf.source_location and wf.source_location.is_valid:
+        return wf.source_location
+    if wf.file_path and wf.line_number and wf.line_number >= 1:
+        return SourceLocationData(
+            file_path=wf.file_path,
+            start_line=wf.line_number,
+        )
+    return None
+
+
 def _compute_fingerprint(
     rule_id: str | None,
     file_path: str,
@@ -611,39 +692,246 @@ def _compute_fingerprint(
 def _map_findings(
     whitebox_findings: list[WhiteboxFinding],
     source_root: str | None = None,
+    analysis_id: str = "",
 ) -> list[Finding]:
     """将 WhiteboxFinding 列表映射到业务层 Finding 列表。
 
-    语义字段 (rule_category, confidence) 保持 None——只在 Java 明确返回时才有值。
+    rule_category / analysis_confidence 由 Java 返回，Python 不做推导。
+    snippet / analysis_id 透传到 Finding 持久化字段。
     相同 fingerprint 的去重。
     """
     findings: list[Finding] = []
     seen: set[str] = set()
     for wf in whitebox_findings:
-        fp = _compute_fingerprint(
-            wf.rule_id,
-            wf.file_path,
-            wf.line_number,
-            wf.title,
-            source_root=source_root,
-        )
-        if fp in seen:
-            continue
-        seen.add(fp)
+        sl = _resolve_source_location(wf)
+        if sl is None:
+            location = wf.file_path or "(unknown)"
+        else:
+            location = f"{sl.file_path}:{sl.start_line}"
+            # fingerprint 仅在位置有效时计算
+            fp = _compute_fingerprint(
+                wf.rule_id,
+                sl.file_path,
+                sl.start_line,
+                wf.title,
+                source_root=source_root,
+            )
+            if fp in seen:
+                continue
+            seen.add(fp)
 
         finding = Finding(
             title=wf.title,
             description=wf.description,
             severity=_map_severity(wf.severity),
-            finding_type=FindingType.FUNCTIONAL,
-            location=f"{wf.file_path}:{wf.line_number}",
+            finding_type=_map_finding_type(wf.rule_category),
+            location=location,
             rule_id=wf.rule_id,
-            rule_category=None,  # Java 暂不返回
-            confidence=None,  # Java 暂不返回
-            fingerprint=fp,
+            rule_category=wf.rule_category,
+            confidence=wf.analysis_confidence,
+            fingerprint=fp if sl else None,
+            snippet=wf.snippet,
+            analysis_id=analysis_id,
         )
         findings.append(finding)
     return findings
+
+
+# ── 分析结果持久化 ──────────────────────────────────────────────────────────
+
+
+def _build_projection_data(result: WhiteboxResult) -> dict[str, Any]:
+    """从 WhiteboxResult 构造结构化投影数据（供 complete_projection 使用）。
+
+    实体 ID 使用简化的确定性拼接，保证同一 analysis 内的唯一引用。
+    注：完整的 UUID v5 确定性 ID（基于 fingerprint）在 Java 端提供
+    endpoint_fingerprint / call_node_fingerprint 后再迁移。
+    """
+    # CallNode
+    call_nodes: list[dict[str, Any]] = []
+    for key, node in result.call_graph.nodes.items():
+        call_nodes.append(
+            {
+                "call_node_id": f"cn:{key}",
+                "call_node_fingerprint": f"fp:cn:{key}",
+                "class_name": node.class_name,
+                "method_name": node.method_name,
+                "method_signature": node.method_signature,
+                "source_file": "",
+                "source_start_line": None,
+                "source_start_column": None,
+                "source_end_line": None,
+                "source_end_column": None,
+            }
+        )
+
+    # CallEdge — 加枚举索引防止同名重载碰撞
+    call_edges: list[dict[str, Any]] = []
+    for key, node in result.call_graph.nodes.items():
+        for i, edge in enumerate(node.callee_details):
+            # to_node_id 为空的 edge 跳过（无引用目标）
+            if not edge.to:
+                continue
+            call_edges.append(
+                {
+                    "call_edge_id": f"ce:{key}:{i}",
+                    "from_node_id": f"cn:{key}",
+                    "to_node_id": f"cn:{edge.to}",
+                    "to_class_name": edge.type_name or None,
+                    "to_method_name": edge.method_name or None,
+                    "resolution_type": edge.resolution_type,
+                    "confidence": edge.confidence,
+                    "source_file": edge.source_file or None,
+                    "source_start_line": edge.line if edge.line > 0 else None,
+                    "source_start_column": None,
+                    "source_end_line": None,
+                    "source_end_column": None,
+                }
+            )
+
+    # ExecutionFlow
+    execution_flows: list[dict[str, Any]] = []
+    flow_steps: list[dict[str, Any]] = []
+    for flow in result.execution_flows:
+        fid = f"ef:{flow.entry_point}"
+        execution_flows.append(
+            {
+                "execution_flow_id": fid,
+                "execution_flow_fingerprint": fid,
+                "entry_point": flow.entry_point,
+                "call_depth": flow.call_depth,
+            }
+        )
+        for i, step in enumerate(flow.steps):
+            # FlowStep.method_key 与 CallGraph key 格式同为 "className#methodName"
+            # (Java 端 DTO 契约保证)，因此 call_node_id 直接引用 cn:{method_key}
+            flow_steps.append(
+                {
+                    "flow_step_id": f"fs:{fid}:{i}",
+                    "execution_flow_id": fid,
+                    "step_index": i,
+                    "depth": step.depth,
+                    "method_key": step.method_key,
+                    "class_name": step.class_name or None,
+                    "method_name": step.method_name or None,
+                    "call_node_id": f"cn:{step.method_key}",
+                }
+            )
+
+    # Endpoint
+    endpoints: list[dict[str, Any]] = []
+    for ep in result.endpoints:
+        endpoints.append(
+            {
+                "endpoint_id": f"ep:{ep.http_method}:{ep.path}",
+                "endpoint_fingerprint": f"fp:{ep.http_method}:{ep.path}",
+                "http_method": ep.http_method,
+                "raw_path": ep.path,
+                "normalized_exact_path": ep.path if "{" not in ep.path else None,
+                "normalized_path_template": ep.path,
+                "is_templated": "{" in ep.path,
+                "path_normalization_version": 1,
+                "path_segment_count": len([s for s in ep.path.split("/") if s]),
+                "controller_class": ep.controller_class or None,
+                "controller_method": ep.controller_method or None,
+                "controller_method_signature": None,
+                "parameters": ep.parameters,
+                "return_type": ep.return_type or None,
+                "source_file": None,
+                "source_start_line": None,
+                "source_start_column": None,
+                "source_end_line": None,
+                "source_end_column": None,
+                "entry_call_node_id": None,
+            }
+        )
+
+    # Diagnostics
+    diag = result.diagnostics
+    diagnostics = None
+    if diag:
+        diagnostics = {
+            "total_source_files": diag.total_source_files,
+            "eligible_source_files": diag.total_source_files,
+            "parsed_file_count": diag.parsed_file_count,
+            "failed_file_count": diag.failed_file_count,
+            "failed_files": [pf.file for pf in diag.failed_files],
+            "total_calls": diag.total_calls,
+            "resolved_high": diag.resolved_high,
+            "resolved_medium": diag.resolved_medium,
+            "resolved_low": diag.resolved_low,
+            "unresolved": diag.unresolved,
+            "classpath_available": diag.classpath_available,
+            "jar_count": diag.jar_count,
+            "classpath_source": diag.classpath_source or None,
+            "classpath_warnings": diag.classpath_warnings,
+            "classpath_errors": diag.classpath_errors,
+            "module_count": diag.module_count,
+            "application_module_count": diag.application_module_count,
+        }
+
+    return {
+        "call_nodes": call_nodes,
+        "call_edges": call_edges,
+        "execution_flows": execution_flows,
+        "flow_steps": flow_steps,
+        "endpoints": endpoints,
+        "diagnostics": diagnostics,
+    }
+
+
+async def _persist_analysis_result(
+    lifecycle: TaskLifecycleService,
+    analysis_id: str,
+    result: WhiteboxResult,
+) -> None:
+    """将 Java 原始结果映射到结构化投影表（方案事务 1 + 2）。"""
+    # 事务 1：独立持久化 Java 原始响应（审计留存）
+    raw_json = json.dumps(
+        _serialize_whitebox_result(result, len(result.endpoints), len(result.findings), ""),
+        ensure_ascii=False,
+    )
+    result_digest = sha256(raw_json.encode()).hexdigest()
+    await run_in_thread(
+        lifecycle.save_analysis_raw_result,
+        analysis_id,
+        raw_json,
+        result_digest,
+    )
+
+    # 评估完整性
+    diag = result.diagnostics
+    issues_json = "[]"
+    completeness = CompletenessStatus.COMPLETE.value
+    if diag:
+        if diag.total_source_files == 0:
+            completeness = CompletenessStatus.UNAVAILABLE.value
+            issues_json = json.dumps(
+                [
+                    {
+                        "code": QualityIssueCode.NO_ELIGIBLE_SOURCE_FILES.value,
+                        "level": "ERROR",
+                        "message": "无可分析源文件",
+                        "affectedCount": 0,
+                        "totalCount": 0,
+                    }
+                ]
+            )
+        elif diag.parsed_file_count < diag.total_source_files:
+            completeness = CompletenessStatus.DEGRADED.value
+        elif not diag.classpath_available:
+            completeness = CompletenessStatus.DEGRADED.value
+
+    # 事务 2：投影写入 + 标记 SUCCEEDED
+    projection_data = _build_projection_data(result)
+    await run_in_thread(
+        lifecycle.complete_analysis_projection,
+        analysis_id,
+        completeness=completeness,
+        quality_issues_json=issues_json,
+        result_digest=result_digest,
+        projection_data=projection_data,
+    )
 
 
 # ── 诊断摘要 ─────────────────────────────────────────────────────────────────

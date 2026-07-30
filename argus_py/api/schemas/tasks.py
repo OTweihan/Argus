@@ -1,13 +1,14 @@
-"""任务 API Schema。"""
-
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from pydantic import Field, field_validator, model_validator
 
+from argus_py.api.schemas.analysis import AnalysisRunSummaryResponse
 from argus_py.api.schemas.base import ApiModel, blank_to_none, strip_text
 from argus_py.core.enums import FindingSeverity, FindingType, StepResult, TaskStatus, TaskType
 from argus_py.redaction import (
@@ -18,7 +19,7 @@ from argus_py.redaction import (
     redact_step_params,
 )
 from argus_py.task.models import Finding, Task, TaskLog
-from argus_py.whitebox.config import WhiteboxTaskConfig
+from argus_py.whitebox.config import ClasspathMode, SourceType, WhiteboxTaskConfig
 
 
 class TaskLogResponse(ApiModel):
@@ -59,6 +60,8 @@ class FindingResponse(ApiModel):
     rule_category: str | None = Field(default=None, alias="ruleCategory")
     confidence: str | None = None
     fingerprint: str | None = None
+    snippet: str | None = None
+    analysis_id: str | None = Field(default=None, alias="analysisId")
 
     @classmethod
     def from_finding(cls, finding: Finding) -> "FindingResponse":
@@ -154,6 +157,115 @@ class TaskUpdateRequest(TaskCreateRequest):
     """更新任务基础信息请求。"""
 
 
+# ════════════════════════════════════════════════
+# 白盒配置响应模型（脱敏展示）
+# ════════════════════════════════════════════════
+
+
+class ConfigStatus(str, Enum):
+    """白盒配置反序列化状态。"""
+
+    VALID = "VALID"
+    INVALID = "INVALID"
+    UNKNOWN = "UNKNOWN"
+
+
+class MavenConfigResponse(ApiModel):
+    """Maven 配置响应 — 路径字段只返回是否已配置。"""
+
+    settings_configured: bool = Field(alias="settingsConfigured")
+    local_repo_configured: bool = Field(alias="localRepoConfigured")
+    executable_configured: bool = Field(alias="executableConfigured")
+    classpath_mode: ClasspathMode = Field(alias="classpathMode")
+    offline: bool
+    auto_detect: bool = Field(alias="autoDetect")
+
+
+class WhiteboxTaskConfigResponse(ApiModel):
+    """白盒配置响应（已脱敏）。"""
+
+    source_type: SourceType = Field(alias="sourceType")
+    repo_url_display: str | None = Field(default=None, alias="repoUrlDisplay")
+    source_path_display: str | None = Field(default=None, alias="sourcePathDisplay")
+    source_path_configured: bool = Field(alias="sourcePathConfigured")
+    ref: str | None = None
+    scope: str = "ALL"
+    target_modules: list[str] = Field(default_factory=list, alias="targetModules")
+    maven: MavenConfigResponse | None = None
+
+
+class WhiteboxConfigViewResponse(ApiModel):
+    """白盒配置视图 — 包装反序列化状态。"""
+
+    status: ConfigStatus = ConfigStatus.VALID
+    config: WhiteboxTaskConfigResponse | None = None
+    error_code: str | None = Field(default=None, alias="errorCode")
+
+
+def _build_whitebox_config_view(task: Task) -> dict[str, Any] | None:
+    """从 Task 实体构造脱敏白盒配置视图。"""
+    if task.task_type != TaskType.WHITEBOX:
+        return None
+    raw = task.whitebox_config_json
+    if not raw:
+        return {"status": ConfigStatus.UNKNOWN, "config": None, "errorCode": None}
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {"status": ConfigStatus.INVALID, "config": None, "errorCode": "PARSE_ERROR"}
+    return {
+        "status": ConfigStatus.VALID,
+        "config": {
+            "sourceType": data.get("source_type") or "local",
+            "repoUrlDisplay": (
+                _redact_repo_url(task.source_repo_url) if task.source_repo_url else None
+            ),
+            "sourcePathDisplay": (
+                _redact_path(source_path) if (source_path := data.get("source_path")) else None
+            ),
+            # source_path 为 "" 或 key 缺失均视为未配置
+            "sourcePathConfigured": bool(data.get("source_path")),
+            "ref": data.get("ref"),
+            "scope": data.get("scope", "ALL"),
+            "targetModules": data.get("target_modules", []),
+            "maven": _build_maven_config_view(data.get("maven", {})),
+        },
+        "errorCode": None,
+    }
+
+
+def _build_maven_config_view(maven: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "settingsConfigured": bool(maven.get("settings_xml")),
+        "localRepoConfigured": bool(maven.get("local_repository")),
+        "executableConfigured": bool(maven.get("executable")),
+        "classpathMode": maven.get("classpath_mode", "AUTO"),
+        "offline": bool(maven.get("offline", False)),
+        "autoDetect": maven.get("auto_detect", True),
+    }
+
+
+def _redact_repo_url(url: str | None) -> str | None:
+    """仓库 URL 脱敏。
+
+    ``task.source_repo_url`` 已由 SourceResolver 在保存时脱敏（移除凭据），
+    此函数作为预留扩展点 — 若后续需要更严格的展示级脱敏（如截断域名），
+    在此处追加处理。
+    """
+    if not url:
+        return None
+    return url
+
+
+def _redact_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    parts = path.replace("\\", "/").rstrip("/").split("/")
+    if len(parts) <= 2:
+        return path
+    return f".../{'/'.join(parts[-2:])}"
+
+
 class _TaskResponseBase(ApiModel):
     """`TaskResponse` / `TaskSummaryResponse` 共享字段与转换逻辑。
 
@@ -181,6 +293,13 @@ class _TaskResponseBase(ApiModel):
     report_path: str | None = Field(default=None, alias="reportPath")
     result_summary: str | None = Field(default=None, alias="resultSummary")
     error_message: str | None = Field(default=None, alias="errorMessage")
+    # 白盒扩展字段
+    whitebox_config_view: WhiteboxConfigViewResponse | None = Field(
+        default=None, alias="whiteboxConfigView"
+    )
+    latest_analysis_run: AnalysisRunSummaryResponse | None = Field(
+        default=None, alias="latestAnalysisRun"
+    )
 
     @staticmethod
     def _common_fields(task: Task, scheduler_status: str | None) -> dict[str, Any]:
@@ -209,6 +328,8 @@ class _TaskResponseBase(ApiModel):
             "error_message": (
                 redact_sensitive_text(task.error_message) if task.error_message else None
             ),
+            "whitebox_config_view": _build_whitebox_config_view(task),
+            "latest_analysis_run": None,
         }
 
 

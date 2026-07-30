@@ -233,6 +233,6 @@ def test_init_database_includes_migrations(tmp_path: Path) -> None:
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         assert "schema_migrations" in tables
-        assert _versions(conn) == [0, 1]
+        assert _versions(conn) == [0, 1, 2]
     finally:
         conn.close()

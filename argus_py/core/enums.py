@@ -63,3 +63,6 @@ class FindingType(str, Enum):
     SECURITY = "security"
     ACCESSIBILITY = "accessibility"
     ERROR = "error"
+    STYLE = "style"
+    CODE_QUALITY = "code_quality"
+    UNKNOWN = "unknown"

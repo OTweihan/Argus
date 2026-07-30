@@ -27,6 +27,7 @@ from argus_py.task.policies import (
     is_terminal,
 )
 from argus_py.task.read import TaskReadService
+from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.task.strategy import resolve_execution_limits
 from argus_py.utils.casing import camel_keys
 
@@ -373,3 +374,100 @@ class TaskApplicationService:
             "findings_total": findings_total,
             "recent_tasks": recent,
         }
+
+    # ── 分析执行查询（阶段二）──────────────────────────────────
+
+    def list_analysis_runs(
+        self, task_id: str, *, offset: int = 0, limit: int = 50
+    ) -> tuple[list[Any], int]:
+        """列出任务的所有分析执行记录。"""
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_analysis_runs(task_id, offset=offset, limit=limit)
+        return [], 0
+
+    def get_latest_analysis_run(self, task_id: str) -> Any:
+        """获取任务的最近一次分析执行。"""
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_latest_analysis_run(task_id)
+        return None
+
+    def get_analysis_run(self, analysis_id: str) -> Any:
+        """按 ID 获取分析执行详情。"""
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_analysis_run(analysis_id)
+        return None
+
+    def list_analysis_endpoints(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_analysis_endpoints(analysis_id, cursor=cursor, limit=limit)
+        return [], None, 0, False
+
+    def list_analysis_call_nodes(
+        self,
+        analysis_id: str,
+        *,
+        class_name: str | None = None,
+        method_name: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_analysis_call_nodes(
+                analysis_id,
+                class_name=class_name,
+                method_name=method_name,
+                cursor=cursor,
+                limit=limit,
+            )
+        return [], None, 0, False
+
+    def list_analysis_call_edges(
+        self,
+        analysis_id: str,
+        *,
+        entry_node_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_analysis_call_edges(
+                analysis_id,
+                entry_node_id=entry_node_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        return [], None, 0, False
+
+    def list_analysis_execution_flows(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_analysis_execution_flows(analysis_id, cursor=cursor, limit=limit)
+        return [], None, 0, False
+
+    def get_analysis_diagnostics(self, analysis_id: str) -> dict[str, Any] | None:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_analysis_diagnostics(analysis_id)
+        return None
+
+    def get_analysis_counts(self, analysis_id: str) -> dict[str, int]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_analysis_counts(analysis_id)
+        return {}
+
+    def get_analysis_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_analysis_flow_steps(flow_id)
+        return []

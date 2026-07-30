@@ -8,6 +8,13 @@
         </div>
       </template>
     </el-table-column>
+    <el-table-column label="类型" width="80">
+      <template #default="{ row }">
+        <el-tag :type="row.taskType === 'whitebox' ? 'success' : 'info'" size="small">
+          {{ row.taskType === 'whitebox' ? '白盒' : '黑盒' }}
+        </el-tag>
+      </template>
+    </el-table-column>
     <el-table-column label="目标" min-width="300">
       <template #default="{ row }">
         <strong>{{ compact(row.goal, 52) }}</strong>

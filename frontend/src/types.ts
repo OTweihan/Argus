@@ -23,6 +23,28 @@ export type Task = Omit<components["schemas"]["TaskResponse"], "logs" | "finding
     logs?: components["schemas"]["TaskLogResponse"][];
     findings?: components["schemas"]["FindingResponse"][];
     findingCount?: number;
+    /** 白盒配置视图（阶段二） */
+    whiteboxConfigView?: {
+        status: string;
+        config?: {
+            sourceType?: string;
+            repoUrlDisplay?: string | null;
+            sourcePathDisplay?: string | null;
+            sourcePathConfigured?: boolean;
+            ref?: string | null;
+            scope?: string;
+            targetModules?: string[];
+            maven?: {
+                settingsConfigured?: boolean;
+                localRepoConfigured?: boolean;
+                executableConfigured?: boolean;
+                classpathMode?: string;
+                offline?: boolean;
+                autoDetect?: boolean;
+            } | null;
+        } | null;
+        errorCode?: string | null;
+    } | null;
 };
 
 /** @description 任务步骤日志响应 */

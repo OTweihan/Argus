@@ -310,6 +310,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/tasks/{task_id}/analysis-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Analysis Runs
+         * @description 列出任务的所有分析执行记录。
+         */
+        get: operations["list_analysis_runs_argus_api_tasks__task_id__analysis_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Analysis Run Summary
+         * @description 获取单次分析执行的摘要（含完整性结论和各类 count）。
+         */
+        get: operations["get_analysis_run_summary_argus_api_tasks__task_id__analysis_runs__analysis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Analysis Endpoints
+         * @description 获取分析执行的端点列表（游标分页）。
+         */
+        get: operations["list_analysis_endpoints_argus_api_tasks__task_id__analysis_runs__analysis_id__endpoints_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}/call-nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Analysis Call Nodes
+         * @description 获取分析执行的调用图节点列表（支持类名/方法名搜索）。
+         */
+        get: operations["list_analysis_call_nodes_argus_api_tasks__task_id__analysis_runs__analysis_id__call_nodes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}/call-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Analysis Call Edges
+         * @description 获取分析执行的调用图边列表（可按入口节点过滤）。
+         */
+        get: operations["list_analysis_call_edges_argus_api_tasks__task_id__analysis_runs__analysis_id__call_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}/execution-flows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Analysis Execution Flows
+         * @description 获取分析执行的执行流列表。
+         */
+        get: operations["list_analysis_execution_flows_argus_api_tasks__task_id__analysis_runs__analysis_id__execution_flows_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Analysis Diagnostics
+         * @description 获取分析执行的诊断详情。
+         */
+        get: operations["get_analysis_diagnostics_argus_api_tasks__task_id__analysis_runs__analysis_id__diagnostics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/argus/api/tasks/{task_id}/report": {
         parameters: {
             query?: never;
@@ -567,11 +707,177 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AnalysisRunListResponse
+         * @description 分析执行列表。
+         */
+        AnalysisRunListResponse: {
+            /** Items */
+            items: components["schemas"]["AnalysisRunSummaryResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * AnalysisRunStatus
+         * @description 分析执行生命周期状态。
+         * @enum {string}
+         */
+        AnalysisRunStatus: "QUEUED" | "SUBMITTING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "TIMED_OUT" | "CANCELLED" | "STOPPED_WAITING";
+        /**
+         * AnalysisRunSummaryResponse
+         * @description 单次分析执行摘要（不含子资源详情）。
+         */
+        AnalysisRunSummaryResponse: {
+            /** Analysisid */
+            analysisId: string;
+            /** Taskid */
+            taskId: string;
+            /** Sourcesnapshotid */
+            sourceSnapshotId: string;
+            /** Resolvedcommitsha */
+            resolvedCommitSha?: string | null;
+            runStatus: components["schemas"]["AnalysisRunStatus"];
+            /** Externaljobid */
+            externalJobId?: string | null;
+            /** Externaljobstatus */
+            externalJobStatus?: string | null;
+            /** Failurecode */
+            failureCode?: string | null;
+            /** Failuremessage */
+            failureMessage?: string | null;
+            /** Stopreason */
+            stopReason?: string | null;
+            completeness: components["schemas"]["CompletenessResponse"];
+            /** Endpointcount */
+            endpointCount: number;
+            /** Callgraphnodecount */
+            callGraphNodeCount: number;
+            /** Executionflowcount */
+            executionFlowCount: number;
+            /** Clustercount */
+            clusterCount: number;
+            /** Findingcount */
+            findingCount: number;
+            /** Findingseveritycounts */
+            findingSeverityCounts?: {
+                [key: string]: number;
+            };
+            /** Createdat */
+            createdAt: string;
+            /** Startedat */
+            startedAt?: string | null;
+            /** Completedat */
+            completedAt?: string | null;
+            /** Projectioncompletedat */
+            projectionCompletedAt?: string | null;
+        };
+        /**
+         * CallEdgeResponse
+         * @description 调用图边。
+         */
+        CallEdgeResponse: {
+            /** Calledgeid */
+            callEdgeId: string;
+            /** Fromnodeid */
+            fromNodeId: string;
+            /** Tonodeid */
+            toNodeId: string;
+            /** Toclassname */
+            toClassName?: string | null;
+            /** Tomethodname */
+            toMethodName?: string | null;
+            /** Resolutiontype */
+            resolutionType: string;
+            /** Confidence */
+            confidence?: string | null;
+            sourceLocation?: components["schemas"]["SourceLocationResponse"] | null;
+        };
+        /** CallGraphPageResponse */
+        CallGraphPageResponse: {
+            /** Items */
+            items: components["schemas"]["CallEdgeResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /** CallNodePageResponse */
+        CallNodePageResponse: {
+            /** Items */
+            items: components["schemas"]["CallNodeResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * CallNodeResponse
+         * @description 调用图节点。
+         */
+        CallNodeResponse: {
+            /** Callnodeid */
+            callNodeId: string;
+            /** Callnodefingerprint */
+            callNodeFingerprint: string;
+            /** Classname */
+            className: string;
+            /** Methodname */
+            methodName: string;
+            /** Methodsignature */
+            methodSignature?: string | null;
+            sourceLocation?: components["schemas"]["SourceLocationResponse"] | null;
+            /** Calleecount */
+            calleeCount: number;
+        };
+        /**
          * ClasspathMode
          * @description Classpath 解析策略 — 与 Java ClasspathMode 对齐。
          * @enum {string}
          */
         ClasspathMode: "AUTO" | "CACHE_ONLY" | "MAVEN" | "SOURCE_ONLY";
+        /**
+         * CompletenessMetricsResponse
+         * @description 完整性指标。
+         */
+        CompletenessMetricsResponse: {
+            /** Eligiblesourcefiles */
+            eligibleSourceFiles: number;
+            /** Parsedsourcefiles */
+            parsedSourceFiles: number;
+            /** Totalcalls */
+            totalCalls: number;
+            /** Resolvedcalls */
+            resolvedCalls: number;
+        };
+        /**
+         * CompletenessResponse
+         * @description 完整性结论（后端计算，前端只展示）。
+         */
+        CompletenessResponse: {
+            status: components["schemas"]["CompletenessStatus"];
+            /** Issues */
+            issues?: components["schemas"]["QualityIssueResponse"][];
+            metrics: components["schemas"]["CompletenessMetricsResponse"];
+        };
+        /**
+         * CompletenessStatus
+         * @description 分析结果完整性。仅当 runStatus=SUCCEEDED 时评估。
+         * @enum {string}
+         */
+        CompletenessStatus: "NOT_EVALUATED" | "COMPLETE" | "DEGRADED" | "UNAVAILABLE";
+        /**
+         * ConfigStatus
+         * @description 白盒配置反序列化状态。
+         * @enum {string}
+         */
+        ConfigStatus: "VALID" | "INVALID" | "UNKNOWN";
         /**
          * ConfigSummaryResponse
          * @description 配置摘要响应，不包含敏感值。
@@ -619,6 +925,137 @@ export interface components {
             recentTasks?: components["schemas"]["TaskSummaryResponse"][];
         };
         /**
+         * DiagnosticsResponse
+         * @description 白盒诊断信息。注意：completeness 结论不在此处，在摘要接口。
+         */
+        DiagnosticsResponse: {
+            /** Totalsourcefiles */
+            totalSourceFiles: number;
+            /** Eligiblesourcefiles */
+            eligibleSourceFiles: number;
+            /** Parsedfilecount */
+            parsedFileCount: number;
+            /** Failedfilecount */
+            failedFileCount: number;
+            /** Failedfiles */
+            failedFiles?: string[];
+            /** Totalcalls */
+            totalCalls: number;
+            /** Resolvedhigh */
+            resolvedHigh: number;
+            /** Resolvedmedium */
+            resolvedMedium: number;
+            /** Resolvedlow */
+            resolvedLow: number;
+            /** Unresolved */
+            unresolved: number;
+            /** Classpathavailable */
+            classpathAvailable: boolean;
+            /** Jarcount */
+            jarCount: number;
+            /** Classpathsource */
+            classpathSource?: string | null;
+            /** Classpathwarnings */
+            classpathWarnings?: string[];
+            /** Classpatherrors */
+            classpathErrors?: string[];
+            /** Modulecount */
+            moduleCount: number;
+            /** Applicationmodulecount */
+            applicationModuleCount: number;
+        };
+        /** EndpointPageResponse */
+        EndpointPageResponse: {
+            /** Items */
+            items: components["schemas"]["EndpointResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * EndpointResponse
+         * @description 白盒端点信息。
+         */
+        EndpointResponse: {
+            /** Endpointid */
+            endpointId: string;
+            /** Endpointfingerprint */
+            endpointFingerprint: string;
+            /** Analysisid */
+            analysisId: string;
+            /** Sourcesnapshotid */
+            sourceSnapshotId?: string | null;
+            /** Httpmethod */
+            httpMethod: string;
+            /** Normalizedpath */
+            normalizedPath: string;
+            /** Normalizedpathtemplate */
+            normalizedPathTemplate: string;
+            /** Istemplated */
+            isTemplated: boolean;
+            /** Pathsegmentcount */
+            pathSegmentCount: number;
+            /** Controllerclass */
+            controllerClass?: string | null;
+            /** Controllermethod */
+            controllerMethod?: string | null;
+            /** Parameters */
+            parameters?: string[];
+            /** Returntype */
+            returnType?: string | null;
+            sourceLocation?: components["schemas"]["SourceLocationResponse"] | null;
+            /** Entrycallnodeid */
+            entryCallNodeId?: string | null;
+        };
+        /** ExecutionFlowPageResponse */
+        ExecutionFlowPageResponse: {
+            /** Items */
+            items: components["schemas"]["ExecutionFlowResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * ExecutionFlowResponse
+         * @description 执行流。
+         */
+        ExecutionFlowResponse: {
+            /** Executionflowid */
+            executionFlowId: string;
+            /** Entrypoint */
+            entryPoint: string;
+            /** Calldepth */
+            callDepth: number;
+            /** Steps */
+            steps?: components["schemas"]["ExecutionFlowStepResponse"][];
+        };
+        /**
+         * ExecutionFlowStepResponse
+         * @description 执行流步骤。
+         */
+        ExecutionFlowStepResponse: {
+            /** Flowstepid */
+            flowStepId: string;
+            /** Stepindex */
+            stepIndex: number;
+            /** Depth */
+            depth: number;
+            /** Methodkey */
+            methodKey: string;
+            /** Classname */
+            className?: string | null;
+            /** Methodname */
+            methodName?: string | null;
+            /** Callnodeid */
+            callNodeId?: string | null;
+        };
+        /**
          * FindingResponse
          * @description 问题记录响应。
          */
@@ -650,6 +1087,10 @@ export interface components {
             confidence?: string | null;
             /** Fingerprint */
             fingerprint?: string | null;
+            /** Snippet */
+            snippet?: string | null;
+            /** Analysisid */
+            analysisId?: string | null;
         };
         /**
          * FindingSeverity
@@ -662,7 +1103,7 @@ export interface components {
          * @description 问题分类。
          * @enum {string}
          */
-        FindingType: "functional" | "visual" | "performance" | "security" | "accessibility" | "error";
+        FindingType: "functional" | "visual" | "performance" | "security" | "accessibility" | "error" | "style" | "code_quality" | "unknown";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -689,6 +1130,23 @@ export interface components {
             maxSteps: number;
             /** Timeoutseconds */
             timeoutSeconds: number;
+        };
+        /**
+         * MavenConfigResponse
+         * @description Maven 配置响应 — 路径字段只返回是否已配置。
+         */
+        MavenConfigResponse: {
+            /** Settingsconfigured */
+            settingsConfigured: boolean;
+            /** Localrepoconfigured */
+            localRepoConfigured: boolean;
+            /** Executableconfigured */
+            executableConfigured: boolean;
+            classpathMode: components["schemas"]["ClasspathMode"];
+            /** Offline */
+            offline: boolean;
+            /** Autodetect */
+            autoDetect: boolean;
         };
         /**
          * MetricsResponse
@@ -1012,6 +1470,32 @@ export interface components {
             taskLength: number;
         };
         /**
+         * QualityIssueCode
+         * @description 质量问题代码 — 结构化错误码，前端据此显示图标和操作提示。
+         * @enum {string}
+         */
+        QualityIssueCode: "NO_ELIGIBLE_SOURCE_FILES" | "MODULE_PARSE_PARTIAL_FAILURE" | "CLASSPATH_DEGRADED" | "CLASSPATH_UNAVAILABLE" | "CALL_RESOLUTION_LOW" | "PARTIAL_RESULT" | "ZERO_FINDINGS" | "SCHEMA_VERSION_MISMATCH";
+        /**
+         * QualityIssueLevel
+         * @description 质量问题等级。
+         * @enum {string}
+         */
+        QualityIssueLevel: "ERROR" | "WARNING" | "INFO";
+        /**
+         * QualityIssueResponse
+         * @description 结构化质量问题（错误码，非自然语言）。
+         */
+        QualityIssueResponse: {
+            code: components["schemas"]["QualityIssueCode"];
+            level: components["schemas"]["QualityIssueLevel"];
+            /** Message */
+            message: string;
+            /** Affectedcount */
+            affectedCount?: number | null;
+            /** Totalcount */
+            totalCount?: number | null;
+        };
+        /**
          * ReadinessResponse
          * @description 就绪检查响应。
          */
@@ -1024,6 +1508,22 @@ export interface components {
             worker: string;
             /** Event Bus */
             event_bus: string;
+        };
+        /**
+         * SourceLocationResponse
+         * @description 源码位置（统一结构，Endpoint/CallNode/Finding 复用）。
+         */
+        SourceLocationResponse: {
+            /** Filepath */
+            filePath: string;
+            /** Startline */
+            startLine: number;
+            /** Startcolumn */
+            startColumn?: number | null;
+            /** Endline */
+            endLine?: number | null;
+            /** Endcolumn */
+            endColumn?: number | null;
         };
         /**
          * SourceType
@@ -1145,6 +1645,8 @@ export interface components {
             resultSummary?: string | null;
             /** Errormessage */
             errorMessage?: string | null;
+            whiteboxConfigView?: components["schemas"]["WhiteboxConfigViewResponse"] | null;
+            latestAnalysisRun?: components["schemas"]["AnalysisRunSummaryResponse"] | null;
             /** Logs */
             logs: components["schemas"]["TaskLogResponse"][];
             /** Findings */
@@ -1221,6 +1723,8 @@ export interface components {
             resultSummary?: string | null;
             /** Errormessage */
             errorMessage?: string | null;
+            whiteboxConfigView?: components["schemas"]["WhiteboxConfigViewResponse"] | null;
+            latestAnalysisRun?: components["schemas"]["AnalysisRunSummaryResponse"] | null;
             /** Findingcount */
             findingCount: number;
         };
@@ -1271,6 +1775,17 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * WhiteboxConfigViewResponse
+         * @description 白盒配置视图 — 包装反序列化状态。
+         */
+        WhiteboxConfigViewResponse: {
+            /** @default VALID */
+            status: components["schemas"]["ConfigStatus"];
+            config?: components["schemas"]["WhiteboxTaskConfigResponse"] | null;
+            /** Errorcode */
+            errorCode?: string | null;
         };
         /**
          * WhiteboxMavenConfig
@@ -1333,6 +1848,29 @@ export interface components {
             /** Targetmodules */
             targetModules?: string[];
             maven?: components["schemas"]["WhiteboxMavenConfig"] | null;
+        };
+        /**
+         * WhiteboxTaskConfigResponse
+         * @description 白盒配置响应（已脱敏）。
+         */
+        WhiteboxTaskConfigResponse: {
+            sourceType: components["schemas"]["SourceType"];
+            /** Repourldisplay */
+            repoUrlDisplay?: string | null;
+            /** Sourcepathdisplay */
+            sourcePathDisplay?: string | null;
+            /** Sourcepathconfigured */
+            sourcePathConfigured: boolean;
+            /** Ref */
+            ref?: string | null;
+            /**
+             * Scope
+             * @default ALL
+             */
+            scope: string;
+            /** Targetmodules */
+            targetModules?: string[];
+            maven?: components["schemas"]["MavenConfigResponse"] | null;
         };
     };
     responses: never;
@@ -1919,6 +2457,247 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_runs_argus_api_tasks__task_id__analysis_runs_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_analysis_run_summary_argus_api_tasks__task_id__analysis_runs__analysis_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRunSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_endpoints_argus_api_tasks__task_id__analysis_runs__analysis_id__endpoints_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_call_nodes_argus_api_tasks__task_id__analysis_runs__analysis_id__call_nodes_get: {
+        parameters: {
+            query?: {
+                className?: string | null;
+                methodName?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallNodePageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_call_edges_argus_api_tasks__task_id__analysis_runs__analysis_id__call_graph_get: {
+        parameters: {
+            query?: {
+                entryNodeId?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallGraphPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_execution_flows_argus_api_tasks__task_id__analysis_runs__analysis_id__execution_flows_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionFlowPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_analysis_diagnostics_argus_api_tasks__task_id__analysis_runs__analysis_id__diagnostics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsResponse"];
                 };
             };
             /** @description Validation Error */

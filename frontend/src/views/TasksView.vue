@@ -47,8 +47,14 @@
       </div>
       <template v-else>
         <el-tabs v-model="selectedTaskTab" type="border-card" class="detail-tabs">
-          <el-tab-pane lazy label="报告" name="report">
+          <el-tab-pane lazy :label="isWhitebox ? '分析报告' : '报告'" name="report">
+            <WhiteboxReportView
+              v-if="isWhitebox"
+              :key="selectedTask.taskId"
+              :task-id="selectedTask.taskId"
+            />
             <ReportView
+              v-else
               :key="selectedTask.taskId"
               :report="reportData"
               :loading="reportLoading"
@@ -58,7 +64,7 @@
           <el-tab-pane lazy label="执行时间线" name="timeline">
             <TaskTimeline :key="selectedTask.taskId" :task-id="selectedTask.taskId" :on-task-event="onTaskEvent" />
           </el-tab-pane>
-          <el-tab-pane lazy label="LLM 调试" name="llm-debug">
+          <el-tab-pane v-if="!isWhitebox" lazy label="LLM 调试" name="llm-debug">
             <LLMDebugTab :key="selectedTask.taskId" :task-id="selectedTask.taskId" />
           </el-tab-pane>
         </el-tabs>
@@ -149,15 +155,16 @@
 </template>
 
 <script setup lang="ts">
-import {defineAsyncComponent} from "vue";
+import {computed, defineAsyncComponent} from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
 import {injectConsoleApp} from "../composables/useConsoleApp";
 import {useTaskViewActions} from "../composables/useTaskViewActions";
 import type {Task} from "../types";
-// 任务详情页三个大体积 Tab 组件按需加载，避免拖慢任务列表首屏
+// 任务详情页大体积 Tab 组件按需加载，避免拖慢任务列表首屏
 const ReportView = defineAsyncComponent(() => import("./ReportView.vue"));
+const WhiteboxReportView = defineAsyncComponent(() => import("../components/task/WhiteboxReportView.vue"));
 const TaskTimeline = defineAsyncComponent(() => import("../components/task/TaskTimeline.vue"));
 const LLMDebugTab = defineAsyncComponent(() => import("../components/task/LLMDebugTab.vue"));
 
@@ -182,6 +189,8 @@ async function showTaskReport(taskId: string): Promise<void> {
 function editTask(task: Task): void {
   openEditTaskDialog(task);
 }
+
+const isWhitebox = computed(() => selectedTask.value?.taskType === "whitebox");
 
 </script>
 

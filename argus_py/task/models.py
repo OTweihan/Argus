@@ -70,6 +70,8 @@ class Finding:
     rule_category: str | None = None
     confidence: str | None = None
     fingerprint: str | None = None
+    snippet: str | None = None
+    analysis_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Finding":
@@ -91,6 +93,8 @@ class Finding:
             rule_category=data.get("rule_category"),
             confidence=data.get("confidence"),
             fingerprint=data.get("fingerprint"),
+            snippet=data.get("snippet"),
+            analysis_id=data.get("analysis_id"),
         )
 
 

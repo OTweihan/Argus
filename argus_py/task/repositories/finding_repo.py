@@ -19,8 +19,8 @@ class FindingRepository:
             conn.execute(
                 "INSERT INTO findings (finding_id, task_id, title, description, "
                 "severity, finding_type, url, location, screenshot_path, created_at, "
-                "rule_id, rule_category, confidence, fingerprint) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "rule_id, rule_category, confidence, fingerprint, snippet, analysis_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 finding_to_row(task_id, finding),
             )
 

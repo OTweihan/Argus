@@ -37,6 +37,13 @@ export {
     getTaskEvents,
     getTaskTraces,
     getDashboardStats,
+    listAnalysisRuns,
+    getAnalysisRunSummary,
+    listAnalysisEndpoints,
+    listAnalysisCallNodes,
+    listAnalysisCallEdges,
+    listAnalysisExecutionFlows,
+    getAnalysisDiagnostics,
 } from "./task";
 export {
     listModels,

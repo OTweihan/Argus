@@ -114,6 +114,8 @@ def finding_to_row(task_id: str, finding: Finding) -> tuple[Any, ...]:
         finding.rule_category,
         finding.confidence,
         finding.fingerprint,
+        finding.snippet,
+        finding.analysis_id,
     )
 
 
@@ -250,4 +252,6 @@ def row_to_finding(row: Any) -> Finding:
         rule_category=row["rule_category"],
         confidence=row["confidence"],
         fingerprint=row["fingerprint"],
+        snippet=row["snippet"],
+        analysis_id=row["analysis_id"],
     )

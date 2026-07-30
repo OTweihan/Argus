@@ -8,6 +8,7 @@ from typing import Any
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.core.paths import DATA_DIR, TEMP_DIR
 from argus_py.task.models import Finding, Task, TaskLog
+from argus_py.task.repositories.analysis_repo import AnalysisRunRepository
 from argus_py.task.repositories.event_repo import EventRepository
 from argus_py.task.repositories.finding_repo import FindingRepository
 from argus_py.task.repositories.log_repo import LogRepository
@@ -82,6 +83,7 @@ class TaskSQLiteStorage:
         self._logs = LogRepository(pool)
         self._findings = FindingRepository(pool)
         self._events = EventRepository(pool)
+        self._analysis = AnalysisRunRepository(pool)
 
     # ── 任务 CRUD ───────────────────────────────────────────
 
@@ -184,3 +186,98 @@ class TaskSQLiteStorage:
 
     def delete_events(self, task_id: str) -> None:
         self._events.delete(task_id)
+
+    # ── 分析执行 ────────────────────────────────────────────
+
+    def create_analysis_run(self, run: Any) -> Any:
+        return self._analysis.create(run)
+
+    def get_analysis_run(self, analysis_id: str) -> Any:
+        return self._analysis.get(analysis_id)
+
+    def list_analysis_runs(
+        self, task_id: str, *, offset: int = 0, limit: int = 50
+    ) -> tuple[list[Any], int]:
+        return self._analysis.list_by_task(task_id, offset=offset, limit=limit)
+
+    def get_latest_analysis_run(self, task_id: str) -> Any:
+        return self._analysis.get_latest(task_id)
+
+    def update_analysis_run_status(self, analysis_id: str, run_status: str, **kw: Any) -> None:
+        self._analysis.update_status(analysis_id, run_status, **kw)
+
+    def save_analysis_raw_result(self, analysis_id: str, raw_json: str, digest: str) -> None:
+        self._analysis.save_raw_result(analysis_id, raw_json, digest)
+
+    def mark_analysis_failed(
+        self, analysis_id: str, failure_code: str, failure_message: str
+    ) -> None:
+        self._analysis.mark_failed(analysis_id, failure_code, failure_message)
+
+    def complete_analysis_projection(
+        self,
+        analysis_id: str,
+        *,
+        completeness: str,
+        quality_issues_json: str,
+        result_digest: str,
+        projection_data: dict[str, Any],
+    ) -> None:
+        self._analysis.complete_projection(
+            analysis_id,
+            completeness=completeness,
+            quality_issues_json=quality_issues_json,
+            result_digest=result_digest,
+            projection_data=projection_data,
+        )
+
+    def list_analysis_endpoints(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        return self._analysis.list_endpoints(analysis_id, cursor=cursor, limit=limit)
+
+    def list_analysis_call_nodes(
+        self,
+        analysis_id: str,
+        *,
+        class_name: str | None = None,
+        method_name: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        return self._analysis.list_call_nodes(
+            analysis_id,
+            class_name=class_name,
+            method_name=method_name,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def list_analysis_call_edges(
+        self,
+        analysis_id: str,
+        *,
+        entry_node_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        return self._analysis.list_call_edges(
+            analysis_id,
+            entry_node_id=entry_node_id,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def list_analysis_execution_flows(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        return self._analysis.list_execution_flows(analysis_id, cursor=cursor, limit=limit)
+
+    def get_analysis_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
+        return self._analysis.get_flow_steps(flow_id)
+
+    def get_analysis_diagnostics(self, analysis_id: str) -> dict[str, Any] | None:
+        return self._analysis.get_diagnostics(analysis_id)
+
+    def get_analysis_counts(self, analysis_id: str) -> dict[str, int]:
+        return self._analysis.get_counts(analysis_id)
