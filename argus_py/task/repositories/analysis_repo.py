@@ -240,6 +240,29 @@ def _row_to_flow_step(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ── 聚类行映射 ──
+
+
+def _cluster_to_row(aid: str, cluster: dict[str, Any]) -> tuple:
+    return (
+        cluster["cluster_id"],
+        aid,
+        cluster.get("suggested_label", ""),
+        json.dumps(cluster.get("member_keys", []), ensure_ascii=False),
+        cluster.get("member_count", 0),
+    )
+
+
+def _row_to_cluster(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "cluster_id": row["cluster_id"],
+        "analysis_id": row["analysis_id"],
+        "suggested_label": row.get("suggested_label", ""),
+        "member_keys": json.loads(row.get("member_keys_json") or "[]"),
+        "member_count": row.get("member_count", 0),
+    }
+
+
 # ── Repository ────────────────────────────────────────────────────────
 
 
@@ -427,11 +450,15 @@ class AnalysisRunRepository:
             "DELETE FROM analysis_diagnostics WHERE analysis_id = ?",
             (analysis_id,),
         )
+        conn.execute(
+            "DELETE FROM analysis_clusters WHERE analysis_id = ?",
+            (analysis_id,),
+        )
 
         # 写入 CallNode（先写，因为后续外键引用）
         for cn in projection_data.get("call_nodes", []):
             conn.execute(
-                """INSERT OR REPLACE INTO analysis_call_nodes (
+                """INSERT INTO analysis_call_nodes (
                     call_node_id, analysis_id, call_node_fingerprint,
                     class_name, method_name, method_signature,
                     source_file, source_start_line, source_start_column,
@@ -443,7 +470,7 @@ class AnalysisRunRepository:
         # Endpoint
         for ep in projection_data.get("endpoints", []):
             conn.execute(
-                """INSERT OR REPLACE INTO analysis_endpoints (
+                """INSERT INTO analysis_endpoints (
                     endpoint_id, analysis_id, endpoint_fingerprint,
                     http_method, raw_path, normalized_exact_path,
                     normalized_path_template, is_templated,
@@ -462,7 +489,7 @@ class AnalysisRunRepository:
         # CallEdge
         for ce in projection_data.get("call_edges", []):
             conn.execute(
-                """INSERT OR REPLACE INTO analysis_call_edges (
+                """INSERT INTO analysis_call_edges (
                     call_edge_id, analysis_id, from_node_id, to_node_id,
                     to_class_name, to_method_name,
                     resolution_type, confidence,
@@ -475,7 +502,7 @@ class AnalysisRunRepository:
         # ExecutionFlow
         for flow in projection_data.get("execution_flows", []):
             conn.execute(
-                """INSERT OR REPLACE INTO analysis_execution_flows (
+                """INSERT INTO analysis_execution_flows (
                     execution_flow_id, analysis_id, execution_flow_fingerprint,
                     entry_point, call_depth
                 ) VALUES (?, ?, ?, ?, ?)""",
@@ -485,7 +512,7 @@ class AnalysisRunRepository:
         # FlowStep
         for step in projection_data.get("flow_steps", []):
             conn.execute(
-                """INSERT OR REPLACE INTO analysis_flow_steps (
+                """INSERT INTO analysis_flow_steps (
                     flow_step_id, execution_flow_id, step_index, depth,
                     method_key, class_name, method_name, call_node_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -496,7 +523,7 @@ class AnalysisRunRepository:
         diag = projection_data.get("diagnostics")
         if diag:
             conn.execute(
-                """INSERT OR REPLACE INTO analysis_diagnostics (
+                """INSERT INTO analysis_diagnostics (
                     analysis_id, total_source_files, eligible_source_files,
                     parsed_file_count, failed_file_count, failed_files,
                     total_calls, resolved_high, resolved_medium,
@@ -525,6 +552,16 @@ class AnalysisRunRepository:
                     diag.get("module_count", 0),
                     diag.get("application_module_count", 0),
                 ),
+            )
+
+        # Clusters
+        for cluster in projection_data.get("clusters", []):
+            conn.execute(
+                """INSERT INTO analysis_clusters (
+                    cluster_id, analysis_id, suggested_label,
+                    member_keys_json, member_count
+                ) VALUES (?, ?, ?, ?, ?)""",
+                _cluster_to_row(analysis_id, cluster),
             )
 
     # ── 分页查询 ──────────────────────────────────────────────────
@@ -638,6 +675,18 @@ class AnalysisRunRepository:
             "application_module_count": row["application_module_count"],
         }
 
+    def list_clusters(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
+        """分页查询聚类。"""
+        return self._paginated_query(
+            "analysis_clusters",
+            analysis_id,
+            order="suggested_label ASC, cluster_id ASC",
+            cursor=cursor,
+            limit=limit,
+        )
+
     def get_counts(self, analysis_id: str) -> dict[str, int]:
         """返回各投影表的记录数（含 findings 表按 analysis_id 过滤）。"""
         counts: dict[str, int] = {}
@@ -647,6 +696,7 @@ class AnalysisRunRepository:
                 "analysis_call_nodes",
                 "analysis_call_edges",
                 "analysis_execution_flows",
+                "analysis_clusters",
             ):
                 row = conn.execute(
                     f"SELECT COUNT(*) AS cnt FROM {table} WHERE analysis_id = ?",
@@ -659,6 +709,21 @@ class AnalysisRunRepository:
                 (analysis_id,),
             ).fetchone()
             counts["findings"] = row["cnt"] if row else 0
+        return counts
+
+    def get_finding_severity_counts(self, analysis_id: str) -> dict[str, int]:
+        """返回 findings 按严重级别的分布（如 {"CRITICAL": 1, "HIGH": 3}）。"""
+        counts: dict[str, int] = {}
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                "SELECT severity, COUNT(*) AS cnt FROM findings "
+                "WHERE analysis_id = ? GROUP BY severity",
+                (analysis_id,),
+            ).fetchall()
+        for row in rows:
+            sev = row["severity"]
+            if isinstance(sev, str) and sev:
+                counts[sev] = row["cnt"]
         return counts
 
     # ── 内部辅助 ──────────────────────────────────────────────────

@@ -22,8 +22,8 @@
           <span class="diag-key">解析失败</span>
           <span class="diag-val" :class="{ warn: diagnostics.failedFileCount > 0 }">{{ diagnostics.failedFileCount }}</span>
         </div>
-        <div v-if="diagnostics.failedFiles.length" class="diag-sub">
-          <div v-for="f in diagnostics.failedFiles" :key="f" class="diag-failed-file mono">
+        <div v-if="(diagnostics.failedFiles ?? []).length" class="diag-sub">
+          <div v-for="f in (diagnostics.failedFiles ?? [])" :key="f" class="diag-failed-file mono">
             {{ f }}
           </div>
         </div>
@@ -69,13 +69,13 @@
           <span class="diag-key">模块数</span>
           <span class="diag-val">{{ diagnostics.moduleCount }}（应用: {{ diagnostics.applicationModuleCount }}）</span>
         </div>
-        <div v-if="diagnostics.classpathWarnings.length" class="diag-sub">
-          <div v-for="(w, i) in diagnostics.classpathWarnings" :key="i" class="diag-warn">
+        <div v-if="(diagnostics.classpathWarnings ?? []).length" class="diag-sub">
+          <div v-for="(w, i) in (diagnostics.classpathWarnings ?? [])" :key="i" class="diag-warn">
             {{ w }}
           </div>
         </div>
-        <div v-if="diagnostics.classpathErrors.length" class="diag-sub">
-          <div v-for="(e, i) in diagnostics.classpathErrors" :key="i" class="diag-err">
+        <div v-if="(diagnostics.classpathErrors ?? []).length" class="diag-sub">
+          <div v-for="(e, i) in (diagnostics.classpathErrors ?? [])" :key="i" class="diag-err">
             {{ e }}
           </div>
         </div>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -26,6 +27,8 @@ from argus_py.api.schemas.analysis import (
     CallGraphPageResponse,
     CallNodePageResponse,
     CallNodeResponse,
+    ClusterPageResponse,
+    ClusterResponse,
     CompletenessMetricsResponse,
     CompletenessResponse,
     DiagnosticsResponse,
@@ -34,6 +37,9 @@ from argus_py.api.schemas.analysis import (
     ExecutionFlowPageResponse,
     ExecutionFlowResponse,
     ExecutionFlowStepResponse,
+    FindingDetailResponse,
+    FindingPageResponse,
+    QualityIssueResponse,
     SourceLocationResponse,
 )
 from argus_py.core.enums import TaskStatus, TaskType
@@ -321,12 +327,17 @@ async def list_analysis_runs(
     summaries: list[AnalysisRunSummaryResponse] = []
     for run in runs:
         summary = _build_analysis_run_summary(run)
-        # 列表视图可选的按需补充计数
+        # 列表视图补充计数（资源数量 + 严重级别分布）
         counts = await run_in_thread(app.get_analysis_counts, run.analysis_id)
+        severity_counts = await run_in_thread(
+            app.get_analysis_finding_severity_counts, run.analysis_id
+        )
         summary.endpoint_count = counts.get("analysis_endpoints", 0)
         summary.call_graph_node_count = counts.get("analysis_call_nodes", 0)
         summary.execution_flow_count = counts.get("analysis_execution_flows", 0)
+        summary.cluster_count = counts.get("analysis_clusters", 0)
         summary.finding_count = counts.get("findings", 0)
+        summary.finding_severity_counts = severity_counts
         summaries.append(summary)
     return AnalysisRunListResponse(
         items=summaries,
@@ -350,17 +361,38 @@ async def get_analysis_run_summary(
         raise HTTPException(status_code=404, detail="Analysis run not found")
     counts = await run_in_thread(app.get_analysis_counts, analysis_id)
     diag = await run_in_thread(app.get_analysis_diagnostics, analysis_id)
-    metrics = CompletenessMetricsResponse(
-        eligible_source_files=diag.get("eligible_source_files", 0) if diag else 0,
-        parsed_source_files=diag.get("parsed_file_count", 0) if diag else 0,
-        total_calls=diag.get("total_calls", 0) if diag else 0,
-        resolved_calls=(
-            (diag.get("resolved_high", 0) + diag.get("resolved_medium", 0)) if diag else 0
-        ),
-    )
+    severity_counts = await run_in_thread(app.get_analysis_finding_severity_counts, analysis_id)
+
+    # 完整性指标
+    if diag:
+        metrics = CompletenessMetricsResponse(
+            eligible_source_files=diag.get("eligible_source_files", 0),
+            parsed_source_files=diag.get("parsed_file_count", 0),
+            total_calls=diag.get("total_calls", 0),
+            resolved_calls=(diag.get("resolved_high", 0) + diag.get("resolved_medium", 0)),
+        )
+    else:
+        metrics = CompletenessMetricsResponse(
+            eligible_source_files=0, parsed_source_files=0, total_calls=0, resolved_calls=0
+        )
+
+    # 质量缺陷（从 raw JSON 解析 quality_issues）
+    quality_issues: list[QualityIssueResponse] = []
+    if run.quality_issues:
+        quality_issues = [
+            QualityIssueResponse(
+                code=qi.code,
+                level=qi.level,
+                message=qi.message,
+                affected_count=qi.affected_count,
+                total_count=qi.total_count,
+            )
+            for qi in run.quality_issues
+        ]
+
     completeness = CompletenessResponse(
         status=run.completeness_status,
-        issues=[],
+        issues=quality_issues,
         metrics=metrics,
     )
     return AnalysisRunSummaryResponse(
@@ -378,8 +410,9 @@ async def get_analysis_run_summary(
         endpoint_count=counts.get("analysis_endpoints", 0),
         call_graph_node_count=counts.get("analysis_call_nodes", 0),
         execution_flow_count=counts.get("analysis_execution_flows", 0),
-        cluster_count=0,
+        cluster_count=counts.get("analysis_clusters", 0),
         finding_count=counts.get("findings", 0),
+        finding_severity_counts=severity_counts,
         created_at=run.created_at or "",
         started_at=run.started_at,
         completed_at=run.completed_at,
@@ -601,6 +634,78 @@ async def get_analysis_diagnostics(
         classpath_errors=diag["classpath_errors"],
         module_count=diag["module_count"],
         application_module_count=diag["application_module_count"],
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}/clusters",
+    response_model=ClusterPageResponse,
+)
+async def list_analysis_clusters(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> ClusterPageResponse:
+    """查询分析执行的功能聚类（按 analysis_id 分页）。"""
+    await _check_analysis_belongs(analysis_id, task_id, app)
+    items, next_cursor, total, has_more = await run_in_thread(
+        app.list_analysis_clusters, analysis_id, cursor=cursor, limit=limit
+    )
+    return ClusterPageResponse(
+        items=[
+            ClusterResponse(
+                cluster_id=item["cluster_id"],
+                suggested_label=item.get("suggested_label", ""),
+                member_keys=json.loads(item.get("member_keys_json") or "[]"),
+                member_count=item.get("member_count", 0),
+            )
+            for item in items
+        ],
+        next_cursor=next_cursor,
+        total=total,
+        has_more=has_more,
+    )
+
+
+@router.get(
+    "/{task_id}/analysis-runs/{analysis_id}/findings",
+    response_model=FindingPageResponse,
+)
+async def list_analysis_findings(
+    task_id: TaskIdPath,
+    analysis_id: str,
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> FindingPageResponse:
+    """查询分析执行的发现项（按 analysis_id 分页）。"""
+    await _check_analysis_belongs(analysis_id, task_id, app)
+    findings, next_cursor, total, has_more = await run_in_thread(
+        app.get_analysis_findings, analysis_id, cursor=cursor, limit=limit
+    )
+    return FindingPageResponse(
+        items=[
+            FindingDetailResponse(
+                finding_id=f.finding_id,
+                title=f.title,
+                description=f.description,
+                severity=f.severity.value,
+                finding_type=f.finding_type.value,
+                location=f.location,
+                rule_id=f.rule_id,
+                rule_category=f.rule_category,
+                confidence=f.confidence,
+                snippet=f.snippet,
+                analysis_id=f.analysis_id,
+                created_at=f.created_at.isoformat() if f.created_at else "",
+            )
+            for f in findings
+        ],
+        next_cursor=next_cursor,
+        total=total,
+        has_more=has_more,
     )
 
 

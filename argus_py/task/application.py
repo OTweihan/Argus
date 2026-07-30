@@ -454,6 +454,14 @@ class TaskApplicationService:
             return storage.list_analysis_execution_flows(analysis_id, cursor=cursor, limit=limit)
         return [], None, 0, False
 
+    def list_analysis_clusters(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[Any], str | None, int | None, bool]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_analysis_clusters(analysis_id, cursor=cursor, limit=limit)
+        return [], None, 0, False
+
     def get_analysis_diagnostics(self, analysis_id: str) -> dict[str, Any] | None:
         storage = self._read.storage
         if isinstance(storage, TaskSQLiteStorage):
@@ -466,8 +474,22 @@ class TaskApplicationService:
             return storage.get_analysis_counts(analysis_id)
         return {}
 
+    def get_analysis_finding_severity_counts(self, analysis_id: str) -> dict[str, int]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_analysis_finding_severity_counts(analysis_id)
+        return {}
+
     def get_analysis_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
         storage = self._read.storage
         if isinstance(storage, TaskSQLiteStorage):
             return storage.get_analysis_flow_steps(flow_id)
         return []
+
+    def get_analysis_findings(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[Any], str | None, int | None, bool]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_analysis_findings(analysis_id, cursor=cursor, limit=limit)
+        return [], None, 0, False

@@ -450,6 +450,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Analysis Clusters
+         * @description 查询分析执行的功能聚类（按 analysis_id 分页）。
+         */
+        get: operations["list_analysis_clusters_argus_api_tasks__task_id__analysis_runs__analysis_id__clusters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/tasks/{task_id}/analysis-runs/{analysis_id}/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Analysis Findings
+         * @description 查询分析执行的发现项（按 analysis_id 分页）。
+         */
+        get: operations["list_analysis_findings_argus_api_tasks__task_id__analysis_runs__analysis_id__findings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/argus/api/tasks/{task_id}/report": {
         parameters: {
             query?: never;
@@ -842,6 +882,31 @@ export interface components {
          * @enum {string}
          */
         ClasspathMode: "AUTO" | "CACHE_ONLY" | "MAVEN" | "SOURCE_ONLY";
+        /** ClusterPageResponse */
+        ClusterPageResponse: {
+            /** Items */
+            items: components["schemas"]["ClusterResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * ClusterResponse
+         * @description 功能聚类分组。
+         */
+        ClusterResponse: {
+            /** Clusterid */
+            clusterId: string;
+            /** Suggestedlabel */
+            suggestedLabel: string;
+            /** Memberkeys */
+            memberKeys: string[];
+            /** Membercount */
+            memberCount: number;
+        };
         /**
          * CompletenessMetricsResponse
          * @description 完整性指标。
@@ -1056,6 +1121,45 @@ export interface components {
             callNodeId?: string | null;
         };
         /**
+         * FindingDetailResponse
+         * @description 白盒分析发现项详情 — rule_id / rule_category / confidence / snippet。
+         */
+        FindingDetailResponse: {
+            /** Findingid */
+            findingId: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            severity: components["schemas"]["FindingSeverity"];
+            findingType: components["schemas"]["FindingType"];
+            /** Location */
+            location?: string | null;
+            /** Ruleid */
+            ruleId?: string | null;
+            /** Rulecategory */
+            ruleCategory?: string | null;
+            /** Confidence */
+            confidence?: string | null;
+            /** Snippet */
+            snippet?: string | null;
+            /** Analysisid */
+            analysisId?: string | null;
+            /** Createdat */
+            createdAt: string;
+        };
+        /** FindingPageResponse */
+        FindingPageResponse: {
+            /** Items */
+            items: components["schemas"]["FindingDetailResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
          * FindingResponse
          * @description 问题记录响应。
          */
@@ -1133,7 +1237,7 @@ export interface components {
         };
         /**
          * MavenConfigResponse
-         * @description Maven 配置响应 — 路径字段只返回是否已配置。
+         * @description Maven 配置响应 — 展示级脱敏（布尔标记）+ 编辑级真实值。
          */
         MavenConfigResponse: {
             /** Settingsconfigured */
@@ -1147,6 +1251,28 @@ export interface components {
             offline: boolean;
             /** Autodetect */
             autoDetect: boolean;
+            /** Settingsxml */
+            settingsXml?: string | null;
+            /** Localrepository */
+            localRepository?: string | null;
+            /** Executable */
+            executable?: string | null;
+            /** Classpathfile */
+            classpathFile?: string | null;
+            /**
+             * Generateclasspath
+             * @default true
+             */
+            generateClasspath: boolean;
+            /** Offlinetimeoutseconds */
+            offlineTimeoutSeconds?: number | null;
+            /** Onlinetimeoutseconds */
+            onlineTimeoutSeconds?: number | null;
+            /**
+             * Preparereactorartifacts
+             * @default false
+             */
+            prepareReactorArtifacts: boolean;
         };
         /**
          * MetricsResponse
@@ -1851,7 +1977,7 @@ export interface components {
         };
         /**
          * WhiteboxTaskConfigResponse
-         * @description 白盒配置响应（已脱敏）。
+         * @description 白盒配置响应（展示级脱敏 + 编辑级真实值）。
          */
         WhiteboxTaskConfigResponse: {
             sourceType: components["schemas"]["SourceType"];
@@ -1861,6 +1987,10 @@ export interface components {
             sourcePathDisplay?: string | null;
             /** Sourcepathconfigured */
             sourcePathConfigured: boolean;
+            /** Repourl */
+            repoUrl?: string | null;
+            /** Sourcepath */
+            sourcePath?: string | null;
             /** Ref */
             ref?: string | null;
             /**
@@ -2698,6 +2828,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosticsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_clusters_argus_api_tasks__task_id__analysis_runs__analysis_id__clusters_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_analysis_findings_argus_api_tasks__task_id__analysis_runs__analysis_id__findings_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindingPageResponse"];
                 };
             };
             /** @description Validation Error */

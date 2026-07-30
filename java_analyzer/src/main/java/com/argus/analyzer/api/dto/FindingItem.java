@@ -7,5 +7,7 @@ public record FindingItem(
     String description,
     String filePath,
     int lineNumber,
-    String snippet
+    String snippet,
+    String ruleCategory,
+    String analysisConfidence
 ) {}

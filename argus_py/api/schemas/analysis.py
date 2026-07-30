@@ -11,6 +11,7 @@ from argus_py.analysis.enums import (
     QualityIssueLevel,
 )
 from argus_py.api.schemas.base import ApiModel
+from argus_py.core.enums import FindingSeverity, FindingType
 
 # ════════════════════════════════════════════════════════════════
 # 通用结构
@@ -230,3 +231,53 @@ class DiagnosticsResponse(ApiModel):
     classpath_errors: list[str] = Field(default_factory=list, alias="classpathErrors")
     module_count: int = Field(alias="moduleCount")
     application_module_count: int = Field(alias="applicationModuleCount")
+
+
+# ════════════════════════════════════════════════════════════════
+# 发现项（按 analysis_id 分页查询）
+# ════════════════════════════════════════════════════════════════
+
+
+class FindingDetailResponse(ApiModel):
+    """白盒分析发现项详情 — rule_id / rule_category / confidence / snippet。"""
+
+    finding_id: str = Field(alias="findingId")
+    title: str
+    description: str
+    severity: FindingSeverity
+    finding_type: FindingType = Field(alias="findingType")
+    location: str | None = None
+    rule_id: str | None = Field(default=None, alias="ruleId")
+    rule_category: str | None = Field(default=None, alias="ruleCategory")
+    confidence: str | None = None
+    snippet: str | None = None
+    analysis_id: str | None = Field(default=None, alias="analysisId")
+    created_at: str = Field(alias="createdAt")
+
+
+class FindingPageResponse(ApiModel):
+    items: list[FindingDetailResponse]
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    total: int | None = None
+    has_more: bool = Field(alias="hasMore")
+
+
+# ════════════════════════════════════════════════════════════════
+# 功能聚类
+# ════════════════════════════════════════════════════════════════
+
+
+class ClusterResponse(ApiModel):
+    """功能聚类分组。"""
+
+    cluster_id: str = Field(alias="clusterId")
+    suggested_label: str = Field(alias="suggestedLabel")
+    member_keys: list[str] = Field(alias="memberKeys")
+    member_count: int = Field(alias="memberCount")
+
+
+class ClusterPageResponse(ApiModel):
+    items: list[ClusterResponse]
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    total: int | None = None
+    has_more: bool = Field(alias="hasMore")

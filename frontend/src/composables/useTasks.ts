@@ -411,7 +411,10 @@ export function useTasks(opts: {
         showTaskDialog.value = true;
     }
 
-    /** 从 Task.whiteboxConfigView 恢复白盒表单字段 */
+    /** 从 Task.whiteboxConfigView 恢复白盒表单字段。
+     *
+     * sourcePathDisplay / repoUrlDisplay 是展示用脱敏值（如 .../foo/bar），
+     * 编辑时必须使用 sourcePath / repoUrl 真实值，否则保存后真实路径被覆盖。 */
     function _restoreWhiteboxForm(task: Task): void {
         const view = task.whiteboxConfigView;
         if (!view || view.status !== "VALID" || !view.config) return;
@@ -419,17 +422,27 @@ export function useTasks(opts: {
         taskForm.taskType = "whitebox";
         Object.assign(taskForm.whitebox, {
             sourceType: (wc.sourceType as "git" | "local") || "local",
-            repoUrl: wc.repoUrlDisplay ?? "",
-            sourcePath: wc.sourcePathDisplay ?? "",
+            repoUrl: wc.repoUrl ?? "",
+            sourcePath: wc.sourcePath ?? "",
             ref: wc.ref ?? "",
             scope: wc.scope ?? "ALL",
             targetModules: wc.targetModules ?? [],
         });
         if (wc.maven) {
+            const m = wc.maven;
             Object.assign(taskForm.whitebox, {
-                mavenClasspathMode: wc.maven.classpathMode ?? "AUTO",
-                mavenOffline: wc.maven.offline ?? false,
-                mavenAutoDetect: wc.maven.autoDetect ?? true,
+                mavenClasspathMode: m.classpathMode ?? "AUTO",
+                mavenOffline: m.offline ?? false,
+                mavenAutoDetect: m.autoDetect ?? true,
+                // 高级字段：使用编辑级真实值
+                mavenGenerateClasspath: m.generateClasspath ?? true,
+                mavenClasspathFile: m.classpathFile ?? "",
+                mavenExecutable: m.executable ?? "",
+                mavenSettingsXml: m.settingsXml ?? "",
+                mavenLocalRepository: m.localRepository ?? "",
+                mavenOfflineTimeoutSeconds: m.offlineTimeoutSeconds ?? null,
+                mavenOnlineTimeoutSeconds: m.onlineTimeoutSeconds ?? null,
+                mavenPrepareReactorArtifacts: m.prepareReactorArtifacts ?? false,
             });
         }
     }

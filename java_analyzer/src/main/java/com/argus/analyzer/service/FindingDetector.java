@@ -63,7 +63,8 @@ public class FindingDetector {
                             "EMPTY_CATCH", "MEDIUM",
                             "空 catch 块",
                             "catch 块为空，异常被静默吞没",
-                            filePath, line, "catch (" + catchClause.getParameter().getType() + " ...) {}"
+                            filePath, line, "catch (" + catchClause.getParameter().getType() + " ...) {}",
+                            "ERROR_HANDLING", "HIGH"
                     ));
                 }
             }
@@ -79,7 +80,8 @@ public class FindingDetector {
                         "HARDCODED_URL", "LOW",
                         "硬编码 URL",
                         "URL 地址应抽取到配置文件中",
-                        filePath, line, "\"" + value + "\""
+                        filePath, line, "\"" + value + "\"",
+                        "SECURITY", "HIGH"
                 ));
             }
         }
@@ -95,7 +97,8 @@ public class FindingDetector {
                                 "SYSTEM_OUT", "INFO",
                                 "直接使用 System.out 输出",
                                 "应使用日志框架（SLF4J/Logback）替代 System.out",
-                                filePath, line, "System.out.println(...)"
+                                filePath, line, "System.out.println(...)",
+                                "CODE_STYLE", "HIGH"
                         ));
                     }
                 });
@@ -111,7 +114,8 @@ public class FindingDetector {
                         "PRINT_STACKTRACE", "INFO",
                         "直接调用 printStackTrace",
                         "应使用日志框架记录异常堆栈",
-                        filePath, line, "e.printStackTrace()"
+                        filePath, line, "e.printStackTrace()",
+                        "ERROR_HANDLING", "HIGH"
                 ));
             }
         }

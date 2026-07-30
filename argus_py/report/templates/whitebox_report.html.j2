@@ -449,13 +449,31 @@
                     <td><code>{{ finding.findingId }}</code></td>
                   </tr>
                   <tr>
+                    <th>规则 ID</th>
+                    <td><code>{{ finding.ruleId or "-" }}</code></td>
+                  </tr>
+                  <tr>
+                    <th>规则类别</th>
+                    <td>{{ finding.ruleCategory or "-" }}</td>
+                  </tr>
+                  <tr>
                     <th>类型</th>
                     <td>{{ finding.findingType }}</td>
+                  </tr>
+                  <tr>
+                    <th>置信度</th>
+                    <td>{{ finding.confidence or "-" }}</td>
                   </tr>
                   <tr>
                     <th>位置</th>
                     <td>{{ finding.location or "" }}</td>
                   </tr>
+                  {% if finding.snippet %}
+                  <tr>
+                    <th>代码片段</th>
+                    <td><pre class="snippet-block"><code>{{ finding.snippet }}</code></pre></td>
+                  </tr>
+                  {% endif %}
                   <tr>
                     <th>时间</th>
                     <td>{{ finding.createdAt | datetime_short }}</td>

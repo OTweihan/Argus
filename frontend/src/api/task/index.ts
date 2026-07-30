@@ -1,6 +1,7 @@
 import {request} from "../client";
 import type {TaskPayload} from "../types";
 import type {DashboardStats, LLMTraceRecord, ReportData, Task, TaskDisplayStatus, TaskListResponse, TaskStartResponse, TimelineEvent,} from "../../types";
+import type { components } from "../openapi.gen";
 
 export function listTasks(
     filters: {
@@ -77,38 +78,7 @@ export function getDashboardStats(recentLimit?: number): Promise<DashboardStats>
 
 // ── 白盒分析执行 ──────────────────────────────────────────
 
-export type AnalysisRunSummary = {
-    analysisId: string;
-    taskId: string;
-    sourceSnapshotId: string;
-    resolvedCommitSha?: string | null;
-    runStatus: string;
-    externalJobId?: string | null;
-    externalJobStatus?: string | null;
-    failureCode?: string | null;
-    failureMessage?: string | null;
-    stopReason?: string | null;
-    completeness: {
-        status: string;
-        issues: { code: string; level: string; message: string; affectedCount?: number | null; totalCount?: number | null }[];
-        metrics: {
-            eligibleSourceFiles: number;
-            parsedSourceFiles: number;
-            totalCalls: number;
-            resolvedCalls: number;
-        };
-    };
-    endpointCount: number;
-    callGraphNodeCount: number;
-    executionFlowCount: number;
-    clusterCount: number;
-    findingCount: number;
-    findingSeverityCounts: Record<string, number>;
-    createdAt: string;
-    startedAt?: string | null;
-    completedAt?: string | null;
-    projectionCompletedAt?: string | null;
-};
+export type AnalysisRunSummary = components["schemas"]["AnalysisRunSummaryResponse"];
 
 /** @deprecated Alias — use AnalysisRunSummary directly */
 export type AnalysisRunListItem = AnalysisRunSummary;
@@ -120,91 +90,17 @@ export interface PageResponse<T> {
     hasMore: boolean;
 }
 
-export interface EndpointInfo {
-    endpointId: string;
-    endpointFingerprint: string;
-    analysisId: string;
-    httpMethod: string;
-    normalizedPath: string;
-    normalizedPathTemplate: string;
-    isTemplated: boolean;
-    pathSegmentCount: number;
-    controllerClass?: string | null;
-    controllerMethod?: string | null;
-    parameters: string[];
-    returnType?: string | null;
-    sourceLocation?: {
-        filePath: string;
-        startLine: number;
-        startColumn?: number | null;
-        endLine?: number | null;
-        endColumn?: number | null;
-    } | null;
-    entryCallNodeId?: string | null;
-}
+export type EndpointInfo = components["schemas"]["EndpointResponse"];
 
-export interface CallNodeInfo {
-    callNodeId: string;
-    callNodeFingerprint: string;
-    className: string;
-    methodName: string;
-    methodSignature?: string | null;
-    sourceLocation?: {
-        filePath: string;
-        startLine: number;
-        startColumn?: number | null;
-        endLine?: number | null;
-        endColumn?: number | null;
-    } | null;
-    calleeCount: number;
-}
+export type CallNodeInfo = components["schemas"]["CallNodeResponse"];
 
-export interface CallEdgeInfo {
-    callEdgeId: string;
-    fromNodeId: string;
-    toNodeId: string;
-    toClassName?: string | null;
-    toMethodName?: string | null;
-    resolutionType: string;
-    confidence?: string | null;
-}
+export type CallEdgeInfo = components["schemas"]["CallEdgeResponse"];
 
-export interface ExecutionFlowStepInfo {
-    flowStepId: string;
-    stepIndex: number;
-    depth: number;
-    methodKey: string;
-    className?: string | null;
-    methodName?: string | null;
-    callNodeId?: string | null;
-}
+export type ExecutionFlowStepInfo = components["schemas"]["ExecutionFlowStepResponse"];
 
-export interface ExecutionFlowInfo {
-    executionFlowId: string;
-    entryPoint: string;
-    callDepth: number;
-    steps: ExecutionFlowStepInfo[];
-}
+export type ExecutionFlowInfo = components["schemas"]["ExecutionFlowResponse"];
 
-export interface DiagnosticsInfo {
-    totalSourceFiles: number;
-    eligibleSourceFiles: number;
-    parsedFileCount: number;
-    failedFileCount: number;
-    failedFiles: string[];
-    totalCalls: number;
-    resolvedHigh: number;
-    resolvedMedium: number;
-    resolvedLow: number;
-    unresolved: number;
-    classpathAvailable: boolean;
-    jarCount: number;
-    classpathSource?: string | null;
-    classpathWarnings: string[];
-    classpathErrors: string[];
-    moduleCount: number;
-    applicationModuleCount: number;
-}
+export type DiagnosticsInfo = components["schemas"]["DiagnosticsResponse"];
 
 export function listAnalysisRuns(
     taskId: string, offset?: number, limit?: number,
@@ -285,5 +181,43 @@ export function getAnalysisDiagnostics(
 ): Promise<DiagnosticsInfo> {
     return request<DiagnosticsInfo>(
         `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/diagnostics`,
+    );
+}
+
+// ── 发现项 ──
+
+export type FindingInfo = components["schemas"]["FindingDetailResponse"];
+
+export function listAnalysisFindings(
+    taskId: string,
+    analysisId: string,
+    cursor?: string | null,
+    limit?: number,
+): Promise<PageResponse<FindingInfo>> {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    if (limit !== undefined) params.set("limit", String(limit));
+    const query = params.toString();
+    return request<PageResponse<FindingInfo>>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/findings${query ? `?${query}` : ""}`,
+    );
+}
+
+// ── 功能聚类 ──
+
+export type ClusterInfo = components["schemas"]["ClusterResponse"];
+
+export function listAnalysisClusters(
+    taskId: string,
+    analysisId: string,
+    cursor?: string | null,
+    limit?: number,
+): Promise<PageResponse<ClusterInfo>> {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    if (limit !== undefined) params.set("limit", String(limit));
+    const query = params.toString();
+    return request<PageResponse<ClusterInfo>>(
+        `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/clusters${query ? `?${query}` : ""}`,
     );
 }

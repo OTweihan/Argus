@@ -10,7 +10,7 @@
         <line x1="10" y1="9" x2="10" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         <circle cx="10" cy="15.5" r="0.8" fill="currentColor" />
       </svg>
-      <svg v-else-if="status === 'FAILED' || status === 'UNAVAILABLE'" viewBox="0 0 20 20" fill="none" width="20" height="20">
+      <svg v-else-if="status === 'UNAVAILABLE'" viewBox="0 0 20 20" fill="none" width="20" height="20">
         <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.4" />
         <path d="M7 7l6 6M13 7l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
       </svg>
@@ -48,7 +48,7 @@ const STATUS_TITLES: Record<string, string> = {
 const bannerTitle = computed(() => STATUS_TITLES[status.value] || status.value);
 
 const reasons = computed(() =>
-  props.summary.completeness.issues.map((i) =>
+  (props.summary.completeness.issues ?? []).map((i) =>
     `${i.code}: ${i.message}`,
   ),
 );
@@ -57,7 +57,6 @@ const bannerClass = computed(() => {
   switch (status.value) {
     case "COMPLETE": return "banner-ok";
     case "DEGRADED": return "banner-warn";
-    case "FAILED":
     case "UNAVAILABLE": return "banner-err";
     default: return "banner-muted";
   }

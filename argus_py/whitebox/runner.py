@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
 
-from argus_py.analysis.enums import CompletenessStatus, QualityIssueCode
+from argus_py.analysis.enums import CompletenessStatus, QualityIssueCode, QualityIssueLevel
 from argus_py.core.constants import utc_now
 from argus_py.core.enums import FindingSeverity, FindingType, TaskStatus
 from argus_py.observability.context import run_in_thread
@@ -740,19 +740,22 @@ def _map_findings(
 # ── 分析结果持久化 ──────────────────────────────────────────────────────────
 
 
-def _build_projection_data(result: WhiteboxResult) -> dict[str, Any]:
+def _build_projection_data(result: WhiteboxResult, *, analysis_id: str) -> dict[str, Any]:
     """从 WhiteboxResult 构造结构化投影数据（供 complete_projection 使用）。
 
-    实体 ID 使用简化的确定性拼接，保证同一 analysis 内的唯一引用。
+    实体 ID 以 analysis_id 为前缀，确保跨分析的全局唯一性，
+    避免不同分析对相同代码生成相同 ID 时 INSERT OR REPLACE 覆盖旧记录。
     注：完整的 UUID v5 确定性 ID（基于 fingerprint）在 Java 端提供
     endpoint_fingerprint / call_node_fingerprint 后再迁移。
     """
+    aid = analysis_id
+
     # CallNode
     call_nodes: list[dict[str, Any]] = []
     for key, node in result.call_graph.nodes.items():
         call_nodes.append(
             {
-                "call_node_id": f"cn:{key}",
+                "call_node_id": f"{aid}:cn:{key}",
                 "call_node_fingerprint": f"fp:cn:{key}",
                 "class_name": node.class_name,
                 "method_name": node.method_name,
@@ -774,9 +777,9 @@ def _build_projection_data(result: WhiteboxResult) -> dict[str, Any]:
                 continue
             call_edges.append(
                 {
-                    "call_edge_id": f"ce:{key}:{i}",
-                    "from_node_id": f"cn:{key}",
-                    "to_node_id": f"cn:{edge.to}",
+                    "call_edge_id": f"{aid}:ce:{key}:{i}",
+                    "from_node_id": f"{aid}:cn:{key}",
+                    "to_node_id": f"{aid}:cn:{edge.to}",
                     "to_class_name": edge.type_name or None,
                     "to_method_name": edge.method_name or None,
                     "resolution_type": edge.resolution_type,
@@ -793,7 +796,7 @@ def _build_projection_data(result: WhiteboxResult) -> dict[str, Any]:
     execution_flows: list[dict[str, Any]] = []
     flow_steps: list[dict[str, Any]] = []
     for flow in result.execution_flows:
-        fid = f"ef:{flow.entry_point}"
+        fid = f"{aid}:ef:{flow.entry_point}"
         execution_flows.append(
             {
                 "execution_flow_id": fid,
@@ -814,7 +817,7 @@ def _build_projection_data(result: WhiteboxResult) -> dict[str, Any]:
                     "method_key": step.method_key,
                     "class_name": step.class_name or None,
                     "method_name": step.method_name or None,
-                    "call_node_id": f"cn:{step.method_key}",
+                    "call_node_id": f"{aid}:cn:{step.method_key}",
                 }
             )
 
@@ -823,7 +826,7 @@ def _build_projection_data(result: WhiteboxResult) -> dict[str, Any]:
     for ep in result.endpoints:
         endpoints.append(
             {
-                "endpoint_id": f"ep:{ep.http_method}:{ep.path}",
+                "endpoint_id": f"{aid}:ep:{ep.http_method}:{ep.path}",
                 "endpoint_fingerprint": f"fp:{ep.http_method}:{ep.path}",
                 "http_method": ep.http_method,
                 "raw_path": ep.path,
@@ -870,12 +873,25 @@ def _build_projection_data(result: WhiteboxResult) -> dict[str, Any]:
             "application_module_count": diag.application_module_count,
         }
 
+    # Clusters
+    clusters: list[dict[str, Any]] = []
+    for c in result.clusters:
+        clusters.append(
+            {
+                "cluster_id": f"{aid}:cl:{c.cluster_id}",
+                "suggested_label": c.suggested_label or "",
+                "member_keys": c.member_keys or [],
+                "member_count": c.member_count,
+            }
+        )
+
     return {
         "call_nodes": call_nodes,
         "call_edges": call_edges,
         "execution_flows": execution_flows,
         "flow_steps": flow_steps,
         "endpoints": endpoints,
+        "clusters": clusters,
         "diagnostics": diagnostics,
     }
 
@@ -901,29 +917,71 @@ async def _persist_analysis_result(
 
     # 评估完整性
     diag = result.diagnostics
-    issues_json = "[]"
-    completeness = CompletenessStatus.COMPLETE.value
-    if diag:
+    quality_issues: list[dict[str, Any]] = []
+    if diag is None:
+        # Java 未返回 diagnostics → 无法评估，标记 NOT_EVALUATED
+        completeness = CompletenessStatus.NOT_EVALUATED.value
+    else:
+        completeness = CompletenessStatus.COMPLETE.value
+
         if diag.total_source_files == 0:
             completeness = CompletenessStatus.UNAVAILABLE.value
-            issues_json = json.dumps(
-                [
-                    {
-                        "code": QualityIssueCode.NO_ELIGIBLE_SOURCE_FILES.value,
-                        "level": "ERROR",
-                        "message": "无可分析源文件",
-                        "affectedCount": 0,
-                        "totalCount": 0,
-                    }
-                ]
+            quality_issues.append(
+                {
+                    "code": QualityIssueCode.NO_ELIGIBLE_SOURCE_FILES.value,
+                    "level": QualityIssueLevel.ERROR.value,
+                    "message": "无可分析源文件",
+                    "affectedCount": 0,
+                    "totalCount": 0,
+                }
             )
-        elif diag.parsed_file_count < diag.total_source_files:
-            completeness = CompletenessStatus.DEGRADED.value
-        elif not diag.classpath_available:
-            completeness = CompletenessStatus.DEGRADED.value
+        else:
+            if diag.failed_file_count > 0:
+                completeness = CompletenessStatus.DEGRADED.value
+                quality_issues.append(
+                    {
+                        "code": QualityIssueCode.MODULE_PARSE_PARTIAL_FAILURE.value,
+                        "level": QualityIssueLevel.WARNING.value,
+                        "message": (
+                            f"源文件解析部分失败: "
+                            f"{diag.parsed_file_count}/{diag.total_source_files} 成功, "
+                            f"{diag.failed_file_count} 失败"
+                        ),
+                        "affectedCount": diag.failed_file_count,
+                        "totalCount": diag.total_source_files,
+                    }
+                )
+            if not diag.classpath_available:
+                completeness = CompletenessStatus.DEGRADED.value
+                quality_issues.append(
+                    {
+                        "code": QualityIssueCode.CLASSPATH_UNAVAILABLE.value,
+                        "level": QualityIssueLevel.WARNING.value,
+                        "message": "Classpath 不可用，调用解析降级为源码分析",
+                        "affectedCount": diag.total_calls,
+                        "totalCount": diag.total_calls,
+                    }
+                )
+            elif diag.resolved_high + diag.resolved_medium < diag.total_calls:
+                completeness = CompletenessStatus.DEGRADED.value
+                quality_issues.append(
+                    {
+                        "code": QualityIssueCode.CALL_RESOLUTION_LOW.value,
+                        "level": QualityIssueLevel.WARNING.value,
+                        "message": (
+                            f"调用解析置信度偏低: "
+                            f"高 {diag.resolved_high}, 中 {diag.resolved_medium}, "
+                            f"低 {diag.resolved_low}, 未解析 {diag.unresolved}"
+                        ),
+                        "affectedCount": diag.resolved_low + diag.unresolved,
+                        "totalCount": diag.total_calls,
+                    }
+                )
+
+    issues_json = json.dumps(quality_issues, ensure_ascii=False)
 
     # 事务 2：投影写入 + 标记 SUCCEEDED
-    projection_data = _build_projection_data(result)
+    projection_data = _build_projection_data(result, analysis_id=analysis_id)
     await run_in_thread(
         lifecycle.complete_analysis_projection,
         analysis_id,
@@ -965,7 +1023,10 @@ def _serialize_whitebox_result(
     finding_count: int,
     scope: str,
 ) -> dict:
-    """将 WhiteboxResult 序列化为可 JSON 序列化的字典（供报告模板使用）。"""
+    """将 WhiteboxResult 序列化为可 JSON 序列化的字典（供报告模板和审计留存使用）。
+
+    序列化全部结果数据（endpoints / callGraph / executionFlows / clusters /
+    diagnostics / findings / summary），确保 raw_result_json 作为完整的审计数据源。"""
     return {
         "endpoints": [
             {
@@ -1023,6 +1084,20 @@ def _serialize_whitebox_result(
                 "memberCount": c.member_count,
             }
             for c in result.clusters
+        ],
+        "findings": [
+            {
+                "ruleId": f.rule_id,
+                "severity": f.severity,
+                "title": f.title,
+                "description": f.description,
+                "filePath": f.file_path,
+                "lineNumber": f.line_number,
+                "snippet": f.snippet,
+                "ruleCategory": f.rule_category,
+                "analysisConfidence": f.analysis_confidence,
+            }
+            for f in result.findings
         ],
         "diagnostics": (
             {

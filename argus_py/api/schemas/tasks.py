@@ -171,23 +171,37 @@ class ConfigStatus(str, Enum):
 
 
 class MavenConfigResponse(ApiModel):
-    """Maven 配置响应 — 路径字段只返回是否已配置。"""
+    """Maven 配置响应 — 展示级脱敏（布尔标记）+ 编辑级真实值。"""
 
+    # 展示级
     settings_configured: bool = Field(alias="settingsConfigured")
     local_repo_configured: bool = Field(alias="localRepoConfigured")
     executable_configured: bool = Field(alias="executableConfigured")
     classpath_mode: ClasspathMode = Field(alias="classpathMode")
     offline: bool
     auto_detect: bool = Field(alias="autoDetect")
+    # 编辑级真实值（用户编辑表单时需要看到完整路径）
+    settings_xml: str | None = Field(default=None, alias="settingsXml")
+    local_repository: str | None = Field(default=None, alias="localRepository")
+    executable: str | None = None
+    classpath_file: str | None = Field(default=None, alias="classpathFile")
+    generate_classpath: bool = Field(default=True, alias="generateClasspath")
+    offline_timeout_seconds: int | None = Field(default=None, alias="offlineTimeoutSeconds")
+    online_timeout_seconds: int | None = Field(default=None, alias="onlineTimeoutSeconds")
+    prepare_reactor_artifacts: bool = Field(default=False, alias="prepareReactorArtifacts")
 
 
 class WhiteboxTaskConfigResponse(ApiModel):
-    """白盒配置响应（已脱敏）。"""
+    """白盒配置响应（展示级脱敏 + 编辑级真实值）。"""
 
     source_type: SourceType = Field(alias="sourceType")
+    # 展示级
     repo_url_display: str | None = Field(default=None, alias="repoUrlDisplay")
     source_path_display: str | None = Field(default=None, alias="sourcePathDisplay")
     source_path_configured: bool = Field(alias="sourcePathConfigured")
+    # 编辑级真实值
+    repo_url: str | None = Field(default=None, alias="repoUrl")
+    source_path: str | None = Field(default=None, alias="sourcePath")
     ref: str | None = None
     scope: str = "ALL"
     target_modules: list[str] = Field(default_factory=list, alias="targetModules")
@@ -203,7 +217,12 @@ class WhiteboxConfigViewResponse(ApiModel):
 
 
 def _build_whitebox_config_view(task: Task) -> dict[str, Any] | None:
-    """从 Task 实体构造脱敏白盒配置视图。"""
+    """从 Task 实体构造脱敏白盒配置视图。
+
+    同时返回展示级脱敏值（display）和编辑级真实值，供不同 UI 场景使用：
+    - Display: sourcePathDisplay / repoUrlDisplay — TaskDetail 详情展示
+    - Edit: sourcePath / repoUrl — TaskFormDialog 编辑表单回填
+    """
     if task.task_type != TaskType.WHITEBOX:
         return None
     raw = task.whitebox_config_json
@@ -213,18 +232,20 @@ def _build_whitebox_config_view(task: Task) -> dict[str, Any] | None:
         data = json.loads(raw)
     except Exception:
         return {"status": ConfigStatus.INVALID, "config": None, "errorCode": "PARSE_ERROR"}
+    source_path = data.get("source_path")
     return {
         "status": ConfigStatus.VALID,
         "config": {
             "sourceType": data.get("source_type") or "local",
+            # 展示级
             "repoUrlDisplay": (
                 _redact_repo_url(task.source_repo_url) if task.source_repo_url else None
             ),
-            "sourcePathDisplay": (
-                _redact_path(source_path) if (source_path := data.get("source_path")) else None
-            ),
-            # source_path 为 "" 或 key 缺失均视为未配置
-            "sourcePathConfigured": bool(data.get("source_path")),
+            "sourcePathDisplay": (_redact_path(source_path) if source_path else None),
+            "sourcePathConfigured": bool(source_path),
+            # 编辑级真实值
+            "repoUrl": task.source_repo_url or data.get("repo_url"),
+            "sourcePath": source_path,
             "ref": data.get("ref"),
             "scope": data.get("scope", "ALL"),
             "targetModules": data.get("target_modules", []),
@@ -236,12 +257,22 @@ def _build_whitebox_config_view(task: Task) -> dict[str, Any] | None:
 
 def _build_maven_config_view(maven: dict[str, Any]) -> dict[str, Any]:
     return {
+        # 展示级
         "settingsConfigured": bool(maven.get("settings_xml")),
         "localRepoConfigured": bool(maven.get("local_repository")),
         "executableConfigured": bool(maven.get("executable")),
         "classpathMode": maven.get("classpath_mode", "AUTO"),
         "offline": bool(maven.get("offline", False)),
         "autoDetect": maven.get("auto_detect", True),
+        # 编辑级真实值
+        "settingsXml": maven.get("settings_xml"),
+        "localRepository": maven.get("local_repository"),
+        "executable": maven.get("executable"),
+        "classpathFile": maven.get("classpath_file"),
+        "generateClasspath": maven.get("generate_classpath", True),
+        "offlineTimeoutSeconds": maven.get("offline_timeout_seconds"),
+        "onlineTimeoutSeconds": maven.get("online_timeout_seconds"),
+        "prepareReactorArtifacts": maven.get("prepare_reactor_artifacts", False),
     }
 
 

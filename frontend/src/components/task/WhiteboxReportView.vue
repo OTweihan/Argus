@@ -51,6 +51,24 @@
         <el-tab-pane lazy label="诊断" name="diagnostics">
           <DiagnosticsPanel :diagnostics="diagnostics" />
         </el-tab-pane>
+        <el-tab-pane lazy label="聚类" name="clusters">
+          <ClusterList
+            :items="clusterItems"
+            :total="clusterTotal"
+            :has-more="clusterHasMore"
+            :loading="clusterLoading"
+            @load-more="loadMoreClusters"
+          />
+        </el-tab-pane>
+        <el-tab-pane lazy label="发现项" name="findings">
+          <FindingList
+            :items="findingItems"
+            :total="findingTotal"
+            :has-more="findingHasMore"
+            :loading="findingLoading"
+            @load-more="loadMoreFindings"
+          />
+        </el-tab-pane>
       </el-tabs>
     </template>
     <el-empty v-else description="暂无分析执行数据，请先启动白盒任务" />
@@ -63,17 +81,21 @@ import type {
   AnalysisRunSummary,
   CallEdgeInfo,
   CallNodeInfo,
+  ClusterInfo,
   DiagnosticsInfo,
   EndpointInfo,
   ExecutionFlowInfo,
+  FindingInfo,
 } from "../../api/task";
 import {
   getAnalysisDiagnostics,
   getAnalysisRunSummary,
   listAnalysisCallEdges,
   listAnalysisCallNodes,
+  listAnalysisClusters,
   listAnalysisEndpoints,
   listAnalysisExecutionFlows,
+  listAnalysisFindings,
   listAnalysisRuns,
 } from "../../api/task";
 import { errorMessage } from "../../utils";
@@ -85,6 +107,8 @@ import EndpointList from "./whitebox/EndpointList.vue";
 import CallGraphViewer from "./whitebox/CallGraphViewer.vue";
 import ExecutionFlowList from "./whitebox/ExecutionFlowList.vue";
 import DiagnosticsPanel from "./whitebox/DiagnosticsPanel.vue";
+import ClusterList from "./whitebox/ClusterList.vue";
+import FindingList from "./whitebox/FindingList.vue";
 
 const props = defineProps<{ taskId: string }>();
 
@@ -107,7 +131,8 @@ const subTab = ref("overview");
       const succeeded = page.items.find((r: AnalysisRunSummary) => r.runStatus === "SUCCEEDED");
       const selected = running || succeeded || page.items[0];
       analysisId.value = selected.analysisId;
-      summary.value = selected;
+      // 列表项不含 completeness 指标，必须请求详情接口
+      summary.value = await getAnalysisRunSummary(props.taskId, selected.analysisId);
     }
   } catch (e) {
     error.value = errorMessage(e);
@@ -119,12 +144,8 @@ const subTab = ref("overview");
 async function onSelectRun(aid: string): Promise<void> {
   analysisId.value = aid;
   resetSubResources();
-  // 从 runs 中查找，无需再请求 summary 接口
-  const found = runs.value.find((r: AnalysisRunSummary) => r.analysisId === aid);
-  if (found) {
-    summary.value = found;
-    return;
-  }
+  // 始终调用详情接口获取完整的 completeness/severity/metrics 数据，
+  // 列表接口只返回计数和严重级别分布，不含完整性指标与质量问题。
   loading.value = true;
   try {
     summary.value = await getAnalysisRunSummary(props.taskId, aid);
@@ -278,12 +299,84 @@ function resetSubResources(): void {
   callNodeItems.value = [];
   calleeItems.value = [];
   flowItems.value = [];
+  findingItems.value = [];
+  clusterItems.value = [];
   diagnostics.value = null;
   selectedCallNodeId.value = null;
   diagLoaded = false;
   endpointCursor = null;
   callNodeCursor = null;
   flowCursor = null;
+  findingCursor = null;
+  clusterCursor = null;
+}
+
+// Findings
+const findingItems = ref<FindingInfo[]>([]);
+const findingTotal = ref<number | null>(null);
+const findingHasMore = ref(false);
+const findingLoading = ref(false);
+let findingCursor: string | null = null;
+
+async function loadFindings(): Promise<void> {
+  if (!analysisId.value) return;
+  findingLoading.value = true;
+  try {
+    const page = await listAnalysisFindings(props.taskId, analysisId.value, null, 50);
+    findingItems.value = page.items;
+    findingTotal.value = page.total ?? null;
+    findingHasMore.value = page.hasMore;
+    findingCursor = page.nextCursor ?? null;
+  } finally {
+    findingLoading.value = false;
+  }
+}
+
+async function loadMoreFindings(): Promise<void> {
+  if (!analysisId.value || !findingCursor) return;
+  findingLoading.value = true;
+  try {
+    const page = await listAnalysisFindings(props.taskId, analysisId.value, findingCursor, 50);
+    findingItems.value.push(...page.items);
+    findingHasMore.value = page.hasMore;
+    findingCursor = page.nextCursor ?? null;
+  } finally {
+    findingLoading.value = false;
+  }
+}
+
+// Clusters (lazy load on tab switch)
+const clusterItems = ref<ClusterInfo[]>([]);
+const clusterTotal = ref<number | null>(null);
+const clusterHasMore = ref(false);
+const clusterLoading = ref(false);
+let clusterCursor: string | null = null;
+
+async function loadClusters(): Promise<void> {
+  if (!analysisId.value) return;
+  clusterLoading.value = true;
+  try {
+    const page = await listAnalysisClusters(props.taskId, analysisId.value, null, 50);
+    clusterItems.value = page.items;
+    clusterTotal.value = page.total ?? null;
+    clusterHasMore.value = page.hasMore;
+    clusterCursor = page.nextCursor ?? null;
+  } finally {
+    clusterLoading.value = false;
+  }
+}
+
+async function loadMoreClusters(): Promise<void> {
+  if (!analysisId.value || !clusterCursor) return;
+  clusterLoading.value = true;
+  try {
+    const page = await listAnalysisClusters(props.taskId, analysisId.value, clusterCursor, 50);
+    clusterItems.value.push(...page.items);
+    clusterHasMore.value = page.hasMore;
+    clusterCursor = page.nextCursor ?? null;
+  } finally {
+    clusterLoading.value = false;
+  }
 }
 
 // Watch analysisId → load sub-resources
@@ -292,11 +385,17 @@ watch(analysisId, (aid) => {
   loadEndpoints();
   loadCallNodes();
   loadFlows();
+  // 若当前已停留在诊断/发现项/聚类 Tab，切换 run 时同步刷新
+  if (subTab.value === "diagnostics") loadDiagnostics();
+  if (subTab.value === "findings") loadFindings();
+  if (subTab.value === "clusters") loadClusters();
 });
 
-// Watch subTab → lazy load diagnostics
+// Watch subTab → lazy load diagnostics / findings / clusters
 watch(subTab, (tab) => {
   if (tab === "diagnostics") loadDiagnostics();
+  if (tab === "findings") loadFindings();
+  if (tab === "clusters") loadClusters();
 });
 </script>
 

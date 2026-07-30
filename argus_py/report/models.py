@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from argus_py.core.constants import utc_now
+from argus_py.core.enums import TaskType
 from argus_py.core.ids import generate_report_id
 from argus_py.task.models import Finding, Task, TaskLog
 
@@ -25,8 +26,13 @@ class Report:
     @classmethod
     def from_task(cls, task: Task, summary: str = "") -> "Report":
         """根据任务生成报告对象。"""
+        if task.task_type == TaskType.WHITEBOX:
+            title = "Argus 白盒分析报告"
+        else:
+            title = "Argus 黑盒测试报告"
         return cls(
             task=task,
+            title=title,
             summary=summary or task.result_summary or "",
             steps=task.logs,
             findings=task.findings,

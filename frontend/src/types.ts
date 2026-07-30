@@ -31,6 +31,8 @@ export type Task = Omit<components["schemas"]["TaskResponse"], "logs" | "finding
             repoUrlDisplay?: string | null;
             sourcePathDisplay?: string | null;
             sourcePathConfigured?: boolean;
+            repoUrl?: string | null;
+            sourcePath?: string | null;
             ref?: string | null;
             scope?: string;
             targetModules?: string[];
@@ -41,6 +43,14 @@ export type Task = Omit<components["schemas"]["TaskResponse"], "logs" | "finding
                 classpathMode?: string;
                 offline?: boolean;
                 autoDetect?: boolean;
+                settingsXml?: string | null;
+                localRepository?: string | null;
+                executable?: string | null;
+                classpathFile?: string | null;
+                generateClasspath?: boolean;
+                offlineTimeoutSeconds?: number | null;
+                onlineTimeoutSeconds?: number | null;
+                prepareReactorArtifacts?: boolean;
             } | null;
         } | null;
         errorCode?: string | null;

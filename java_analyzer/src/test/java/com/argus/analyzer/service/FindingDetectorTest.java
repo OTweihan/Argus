@@ -41,7 +41,11 @@ class FindingDetectorTest {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
                 .filteredOn(f -> "EMPTY_CATCH".equals(f.ruleId()))
-                .isNotEmpty();
+                .isNotEmpty()
+                .allSatisfy(f -> {
+                    assertThat(f.ruleCategory()).isEqualTo("ERROR_HANDLING");
+                    assertThat(f.analysisConfidence()).isEqualTo("HIGH");
+                });
     }
 
     @Test
@@ -49,7 +53,11 @@ class FindingDetectorTest {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
                 .filteredOn(f -> "HARDCODED_URL".equals(f.ruleId()))
-                .isNotEmpty();
+                .isNotEmpty()
+                .allSatisfy(f -> {
+                    assertThat(f.ruleCategory()).isEqualTo("SECURITY");
+                    assertThat(f.analysisConfidence()).isEqualTo("HIGH");
+                });
     }
 
     @Test
@@ -57,7 +65,11 @@ class FindingDetectorTest {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
                 .filteredOn(f -> "SYSTEM_OUT".equals(f.ruleId()))
-                .isNotEmpty();
+                .isNotEmpty()
+                .allSatisfy(f -> {
+                    assertThat(f.ruleCategory()).isEqualTo("CODE_STYLE");
+                    assertThat(f.analysisConfidence()).isEqualTo("HIGH");
+                });
     }
 
     @Test
@@ -65,7 +77,11 @@ class FindingDetectorTest {
         List<FindingItem> findings = detector.detect(tempDir);
         assertThat(findings)
                 .filteredOn(f -> "PRINT_STACKTRACE".equals(f.ruleId()))
-                .isNotEmpty();
+                .isNotEmpty()
+                .allSatisfy(f -> {
+                    assertThat(f.ruleCategory()).isEqualTo("ERROR_HANDLING");
+                    assertThat(f.analysisConfidence()).isEqualTo("HIGH");
+                });
     }
 
     private void createTestFiles(Path root) throws IOException {

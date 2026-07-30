@@ -172,6 +172,12 @@ class TaskSQLiteStorage:
         """返回 findings 表总记录数（供仪表盘统计）。"""
         return self._findings.count_all()
 
+    def get_analysis_findings(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[Finding], str | None, int | None, bool]:
+        """按 analysis_id 分页查询发现项。"""
+        return self._findings.list_by_analysis_id(analysis_id, cursor=cursor, limit=limit)
+
     # ── 时间线事件 ────────────────────────────────────────────
 
     def append_event(self, event: Any) -> None:
@@ -281,3 +287,11 @@ class TaskSQLiteStorage:
 
     def get_analysis_counts(self, analysis_id: str) -> dict[str, int]:
         return self._analysis.get_counts(analysis_id)
+
+    def list_analysis_clusters(
+        self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
+    ) -> tuple[list[Any], str | None, int | None, bool]:
+        return self._analysis.list_clusters(analysis_id, cursor=cursor, limit=limit)
+
+    def get_analysis_finding_severity_counts(self, analysis_id: str) -> dict[str, int]:
+        return self._analysis.get_finding_severity_counts(analysis_id)
