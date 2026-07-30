@@ -203,6 +203,7 @@ class WhiteboxRunner:
                 self._lifecycle,
                 analysis_id,
                 result,
+                scope=exec_config.scope,
             )
 
             await self._safe_emit_terminal(
@@ -855,6 +856,9 @@ def _build_projection_data(result: WhiteboxResult, *, analysis_id: str) -> dict[
     if diag:
         diagnostics = {
             "total_source_files": diag.total_source_files,
+            # Java 端 SourceFileScanner 的 totalFiles 已经过滤为可扫描 .java 文件，
+            # 当前 eligible_source_files 与 total_source_files 等价。
+            # 待 Java 端新增 eligibleSourceFiles 字段（排除测试/生成代码等）后区分。
             "eligible_source_files": diag.total_source_files,
             "parsed_file_count": diag.parsed_file_count,
             "failed_file_count": diag.failed_file_count,
@@ -900,11 +904,13 @@ async def _persist_analysis_result(
     lifecycle: TaskLifecycleService,
     analysis_id: str,
     result: WhiteboxResult,
+    *,
+    scope: str = "",
 ) -> None:
     """将 Java 原始结果映射到结构化投影表（方案事务 1 + 2）。"""
     # 事务 1：独立持久化 Java 原始响应（审计留存）
     raw_json = json.dumps(
-        _serialize_whitebox_result(result, len(result.endpoints), len(result.findings), ""),
+        _serialize_whitebox_result(result, len(result.endpoints), len(result.findings), scope),
         ensure_ascii=False,
     )
     result_digest = sha256(raw_json.encode()).hexdigest()
@@ -960,6 +966,19 @@ async def _persist_analysis_result(
                         "message": "Classpath 不可用，调用解析降级为源码分析",
                         "affectedCount": diag.total_calls,
                         "totalCount": diag.total_calls,
+                    }
+                )
+            elif diag.classpath_errors:
+                completeness = CompletenessStatus.DEGRADED.value
+                quality_issues.append(
+                    {
+                        "code": QualityIssueCode.CLASSPATH_DEGRADED.value,
+                        "level": QualityIssueLevel.WARNING.value,
+                        "message": (
+                            f"Classpath 部分解析失败: {len(diag.classpath_errors)} 个 JAR 不可用"
+                        ),
+                        "affectedCount": len(diag.classpath_errors),
+                        "totalCount": diag.jar_count,
                     }
                 )
             elif diag.resolved_high + diag.resolved_medium < diag.total_calls:

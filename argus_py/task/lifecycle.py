@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from argus_py.core.cancellation import CancellationToken
-from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S
+from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S, utc_now
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.observability import audit
@@ -349,7 +349,9 @@ class TaskLifecycleService(_StorageEventBase):
         """分析执行：QUEUED → SUBMITTING → RUNNING。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             self.storage.update_analysis_run_status(analysis_id, "SUBMITTING")
-            self.storage.update_analysis_run_status(analysis_id, "RUNNING")
+            self.storage.update_analysis_run_status(
+                analysis_id, "RUNNING", started_at=utc_now().isoformat()
+            )
 
     def save_analysis_raw_result(self, analysis_id: str, raw_json: str, digest: str) -> None:
         """事务 1：独立保存 Java 原始响应（审计留存）。"""

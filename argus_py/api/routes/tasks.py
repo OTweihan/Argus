@@ -356,9 +356,7 @@ async def get_analysis_run_summary(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> AnalysisRunSummaryResponse:
     """获取单次分析执行的摘要（含完整性结论和各类 count）。"""
-    run = await run_in_thread(app.get_analysis_run, analysis_id)
-    if run is None or run.task_id != task_id:
-        raise HTTPException(status_code=404, detail="Analysis run not found")
+    run = await _check_analysis_belongs(analysis_id, task_id, app)
     counts = await run_in_thread(app.get_analysis_counts, analysis_id)
     diag = await run_in_thread(app.get_analysis_diagnostics, analysis_id)
     severity_counts = await run_in_thread(app.get_analysis_finding_severity_counts, analysis_id)
@@ -713,17 +711,29 @@ async def _check_analysis_belongs(
     analysis_id: str,
     task_id: str,
     app: TaskApplicationService,
-) -> None:
-    """校验 analysis_run 属于指定 task_id。"""
+) -> Any:
+    """校验 analysis_run 属于指定 task_id，通过后返回 run 对象（供调用方复用）。"""
     run = await run_in_thread(app.get_analysis_run, analysis_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Analysis run not found")
     if run.task_id != task_id:
         raise HTTPException(status_code=404, detail="Analysis run not found")
+    return run
 
 
 def _build_analysis_run_summary(run: Any) -> AnalysisRunSummaryResponse:
-    """从 AnalysisRun 实体构造摘要响应（精简版，不做 DB 查询）。"""
+    """从 AnalysisRun 实体构造摘要响应（含 completeness.status + issues；metrics 为占位值，
+    调用方可补充 counts 和 diagnostics 指标）。"""
+    quality_issues: list[QualityIssueResponse] = [
+        QualityIssueResponse(
+            code=qi.code,
+            level=qi.level,
+            message=qi.message,
+            affected_count=qi.affected_count if qi.affected_count is not None else None,
+            total_count=qi.total_count if qi.total_count is not None else None,
+        )
+        for qi in (run.quality_issues or [])
+    ]
     return AnalysisRunSummaryResponse(
         analysis_id=run.analysis_id,
         task_id=run.task_id,
@@ -737,7 +747,7 @@ def _build_analysis_run_summary(run: Any) -> AnalysisRunSummaryResponse:
         stop_reason=run.stop_reason,
         completeness=CompletenessResponse(
             status=run.completeness_status,
-            issues=[],
+            issues=quality_issues,
             metrics=CompletenessMetricsResponse(
                 eligible_source_files=0,
                 parsed_source_files=0,
