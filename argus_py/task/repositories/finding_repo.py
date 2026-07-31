@@ -28,6 +28,14 @@ class FindingRepository:
                 finding_to_row(task_id, finding),
             )
 
+    def delete_by_analysis_id(self, analysis_id: str) -> None:
+        """删除指定分析执行的所有发现项（幂等清理，用于重新执行时避免累积）。"""
+        with self._pool.tx() as conn:
+            conn.execute(
+                "DELETE FROM findings WHERE analysis_id = ?",
+                (analysis_id,),
+            )
+
     def count_all(self) -> int:
         """返回所有任务的发现项总数（供仪表盘统计）。"""
         with self._pool.ro_conn() as conn:

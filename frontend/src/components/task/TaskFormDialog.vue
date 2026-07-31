@@ -178,13 +178,17 @@
 
         <el-form-item label="分析范围" required>
           <el-select v-model="localForm.whitebox.scope" style="width:100%">
-            <el-option label="全量分析" value="ALL" />
-            <el-option label="指定模块" value="MODULES" />
+            <el-option label="全量分析" value="all" />
+            <el-option label="指定模块" value="modules" />
+            <el-option label="仅端点提取" value="endpoints" />
+            <el-option label="仅调用关系" value="callgraph" />
+            <el-option label="调用关系 + 执行流" value="flows" />
+            <el-option label="调用关系 + 功能聚类" value="clusters" />
           </el-select>
         </el-form-item>
 
         <el-form-item
-          v-if="localForm.whitebox.scope === 'MODULES'"
+          v-if="localForm.whitebox.scope === 'modules'"
           label="目标模块" :error="formErrors.targetModules" required
         >
           <el-input
@@ -342,7 +346,7 @@ const localForm = reactive<TaskFormState>({
     repoUrl: "",
     sourcePath: "",
     ref: "",
-    scope: "ALL",
+    scope: "all",
     targetModules: [],
     mavenClasspathMode: "AUTO",
     mavenOffline: false,

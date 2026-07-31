@@ -1995,7 +1995,7 @@ export interface components {
             ref?: string | null;
             /**
              * Scope
-             * @default ALL
+             * @default all
              */
             scope: string;
             /** Targetmodules */

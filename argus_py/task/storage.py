@@ -168,6 +168,10 @@ class TaskSQLiteStorage:
     def append_finding(self, task_id: str, finding: Finding) -> None:
         self._findings.append(task_id, finding)
 
+    def delete_findings_by_analysis_id(self, analysis_id: str) -> None:
+        """删除指定分析执行的所有发现项（幂等清理）。"""
+        self._findings.delete_by_analysis_id(analysis_id)
+
     def count_findings(self) -> int:
         """返回 findings 表总记录数（供仪表盘统计）。"""
         return self._findings.count_all()

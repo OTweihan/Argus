@@ -166,7 +166,7 @@ function buildWhiteboxPayload(form: TaskFormState): TaskPayload {
             ref: form.whitebox.ref.trim() || null,
             scope: form.whitebox.scope,
             targetModules:
-                form.whitebox.scope === "MODULES"
+                form.whitebox.scope === "modules"
                     ? form.whitebox.targetModules.filter(Boolean)
                     : [],
             maven,
@@ -361,7 +361,7 @@ export function useTasks(opts: {
                 return;
             }
             if (
-                taskForm.whitebox.scope === "MODULES" &&
+                taskForm.whitebox.scope === "modules" &&
                 taskForm.whitebox.targetModules.filter(Boolean).length === 0
             ) {
                 formErrors.targetModules = "按模块分析时需指定至少一个目标模块";
@@ -425,7 +425,7 @@ export function useTasks(opts: {
             repoUrl: wc.repoUrl ?? "",
             sourcePath: wc.sourcePath ?? "",
             ref: wc.ref ?? "",
-            scope: wc.scope ?? "ALL",
+            scope: wc.scope ?? "all",
             targetModules: wc.targetModules ?? [],
         });
         if (wc.maven) {

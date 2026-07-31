@@ -385,8 +385,16 @@ class TaskLifecycleService(_StorageEventBase):
             self.storage.mark_analysis_failed(analysis_id, failure_code, failure_message)
 
     def save_task_findings(self, task: Task) -> None:
-        """持久化任务的 findings 列表（含 snippet / analysis_id）。"""
+        """持久化任务的 findings 列表（含 snippet / analysis_id）。
+
+        先删除同 analysis_id 的已有记录（幂等），再写入新 findings，
+        避免同一任务重复执行时 findings 表累积历史数据。"""
         if isinstance(self.storage, TaskSQLiteStorage):
+            # 从第一条 finding 提取 analysis_id（同批次 findings 的 analysis_id 一致）
+            if task.findings:
+                first_aid = task.findings[0].analysis_id
+                if first_aid:
+                    self.storage.delete_findings_by_analysis_id(first_aid)
             for finding in task.findings:
                 self.storage.append_finding(task.task_id, finding)
 

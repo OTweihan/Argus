@@ -203,7 +203,7 @@ class WhiteboxTaskConfigResponse(ApiModel):
     repo_url: str | None = Field(default=None, alias="repoUrl")
     source_path: str | None = Field(default=None, alias="sourcePath")
     ref: str | None = None
-    scope: str = "ALL"
+    scope: str = "all"
     target_modules: list[str] = Field(default_factory=list, alias="targetModules")
     maven: MavenConfigResponse | None = None
 
@@ -247,7 +247,7 @@ def _build_whitebox_config_view(task: Task) -> dict[str, Any] | None:
             "repoUrl": task.source_repo_url or data.get("repo_url"),
             "sourcePath": source_path,
             "ref": data.get("ref"),
-            "scope": data.get("scope", "ALL"),
+            "scope": data.get("scope", "all"),
             "targetModules": data.get("target_modules", []),
             "maven": _build_maven_config_view(data.get("maven", {})),
         },
