@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from argus_py.blackbox.action_executor import ActionExecutor
 from argus_py.blackbox.evaluator import BlackboxEvaluator, EvaluationResult
@@ -38,6 +39,9 @@ class BlackboxExecutionLoop:
         recovery_policy: RecoveryPolicy,
         max_plan_steps: int = 3,
         check_cancelled_fn: Callable[[Task], bool] | None = None,
+        blackbox_run_id: str = "",
+        on_step_started: Callable[[str, str, int], Any] | None = None,
+        on_step_finished: Callable[[str, str, int], Any] | None = None,
     ) -> None:
         self._lifecycle = lifecycle
         self._reader = reader
@@ -48,6 +52,9 @@ class BlackboxExecutionLoop:
         self.recovery_policy = recovery_policy
         self.max_plan_steps = max_plan_steps
         self._check_cancelled_fn = check_cancelled_fn
+        self.blackbox_run_id = blackbox_run_id
+        self._on_step_started = on_step_started
+        self._on_step_finished = on_step_finished
 
     async def run(
         self,
@@ -76,25 +83,42 @@ class BlackboxExecutionLoop:
             # ── 规划 ──
             if not sequence.steps:
                 sequence, _last_error = await self._plan_phase(
-                    task, task_input, planner, latest_observation,
-                    first_plan, _last_error, _next_hint,
+                    task,
+                    task_input,
+                    planner,
+                    latest_observation,
+                    first_plan,
+                    _last_error,
+                    _next_hint,
                 )
                 first_plan = False
                 _next_hint = ""
 
             # ── 执行 ──
-            task, latest_observation, sequence, executed_steps, recovery_attempts, _last_error = (
-                await self._execute_phase(
-                    task, session, sequence, executed_steps, recovery_attempts,
-                    _last_error, task_input.max_steps,
-                )
+            (
+                task,
+                latest_observation,
+                sequence,
+                executed_steps,
+                recovery_attempts,
+                _last_error,
+            ) = await self._execute_phase(
+                task,
+                session,
+                sequence,
+                executed_steps,
+                recovery_attempts,
+                _last_error,
+                task_input.max_steps,
             )
 
             if not sequence.steps:
                 continue
 
             # ── 评估 ──
-            evaluation = await self._evaluate_phase(task, latest_observation, evaluator, executed_steps)
+            evaluation = await self._evaluate_phase(
+                task, latest_observation, evaluator, executed_steps
+            )
             task = self.finalizer.append_evaluation(task, evaluation)
             if evaluation.completed:
                 return await self._finalize_evaluation(task, evaluation, owns_status)
@@ -145,19 +169,38 @@ class BlackboxExecutionLoop:
     ) -> tuple[Task, str, ActionSequence, int, int, dict | None]:
         """执行当前批次动作，逐 step 处理错误与恢复。"""
         latest_observation = ""
+        step_attempt = 0
         for action_step in sequence.steps:
             if executed_steps >= max_steps:
                 break
             executed_steps += 1
 
+            step_execution_id = (
+                f"{self.blackbox_run_id}:step:{executed_steps}:attempt:{step_attempt}"
+            )
+
             if await self._check_cancelled(task):
-                # 返回空序列触发外层的 finalize 逻辑
-                return task, latest_observation, ActionSequence(steps=[]), executed_steps, recovery_attempts, last_error
+                return (
+                    task,
+                    latest_observation,
+                    ActionSequence(steps=[]),
+                    executed_steps,
+                    recovery_attempts,
+                    last_error,
+                )
 
             await self.events.action(
-                task.task_id, executed_steps,
-                action_step.action.value, action_step.selector, action_step.url,
+                task.task_id,
+                executed_steps,
+                action_step.action.value,
+                action_step.selector,
+                action_step.url,
             )
+
+            if self._on_step_started is not None:
+                maybe_coro = self._on_step_started(task.task_id, step_execution_id, step_attempt)
+                if maybe_coro is not None:
+                    await maybe_coro
 
             try:
                 task, latest_observation = await self.action_executor.execute_action(
@@ -187,7 +230,13 @@ class BlackboxExecutionLoop:
                         else "动作失败后重新观察页面并规划。"
                     ),
                 )
-                break
+            finally:
+                if self._on_step_finished is not None:
+                    maybe_coro = self._on_step_finished(
+                        task.task_id, step_execution_id, step_attempt
+                    )
+                    if maybe_coro is not None:
+                        await maybe_coro
         return task, latest_observation, sequence, executed_steps, recovery_attempts, last_error
 
     async def _evaluate_phase(
@@ -200,18 +249,24 @@ class BlackboxExecutionLoop:
         """评估阶段：调用 LLM 判定目标是否达成。"""
         await self.events.evaluator_start(task.task_id, executed_steps, task.goal)
         evaluation = await evaluator.evaluate(
-            task.goal, latest_observation,
+            task.goal,
+            latest_observation,
             history=self.finalizer.history(task),
         )
         await self.events.evaluator_result(
-            task.task_id, executed_steps,
-            evaluation.success, evaluation.completed,
-            evaluation.reason, len(evaluation.findings),
+            task.task_id,
+            executed_steps,
+            evaluation.success,
+            evaluation.completed,
+            evaluation.reason,
+            len(evaluation.findings),
         )
         await self.events.flush()
         return evaluation
 
-    async def _finalize_evaluation(self, task: Task, evaluation: EvaluationResult, owns_status: bool) -> Task:
+    async def _finalize_evaluation(
+        self, task: Task, evaluation: EvaluationResult, owns_status: bool
+    ) -> Task:
         """评估完成时的收尾：成功则 report，失败则抛异常。"""
         task.result_summary = evaluation.reason
         if evaluation.success:

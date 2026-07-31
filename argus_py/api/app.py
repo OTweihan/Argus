@@ -16,6 +16,7 @@ from argus_py.api.dependencies import get_task_worker, reset_all_dependencies
 from argus_py.api.middleware import configure_middleware
 from argus_py.api.routes import (
     config,
+    correlation,
     events,
     health,
     projects,
@@ -160,6 +161,7 @@ def create_app() -> FastAPI:
     application.include_router(events.router, prefix=API_PREFIX)
     application.include_router(prompts.router, prefix=API_PREFIX)
     application.include_router(ws.router, prefix=API_PREFIX)
+    application.include_router(correlation.router, prefix=API_PREFIX)
     if (API_STATIC_DIR / "index.html").exists():
         application.mount(
             "/",

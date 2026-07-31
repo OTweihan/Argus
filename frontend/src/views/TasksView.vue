@@ -67,6 +67,9 @@
           <el-tab-pane v-if="!isWhitebox" lazy label="LLM 调试" name="llm-debug">
             <LLMDebugTab :key="selectedTask.taskId" :task-id="selectedTask.taskId" />
           </el-tab-pane>
+          <el-tab-pane v-if="correlationRunId" lazy label="关联证据" name="correlation">
+            <CorrelationTab :key="correlationRunId" :correlation-run-id="correlationRunId" />
+          </el-tab-pane>
         </el-tabs>
       </template>
     </div>
@@ -155,18 +158,20 @@
 </template>
 
 <script setup lang="ts">
-import {computed, defineAsyncComponent} from "vue";
+import {computed, defineAsyncComponent, ref, watch} from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
 import {injectConsoleApp} from "../composables/useConsoleApp";
 import {useTaskViewActions} from "../composables/useTaskViewActions";
+import {listCorrelationRunsByTask} from "../api/correlation";
 import type {Task} from "../types";
 // 任务详情页大体积 Tab 组件按需加载，避免拖慢任务列表首屏
 const ReportView = defineAsyncComponent(() => import("./ReportView.vue"));
 const WhiteboxReportView = defineAsyncComponent(() => import("../components/task/WhiteboxReportView.vue"));
 const TaskTimeline = defineAsyncComponent(() => import("../components/task/TaskTimeline.vue"));
 const LLMDebugTab = defineAsyncComponent(() => import("../components/task/LLMDebugTab.vue"));
+const CorrelationTab = defineAsyncComponent(() => import("../components/task/whitebox/CorrelationTab.vue"));
 
 const {
   view, projects, allTasks, taskStatusFilter, taskProjectFilter,
@@ -191,6 +196,21 @@ function editTask(task: Task): void {
 }
 
 const isWhitebox = computed(() => selectedTask.value?.taskType === "whitebox");
+
+const correlationRunId = ref<string | null>(null);
+
+watch(selectedTask, async (task) => {
+  correlationRunId.value = null;
+  if (!task) return;
+  try {
+    const crs = await listCorrelationRunsByTask(task.taskId);
+    if (crs.length > 0) {
+      correlationRunId.value = crs[0].correlationRunId;
+    }
+  } catch {
+    // correlation data is optional — silently ignore lookup failures
+  }
+});
 
 </script>
 

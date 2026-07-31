@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from argus_py.config.server_settings import ServerSettings, load_server_settings
 from argus_py.config.service import ModelConfigService
@@ -106,6 +107,10 @@ def create_container() -> RuntimeContainer:
 
     # ── 直接构造子服务 ──
     storage = TaskSQLiteStorage()
+
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
     lifecycle_service = TaskLifecycleService(storage, event_publisher=event_bus.publish)
     log_service = TaskLogService(storage, event_publisher=event_bus.publish)
     task_read_service = TaskReadService(storage)
@@ -131,16 +136,245 @@ def create_container() -> RuntimeContainer:
         request_timeout=settings.java_analyzer_request_timeout,
     )
 
-    # ── 白盒：WhiteboxRunner ──
+    # ── 白盒：WhiteboxRunner（延后创建，需要关联唤醒回调）──
+    # (moved below correlation callbacks)
+
+    # ── 黑盒：BlackboxRunner ──
+    import uuid as _uuid
+
+    from argus_py.blackbox.runner import BlackboxRunner
+    from argus_py.correlation.enums import (
+        BlackboxRunStatus,
+        CorrelationEligibility,
+        CorrelationRunStatus,
+        RequestOutcome,
+        RequestOwner,
+    )
+    from argus_py.correlation.models import BlackboxRun, CorrelationRun, HttpRequestEvidence
+    from argus_py.correlation.path_utils import compute_config_digest
+
+    # 关联回调 — 延迟绑定（storage 是 TaskSQLiteStorage）
+    async def _correlation_persist_batch(
+        batch: list[dict[str, Any]],
+    ) -> None:
+        """将由 BrowserSession 捕获的请求证据 dict 批量写入 DB。"""
+        items: list[HttpRequestEvidence] = []
+        for cap in batch:
+            rid = f"hre:{_uuid.uuid4().hex[:12]}"
+            items.append(
+                HttpRequestEvidence(
+                    request_evidence_id=rid,
+                    blackbox_run_id=cap.get("blackbox_run_id", ""),
+                    task_id=cap.get("task_id", ""),
+                    step_execution_id=cap.get("step_execution_id"),
+                    step_attempt=cap.get("step_attempt", 1),
+                    request_sequence=cap.get("sequence", 0),
+                    http_method=cap.get("method", "GET"),
+                    normalized_path=cap.get("normalized_path", ""),
+                    display_path=cap.get("display_path", ""),
+                    origin=cap.get("origin", ""),
+                    resource_type=cap.get("resource_type", "other"),
+                    endpoint_match_eligibility=CorrelationEligibility(
+                        cap.get("endpoint_match_eligibility", "CONFIRMED_ELIGIBLE")
+                    ),
+                    response_status=cap.get("response_status"),
+                    outcome=RequestOutcome(cap.get("outcome", "COMPLETED")),
+                    failure_code=cap.get("failure_code"),
+                    request_owner=RequestOwner(cap.get("request_owner", "FRAME")),
+                    response_from_service_worker=bool(
+                        cap.get("response_from_service_worker", False)
+                    ),
+                    page_sequence=cap.get("page_sequence", 0),
+                    captured_at=cap.get("started_at", ""),
+                    finished_at=cap.get("finished_at"),
+                )
+            )
+        storage.insert_http_request_batch(items)
+
+    def _correlation_create_blackbox_run(task: Any) -> str:
+        """创建 BlackboxRun 实例。"""
+        run = BlackboxRun(
+            blackbox_run_id=f"bbr:{_uuid.uuid4().hex[:12]}",
+            task_id=task.task_id,
+            attempt=task.execution_attempt,
+            status=BlackboxRunStatus.RUNNING,
+            started_at=_now_iso(),
+        )
+        storage.create_blackbox_run(run)
+        return run.blackbox_run_id
+
+    import logging as _logging
+
+    _corr_logger = _logging.getLogger(__name__)
+
+    def _correlation_create_correlation_run(
+        blackbox_run_id: str,
+        task: Any,
+    ) -> dict[str, Any] | None:
+        """创建 CorrelationRun（WAITING_ANALYSIS 或 WAITING_BLACKBOX）。"""
+        digest = compute_config_digest("v1", "v1")
+        snapshot_id = getattr(task, "source_resolved_commit_sha", None) or ""
+        cr = CorrelationRun(
+            correlation_run_id=f"cr:{_uuid.uuid4().hex[:12]}",
+            project_id=task.project_id or "",
+            blackbox_run_id=blackbox_run_id,
+            desired_source_snapshot_id=snapshot_id,
+            desired_analysis_config_digest=snapshot_id,
+            correlation_config_digest=digest,
+            matcher_version="v1",
+            normalization_version="v1",
+            status=CorrelationRunStatus.WAITING_ANALYSIS,
+            created_at=_now_iso(),
+        )
+        # 尝试自动绑定已有分析
+        latest_analysis = storage.get_latest_analysis_run(task.task_id)
+        if latest_analysis is not None:
+            if getattr(latest_analysis, "run_status", "") == "SUCCEEDED":
+                cr.analysis_id = latest_analysis.analysis_id
+                cr.bound_source_snapshot_id = (
+                    getattr(latest_analysis, "resolved_commit_sha", None) or ""
+                )
+                cr.analysis_projection_version = 1
+                cr.status = CorrelationRunStatus.WAITING_BLACKBOX
+        try:
+            storage.create_correlation_run(cr)
+        except Exception:
+            # 唯一索引冲突 → 同一 blackbox_run_id 已有关联，幂等跳过
+            existing = storage.get_correlation_run_by_blackbox(blackbox_run_id)
+            if existing is not None:
+                return {
+                    "correlationRunId": existing.correlation_run_id,
+                    "correlation_run_id": existing.correlation_run_id,
+                }
+            _corr_logger.exception(
+                "创建 CorrelationRun 失败: blackbox_run_id=%s",
+                blackbox_run_id,
+            )
+            return None
+        return {
+            "correlationRunId": cr.correlation_run_id,
+            "correlation_run_id": cr.correlation_run_id,
+        }
+
+    def _correlation_finalize_blackbox_run(
+        blackbox_run_id: str,
+        status: str,
+        quality: Any = None,
+    ) -> None:
+        """更新 BlackboxRun 终态 + 持久化采集质量。"""
+        storage.update_blackbox_run_status(blackbox_run_id, status, completed_at=_now_iso())
+        if quality is not None:
+            storage.upsert_capture_quality(quality)
+
+    async def _correlation_claim_and_execute(
+        correlation_run_id: str,
+        worker_id: str,
+    ) -> None:
+        """CAS 认领 + 执行关联匹配。"""
+        import logging
+
+        _logger = logging.getLogger(__name__)
+
+        attempt = storage.claim_and_create_attempt(correlation_run_id, worker_id)
+        if attempt is None:
+            return
+        try:
+            await _execute_correlation(attempt)
+        except Exception:
+            _logger.exception("关联匹配失败: attempt=%s", attempt.correlation_attempt_id)
+            from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+
+            storage.complete_and_activate_attempt(
+                attempt.correlation_attempt_id,
+                AttemptStatus.FAILED,
+                EvidenceCompleteness.PARTIAL,
+            )
+
+    async def _execute_correlation(attempt: Any) -> None:
+        """执行端点匹配。"""
+        from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+        from argus_py.correlation.matcher import EndpointMatcher
+
+        cr = storage.get_correlation_run(attempt.correlation_run_id)
+        if cr is None or cr.analysis_id is None:
+            storage.complete_and_activate_attempt(
+                attempt.correlation_attempt_id,
+                AttemptStatus.FAILED,
+                EvidenceCompleteness.PARTIAL,
+            )
+            return
+
+        # 加载白盒端点
+        endpoints_result = storage.list_analysis_endpoints(cr.analysis_id, limit=10_000)
+        endpoints = endpoints_result[0]
+        eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
+
+        if not eligible_requests:
+            storage.complete_and_activate_attempt(
+                attempt.correlation_attempt_id,
+                AttemptStatus.SUCCEEDED,
+                EvidenceCompleteness.COMPLETE,
+            )
+            return
+
+        matcher = EndpointMatcher(matcher_version="v1", normalization_version="v1")
+        result = matcher.match_batch(eligible_requests, endpoints)
+
+        # 写入证据（填充 correlation_run_id 和 attempt_id）
+        for ev in result.evidence_list:
+            ev.correlation_run_id = cr.correlation_run_id
+            ev.correlation_attempt_id = attempt.correlation_attempt_id
+
+        storage.insert_endpoint_evidence_batch(result.evidence_list)
+        if result.candidates:
+            storage.insert_candidates_batch(result.candidates)
+        if result.flows:
+            storage.insert_flows_batch(result.flows)
+
+        storage.complete_and_activate_attempt(
+            attempt.correlation_attempt_id,
+            AttemptStatus.SUCCEEDED,
+            EvidenceCompleteness.COMPLETE,
+        )
+
+    # 生成 Worker 标识（单进程单 Worker，ID 稳定）
+    worker_id = getattr(settings, "worker_id", "") or generate_id("w")
+
+    # ── 白盒唤醒回调 ──
+    async def _on_whitebox_analysis_succeeded(
+        task_id: str,
+        analysis_id: str,
+    ) -> None:
+        """白盒分析成功后：查找 WAITING_ANALYSIS 的 CorrelationRun 并触发关联。"""
+        analysis_run = storage.get_analysis_run(analysis_id)
+        if analysis_run is None:
+            return
+        snapshot_id = getattr(analysis_run, "resolved_commit_sha", None) or ""
+        if not snapshot_id:
+            return  # 无源码快照信息，无法可靠绑定
+        waiting = storage.find_waiting_correlations(snapshot_id)
+        for cr in waiting:
+            storage.bind_correlation_analysis(
+                cr.correlation_run_id,
+                analysis_id,
+                snapshot_id,
+                projection_version=1,
+                alignment="UNVERIFIED",
+            )
+            storage.set_correlation_status(cr.correlation_run_id, "WAITING_BLACKBOX")
+            # 尝试立即推进和认领
+            claimed = storage.claim_and_create_attempt(cr.correlation_run_id, worker_id)
+            if claimed:
+                await _execute_correlation(claimed)
+
+    # 重新创建白盒 runner，带上关联唤醒回调
     whitebox_runner = WhiteboxRunner(
         client=whitebox_client,
         source_resolver=source_resolver,
         timeline_service=timeline_service,
         lifecycle=lifecycle_service,
+        on_analysis_succeeded=_on_whitebox_analysis_succeeded,
     )
-
-    # ── 黑盒：BlackboxRunner ──
-    from argus_py.blackbox.runner import BlackboxRunner
 
     blackbox_runner = BlackboxRunner(
         lifecycle=lifecycle_service,
@@ -148,6 +382,12 @@ def create_container() -> RuntimeContainer:
         log_service=log_service,
         timeline_service=timeline_service,
         model_config_service=model_config_service,
+        persist_request_batch=_correlation_persist_batch,
+        create_blackbox_run=_correlation_create_blackbox_run,
+        create_correlation_run=_correlation_create_correlation_run,
+        finalize_blackbox_run=_correlation_finalize_blackbox_run,
+        claim_and_execute_correlation=_correlation_claim_and_execute,
+        worker_id=worker_id,
     )
 
     # ── Handler 装配 ──
@@ -155,9 +395,6 @@ def create_container() -> RuntimeContainer:
         TaskType.BLACKBOX: blackbox_runner.run,
         TaskType.WHITEBOX: whitebox_runner.run,
     }
-
-    # 生成 Worker 标识（单进程单 Worker，ID 稳定）
-    worker_id = getattr(settings, "worker_id", "") or generate_id("w")
 
     task_worker = TaskWorker(
         queue=task_queue,

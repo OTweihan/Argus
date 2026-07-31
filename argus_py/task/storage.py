@@ -7,8 +7,24 @@ from typing import Any
 
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.core.paths import DATA_DIR, TEMP_DIR
+from argus_py.correlation.models import (
+    BlackboxRun,
+    CaptureQuality,
+    CorrelationAttempt,
+    CorrelationAttemptDiagnostic,
+    CorrelationAttemptReason,
+    CorrelationRun,
+    CorrelationSummary,
+    EndpointEvidence,
+    EndpointEvidenceCandidate,
+    EndpointEvidenceFlow,
+    FindingEvidence,
+    FindingEvidenceLink,
+    HttpRequestEvidence,
+)
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.repositories.analysis_repo import AnalysisRunRepository
+from argus_py.task.repositories.correlation_repo import CorrelationRepository
 from argus_py.task.repositories.event_repo import EventRepository
 from argus_py.task.repositories.finding_repo import FindingRepository
 from argus_py.task.repositories.log_repo import LogRepository
@@ -84,6 +100,7 @@ class TaskSQLiteStorage:
         self._findings = FindingRepository(pool)
         self._events = EventRepository(pool)
         self._analysis = AnalysisRunRepository(pool)
+        self._correlation = CorrelationRepository(pool)
 
     # ── 任务 CRUD ───────────────────────────────────────────
 
@@ -299,3 +316,180 @@ class TaskSQLiteStorage:
 
     def get_analysis_finding_severity_counts(self, analysis_id: str) -> dict[str, int]:
         return self._analysis.get_finding_severity_counts(analysis_id)
+
+    # ── 关联（BlackboxRun / CorrelationRun / Evidence）───
+
+    # BlackboxRun
+    def create_blackbox_run(self, run: BlackboxRun) -> BlackboxRun:
+        return self._correlation.create_blackbox_run(run)
+
+    def get_blackbox_run(self, blackbox_run_id: str) -> BlackboxRun | None:
+        return self._correlation.get_blackbox_run(blackbox_run_id)
+
+    def update_blackbox_run_status(
+        self,
+        blackbox_run_id: str,
+        status: str,
+        completed_at: str | None = None,
+    ) -> None:
+        self._correlation.update_blackbox_run_status(blackbox_run_id, status, completed_at)
+
+    # CorrelationRun
+    def create_correlation_run(self, run: CorrelationRun) -> CorrelationRun:
+        return self._correlation.create_correlation_run(run)
+
+    def get_correlation_run(self, correlation_run_id: str) -> CorrelationRun | None:
+        return self._correlation.get_correlation_run(correlation_run_id)
+
+    def get_correlation_run_by_blackbox(self, blackbox_run_id: str) -> CorrelationRun | None:
+        return self._correlation.get_correlation_run_by_blackbox(blackbox_run_id)
+
+    def find_waiting_correlations(self, snapshot_id: str) -> list[CorrelationRun]:
+        return self._correlation.find_waiting_analysis(snapshot_id)
+
+    def bind_correlation_analysis(
+        self,
+        correlation_run_id: str,
+        analysis_id: str,
+        snapshot_id: str,
+        projection_version: int,
+        alignment: str,
+    ) -> None:
+        self._correlation.bind_analysis(
+            correlation_run_id,
+            analysis_id,
+            snapshot_id,
+            projection_version,
+            alignment,
+        )
+
+    def claim_and_create_attempt(
+        self,
+        correlation_run_id: str,
+        worker_id: str,
+    ) -> CorrelationAttempt | None:
+        return self._correlation.claim_and_create_attempt(correlation_run_id, worker_id)
+
+    def set_correlation_status(self, correlation_run_id: str, status: str) -> None:
+        from argus_py.correlation.enums import CorrelationRunStatus
+
+        self._correlation.set_status(correlation_run_id, CorrelationRunStatus(status))
+
+    def complete_and_activate_attempt(
+        self,
+        attempt_id: str,
+        status: str,
+        completeness: str = "COMPLETE",
+    ) -> None:
+        from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+
+        self._correlation.complete_and_activate_attempt(
+            attempt_id,
+            AttemptStatus(status),
+            EvidenceCompleteness(completeness),
+        )
+
+    # HttpRequestEvidence
+    def insert_http_request_batch(self, items: list[HttpRequestEvidence]) -> None:
+        self._correlation.insert_request_batch(items)
+
+    def list_http_requests(
+        self,
+        bb_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[HttpRequestEvidence], int]:
+        return self._correlation.list_requests_by_blackbox_run(bb_id, offset=offset, limit=limit)
+
+    def list_eligible_requests(self, bb_id: str) -> list[HttpRequestEvidence]:
+        return self._correlation.list_eligible_requests(bb_id)
+
+    def list_unmatched_requests(
+        self,
+        cr_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[HttpRequestEvidence], int]:
+        return self._correlation.list_unmatched_requests(cr_id, offset=offset, limit=limit)
+
+    def list_uncovered_endpoints(
+        self,
+        cr_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        return self._correlation.list_uncovered_endpoints(cr_id, offset=offset, limit=limit)
+
+    # EndpointEvidence + 关系表
+    def insert_endpoint_evidence_batch(self, items: list[EndpointEvidence]) -> None:
+        self._correlation.insert_evidence_batch(items)
+
+    def insert_candidates_batch(self, items: list[EndpointEvidenceCandidate]) -> None:
+        self._correlation.insert_candidates_batch(items)
+
+    def insert_flows_batch(self, items: list[EndpointEvidenceFlow]) -> None:
+        self._correlation.insert_flows_batch(items)
+
+    def list_endpoint_evidence(
+        self,
+        attempt_id: str,
+        *,
+        resolution_status: str | None = None,
+        match_strategy: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        return self._correlation.list_evidence_by_attempt(
+            attempt_id,
+            resolution_status=resolution_status,
+            match_strategy=match_strategy,
+            offset=offset,
+            limit=limit,
+        )
+
+    def get_correlation_summary(self, correlation_run_id: str) -> CorrelationSummary:
+        return self._correlation.get_summary(correlation_run_id)
+
+    # FindingEvidence
+    def insert_finding_evidence_batch(self, items: list[FindingEvidence]) -> None:
+        self._correlation.insert_finding_evidence_batch(items)
+
+    def insert_finding_links_batch(self, items: list[FindingEvidenceLink]) -> None:
+        self._correlation.insert_finding_links_batch(items)
+
+    def list_finding_evidence(
+        self,
+        cr_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        return self._correlation.list_finding_evidence(cr_id, offset=offset, limit=limit)
+
+    # Attempt 明细
+    def insert_attempt_reasons_batch(self, items: list[CorrelationAttemptReason]) -> None:
+        self._correlation.insert_attempt_reasons_batch(items)
+
+    def insert_attempt_diagnostics_batch(self, items: list[CorrelationAttemptDiagnostic]) -> None:
+        self._correlation.insert_attempt_diagnostics_batch(items)
+
+    # CaptureQuality
+    def upsert_capture_quality(self, quality: CaptureQuality) -> None:
+        self._correlation.upsert_capture_quality(quality)
+
+    def get_capture_quality(self, blackbox_run_id: str) -> dict[str, Any] | None:
+        with self._correlation._pool.ro_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM http_capture_quality WHERE blackbox_run_id = ?",
+                (blackbox_run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    # 崩溃恢复
+    def recover_stale_attempts(self) -> list[CorrelationAttempt]:
+        return self._correlation.recover_stale_attempts()

@@ -742,6 +742,266 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/correlation-runs/{correlation_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Correlation Run
+         * @description 获取关联运行详情。
+         */
+        get: operations["get_correlation_run_argus_api_correlation_runs__correlation_run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Attempts
+         * @description 列出关联运行的所有尝试记录。
+         */
+        get: operations["list_attempts_argus_api_correlation_runs__correlation_run_id__attempts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/attempts/{attempt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Attempt
+         * @description 获取单次尝试详情。
+         */
+        get: operations["get_attempt_argus_api_correlation_runs__correlation_run_id__attempts__attempt_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Summary
+         * @description 获取关联汇总指标。
+         */
+        get: operations["get_summary_argus_api_correlation_runs__correlation_run_id__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/endpoint-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Endpoint Evidence
+         * @description 分页查询端点匹配证据。
+         */
+        get: operations["list_endpoint_evidence_argus_api_correlation_runs__correlation_run_id__endpoint_evidence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/unmatched-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Unmatched Requests
+         * @description 获取无法匹配到白盒端点的 HTTP 请求列表。
+         */
+        get: operations["list_unmatched_requests_argus_api_correlation_runs__correlation_run_id__unmatched_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/finding-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Finding Evidence
+         * @description 获取 Finding 关联证据。
+         */
+        get: operations["list_finding_evidence_argus_api_correlation_runs__correlation_run_id__finding_evidence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/capture-quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Capture Quality
+         * @description 获取采集质量统计。
+         */
+        get: operations["get_capture_quality_argus_api_correlation_runs__correlation_run_id__capture_quality_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/uncovered-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Uncovered Endpoints
+         * @description 获取未被任何请求命中的白盒端点列表。
+         */
+        get: operations["list_uncovered_endpoints_argus_api_correlation_runs__correlation_run_id__uncovered_endpoints_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Correlation Runs By Task
+         * @description 通过 taskId 查找关联运行列表。
+         */
+        get: operations["list_correlation_runs_by_task_argus_api_correlation_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/bind-analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind Analysis
+         * @description 绑定白盒分析到关联运行。
+         */
+        post: operations["bind_analysis_argus_api_correlation_runs__correlation_run_id__bind_analysis_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Correlation
+         * @description 重试关联（相同输入，创建新 Attempt）。
+         */
+        post: operations["retry_correlation_argus_api_correlation_runs__correlation_run_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/correlation-runs/{correlation_run_id}/recalculate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recalculate Correlation
+         * @description 重算关联（输入变化，创建新 CorrelationRun）。
+         */
+        post: operations["recalculate_correlation_argus_api_correlation_runs__correlation_run_id__recalculate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -815,6 +1075,23 @@ export interface components {
             projectionCompletedAt?: string | null;
         };
         /**
+         * BindAnalysisRequest
+         * @description 绑定白盒分析请求。
+         */
+        BindAnalysisRequest: {
+            /** Analysisid */
+            analysisId: string;
+            /** Expectedprojectionversion */
+            expectedProjectionVersion?: number | null;
+            /**
+             * Sourcemismatchoverride
+             * @default false
+             */
+            sourceMismatchOverride: boolean;
+            /** Sourcemismatchoverridereason */
+            sourceMismatchOverrideReason?: string | null;
+        };
+        /**
          * CallEdgeResponse
          * @description 调用图边。
          */
@@ -875,6 +1152,46 @@ export interface components {
             sourceLocation?: components["schemas"]["SourceLocationResponse"] | null;
             /** Calleecount */
             calleeCount: number;
+        };
+        /**
+         * CaptureQualityResponse
+         * @description 采集质量统计。
+         */
+        CaptureQualityResponse: {
+            /** Blackboxrunid */
+            blackboxRunId: string;
+            /** Totalobserved */
+            totalObserved: number;
+            /** Acceptedstarted */
+            acceptedStarted: number;
+            /** Persistedcount */
+            persistedCount: number;
+            /** Filteredbyresourcetype */
+            filteredByResourceType: number;
+            /** Filteredcrossorigin */
+            filteredCrossOrigin: number;
+            /** Filteredbymethod */
+            filteredByMethod: number;
+            /** Filteredwebsocketcount */
+            filteredWebsocketCount: number;
+            /** Filteredpathtoolong */
+            filteredPathTooLong: number;
+            /** Droppedpendinglimit */
+            droppedPendingLimit: number;
+            /** Droppedrunlimit */
+            droppedRunLimit: number;
+            /** Droppedwriterqueuelimit */
+            droppedWriterQueueLimit: number;
+            /** Writerretrycount */
+            writerRetryCount: number;
+            /** Writerfailedbatchcount */
+            writerFailedBatchCount: number;
+            /** Persistencefailed */
+            persistenceFailed: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Truncationreason */
+            truncationReason?: string | null;
         };
         /**
          * ClasspathMode
@@ -973,6 +1290,158 @@ export interface components {
             defaultModelConfigId?: string | null;
         };
         /**
+         * CorrelationAttemptListResponse
+         * @description 关联尝试列表。
+         */
+        CorrelationAttemptListResponse: {
+            /** Items */
+            items: components["schemas"]["CorrelationAttemptResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * CorrelationAttemptResponse
+         * @description 关联尝试详情。
+         */
+        CorrelationAttemptResponse: {
+            /** Correlationattemptid */
+            correlationAttemptId: string;
+            /** Correlationrunid */
+            correlationRunId: string;
+            /** Attemptnumber */
+            attemptNumber: number;
+            /** Status */
+            status: string;
+            /** Evidencecompleteness */
+            evidenceCompleteness: string;
+            /** Leaseowner */
+            leaseOwner?: string | null;
+            /** Startedat */
+            startedAt: string;
+            /** Completedat */
+            completedAt?: string | null;
+            /** Errorcode */
+            errorCode?: string | null;
+            /** Errormessage */
+            errorMessage?: string | null;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
+         * CorrelationRunResponse
+         * @description 关联运行详情。
+         */
+        CorrelationRunResponse: {
+            /** Correlationrunid */
+            correlationRunId: string;
+            /** Projectid */
+            projectId: string;
+            /** Blackboxrunid */
+            blackboxRunId: string;
+            /** Desiredsourcesnapshotid */
+            desiredSourceSnapshotId: string;
+            /** Desiredanalysisconfigdigest */
+            desiredAnalysisConfigDigest: string;
+            /** Requiredanalyzerversion */
+            requiredAnalyzerVersion: string;
+            /** Allowpartialanalysis */
+            allowPartialAnalysis: boolean;
+            /** Analysisid */
+            analysisId?: string | null;
+            /** Boundsourcesnapshotid */
+            boundSourceSnapshotId?: string | null;
+            /** Analysisprojectionversion */
+            analysisProjectionVersion?: number | null;
+            /** Correlationconfigdigest */
+            correlationConfigDigest: string;
+            /** Matcherversion */
+            matcherVersion: string;
+            /** Normalizationversion */
+            normalizationVersion: string;
+            /** Supersedescorrelationrunid */
+            supersedesCorrelationRunId?: string | null;
+            /** Sourcealignmentstatus */
+            sourceAlignmentStatus: string;
+            /** Status */
+            status: string;
+            /** Activeattemptid */
+            activeAttemptId?: string | null;
+            /** Sourcemismatchoverridden */
+            sourceMismatchOverridden: boolean;
+            /** Sourcemismatchoverrideby */
+            sourceMismatchOverrideBy?: string | null;
+            /** Sourcemismatchoverrideat */
+            sourceMismatchOverrideAt?: string | null;
+            /** Sourcemismatchoverridereason */
+            sourceMismatchOverrideReason?: string | null;
+            /** Startedat */
+            startedAt?: string | null;
+            /** Completedat */
+            completedAt?: string | null;
+            /** Errorcode */
+            errorCode?: string | null;
+            /** Errormessage */
+            errorMessage?: string | null;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
+         * CorrelationSummaryResponse
+         * @description 关联汇总指标。
+         */
+        CorrelationSummaryResponse: {
+            /** Correlationrunid */
+            correlationRunId: string;
+            /** Status */
+            status: string;
+            /** Sourcealignmentstatus */
+            sourceAlignmentStatus: string;
+            /** Capturedrequestcount */
+            capturedRequestCount: number;
+            /** Correlatablerequestcount */
+            correlatableRequestCount: number;
+            /** Confirmedmatchedrequestcount */
+            confirmedMatchedRequestCount: number;
+            /** Ambiguousrequestcount */
+            ambiguousRequestCount: number;
+            /** Methodmismatchcandidatecount */
+            methodMismatchCandidateCount: number;
+            /** Unmatchedrequestcount */
+            unmatchedRequestCount: number;
+            /** Totalendpointcount */
+            totalEndpointCount: number;
+            /** Confirmedtouchedendpointcount */
+            confirmedTouchedEndpointCount: number;
+            /** Candidatetouchedendpointcount */
+            candidateTouchedEndpointCount: number;
+            /** Uncoveredendpointcount */
+            uncoveredEndpointCount: number;
+            /** Attemptedevidencecount */
+            attemptedEvidenceCount: number;
+            /** Totalfindingcount */
+            totalFindingCount: number;
+            /** Confirmedrelatedfindingcount */
+            confirmedRelatedFindingCount: number;
+            /** Candidaterelatedfindingcount */
+            candidateRelatedFindingCount: number;
+            /** Unrelatedfindingcount */
+            unrelatedFindingCount: number;
+            /** Crossoriginfilteredcount */
+            crossOriginFilteredCount: number;
+            /** Resourcefilteredcount */
+            resourceFilteredCount: number;
+            /** Droppedrequestcount */
+            droppedRequestCount: number;
+            /** Failedcapturecount */
+            failedCaptureCount: number;
+            /** Evidencecompleteness */
+            evidenceCompleteness: string;
+            /** Matcherversion */
+            matcherVersion: string;
+            /** Normalizationversion */
+            normalizationVersion: string;
+        };
+        /**
          * DashboardStatsResponse
          * @description 仪表盘聚合统计响应。
          *
@@ -1028,6 +1497,74 @@ export interface components {
             moduleCount: number;
             /** Applicationmodulecount */
             applicationModuleCount: number;
+        };
+        /**
+         * EndpointEvidenceCandidateResponse
+         * @description 候选端点。
+         */
+        EndpointEvidenceCandidateResponse: {
+            /** Endpointid */
+            endpointId: string;
+            /** Candidaterank */
+            candidateRank: number;
+            /** Matchstrategy */
+            matchStrategy: string;
+            /** Confidence */
+            confidence: string;
+            /** Reasoncode */
+            reasonCode: string;
+            /** Selected */
+            selected: boolean;
+        };
+        /** EndpointEvidencePageResponse */
+        EndpointEvidencePageResponse: {
+            /** Items */
+            items: components["schemas"]["EndpointEvidenceResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * EndpointEvidenceResponse
+         * @description 请求与白盒端点的匹配证据。
+         */
+        EndpointEvidenceResponse: {
+            /** Endpointevidenceid */
+            endpointEvidenceId: string;
+            /** Correlationattemptid */
+            correlationAttemptId: string;
+            /** Requestevidenceid */
+            requestEvidenceId: string;
+            /** Resolutionstatus */
+            resolutionStatus: string;
+            /** Matchstrategy */
+            matchStrategy: string;
+            /** Confidence */
+            confidence: string;
+            /** Matchedendpointid */
+            matchedEndpointId?: string | null;
+            matchedEndpointInfo?: components["schemas"]["EndpointResponse"] | null;
+            /** Matchreasoncode */
+            matchReasonCode: string;
+            /** Candidatecount */
+            candidateCount: number;
+            /** Httpmethod */
+            httpMethod?: string | null;
+            /** Requestpath */
+            requestPath?: string | null;
+            /** Displaypath */
+            displayPath?: string | null;
+            /** Origin */
+            origin?: string | null;
+            /** Resourcetype */
+            resourceType?: string | null;
+            /** Candidates */
+            candidates?: components["schemas"]["EndpointEvidenceCandidateResponse"][];
+            /** Execution Flows */
+            execution_flows?: components["schemas"]["ExecutionFlowResponse"][];
         };
         /** EndpointPageResponse */
         EndpointPageResponse: {
@@ -1148,6 +1685,38 @@ export interface components {
             /** Createdat */
             createdAt: string;
         };
+        /** FindingEvidencePageResponse */
+        FindingEvidencePageResponse: {
+            /** Items */
+            items: components["schemas"]["FindingEvidenceResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * FindingEvidenceResponse
+         * @description Finding 关联证据。
+         */
+        FindingEvidenceResponse: {
+            /** Findingevidenceid */
+            findingEvidenceId: string;
+            /** Correlationattemptid */
+            correlationAttemptId: string;
+            /** Findingid */
+            findingId: string;
+            findingInfo?: components["schemas"]["FindingDetailResponse"] | null;
+            /** Bestrelationtype */
+            bestRelationType: string;
+            /** Minimumcalldistance */
+            minimumCallDistance?: number | null;
+            /** Confirmedrequestcount */
+            confirmedRequestCount: number;
+            /** Candidaterequestcount */
+            candidateRequestCount: number;
+        };
         /** FindingPageResponse */
         FindingPageResponse: {
             /** Items */
@@ -1224,6 +1793,59 @@ export interface components {
             version: string;
             /** Project */
             project: string;
+        };
+        /** HttpRequestEvidencePageResponse */
+        HttpRequestEvidencePageResponse: {
+            /** Items */
+            items: components["schemas"]["HttpRequestEvidenceResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
+        };
+        /**
+         * HttpRequestEvidenceResponse
+         * @description 黑盒 HTTP 请求证据（不暴露 normalized_path、request_headers_json）。
+         */
+        HttpRequestEvidenceResponse: {
+            /** Requestevidenceid */
+            requestEvidenceId: string;
+            /** Blackboxrunid */
+            blackboxRunId: string;
+            /** Taskid */
+            taskId: string;
+            /** Stepexecutionid */
+            stepExecutionId?: string | null;
+            /** Stepattempt */
+            stepAttempt: number;
+            /** Requestsequence */
+            requestSequence: number;
+            /** Httpmethod */
+            httpMethod: string;
+            /** Displaypath */
+            displayPath: string;
+            /** Origin */
+            origin: string;
+            /** Resourcetype */
+            resourceType: string;
+            /** Endpointmatcheligibility */
+            endpointMatchEligibility: string;
+            /** Responsestatus */
+            responseStatus?: number | null;
+            /** Outcome */
+            outcome: string;
+            /** Requestowner */
+            requestOwner: string;
+            /** Responsefromserviceworker */
+            responseFromServiceWorker: boolean;
+            /** Pagesequence */
+            pageSequence: number;
+            /** Capturedat */
+            capturedAt: string;
+            /** Finishedat */
+            finishedAt?: string | null;
         };
         /**
          * InferredLimitsResponse
@@ -1888,6 +2510,20 @@ export interface components {
                 [key: string]: unknown;
             };
             whiteboxConfig?: components["schemas"]["WhiteboxTaskConfig"] | null;
+        };
+        /**
+         * UncoveredEndpointPageResponse
+         * @description 未被触达的白盒端点分页响应（复用 EndpointResponse）。
+         */
+        UncoveredEndpointPageResponse: {
+            /** Items */
+            items: components["schemas"]["EndpointResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Hasmore */
+            hasMore: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -3377,6 +4013,444 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PromptPreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_correlation_run_argus_api_correlation_runs__correlation_run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelationRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_attempts_argus_api_correlation_runs__correlation_run_id__attempts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelationAttemptListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_attempt_argus_api_correlation_runs__correlation_run_id__attempts__attempt_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+                /** @description 尝试 ID */
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelationAttemptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_summary_argus_api_correlation_runs__correlation_run_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelationSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_endpoint_evidence_argus_api_correlation_runs__correlation_run_id__endpoint_evidence_get: {
+        parameters: {
+            query?: {
+                /** @description 过滤匹配结果状态 */
+                resolutionStatus?: string | null;
+                /** @description 过滤匹配方式 */
+                matchStrategy?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointEvidencePageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_unmatched_requests_argus_api_correlation_runs__correlation_run_id__unmatched_requests_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpRequestEvidencePageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_finding_evidence_argus_api_correlation_runs__correlation_run_id__finding_evidence_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindingEvidencePageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_capture_quality_argus_api_correlation_runs__correlation_run_id__capture_quality_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureQualityResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_uncovered_endpoints_argus_api_correlation_runs__correlation_run_id__uncovered_endpoints_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UncoveredEndpointPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_correlation_runs_by_task_argus_api_correlation_runs_get: {
+        parameters: {
+            query: {
+                /** @description 任务 ID */
+                taskId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelationRunResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bind_analysis_argus_api_correlation_runs__correlation_run_id__bind_analysis_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BindAnalysisRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_correlation_argus_api_correlation_runs__correlation_run_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recalculate_correlation_argus_api_correlation_runs__correlation_run_id__recalculate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 关联运行 ID */
+                correlation_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelationRunResponse"];
                 };
             };
             /** @description Validation Error */

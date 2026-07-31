@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -78,6 +79,7 @@ class WhiteboxRunner:
         lifecycle: TaskLifecycleService,
         poll_interval: float = 5.0,
         max_poll_interval: float = 10.0,
+        on_analysis_succeeded: Callable[[str, str], Any] | None = None,
     ) -> None:
         self._client = client
         self._source_resolver = source_resolver or SourceResolver()
@@ -85,6 +87,7 @@ class WhiteboxRunner:
         self._lifecycle = lifecycle
         self._poll_interval = poll_interval
         self._max_poll_interval = max_poll_interval
+        self._on_analysis_succeeded = on_analysis_succeeded
 
     # ── 主入口 ────────────────────────────────────────────────────────────────
 
@@ -205,6 +208,20 @@ class WhiteboxRunner:
                 result,
                 scope=exec_config.scope,
             )
+
+            # ── 关联唤醒：通知等待中的 CorrelationRun ──
+            if self._on_analysis_succeeded is not None:
+                try:
+                    maybe_coro = self._on_analysis_succeeded(task.task_id, analysis_id)
+                    if maybe_coro is not None:
+                        await maybe_coro
+                except Exception:
+                    logger.warning(
+                        "关联唤醒回调失败: task_id=%s analysis_id=%s",
+                        task.task_id,
+                        analysis_id,
+                        exc_info=True,
+                    )
 
             await self._safe_emit_terminal(
                 "whitebox_succeeded",

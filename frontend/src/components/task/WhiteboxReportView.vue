@@ -69,6 +69,9 @@
             @load-more="loadMoreFindings"
           />
         </el-tab-pane>
+        <el-tab-pane v-if="correlationRunId" lazy label="关联证据" name="correlation">
+          <CorrelationTab :correlation-run-id="correlationRunId" />
+        </el-tab-pane>
       </el-tabs>
     </template>
     <el-empty v-else description="暂无分析执行数据，请先启动白盒任务" />
@@ -109,6 +112,8 @@ import ExecutionFlowList from "./whitebox/ExecutionFlowList.vue";
 import DiagnosticsPanel from "./whitebox/DiagnosticsPanel.vue";
 import ClusterList from "./whitebox/ClusterList.vue";
 import FindingList from "./whitebox/FindingList.vue";
+import CorrelationTab from "./whitebox/CorrelationTab.vue";
+import { listCorrelationRunsByTask } from "../../api/correlation";
 
 const props = defineProps<{ taskId: string }>();
 
@@ -118,21 +123,25 @@ const analysisId = ref<string | null>(null);
 const loading = ref(false);
 const error = ref("");
 const subTab = ref("overview");
+const correlationRunId = ref<string | null>(null);
 
-// 初始化：加载历史列表 + 默认选择最新
+// 初始化：加载历史列表 + 默认选择最新 + 检查关联
 (async () => {
   loading.value = true;
   try {
     const page = await listAnalysisRuns(props.taskId);
     runs.value = page.items;
     if (page.items.length > 0) {
-      // 默认选择：RUNNING > SUCCEEDED > 最新
       const running = page.items.find((r: AnalysisRunSummary) => r.runStatus === "RUNNING");
       const succeeded = page.items.find((r: AnalysisRunSummary) => r.runStatus === "SUCCEEDED");
       const selected = running || succeeded || page.items[0];
       analysisId.value = selected.analysisId;
-      // 列表项不含 completeness 指标，必须请求详情接口
       summary.value = await getAnalysisRunSummary(props.taskId, selected.analysisId);
+    }
+    // 检查是否存在关联运行
+    const crs = await listCorrelationRunsByTask(props.taskId);
+    if (crs.length > 0) {
+      correlationRunId.value = crs[0].correlationRunId;
     }
   } catch (e) {
     error.value = errorMessage(e);

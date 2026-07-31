@@ -493,3 +493,428 @@ class TaskApplicationService:
         if isinstance(storage, TaskSQLiteStorage):
             return storage.get_analysis_findings(analysis_id, cursor=cursor, limit=limit)
         return [], None, 0, False
+
+    # ── 关联（CorrelationRun / Evidence）──────────────────────
+
+    def list_correlation_runs_by_task(self, task_id: str) -> list[dict[str, Any]]:
+        """通过 taskId 查找所有关联运行。"""
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            bb_runs = storage._correlation.list_blackbox_runs_by_task(task_id)
+            result: list[dict[str, Any]] = []
+            for bb in bb_runs:
+                cr = storage.get_correlation_run_by_blackbox(bb.blackbox_run_id)
+                if cr is not None:
+                    result.append(_correlation_run_to_dict(cr))
+            return result
+        return []
+
+    def get_correlation_run(self, correlation_run_id: str) -> dict[str, Any] | None:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            cr = storage.get_correlation_run(correlation_run_id)
+            if cr is None:
+                return None
+            return _correlation_run_to_dict(cr)
+        return None
+
+    def list_correlation_attempts(self, correlation_run_id: str) -> list[dict[str, Any]]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            attempts = storage._correlation.list_attempts_by_run(correlation_run_id)
+            return [_attempt_to_dict(a) for a in attempts]
+        return []
+
+    def get_correlation_attempt(self, attempt_id: str) -> dict[str, Any] | None:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            attempt = storage._correlation.get_attempt(attempt_id)
+            if attempt is None:
+                return None
+            return _attempt_to_dict(attempt)
+        return None
+
+    def get_correlation_summary(self, correlation_run_id: str) -> dict[str, Any]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            summary = storage.get_correlation_summary(correlation_run_id)
+            return _summary_to_dict(summary)
+        return {}
+
+    def list_endpoint_evidence(
+        self,
+        correlation_run_id: str,
+        *,
+        resolution_status: str | None = None,
+        match_strategy: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            cr = storage.get_correlation_run(correlation_run_id)
+            if cr is None or cr.active_attempt_id is None:
+                return [], 0
+            items, total = storage._correlation.list_evidence_by_attempt(
+                cr.active_attempt_id,
+                resolution_status=resolution_status,
+                match_strategy=match_strategy,
+                offset=offset,
+                limit=limit,
+            )
+            return items, total
+        return [], 0
+
+    def list_unmatched_requests(
+        self,
+        correlation_run_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            items, total = storage.list_unmatched_requests(
+                correlation_run_id,
+                offset=offset,
+                limit=limit,
+            )
+            return [_http_request_to_dict(r) for r in items], total
+        return [], 0
+
+    def list_finding_evidence(
+        self,
+        correlation_run_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            items, total = storage.list_finding_evidence(
+                correlation_run_id,
+                offset=offset,
+                limit=limit,
+            )
+            return items, total
+        return [], 0
+
+    def get_capture_quality(self, blackbox_run_id: str) -> dict[str, Any] | None:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_capture_quality(blackbox_run_id)
+        return None
+
+    # ── 关联操作 ──
+
+    def bind_analysis(
+        self,
+        correlation_run_id: str,
+        analysis_id: str,
+        expected_projection_version: int | None = None,
+        source_mismatch_override: bool = False,
+        source_mismatch_override_reason: str | None = None,
+    ) -> None:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            storage.bind_correlation_analysis(
+                correlation_run_id,
+                analysis_id,
+                snapshot_id="",
+                projection_version=expected_projection_version or 0,
+                alignment="USER_DECLARED" if source_mismatch_override else "VERIFIED",
+            )
+
+    def list_uncovered_endpoints(
+        self,
+        correlation_run_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_uncovered_endpoints(
+                correlation_run_id,
+                offset=offset,
+                limit=limit,
+            )
+        return [], 0
+
+    def retry_correlation(self, correlation_run_id: str) -> str:
+        """将 FAILED/PARTIAL 的关联运行重置为 READY，创建新 attempt 并同步执行匹配。"""
+        from argus_py.correlation.enums import CorrelationRunStatus
+
+        storage = self._read.storage
+        if not isinstance(storage, TaskSQLiteStorage):
+            raise ValueError("当前存储不支持关联重试。")
+        cr = storage.get_correlation_run(correlation_run_id)
+        if cr is None:
+            raise ValueError(f"关联运行不存在：{correlation_run_id}")
+        if cr.status not in (CorrelationRunStatus.FAILED, CorrelationRunStatus.PARTIAL):
+            raise ValueError(f"只有失败或部分完成的关联可以重试，当前状态：{cr.status.value}")
+        if cr.analysis_id is None:
+            raise ValueError("无法重试：尚未绑定白盒分析。")
+
+        from argus_py.core.ids import generate_id
+
+        worker_id = generate_id("retry")
+        storage.set_correlation_status(correlation_run_id, "READY")
+        attempt = storage.claim_and_create_attempt(correlation_run_id, worker_id)
+        if attempt is None:
+            raise ValueError("认领关联运行失败，可能已被其他 Worker 执行。")
+
+        try:
+            _execute_matching_sync(storage, cr, attempt)
+        except Exception:
+            from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+
+            storage.complete_and_activate_attempt(
+                attempt.correlation_attempt_id,
+                AttemptStatus.FAILED.value,
+                EvidenceCompleteness.PARTIAL.value,
+            )
+            raise
+
+        return attempt.correlation_attempt_id
+
+    def recalculate_correlation(self, correlation_run_id: str) -> dict[str, Any] | None:
+        """创建新 CorrelationRun（supersedes 指向前一个）并同步执行匹配。"""
+        import uuid as _uuid_mod
+        from datetime import datetime as dt_mod
+        from datetime import timezone
+
+        from argus_py.correlation.enums import (
+            AttemptStatus,
+            CorrelationRunStatus,
+            EvidenceCompleteness,
+        )
+        from argus_py.correlation.models import CorrelationRun
+        from argus_py.correlation.path_utils import compute_config_digest
+
+        storage = self._read.storage
+        if not isinstance(storage, TaskSQLiteStorage):
+            return None
+        existing = storage.get_correlation_run(correlation_run_id)
+        if existing is None:
+            return None
+        if existing.analysis_id is None:
+            raise ValueError("无法重算：尚未绑定白盒分析。")
+
+        digest = compute_config_digest(
+            existing.matcher_version,
+            existing.normalization_version,
+        )
+        new_cr = CorrelationRun(
+            correlation_run_id=f"cr:{_uuid_mod.uuid4().hex[:12]}",
+            project_id=existing.project_id,
+            blackbox_run_id=existing.blackbox_run_id,
+            desired_source_snapshot_id=existing.desired_source_snapshot_id,
+            desired_analysis_config_digest=existing.desired_analysis_config_digest,
+            required_analyzer_version=existing.required_analyzer_version,
+            allow_partial_analysis=existing.allow_partial_analysis,
+            analysis_id=existing.analysis_id,
+            bound_source_snapshot_id=existing.bound_source_snapshot_id,
+            analysis_projection_version=existing.analysis_projection_version,
+            correlation_config_digest=digest,
+            matcher_version=existing.matcher_version,
+            normalization_version=existing.normalization_version,
+            supersedes_correlation_run_id=existing.correlation_run_id,
+            source_alignment_status=existing.source_alignment_status,
+            status=CorrelationRunStatus.READY,
+            created_at=dt_mod.now(timezone.utc).isoformat(),
+        )
+        storage.create_correlation_run(new_cr)
+
+        # CAS 认领 + 同步执行匹配
+        from argus_py.core.ids import generate_id
+
+        worker_id = generate_id("recalc")
+        attempt = storage.claim_and_create_attempt(new_cr.correlation_run_id, worker_id)
+        if attempt is None:
+            raise ValueError("认领关联运行失败，可能已被其他 Worker 执行。")
+
+        try:
+            _execute_matching_sync(storage, new_cr, attempt)
+        except Exception:
+            storage.complete_and_activate_attempt(
+                attempt.correlation_attempt_id,
+                AttemptStatus.FAILED.value,
+                EvidenceCompleteness.PARTIAL.value,
+            )
+            raise
+
+        return _correlation_run_to_dict(new_cr)
+
+
+# ── 同步匹配执行器（run_in_thread 可调用）──────────────────────────
+
+
+def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
+    """关联匹配的同步实现 — 纯 CPU + 同步 SQLite 操作。"""
+    from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+    from argus_py.correlation.matcher import EndpointMatcher
+
+    if cr.analysis_id is None:
+        storage.complete_and_activate_attempt(
+            attempt.correlation_attempt_id,
+            AttemptStatus.FAILED.value,
+            EvidenceCompleteness.PARTIAL.value,
+        )
+        return
+
+    endpoints_result = storage.list_analysis_endpoints(cr.analysis_id, limit=10_000)
+    endpoints_list = endpoints_result[0]
+    eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
+
+    if not eligible_requests:
+        storage.complete_and_activate_attempt(
+            attempt.correlation_attempt_id,
+            AttemptStatus.SUCCEEDED.value,
+            EvidenceCompleteness.COMPLETE.value,
+        )
+        return
+
+    matcher = EndpointMatcher(matcher_version="v1", normalization_version="v1")
+    result = matcher.match_batch(eligible_requests, endpoints_list)
+
+    for ev in result.evidence_list:
+        ev.correlation_run_id = cr.correlation_run_id
+        ev.correlation_attempt_id = attempt.correlation_attempt_id
+
+    storage.insert_endpoint_evidence_batch(result.evidence_list)
+    if result.candidates:
+        storage.insert_candidates_batch(result.candidates)
+    if result.flows:
+        storage.insert_flows_batch(result.flows)
+
+    storage.complete_and_activate_attempt(
+        attempt.correlation_attempt_id,
+        AttemptStatus.SUCCEEDED.value,
+        EvidenceCompleteness.COMPLETE.value,
+    )
+
+
+# ── 关联字典转换辅助（模块级）──────────────────────────────────────
+
+
+def _correlation_run_to_dict(cr: Any) -> dict[str, Any]:
+    """将 CorrelationRun 实体转为 dict（camelCase keys for API）。"""
+    return {
+        "correlationRunId": cr.correlation_run_id,
+        "projectId": cr.project_id,
+        "blackboxRunId": cr.blackbox_run_id,
+        "desiredSourceSnapshotId": cr.desired_source_snapshot_id,
+        "desiredAnalysisConfigDigest": cr.desired_analysis_config_digest,
+        "requiredAnalyzerVersion": cr.required_analyzer_version,
+        "allowPartialAnalysis": cr.allow_partial_analysis,
+        "analysisId": cr.analysis_id,
+        "boundSourceSnapshotId": cr.bound_source_snapshot_id,
+        "analysisProjectionVersion": cr.analysis_projection_version,
+        "correlationConfigDigest": cr.correlation_config_digest,
+        "matcherVersion": cr.matcher_version,
+        "normalizationVersion": cr.normalization_version,
+        "supersedesCorrelationRunId": cr.supersedes_correlation_run_id,
+        "sourceAlignmentStatus": (
+            cr.source_alignment_status.value
+            if hasattr(cr.source_alignment_status, "value")
+            else str(cr.source_alignment_status)
+        ),
+        "status": cr.status.value if hasattr(cr.status, "value") else str(cr.status),
+        "activeAttemptId": cr.active_attempt_id,
+        "sourceMismatchOverridden": cr.source_mismatch_overridden,
+        "sourceMismatchOverrideBy": cr.source_mismatch_override_by,
+        "sourceMismatchOverrideAt": cr.source_mismatch_override_at,
+        "sourceMismatchOverrideReason": cr.source_mismatch_override_reason,
+        "startedAt": cr.started_at,
+        "completedAt": cr.completed_at,
+        "errorCode": cr.error_code,
+        "errorMessage": cr.error_message,
+        "createdAt": cr.created_at,
+    }
+
+
+def _attempt_to_dict(a: Any) -> dict[str, Any]:
+    """将 CorrelationAttempt 实体转为 dict。"""
+    return {
+        "correlationAttemptId": a.correlation_attempt_id,
+        "correlationRunId": a.correlation_run_id,
+        "attemptNumber": a.attempt_number,
+        "status": a.status.value if hasattr(a.status, "value") else str(a.status),
+        "evidenceCompleteness": (
+            a.evidence_completeness.value
+            if hasattr(a.evidence_completeness, "value")
+            else str(a.evidence_completeness)
+        ),
+        "leaseOwner": a.lease_owner,
+        "startedAt": a.started_at,
+        "completedAt": a.completed_at,
+        "errorCode": a.error_code,
+        "errorMessage": a.error_message,
+        "createdAt": a.created_at,
+    }
+
+
+def _summary_to_dict(s: Any) -> dict[str, Any]:
+    """将 CorrelationSummary 转为 dict。"""
+    if s is None:
+        return {}
+    return {
+        "correlationRunId": s.correlation_run_id,
+        "status": s.status,
+        "sourceAlignmentStatus": s.source_alignment_status,
+        "capturedRequestCount": s.captured_request_count,
+        "correlatableRequestCount": s.correlatable_request_count,
+        "confirmedMatchedRequestCount": s.confirmed_matched_request_count,
+        "ambiguousRequestCount": s.ambiguous_request_count,
+        "methodMismatchCandidateCount": s.method_mismatch_candidate_count,
+        "unmatchedRequestCount": s.unmatched_request_count,
+        "totalEndpointCount": s.total_endpoint_count,
+        "confirmedTouchedEndpointCount": s.confirmed_touched_endpoint_count,
+        "candidateTouchedEndpointCount": s.candidate_touched_endpoint_count,
+        "uncoveredEndpointCount": s.uncovered_endpoint_count,
+        "attemptedEvidenceCount": s.attempted_evidence_count,
+        "totalFindingCount": s.total_finding_count,
+        "confirmedRelatedFindingCount": s.confirmed_related_finding_count,
+        "candidateRelatedFindingCount": s.candidate_related_finding_count,
+        "unrelatedFindingCount": s.unrelated_finding_count,
+        "crossOriginFilteredCount": s.cross_origin_filtered_count,
+        "resourceFilteredCount": s.resource_filtered_count,
+        "droppedRequestCount": s.dropped_request_count,
+        "failedCaptureCount": s.failed_capture_count,
+        "evidenceCompleteness": s.evidence_completeness,
+        "matcherVersion": s.matcher_version,
+        "normalizationVersion": s.normalization_version,
+    }
+
+
+def _http_request_to_dict(req: Any) -> dict[str, Any]:
+    """将 HttpRequestEvidence 实体转为 dict。"""
+    return {
+        "requestEvidenceId": req.request_evidence_id,
+        "blackboxRunId": req.blackbox_run_id,
+        "taskId": req.task_id,
+        "stepExecutionId": req.step_execution_id,
+        "stepAttempt": req.step_attempt,
+        "requestSequence": req.request_sequence,
+        "httpMethod": req.http_method,
+        "displayPath": req.display_path,
+        "origin": req.origin,
+        "resourceType": req.resource_type,
+        "endpointMatchEligibility": (
+            req.endpoint_match_eligibility.value
+            if hasattr(req.endpoint_match_eligibility, "value")
+            else str(req.endpoint_match_eligibility)
+        ),
+        "responseStatus": req.response_status,
+        "outcome": req.outcome.value if hasattr(req.outcome, "value") else str(req.outcome),
+        "requestOwner": (
+            req.request_owner.value
+            if hasattr(req.request_owner, "value")
+            else str(req.request_owner)
+        ),
+        "responseFromServiceWorker": req.response_from_service_worker,
+        "pageSequence": req.page_sequence,
+        "capturedAt": req.captured_at,
+        "finishedAt": req.finished_at,
+    }
