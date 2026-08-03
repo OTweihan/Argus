@@ -296,10 +296,7 @@ class EndpointMatcher:
         result = MatchResult()
 
         for req in requests:
-            if req.endpoint_match_eligibility in (
-                CorrelationEligibility.EXCLUDED_SW_CACHE,
-                CorrelationEligibility.ATTEMPT_ONLY,
-            ):
+            if req.endpoint_match_eligibility == (CorrelationEligibility.EXCLUDED_SW_CACHE):
                 continue
 
             single = self._match_single(req)

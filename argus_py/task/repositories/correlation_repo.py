@@ -414,18 +414,31 @@ class CorrelationRepository:
         bound_source_snapshot_id: str,
         analysis_projection_version: int,
         source_alignment_status: str,
+        *,
+        source_mismatch_overridden: bool = False,
+        source_mismatch_override_by: str | None = None,
+        source_mismatch_override_at: str | None = None,
+        source_mismatch_override_reason: str | None = None,
     ) -> None:
         with self._pool.tx() as conn:
             conn.execute(
                 """UPDATE correlation_runs
                    SET analysis_id = ?, bound_source_snapshot_id = ?,
-                       analysis_projection_version = ?, source_alignment_status = ?
+                       analysis_projection_version = ?, source_alignment_status = ?,
+                       source_mismatch_overridden = ?,
+                       source_mismatch_override_by = ?,
+                       source_mismatch_override_at = ?,
+                       source_mismatch_override_reason = ?
                    WHERE correlation_run_id = ? AND analysis_id IS NULL""",
                 (
                     analysis_id,
                     bound_source_snapshot_id,
                     analysis_projection_version,
                     source_alignment_status,
+                    int(source_mismatch_overridden),
+                    source_mismatch_override_by,
+                    source_mismatch_override_at,
+                    source_mismatch_override_reason,
                     correlation_run_id,
                 ),
             )
@@ -547,6 +560,13 @@ class CorrelationRepository:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 _attempt_to_row(attempt),
             )
+
+            # 设置 active_attempt_id，使后续查询可按活跃 Attempt 过滤
+            conn.execute(
+                "UPDATE correlation_runs SET active_attempt_id = ? WHERE correlation_run_id = ?",
+                (attempt_id, correlation_run_id),
+            )
+
             return attempt
 
     def complete_and_activate_attempt(
@@ -647,28 +667,31 @@ class CorrelationRepository:
     ) -> tuple[list[HttpRequestEvidence], int]:
         """获取 resolution_status='UNMATCHED' 的请求（通过 endpoint_evidence 状态过滤）。
 
-        匹配器会为每条请求生成 evidence 行；未匹配请求的状态为 UNMATCHED。
+        限定 active_attempt_id，避免重试/重算后混入旧 Attempt 的记录。
         """
         cr = self.get_correlation_run(correlation_run_id)
         if cr is None:
             return [], 0
         bb_id = cr.blackbox_run_id
+        active_attempt_id = cr.active_attempt_id
+        if active_attempt_id is None:
+            return [], 0
         with self._pool.ro_conn() as conn:
             total_row = conn.execute(
                 """SELECT COUNT(*) AS cnt FROM http_request_evidence hre
                    INNER JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
-                     AND ee.correlation_run_id = ?
+                     AND ee.correlation_attempt_id = ?
                    WHERE hre.blackbox_run_id = ? AND ee.resolution_status = 'UNMATCHED'""",
-                (correlation_run_id, bb_id),
+                (active_attempt_id, bb_id),
             ).fetchone()
             total = total_row["cnt"] if total_row else 0
             rows = conn.execute(
                 """SELECT hre.* FROM http_request_evidence hre
                    INNER JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
-                     AND ee.correlation_run_id = ?
+                     AND ee.correlation_attempt_id = ?
                    WHERE hre.blackbox_run_id = ? AND ee.resolution_status = 'UNMATCHED'
                    ORDER BY hre.request_sequence LIMIT ? OFFSET ?""",
-                (correlation_run_id, bb_id, limit, offset),
+                (active_attempt_id, bb_id, limit, offset),
             ).fetchall()
         return [_row_to_http_request(dict(r)) for r in rows], total
 
@@ -819,19 +842,27 @@ class CorrelationRepository:
 
         with self._pool.ro_conn() as conn:
             # ── 端点证据分组计数 ──
+            # ATTEMPT_ONLY 请求也参与匹配并生成证据，但不计入 confirmed 类统计
             ee_stats = conn.execute(
-                """SELECT resolution_status, match_strategy, COUNT(*) AS cnt
-                   FROM endpoint_evidence
-                   WHERE correlation_attempt_id = ?
-                   GROUP BY resolution_status, match_strategy""",
+                """SELECT ee.resolution_status, ee.match_strategy,
+                          COUNT(*) AS cnt,
+                          SUM(CASE WHEN hre.endpoint_match_eligibility = 'ATTEMPT_ONLY'
+                              THEN 1 ELSE 0 END) AS attempt_only_cnt
+                   FROM endpoint_evidence ee
+                   JOIN http_request_evidence hre
+                     ON hre.request_evidence_id = ee.request_evidence_id
+                   WHERE ee.correlation_attempt_id = ?
+                   GROUP BY ee.resolution_status, ee.match_strategy""",
                 (attempt_id,),
             ).fetchall()
             for row in ee_stats:
                 rs = row["resolution_status"]
                 ms = row["match_strategy"]
                 cnt = row["cnt"]
+                attempt_only = row["attempt_only_cnt"]
+                confirmed_cnt = cnt - attempt_only
                 if rs == "UNIQUE" and ms in ("EXACT", "TEMPLATE"):
-                    summary.confirmed_matched_request_count += cnt
+                    summary.confirmed_matched_request_count += confirmed_cnt
                 elif rs == "AMBIGUOUS":
                     summary.ambiguous_request_count += cnt
                 elif rs == "UNMATCHED":
@@ -843,8 +874,12 @@ class CorrelationRepository:
             confirmed_touch = conn.execute(
                 """SELECT COUNT(DISTINCT ee.matched_endpoint_id) AS cnt
                    FROM endpoint_evidence ee
+                   JOIN http_request_evidence hre
+                     ON hre.request_evidence_id = ee.request_evidence_id
                    WHERE ee.correlation_attempt_id = ?
                      AND ee.resolution_status = 'UNIQUE'
+                     AND ee.match_strategy IN ('EXACT', 'TEMPLATE')
+                     AND hre.endpoint_match_eligibility != 'ATTEMPT_ONLY'
                      AND ee.matched_endpoint_id IS NOT NULL""",
                 (attempt_id,),
             ).fetchone()

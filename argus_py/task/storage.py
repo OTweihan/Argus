@@ -230,9 +230,16 @@ class TaskSQLiteStorage:
     def get_latest_analysis_run(self, task_id: str) -> Any:
         return self._analysis.get_latest(task_id)
 
-    def get_latest_succeeded_analysis_by_project(self, project_id: str) -> Any:
-        """查找同一项目下最新成功的分析执行。"""
-        return self._analysis.get_latest_succeeded_by_project(project_id)
+    def get_latest_succeeded_analysis_by_project(
+        self, project_id: str, *, source_snapshot_id: str | None = None
+    ) -> Any:
+        """查找同一项目下最新成功的分析执行。
+
+        source_snapshot_id 非空时仅返回 resolved_commit_sha 一致的分析。
+        """
+        return self._analysis.get_latest_succeeded_by_project(
+            project_id, source_snapshot_id=source_snapshot_id
+        )
 
     def update_analysis_run_status(self, analysis_id: str, run_status: str, **kw: Any) -> None:
         self._analysis.update_status(analysis_id, run_status, **kw)
@@ -307,6 +314,10 @@ class TaskSQLiteStorage:
     def get_analysis_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
         return self._analysis.get_flow_steps(flow_id)
 
+    def list_all_analysis_flow_steps(self, analysis_id: str) -> list[dict[str, Any]]:
+        """一次查询获取分析的所有 flow steps，避免 N+1 查询。"""
+        return self._analysis.list_all_flow_steps_by_analysis(analysis_id)
+
     def get_analysis_diagnostics(self, analysis_id: str) -> dict[str, Any] | None:
         return self._analysis.get_diagnostics(analysis_id)
 
@@ -363,6 +374,11 @@ class TaskSQLiteStorage:
         snapshot_id: str,
         projection_version: int,
         alignment: str,
+        *,
+        source_mismatch_overridden: bool = False,
+        source_mismatch_override_by: str | None = None,
+        source_mismatch_override_at: str | None = None,
+        source_mismatch_override_reason: str | None = None,
     ) -> None:
         self._correlation.bind_analysis(
             correlation_run_id,
@@ -370,6 +386,10 @@ class TaskSQLiteStorage:
             snapshot_id,
             projection_version,
             alignment,
+            source_mismatch_overridden=source_mismatch_overridden,
+            source_mismatch_override_by=source_mismatch_override_by,
+            source_mismatch_override_at=source_mismatch_override_at,
+            source_mismatch_override_reason=source_mismatch_override_reason,
         )
 
     def claim_and_create_attempt(

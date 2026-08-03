@@ -7,6 +7,7 @@ CLI 也可复用此类避免重复编排逻辑。
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 from argus_py.browser.url_validator import validate_url
@@ -728,16 +729,25 @@ class TaskApplicationService:
 
         # 4. 确定 alignment — 优先从分析读取快照
         analysis_snapshot = getattr(analysis_run, "resolved_commit_sha", None) or ""
-        if source_mismatch_override:
+        cr_desired = cr.desired_source_snapshot_id or ""
+
+        # 快照不一致时必须显式 override，不允许静默绑定
+        if analysis_snapshot and cr_desired and analysis_snapshot != cr_desired:
+            if not source_mismatch_override:
+                raise ValueError(
+                    f"分析快照 ({analysis_snapshot[:8]}) 与关联运行期望快照 "
+                    f"({cr_desired[:8]}) 不一致，请确认覆盖绑定。"
+                )
             alignment = "USER_DECLARED"
-        elif (
-            analysis_snapshot
-            and cr.desired_source_snapshot_id
-            and analysis_snapshot == cr.desired_source_snapshot_id
-        ):
+        elif source_mismatch_override:
+            alignment = "USER_DECLARED"
+        elif analysis_snapshot and cr_desired and analysis_snapshot == cr_desired:
             alignment = "VERIFIED"
         else:
             alignment = "UNVERIFIED"
+
+        # 持久化 override 审计字段
+        override_at = datetime.now(timezone.utc).isoformat() if source_mismatch_override else None
 
         storage.bind_correlation_analysis(
             correlation_run_id,
@@ -745,6 +755,10 @@ class TaskApplicationService:
             snapshot_id=analysis_snapshot,
             projection_version=expected_projection_version or 1,
             alignment=alignment,
+            source_mismatch_overridden=source_mismatch_override,
+            source_mismatch_override_by=None,  # TODO: 从 auth 上下文注入操作者
+            source_mismatch_override_at=override_at,
+            source_mismatch_override_reason=source_mismatch_override_reason,
         )
 
         # 5. 根据黑盒完成状态推进
@@ -759,6 +773,24 @@ class TaskApplicationService:
         )
         if bb_done:
             storage.set_correlation_status(correlation_run_id, "READY")
+            # 立即认领并执行关联匹配，避免永久停在 READY
+            updated_cr = storage.get_correlation_run(correlation_run_id)
+            if updated_cr is not None and updated_cr.analysis_id is not None:
+                from argus_py.core.ids import generate_id
+
+                worker_id = generate_id("bind")
+                attempt = storage.claim_and_create_attempt(correlation_run_id, worker_id)
+                if attempt is not None:
+                    try:
+                        _execute_matching_sync(storage, updated_cr, attempt)
+                    except Exception:
+                        from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+
+                        storage.complete_and_activate_attempt(
+                            attempt.correlation_attempt_id,
+                            AttemptStatus.FAILED.value,
+                            EvidenceCompleteness.PARTIAL.value,
+                        )
         else:
             storage.set_correlation_status(correlation_run_id, "WAITING_BLACKBOX")
 
@@ -896,6 +928,8 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
     from argus_py.correlation._execution import (
         assess_capture_quality,
         build_quality_reasons,
+        generate_finding_evidence,
+        generate_flows,
         resolve_completeness,
     )
     from argus_py.correlation.enums import (
@@ -949,7 +983,11 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
             storage.insert_attempt_diagnostics_batch(diagnostics)
         storage.complete_and_activate_attempt(
             attempt.correlation_attempt_id,
-            AttemptStatus.SUCCEEDED.value,
+            (
+                AttemptStatus.PARTIAL
+                if completeness == EvidenceCompleteness.PARTIAL
+                else AttemptStatus.SUCCEEDED
+            ).value,
             completeness.value,
         )
         return
@@ -974,8 +1012,24 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
     storage.insert_endpoint_evidence_batch(result.evidence_list)
     if result.candidates:
         storage.insert_candidates_batch(result.candidates)
-    if result.flows:
-        storage.insert_flows_batch(result.flows)
+
+    # ── 生成调用流关联 ──
+    flows = generate_flows(storage, cr.analysis_id, result.evidence_list, endpoints_list)
+    if flows:
+        storage.insert_flows_batch(flows)
+
+    # ── 生成 Finding 证据关联 ──
+    finding_evidence_list, finding_links = generate_finding_evidence(
+        storage,
+        cr.analysis_id,
+        attempt.correlation_attempt_id,
+        result.evidence_list,
+        endpoints_list,
+    )
+    if finding_evidence_list:
+        storage.insert_finding_evidence_batch(finding_evidence_list)
+    if finding_links:
+        storage.insert_finding_links_batch(finding_links)
 
     completeness = resolve_completeness(
         bool(reasons),
@@ -989,7 +1043,11 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
 
     storage.complete_and_activate_attempt(
         attempt.correlation_attempt_id,
-        AttemptStatus.SUCCEEDED.value,
+        (
+            AttemptStatus.PARTIAL
+            if completeness == EvidenceCompleteness.PARTIAL
+            else AttemptStatus.SUCCEEDED
+        ).value,
         completeness.value,
     )
 

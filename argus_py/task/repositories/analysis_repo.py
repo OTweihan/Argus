@@ -331,17 +331,30 @@ class AnalysisRunRepository:
             return None
         return _row_to_analysis_run(row)
 
-    def get_latest_succeeded_by_project(self, project_id: str) -> AnalysisRun | None:
-        """查找同一项目下最新成功的分析执行（JOIN tasks.project_id）。"""
+    def get_latest_succeeded_by_project(
+        self,
+        project_id: str,
+        *,
+        source_snapshot_id: str | None = None,
+    ) -> AnalysisRun | None:
+        """查找同一项目下最新成功的分析执行（JOIN tasks.project_id）。
+
+        若提供 source_snapshot_id，仅返回 resolved_commit_sha 一致的分析；
+        否则返回同项目最新成功分析（不限制快照）。
+        """
         with self._pool.ro_conn() as conn:
-            row = conn.execute(
-                """SELECT ar.* FROM analysis_runs ar
-                   INNER JOIN tasks t ON t.task_id = ar.task_id
-                   WHERE t.project_id = ? AND ar.run_status = 'SUCCEEDED'
-                   ORDER BY ar.created_at DESC
-                   LIMIT 1""",
-                (project_id,),
-            ).fetchone()
+            conditions = ["t.project_id = ?", "ar.run_status = 'SUCCEEDED'"]
+            params: list[Any] = [project_id]
+            if source_snapshot_id:
+                conditions.append("ar.resolved_commit_sha = ?")
+                params.append(source_snapshot_id)
+            query = (
+                "SELECT ar.* FROM analysis_runs ar "
+                "INNER JOIN tasks t ON t.task_id = ar.task_id "
+                "WHERE " + " AND ".join(conditions) + " "
+                "ORDER BY ar.created_at DESC LIMIT 1"
+            )
+            row = conn.execute(query, params).fetchone()
         if row is None:
             return None
         return _row_to_analysis_run(dict(row))
@@ -658,6 +671,19 @@ class AnalysisRunRepository:
                 "SELECT * FROM analysis_flow_steps WHERE execution_flow_id = ? "
                 "ORDER BY step_index ASC",
                 (flow_id,),
+            ).fetchall()
+        return [_row_to_flow_step(r) for r in rows]
+
+    def list_all_flow_steps_by_analysis(self, analysis_id: str) -> list[dict[str, Any]]:
+        """一次查询获取分析的所有 flow steps（JOIN execution_flows），避免 N+1。"""
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                """SELECT afs.* FROM analysis_flow_steps afs
+                   JOIN analysis_execution_flows aef
+                     ON aef.execution_flow_id = afs.execution_flow_id
+                   WHERE aef.analysis_id = ?
+                   ORDER BY afs.execution_flow_id, afs.step_index""",
+                (analysis_id,),
             ).fetchall()
         return [_row_to_flow_step(r) for r in rows]
 

@@ -361,8 +361,8 @@ class TestEligibilityFiltering:
         result = matcher.match_batch([req], eps)
         assert len(result.evidence_list) == 0  # 整个跳过
 
-    def test_attempt_only_skipped(self) -> None:
-        """P1 回归：ATTEMPT_ONLY 不参与匹配，不产生证据。"""
+    def test_attempt_only_matched_but_not_confirmed(self) -> None:
+        """P2 修复：ATTEMPT_ONLY 参与匹配并产生证据，但由汇总层排除 confirmed 统计。"""
         matcher = EndpointMatcher()
         eps = [
             _make_endpoint("ep1", "GET", "/api/users", is_templated=False),
@@ -373,7 +373,11 @@ class TestEligibilityFiltering:
             endpoint_match_eligibility=CorrelationEligibility.ATTEMPT_ONLY,
         )
         result = matcher.match_batch([req], eps)
-        assert len(result.evidence_list) == 0
+        # ATTEMPT_ONLY 现在参与匹配，产生证据行
+        assert len(result.evidence_list) == 1
+        assert result.evidence_list[0].request_evidence_id == req.request_evidence_id
+        # 请求本身的 eligibility 仍为 ATTEMPT_ONLY，
+        # 汇总层通过 JOIN http_request_evidence 排除 confirmed 统计
 
     def test_confirmed_eligible_processed(self) -> None:
         matcher = EndpointMatcher()
