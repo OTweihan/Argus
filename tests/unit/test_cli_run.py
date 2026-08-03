@@ -41,9 +41,16 @@ class FakeTaskService:
         return self.task
 
 
-def _mock_resolve_params(goal, start_url, max_steps=None, timeout_seconds=None,
-                         capture_screenshots=True, parameters=None, project_id=None,
-                         **kwargs):
+def _mock_resolve_params(
+    goal,
+    start_url,
+    max_steps=None,
+    timeout_seconds=None,
+    capture_screenshots=True,
+    parameters=None,
+    project_id=None,
+    **kwargs,
+):
     """Mock resolve_create_params：调用真实的 resolve_execution_limits 计算限制。"""
     limits = resolve_execution_limits(goal, start_url, max_steps, timeout_seconds)
 

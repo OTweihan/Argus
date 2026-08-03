@@ -10,7 +10,9 @@ from argus_py.llm.retry import RetryConfig
 class _RetryingClient(LLMClient):
     def __init__(self) -> None:
         super().__init__(api_key="sk-test", max_retries=1)
-        self.retry_config = RetryConfig(max_retries=1, base_delay_seconds=0.05, max_delay_seconds=0.05)
+        self.retry_config = RetryConfig(
+            max_retries=1, base_delay_seconds=0.05, max_delay_seconds=0.05
+        )
         self.first_attempt_failed = asyncio.Event()
         self.calls: list[str] = []
 

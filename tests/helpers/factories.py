@@ -24,6 +24,7 @@ from argus_py.task.storage import TaskSQLiteStorage
 @dataclass
 class AppStack:
     """测试服务栈，所有服务使用 SQLite 存储对齐生产环境。"""
+
     app: TaskApplicationService
     lifecycle: TaskLifecycleService
     reader: TaskReadService
