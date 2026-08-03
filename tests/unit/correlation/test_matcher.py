@@ -2,6 +2,12 @@
 
 覆盖：精确匹配、模板匹配、PATH_ONLY、double wildcard、
 歧义候选生成、首段参数回退、重叠模板 resolution。
+
+@note: _make_request / _make_endpoint 本地 helper 与
+       tests.factories.requests.make_http_request_evidence /
+       tests.factories.analysis.make_endpoint_dict 功能等价；
+       此处保留本地 wrapper 是因为匹配测试对 eligibility /
+       is_templated / static_prefix 有测试特定的默认值需求。
 """
 
 from __future__ import annotations

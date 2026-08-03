@@ -70,6 +70,25 @@ class TestRedactSensitiveText:
     def test_leaves_plain_text(self, text: str) -> None:
         assert redact_sensitive_text(text) == text
 
+    def test_multiline_mixed_tokens(self) -> None:
+        """多行文本中的混合 token 模式。"""
+        text = (
+            "GET /api/users\n"
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc.xyz\n"
+            "api_key=sk-1234567890abcdef\n"
+        )
+        result = redact_sensitive_text(text)
+        assert "[REDACTED]" in result
+        assert "Bearer [REDACTED]" in result
+        assert "sk-1234567890abcdef" not in result
+
+    def test_auth_token_vs_auth_case_sensitive(self) -> None:
+        """authToken 应被脱敏，区分大小写不敏感匹配。"""
+        # 关键词 auth 匹配 "authToken=" 中的 auth
+        assert "[REDACTED]" in redact_sensitive_text("authToken=secret123")
+        # api_key 应脱敏（区分大小写不敏感）
+        assert "[REDACTED]" in redact_sensitive_text("API_KEY=abc123")
+
 
 class TestRedactStepParams:
     @pytest.mark.parametrize(

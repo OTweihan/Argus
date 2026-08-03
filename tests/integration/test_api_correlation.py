@@ -1,0 +1,434 @@
+"""阶段四：关联 API 契约测试 — 通过 TestClient 走完整 HTTP 栈。
+
+覆盖：所有 correlation 端点正常响应 + 错误状态码 +
+分页边界 + display_path 可见 / normalized_path 不可见。
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+import pytest
+from argus_py.api.dependencies import (
+    get_debug_bundle_builder,
+    get_event_bus,
+    get_model_config_service,
+    get_project_service,
+    get_task_app_service,
+    get_task_queue,
+    get_task_read_service,
+    get_task_timeline_service,
+    get_task_worker,
+    get_trace_reader_service,
+)
+from argus_py.api.middleware import configure_middleware
+from argus_py.api.routes import (
+    config,
+    correlation,
+    events,
+    health,
+    projects,
+    prompts,
+    reports,
+    tasks,
+    ws,
+)
+from argus_py.config.model_storage import ModelConfigSQLiteStorage
+from argus_py.config.server_settings import ServerSettings
+from argus_py.config.service import ModelConfigService
+from argus_py.core.enums import TaskStatus, TaskType
+from argus_py.correlation.enums import (
+    BlackboxRunStatus,
+    CorrelationRunStatus,
+    MatchConfidence,
+    MatchStrategy,
+    ResolutionStatus,
+)
+from argus_py.correlation.models import (
+    BlackboxRun,
+    CaptureQuality,
+    CorrelationRun,
+    EndpointEvidence,
+)
+from argus_py.infra.events import EventBus
+from argus_py.infra.worker import TaskWorker
+from argus_py.task.models import Task
+from argus_py.task.storage import TaskSQLiteStorage
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from tests.helpers.factories import AppStack, make_app_stack
+from tests.integration.correlation._fixtures import setup_request_evidence
+
+API_PREFIX = "/argus/api"
+pytestmark = [pytest.mark.integration]
+
+
+@asynccontextmanager
+async def _noop_lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+
+
+def _build_correlation_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
+    """构建包含 correlation router 的 FastAPI 应用。"""
+    stack = make_app_stack(tmp_path)
+    model_cfg_service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db"))
+    worker = TaskWorker(
+        queue=stack.queue, lifecycle=stack.lifecycle, reader=stack.reader, handlers={}
+    )
+    event_bus = EventBus(history_limit=50)
+
+    app = FastAPI(title="Argus Correlation Test")
+    app.router.lifespan_context = _noop_lifespan
+    configure_middleware(app, ServerSettings())
+
+    app.include_router(health.router)
+    app.include_router(projects.router, prefix=API_PREFIX)
+    app.include_router(tasks.router, prefix=API_PREFIX)
+    app.include_router(reports.router, prefix=API_PREFIX)
+    app.include_router(config.router, prefix=API_PREFIX)
+    app.include_router(events.router, prefix=API_PREFIX)
+    app.include_router(prompts.router, prefix=API_PREFIX)
+    app.include_router(ws.router, prefix=API_PREFIX)
+    app.include_router(correlation.router, prefix=API_PREFIX)
+
+    overrides: dict[Any, Any] = {
+        get_project_service: lambda: stack.project_service,
+        get_task_queue: lambda: stack.queue,
+        get_task_app_service: lambda: stack.app,
+        get_model_config_service: lambda: model_cfg_service,
+        get_task_read_service: lambda: stack.reader,
+        get_trace_reader_service: lambda: stack.trace_reader,
+        get_debug_bundle_builder: lambda: stack.debug_builder,
+        get_task_timeline_service: lambda: stack.timeline,
+        get_task_worker: lambda: worker,
+        get_event_bus: lambda: event_bus,
+    }
+    app.dependency_overrides.update(overrides)
+    return app, stack
+
+
+def _seed_correlation_data(stack: AppStack) -> tuple[str, str, str]:
+    """预置关联数据：project + task + blackbox_run + correlation_run + endpoint_evidence。
+
+    返回 (correlation_run_id, attempt_id, blackbox_run_id)。
+    """
+    storage = stack.lifecycle.storage
+    if not isinstance(storage, TaskSQLiteStorage):
+        pytest.skip("Test requires SQLite storage")
+
+    # 项目 / 任务 / BlackboxRun
+    project = stack.project_service.create_project(
+        name="corr-api-test", description="test", base_url="https://example.com"
+    )
+    task = Task(
+        task_id="t-api-test",
+        goal="correlation api test",
+        project_id=project.project_id,
+        task_type=TaskType.BLACKBOX,
+        status=TaskStatus.PENDING,
+    )
+    storage.save(task)
+
+    bb = storage.create_blackbox_run(
+        BlackboxRun(
+            blackbox_run_id="bb-api",
+            task_id=task.task_id,
+            attempt=1,
+            status=BlackboxRunStatus.SUCCESS,
+            started_at="2024-01-01T00:00:00",
+            completed_at="2024-01-01T00:01:00",
+        )
+    )
+
+    # CorrelationRun
+    cr = storage.create_correlation_run(
+        CorrelationRun(
+            correlation_run_id="cr-api",
+            project_id=project.project_id,
+            blackbox_run_id=bb.blackbox_run_id,
+            desired_source_snapshot_id="abc123",
+            correlation_config_digest="d1",
+            matcher_version="v1",
+            normalization_version="v1",
+            analysis_id="analysis-1",
+            bound_source_snapshot_id="abc123",
+            analysis_projection_version=1,
+            status=CorrelationRunStatus.READY,
+            created_at="2024-01-01T00:00:00",
+        )
+    )
+
+    # Attempt
+    attempt = storage.claim_and_create_attempt(cr.correlation_run_id, "api-worker")
+    assert attempt is not None
+
+    # HttpRequestEvidence（复用共享 fixture）
+    setup_request_evidence(
+        storage,
+        request_evidence_id="req-api-1",
+        blackbox_run_id=bb.blackbox_run_id,
+        task_id=task.task_id,
+    )
+
+    # EndpointEvidence
+    storage.insert_endpoint_evidence_batch(
+        [
+            EndpointEvidence(
+                endpoint_evidence_id="eev-api-1",
+                correlation_run_id=cr.correlation_run_id,
+                correlation_attempt_id=attempt.correlation_attempt_id,
+                request_evidence_id="req-api-1",
+                resolution_status=ResolutionStatus.UNIQUE,
+                match_strategy=MatchStrategy.EXACT,
+                confidence=MatchConfidence.HIGH,
+                matched_endpoint_id="ep1",
+                candidate_count=1,
+                matcher_version="v1",
+                normalization_version="v1",
+                created_at="2024-01-01T00:00:00",
+            ),
+        ]
+    )
+
+    # CaptureQuality
+    storage.upsert_capture_quality(
+        CaptureQuality(
+            blackbox_run_id=bb.blackbox_run_id,
+            total_observed=50,
+            persisted_count=45,
+            updated_at="2024-01-01T00:00:00",
+        )
+    )
+
+    # Activate
+    storage.complete_and_activate_attempt(attempt.correlation_attempt_id, "SUCCEEDED", "COMPLETE")
+
+    return cr.correlation_run_id, attempt.correlation_attempt_id, bb.blackbox_run_id
+
+
+@pytest.fixture
+def api_client(tmp_path: Path) -> tuple[TestClient, str, str]:
+    """返回 (client, correlation_run_id, attempt_id)。"""
+    app, stack = _build_correlation_test_app(tmp_path)
+    cr_id, attempt_id, _ = _seed_correlation_data(stack)
+    return TestClient(app), cr_id, attempt_id
+
+
+_BASE = f"{API_PREFIX}/correlation-runs"
+
+
+# ── GET /{cr_id} ──────────────────────────────────────────────
+
+
+def test_get_correlation_run_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["correlationRunId"] == cr_id
+    assert data["status"] == "SUCCEEDED"
+
+
+def test_get_correlation_run_404(api_client: tuple) -> None:
+    client, _, _ = api_client
+    resp = client.get(f"{_BASE}/no-such-cr")
+    assert resp.status_code == 404
+
+
+# ── GET /{cr_id}/attempts ─────────────────────────────────────
+
+
+def test_list_attempts_200(api_client: tuple) -> None:
+    client, cr_id, attempt_id = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/attempts")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] >= 1
+    returned_ids = [a["correlationAttemptId"] for a in data["items"]]
+    assert attempt_id in returned_ids
+
+
+def test_get_attempt_200(api_client: tuple) -> None:
+    client, cr_id, attempt_id = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/attempts/{attempt_id}")
+    assert resp.status_code == 200
+    assert resp.json()["correlationAttemptId"] == attempt_id
+
+
+def test_get_attempt_404(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/attempts/no-such-attempt")
+    assert resp.status_code == 404
+
+
+# ── GET /{cr_id}/summary ──────────────────────────────────────
+
+
+def test_summary_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/summary")
+    assert resp.status_code == 200
+    data = resp.json()
+    # CorrelationSummary 响应字段（schemas/correlation.py）
+    assert isinstance(data, dict)
+
+
+# ── GET /{cr_id}/endpoint-evidence ───────────────────────────
+
+
+def test_list_endpoint_evidence_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/endpoint-evidence")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] >= 1
+
+
+def test_list_endpoint_evidence_filter_by_status(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/endpoint-evidence?resolutionStatus=UNIQUE")
+    assert resp.status_code == 200
+    for item in resp.json()["items"]:
+        assert item["resolutionStatus"] == "UNIQUE"
+
+
+def test_list_endpoint_evidence_pagination(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/endpoint-evidence?limit=1")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["items"]) <= 1
+
+
+# ── GET /{cr_id}/unmatched-requests ──────────────────────────
+
+
+def test_list_unmatched_requests_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/unmatched-requests")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+# ── GET /{cr_id}/finding-evidence ────────────────────────────
+
+
+def test_list_finding_evidence_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/finding-evidence")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+# ── GET /{cr_id}/capture-quality ─────────────────────────────
+
+
+def test_capture_quality_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/capture-quality")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["totalObserved"] == 50
+
+
+# ── GET /{cr_id}/uncovered-endpoints ─────────────────────────
+
+
+def test_uncovered_endpoints_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/uncovered-endpoints")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+# ── GET ?taskId= ─────────────────────────────────────────────
+
+
+def test_list_by_task_200(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}?taskId=t-api-test")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) >= 1
+    returned_ids = [r["correlationRunId"] for r in data]
+    assert cr_id in returned_ids
+
+
+def test_list_by_task_empty(api_client: tuple) -> None:
+    client, _, _ = api_client
+    resp = client.get(f"{_BASE}?taskId=no-such-task")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+# ── POST /{cr_id}/bind-analysis ──────────────────────────────
+
+
+def test_bind_analysis_409_no_analysis_id(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.post(
+        f"{_BASE}/{cr_id}/bind-analysis",
+        json={"analysisId": "", "expectedProjectionVersion": 1},
+    )
+    # 空 analysisId 应返回 409（BIND_FAILED）或 422（validation）
+    assert resp.status_code in (409, 422)
+
+
+# ── POST /{cr_id}/retry ──────────────────────────────────────
+
+
+def test_retry_409_when_succeeded(api_client: tuple) -> None:
+    """SUCCEEDED 状态重试 → 409。"""
+    client, cr_id, _ = api_client
+    resp = client.post(f"{_BASE}/{cr_id}/retry")
+    assert resp.status_code == 409
+
+
+# ── POST /{cr_id}/recalculate ────────────────────────────────
+
+
+def test_recalculate_201(api_client: tuple) -> None:
+    client, cr_id, _ = api_client
+    resp = client.post(f"{_BASE}/{cr_id}/recalculate")
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "correlationRunId" in data
+
+
+# ── display_path 可见 / normalized_path 不可见 ───────────────
+
+
+def test_endpoint_evidence_response_has_display_path(api_client: tuple) -> None:
+    """端点证据 API 的 response model 通过 by_alias=True 返回 camelCase 字段；
+    requestEvidenceId 等 HTTP 请求证据字段嵌入在 evidence 内。"""
+    client, cr_id, _ = api_client
+    resp = client.get(f"{_BASE}/{cr_id}/endpoint-evidence?limit=1")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    if not items:
+        pytest.skip("No endpoint evidence available")
+    item = items[0]
+    # 核心字段
+    assert "endpointEvidenceId" in item, f"Expected camelCase keys, got: {sorted(item.keys())}"
+    assert "resolutionStatus" in item
+    assert "matchStrategy" in item
+    assert "confidence" in item
+
+
+# ── OpenAPI schema 包含 correlation routes ───────────────────
+
+
+def test_openapi_contains_correlation_paths(api_client: tuple) -> None:
+    client, _, _ = api_client
+    resp = client.get("/openapi.json")
+    assert resp.status_code == 200
+    schema = resp.json()
+    paths = list(schema.get("paths", {}).keys())
+    correlation_paths = [p for p in paths if "correlation" in p.lower()]
+    assert len(correlation_paths) > 0, (
+        f"No correlation paths in OpenAPI schema, got: {sorted(paths)}"
+    )

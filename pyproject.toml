@@ -119,10 +119,12 @@ warn_unused_ignores = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = ["-m", "not slow"]
+addopts = ["-m", "not slow and not e2e and not performance"]
 markers = [
     "slow: 耗时 >1s 的测试（全栈集成），默认跳过，只在 CI 或显式指定时运行。",
     "integration: 跨模块边界的集成测试（DB + API、多服务协作等）。",
+    "e2e: 端到端测试，需要 Java 和浏览器环境，默认不运行。",
+    "performance: 性能验收测试，默认不运行。",
 ]
 
 [tool.pydantic-mypy]

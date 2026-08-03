@@ -1,0 +1,53 @@
+{
+  "endpoints": [
+    {
+      "path": "/api/health",
+      "httpMethod": "GET",
+      "controllerClass": "com.example.HealthController",
+      "controllerMethod": "health",
+      "parameters": [],
+      "returnType": "String"
+    }
+  ],
+  "callGraph": {
+    "com.example.HealthController#health": {
+      "className": "com.example.HealthController",
+      "methodName": "health",
+      "methodSignature": "String health()",
+      "calleeDetails": []
+    }
+  },
+  "findings": [],
+  "executionFlows": [],
+  "clusters": [],
+  "diagnostics": {
+    "totalSourceFiles": 50,
+    "parsedFileCount": 48,
+    "failedFileCount": 2,
+    "failedFiles": [],
+    "totalCalls": 5,
+    "resolvedHigh": 1,
+    "resolvedMedium": 1,
+    "resolvedLow": 2,
+    "unresolved": 1,
+    "classpathAvailable": false,
+    "jarCount": 0,
+    "classpathSource": "none",
+    "classpathWarnings": ["Maven not available"],
+    "classpathErrors": ["No pom.xml found"],
+    "classpathCommand": "",
+    "classpathExitCode": null,
+    "classpathDurationMs": null,
+    "classpathStdoutTail": "",
+    "classpathStderrTail": "",
+    "classpathTimedOut": false,
+    "applicationModuleCount": 0,
+    "businessModuleCount": 0,
+    "libraryModuleCount": 0,
+    "bomModuleCount": 0,
+    "moduleTypes": {},
+    "rootPom": "",
+    "moduleCount": 0,
+    "sourceRootCount": 1
+  }
+}

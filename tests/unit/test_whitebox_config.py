@@ -491,3 +491,30 @@ class TestWhiteboxTaskConfigFromLegacy:
         assert cfg.scope == "all"
         assert cfg.target_modules == []
         assert cfg.maven is None
+
+    def test_legacy_empty_dict(self) -> None:
+        """旧格式空字典 → 应给出明确错误（source_path 必填）。"""
+        with pytest.raises(ValidationError):
+            WhiteboxTaskConfig.from_legacy_parameters({})
+
+    def test_legacy_with_maven_none(self) -> None:
+        """旧格式含 maven=None → 不抛 TypeError。"""
+        cfg = WhiteboxTaskConfig.from_legacy_parameters(
+            {
+                "source_path": "/project",
+                "maven": None,
+            }
+        )
+        assert cfg.maven is None
+
+    def test_persisted_to_execution_scope_all(self) -> None:
+        """scope=all 时 to_execution_config 正确转换。"""
+        cfg = WhiteboxTaskConfig(source_type=SourceType.LOCAL, source_path="/tmp/p", scope="all")
+        exec_cfg = cfg.to_persisted().to_execution_config()
+        assert exec_cfg.scope == "all"
+
+    def test_persisted_to_execution_maven_none(self) -> None:
+        """maven 为 None 时 to_execution_config 不崩溃。"""
+        cfg = WhiteboxTaskConfig(source_type=SourceType.LOCAL, source_path="/tmp/p")
+        exec_cfg = cfg.to_persisted().to_execution_config()
+        assert exec_cfg.maven is None

@@ -57,6 +57,17 @@ class TestExtractOrigin:
     def test_non_standard_port(self) -> None:
         assert extract_origin("https://example.com:8443/x") == "https://example.com:8443"
 
+    def test_ipv6_brackets_removed_and_lowercase(self) -> None:
+        """IPv6 地址去除方括号并小写。"""
+        assert extract_origin("https://[::1]:8080/path") == "https://::1:8080"
+
+    def test_ipv6_default_port(self) -> None:
+        """IPv6 无端口时正确提取。"""
+        assert extract_origin("https://[::1]/path") == "https://::1"
+
+    def test_ipv6_full_address(self) -> None:
+        assert extract_origin("http://[2001:DB8::1]:3000/api") == "http://2001:db8::1:3000"
+
 
 class TestNormalizeForMatching:
     """路径规范化：重复斜杠、尾斜杠、matrix params、context path。"""
@@ -117,6 +128,24 @@ class TestNormalizeForMatching:
     def test_empty_path_with_query(self) -> None:
         result = normalize_for_matching("https://example.com?query=1")
         assert result == "/"
+
+    def test_strip_prefixes_with_context(self) -> None:
+        """多个 strip_prefixes + context_path 组合。"""
+        result = normalize_for_matching(
+            "https://example.com/app/api/v1/users",
+            context_path="/app",
+            strip_prefixes=["/api", "/api/v1"],
+        )
+        # /app 先剥离 → /api/v1/users → 匹配最长前缀 /api/v1 → /users
+        assert result == "/users"
+
+    def test_strip_prefixes_no_match_preserved(self) -> None:
+        """无匹配的前缀时路径保持原样。"""
+        result = normalize_for_matching(
+            "https://example.com/api/users",
+            strip_prefixes=["/gateway", "/proxy"],
+        )
+        assert result == "/api/users"
 
 
 class TestSanitizeForDisplay:

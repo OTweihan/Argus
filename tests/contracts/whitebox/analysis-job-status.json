@@ -1,0 +1,25 @@
+{
+  "jobId": "job-abc123",
+  "status": "RUNNING",
+  "stage": "analysis",
+  "createdAt": "2024-01-01T00:00:00Z",
+  "startedAt": "2024-01-01T00:00:01Z",
+  "events": [
+    {
+      "timestamp": "2024-01-01T00:00:00Z",
+      "stage": "classpath",
+      "level": "INFO",
+      "message": "Resolving Maven classpath...",
+      "sequence": 0,
+      "eventId": "evt-001"
+    },
+    {
+      "timestamp": "2024-01-01T00:00:01Z",
+      "stage": "analysis",
+      "level": "INFO",
+      "message": "Analyzing source files...",
+      "sequence": 1,
+      "eventId": "evt-002"
+    }
+  ]
+}

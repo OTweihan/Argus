@@ -14,6 +14,7 @@ from argus_py.correlation.enums import (
     EvidenceCompleteness,
     RequestOutcome,
     RequestOwner,
+    SourceAlignmentStatus,
 )
 from argus_py.correlation.models import (
     BlackboxRun,
@@ -127,7 +128,9 @@ def _row_to_correlation_run(row: dict[str, Any]) -> CorrelationRun:
         matcher_version=row.get("matcher_version", "v1"),
         normalization_version=row.get("normalization_version", "v1"),
         supersedes_correlation_run_id=row.get("supersedes_correlation_run_id"),
-        source_alignment_status=row.get("source_alignment_status", "UNVERIFIED"),
+        source_alignment_status=SourceAlignmentStatus(
+            row.get("source_alignment_status", "UNVERIFIED")
+        ),
         status=CorrelationRunStatus(row.get("status", "WAITING_ANALYSIS")),
         active_attempt_id=row.get("active_attempt_id"),
         source_mismatch_overridden=bool(row.get("source_mismatch_overridden", 0)),

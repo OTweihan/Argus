@@ -1,0 +1,126 @@
+{
+  "endpoints": [
+    {
+      "path": "/api/users",
+      "httpMethod": "GET",
+      "controllerClass": "com.example.UserController",
+      "controllerMethod": "listUsers",
+      "parameters": [],
+      "returnType": "List<User>"
+    },
+    {
+      "path": "/api/users/{id}",
+      "httpMethod": "GET",
+      "controllerClass": "com.example.UserController",
+      "controllerMethod": "getUser",
+      "parameters": ["id"],
+      "returnType": "User"
+    }
+  ],
+  "callGraph": {
+    "com.example.UserController#listUsers": {
+      "className": "com.example.UserController",
+      "methodName": "listUsers",
+      "methodSignature": "List<User> listUsers()",
+      "calleeDetails": [
+        {
+          "to": "com.example.UserService#findAll",
+          "methodName": "findAll",
+          "typeName": "com.example.UserService",
+          "resolutionType": "RESOLVED_HIGH",
+          "confidence": "HIGH",
+          "candidates": [],
+          "sourceFile": "src/main/java/com/example/UserController.java",
+          "line": 25
+        }
+      ]
+    }
+  },
+  "findings": [
+    {
+      "ruleId": "EMPTY_CATCH",
+      "severity": "MEDIUM",
+      "title": "空 catch 块",
+      "description": "catch 块为空，异常被静默吞没",
+      "filePath": "src/main/java/com/example/BadCode.java",
+      "lineNumber": 12,
+      "snippet": "catch (Exception e) {}",
+      "ruleCategory": "BUG",
+      "analysisConfidence": "HIGH",
+      "sourceLocation": {
+        "filePath": "src/main/java/com/example/BadCode.java",
+        "startLine": 12,
+        "startColumn": 9,
+        "endLine": 12,
+        "endColumn": 29
+      }
+    }
+  ],
+  "executionFlows": [
+    {
+      "entryPoint": "com.example.UserController#listUsers",
+      "callDepth": 2,
+      "steps": [
+        {
+          "depth": 0,
+          "methodKey": "com.example.UserController#listUsers",
+          "className": "com.example.UserController",
+          "methodName": "listUsers"
+        },
+        {
+          "depth": 1,
+          "methodKey": "com.example.UserService#findAll",
+          "className": "com.example.UserService",
+          "methodName": "findAll"
+        }
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "clusterId": "cluster-1",
+      "suggestedLabel": "User Module",
+      "memberKeys": ["com.example.UserController#listUsers", "com.example.UserService#findAll"],
+      "memberCount": 2
+    }
+  ],
+  "diagnostics": {
+    "totalSourceFiles": 150,
+    "parsedFileCount": 148,
+    "failedFileCount": 2,
+    "failedFiles": [
+      {
+        "file": "src/main/java/com/example/Broken.java",
+        "problems": ["Syntax error at line 5"]
+      }
+    ],
+    "totalCalls": 45,
+    "resolvedHigh": 38,
+    "resolvedMedium": 5,
+    "resolvedLow": 1,
+    "unresolved": 1,
+    "classpathAvailable": true,
+    "jarCount": 42,
+    "classpathSource": "maven",
+    "classpathWarnings": [],
+    "classpathErrors": [],
+    "classpathCommand": "mvn dependency:build-classpath",
+    "classpathExitCode": 0,
+    "classpathDurationMs": 1200,
+    "classpathStdoutTail": "",
+    "classpathStderrTail": "",
+    "classpathTimedOut": false,
+    "applicationModuleCount": 1,
+    "businessModuleCount": 1,
+    "libraryModuleCount": 3,
+    "bomModuleCount": 1,
+    "moduleTypes": {
+      "core": "application",
+      "api": "business",
+      "common": "library"
+    },
+    "rootPom": "pom.xml",
+    "moduleCount": 5,
+    "sourceRootCount": 5
+  }
+}

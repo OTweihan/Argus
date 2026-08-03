@@ -1,0 +1,9 @@
+{
+  "sourcePath": "/tmp/test-project",
+  "scope": "all",
+  "targetModules": ["core", "api"],
+  "classpathMode": "auto",
+  "autoDetect": true,
+  "generateClasspath": true,
+  "offline": false
+}
