@@ -6,7 +6,7 @@
     <el-table :data="items" size="small" stripe style="width:100%" max-height="400">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
-          <el-tag size="small" :type="methodTag(row.httpMethod)">
+          <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
             {{ row.httpMethod }}
           </el-tag>
         </template>
@@ -50,6 +50,7 @@
 
 <script setup lang="ts">
 import type { HttpRequestEvidenceInfo } from "../../../../api/correlation";
+import { httpMethodTag } from "../../../../utils";
 
 defineProps<{
   items: HttpRequestEvidenceInfo[];
@@ -61,17 +62,6 @@ defineProps<{
 defineEmits<{ "load-more": [] }>();
 
 type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
-
-function methodTag(method: string): ElTagType {
-  switch (method.toUpperCase()) {
-    case "GET": return "success";
-    case "POST": return "primary";
-    case "PUT":
-    case "PATCH": return "warning";
-    case "DELETE": return "danger";
-    default: return "info";
-  }
-}
 
 function statusClass(code: number | null): string {
   if (code === null) return "status-na";

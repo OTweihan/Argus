@@ -381,13 +381,30 @@ class CorrelationRepository:
     def find_waiting_analysis(
         self,
         desired_source_snapshot_id: str,
+        *,
+        project_id: str | None = None,
     ) -> list[CorrelationRun]:
+        """查找 WAITING_ANALYSIS 的关联运行。
+
+        匹配策略：
+        - desired_source_snapshot_id 精确匹配，或 run 未指定快照（空字符串 = 任意快照接受）。
+        - 若提供 project_id，只匹配同项目运行。
+        """
         with self._pool.ro_conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM correlation_runs WHERE desired_source_snapshot_id = ? "
-                "AND status = 'WAITING_ANALYSIS' ORDER BY created_at",
-                (desired_source_snapshot_id,),
-            ).fetchall()
+            conditions = [
+                "(  desired_source_snapshot_id = ?  OR desired_source_snapshot_id = '')",
+                "status = 'WAITING_ANALYSIS'",
+            ]
+            params: list[Any] = [desired_source_snapshot_id]
+            if project_id:
+                conditions.append("project_id = ?")
+                params.append(project_id)
+            query = (
+                "SELECT * FROM correlation_runs WHERE "
+                + " AND ".join(conditions)
+                + " ORDER BY created_at"
+            )
+            rows = conn.execute(query, params).fetchall()
         return [_row_to_correlation_run(dict(r)) for r in rows]
 
     def bind_analysis(
@@ -628,7 +645,10 @@ class CorrelationRepository:
         offset: int = 0,
         limit: int = 100,
     ) -> tuple[list[HttpRequestEvidence], int]:
-        """获取未匹配的请求（通过 LEFT JOIN endpoint_evidence 过滤）。"""
+        """获取 resolution_status='UNMATCHED' 的请求（通过 endpoint_evidence 状态过滤）。
+
+        匹配器会为每条请求生成 evidence 行；未匹配请求的状态为 UNMATCHED。
+        """
         cr = self.get_correlation_run(correlation_run_id)
         if cr is None:
             return [], 0
@@ -636,17 +656,17 @@ class CorrelationRepository:
         with self._pool.ro_conn() as conn:
             total_row = conn.execute(
                 """SELECT COUNT(*) AS cnt FROM http_request_evidence hre
-                   LEFT JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
+                   INNER JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
                      AND ee.correlation_run_id = ?
-                   WHERE hre.blackbox_run_id = ? AND ee.endpoint_evidence_id IS NULL""",
+                   WHERE hre.blackbox_run_id = ? AND ee.resolution_status = 'UNMATCHED'""",
                 (correlation_run_id, bb_id),
             ).fetchone()
             total = total_row["cnt"] if total_row else 0
             rows = conn.execute(
                 """SELECT hre.* FROM http_request_evidence hre
-                   LEFT JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
+                   INNER JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
                      AND ee.correlation_run_id = ?
-                   WHERE hre.blackbox_run_id = ? AND ee.endpoint_evidence_id IS NULL
+                   WHERE hre.blackbox_run_id = ? AND ee.resolution_status = 'UNMATCHED'
                    ORDER BY hre.request_sequence LIMIT ? OFFSET ?""",
                 (correlation_run_id, bb_id, limit, offset),
             ).fetchall()
@@ -759,11 +779,46 @@ class CorrelationRepository:
             normalization_version=cr.normalization_version if cr else "v1",
         )
 
+        if cr is None:
+            return summary
+
+        bb_id = cr.blackbox_run_id
+
+        with self._pool.ro_conn() as conn:
+            # ── 采集质量 ──
+            cq = conn.execute(
+                "SELECT * FROM http_capture_quality WHERE blackbox_run_id = ?",
+                (bb_id,),
+            ).fetchone()
+            if cq:
+                summary.cross_origin_filtered_count = cq["filtered_cross_origin"] or 0
+                summary.resource_filtered_count = cq["filtered_by_resource_type"] or 0
+                summary.dropped_request_count = (
+                    (cq["dropped_pending_limit"] or 0)
+                    + (cq["dropped_run_limit"] or 0)
+                    + (cq["dropped_writer_queue_limit"] or 0)
+                )
+                summary.failed_capture_count = cq["persistence_failed"] or 0
+                summary.captured_request_count = cq["persisted_count"] or 0
+
+        # ── 请求证据总数（避免采集质量未持久化时为零）──
+        if summary.captured_request_count == 0:
+            with self._pool.ro_conn() as conn:
+                total_row = conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM http_request_evidence WHERE blackbox_run_id = ?",
+                    (bb_id,),
+                ).fetchone()
+                summary.captured_request_count = total_row["cnt"] if total_row else 0
+
+        # ── 可关联请求 ──
+        eligible_reqs = self.list_eligible_requests(bb_id)
+        summary.correlatable_request_count = len(eligible_reqs)
+
         if attempt_id is None:
             return summary
 
         with self._pool.ro_conn() as conn:
-            # 按 resolution_status + match_strategy 分组计数
+            # ── 端点证据分组计数 ──
             ee_stats = conn.execute(
                 """SELECT resolution_status, match_strategy, COUNT(*) AS cnt
                    FROM endpoint_evidence
@@ -777,25 +832,83 @@ class CorrelationRepository:
                 cnt = row["cnt"]
                 if rs == "UNIQUE" and ms in ("EXACT", "TEMPLATE"):
                     summary.confirmed_matched_request_count += cnt
-                elif ms == "PATH_ONLY":
-                    summary.method_mismatch_candidate_count += cnt
                 elif rs == "AMBIGUOUS":
                     summary.ambiguous_request_count += cnt
                 elif rs == "UNMATCHED":
                     summary.unmatched_request_count += cnt
+                elif ms == "PATH_ONLY":
+                    summary.method_mismatch_candidate_count += cnt
 
-            # Attempt 状态
+            # ── 端点触达统计 ──
+            confirmed_touch = conn.execute(
+                """SELECT COUNT(DISTINCT ee.matched_endpoint_id) AS cnt
+                   FROM endpoint_evidence ee
+                   WHERE ee.correlation_attempt_id = ?
+                     AND ee.resolution_status = 'UNIQUE'
+                     AND ee.matched_endpoint_id IS NOT NULL""",
+                (attempt_id,),
+            ).fetchone()
+            summary.confirmed_touched_endpoint_count = (
+                confirmed_touch["cnt"] if confirmed_touch else 0
+            )
+
+            candidate_touch = conn.execute(
+                """SELECT COUNT(DISTINCT eec.endpoint_id) AS cnt
+                   FROM endpoint_evidence_candidates eec
+                   JOIN endpoint_evidence ee ON ee.endpoint_evidence_id = eec.endpoint_evidence_id
+                   WHERE ee.correlation_attempt_id = ?""",
+                (attempt_id,),
+            ).fetchone()
+            summary.candidate_touched_endpoint_count = (
+                candidate_touch["cnt"] if candidate_touch else 0
+            )
+
+            # ── 端点总数（来自分析投影）──
+            if cr.analysis_id:
+                ep_total = conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM analysis_endpoints WHERE analysis_id = ?",
+                    (cr.analysis_id,),
+                ).fetchone()
+                summary.total_endpoint_count = ep_total["cnt"] if ep_total else 0
+                summary.uncovered_endpoint_count = max(
+                    0,
+                    summary.total_endpoint_count
+                    - summary.confirmed_touched_endpoint_count
+                    - summary.candidate_touched_endpoint_count,
+                )
+
+            # ── ATTEMPT_ONLY 证据数 ──
+            attempted = conn.execute(
+                """SELECT COUNT(*) AS cnt FROM http_request_evidence
+                   WHERE blackbox_run_id = ? AND endpoint_match_eligibility = 'ATTEMPT_ONLY'""",
+                (bb_id,),
+            ).fetchone()
+            summary.attempted_evidence_count = attempted["cnt"] if attempted else 0
+
+            # ── Finding 统计 ──
+            fe_stats = conn.execute(
+                """SELECT best_relation_type, COUNT(*) AS cnt
+                   FROM finding_evidence
+                   WHERE correlation_attempt_id = ?
+                   GROUP BY best_relation_type""",
+                (attempt_id,),
+            ).fetchall()
+            for row in fe_stats:
+                rt = row["best_relation_type"]
+                cnt = row["cnt"]
+                summary.total_finding_count += cnt
+                if rt in ("DIRECT_HANDLER", "STATIC_REACHABLE", "FLOW_MEMBER"):
+                    summary.confirmed_related_finding_count += cnt
+                elif rt == "UNKNOWN":
+                    summary.unrelated_finding_count += cnt
+
+            # Attempt 完整性
             attempt = conn.execute(
                 "SELECT evidence_completeness FROM correlation_attempts WHERE correlation_attempt_id = ?",
                 (attempt_id,),
             ).fetchone()
             if attempt:
                 summary.evidence_completeness = attempt["evidence_completeness"]
-
-        # 请求统计
-        if cr:
-            eligible_reqs = self.list_eligible_requests(cr.blackbox_run_id)
-            summary.correlatable_request_count = len(eligible_reqs)
 
         return summary
 
@@ -979,6 +1092,85 @@ class CorrelationRepository:
                 (cr.analysis_id, cr.active_attempt_id, limit, offset),
             ).fetchall()
         return [dict(r) for r in rows], total
+
+    # ══════════════════════════════════════════════════════════
+    # 批量查询辅助（供 application 层组装 API 响应）
+    # ══════════════════════════════════════════════════════════
+
+    # SQLite 默认编译期参数上限 999，留安全余量
+    _BATCH_QUERY_MAX_IDS = 900
+
+    def _check_batch_ids(self, ids: list[str], label: str) -> None:
+        if len(ids) > self._BATCH_QUERY_MAX_IDS:
+            raise ValueError(
+                f"{label} 批量查询 ID 数量超出限制: "
+                f"{len(ids)} > {CorrelationRepository._BATCH_QUERY_MAX_IDS}"
+            )
+
+    def batch_get_candidates(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """按 evidence_id 批量查询候选端点。"""
+        if not evidence_ids:
+            return {}
+        self._check_batch_ids(evidence_ids, "candidates")
+        with self._pool.ro_conn() as conn:
+            placeholders = ",".join("?" for _ in evidence_ids)
+            rows = conn.execute(
+                f"SELECT * FROM endpoint_evidence_candidates "
+                f"WHERE endpoint_evidence_id IN ({placeholders}) "
+                f"ORDER BY candidate_rank",
+                evidence_ids,
+            ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            d = dict(r)
+            eid = d["endpoint_evidence_id"]
+            result.setdefault(eid, []).append(d)
+        return result
+
+    def batch_get_flows(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """按 evidence_id 批量查询调用流关联。"""
+        if not evidence_ids:
+            return {}
+        self._check_batch_ids(evidence_ids, "flows")
+        with self._pool.ro_conn() as conn:
+            placeholders = ",".join("?" for _ in evidence_ids)
+            rows = conn.execute(
+                f"SELECT * FROM endpoint_evidence_flows "
+                f"WHERE endpoint_evidence_id IN ({placeholders})",
+                evidence_ids,
+            ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            d = dict(r)
+            eid = d["endpoint_evidence_id"]
+            result.setdefault(eid, []).append(d)
+        return result
+
+    def batch_get_endpoint_details(self, endpoint_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """按 endpoint_id 批量查询端点详情。"""
+        if not endpoint_ids:
+            return {}
+        self._check_batch_ids(endpoint_ids, "endpoint_details")
+        with self._pool.ro_conn() as conn:
+            placeholders = ",".join("?" for _ in endpoint_ids)
+            rows = conn.execute(
+                f"SELECT * FROM analysis_endpoints WHERE endpoint_id IN ({placeholders})",
+                endpoint_ids,
+            ).fetchall()
+        return {r["endpoint_id"]: dict(r) for r in rows}
+
+    def batch_get_finding_details(self, finding_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """按 finding_id 批量查询发现项详情。"""
+        if not finding_ids:
+            return {}
+        self._check_batch_ids(finding_ids, "finding_details")
+        with self._pool.ro_conn() as conn:
+            placeholders = ",".join("?" for _ in finding_ids)
+            rows = conn.execute(
+                f"SELECT * FROM findings WHERE finding_id IN ({placeholders})",
+                finding_ids,
+            ).fetchall()
+        return {r["finding_id"]: dict(r) for r in rows}
 
     # ══════════════════════════════════════════════════════════
     # 崩溃恢复

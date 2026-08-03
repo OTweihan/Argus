@@ -331,6 +331,21 @@ class AnalysisRunRepository:
             return None
         return _row_to_analysis_run(row)
 
+    def get_latest_succeeded_by_project(self, project_id: str) -> AnalysisRun | None:
+        """查找同一项目下最新成功的分析执行（JOIN tasks.project_id）。"""
+        with self._pool.ro_conn() as conn:
+            row = conn.execute(
+                """SELECT ar.* FROM analysis_runs ar
+                   INNER JOIN tasks t ON t.task_id = ar.task_id
+                   WHERE t.project_id = ? AND ar.run_status = 'SUCCEEDED'
+                   ORDER BY ar.created_at DESC
+                   LIMIT 1""",
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _row_to_analysis_run(dict(row))
+
     def update_status(
         self,
         analysis_id: str,

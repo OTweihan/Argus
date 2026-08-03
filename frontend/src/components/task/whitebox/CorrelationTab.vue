@@ -151,9 +151,43 @@
         <el-tab-pane lazy label="未触达端点" name="uncovered">
           <div class="list-wrap">
             <el-empty v-if="!summary.uncoveredEndpointCount" description="所有白盒端点均已触达" />
-            <div v-else class="list-toolbar">
-              <span class="list-count">共 {{ summary.uncoveredEndpointCount }} 个端点未触达</span>
-            </div>
+            <template v-else>
+              <div class="list-toolbar">
+                <span class="list-count">共 {{ uncoveredTotal ?? summary.uncoveredEndpointCount }} 个端点未触达</span>
+              </div>
+              <el-table :data="uncoveredItems" size="small" stripe style="width:100%" max-height="400">
+                <el-table-column label="方法" width="80">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
+                      {{ row.httpMethod }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="路径" min-width="200">
+                  <template #default="{ row }">
+                    <span class="mano">{{ row.normalizedPathTemplate || row.normalizedPath }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="控制器" min-width="200">
+                  <template #default="{ row }">
+                    <span v-if="row.controllerClass || row.controllerMethod" class="mano">
+                      {{ row.controllerClass }}.{{ row.controllerMethod }}
+                    </span>
+                    <span v-else class="text-faint">-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="路径段数" width="90">
+                  <template #default="{ row }">
+                    {{ row.pathSegmentCount }}
+                  </template>
+                </el-table-column>
+              </el-table>
+              <div v-if="uncoveredHasMore" class="list-more">
+                <el-button size="small" :loading="uncoveredLoading" @click="loadMoreUncovered">
+                  加载更多
+                </el-button>
+              </div>
+            </template>
           </div>
         </el-tab-pane>
 
@@ -257,13 +291,15 @@ import {
   listEndpointEvidence,
   listFindingEvidence,
   listUnmatchedRequests,
+  listUncoveredEndpoints,
   type CorrelationSummaryInfo,
   type CaptureQualityInfo,
   type EndpointEvidenceInfo,
   type FindingEvidenceInfo,
   type HttpRequestEvidenceInfo,
+  type UncoveredEndpointInfo,
 } from "../../../api/correlation";
-import { errorMessage } from "../../../utils";
+import { errorMessage, httpMethodTag } from "../../../utils";
 import EndpointEvidenceTable from "./correlation/EndpointEvidenceTable.vue";
 import FindingEvidenceTable from "./correlation/FindingEvidenceTable.vue";
 import UnmatchedRequestTable from "./correlation/UnmatchedRequestTable.vue";
@@ -448,12 +484,48 @@ async function loadMoreUnmatched(): Promise<void> {
   }
 }
 
+// ── 未触达端点分页 ──
+
+const uncoveredItems = ref<UncoveredEndpointInfo[]>([]);
+const uncoveredTotal = ref<number | null>(null);
+const uncoveredHasMore = ref(false);
+const uncoveredLoading = ref(false);
+
+async function loadUncovered(): Promise<void> {
+  if (uncoveredItems.value.length > 0) return; // 懒加载一次
+  uncoveredLoading.value = true;
+  try {
+    const page = await listUncoveredEndpoints(props.correlationRunId, 0, 100);
+    uncoveredItems.value = page.items;
+    uncoveredTotal.value = page.total;
+    uncoveredHasMore.value = page.hasMore;
+  } finally {
+    uncoveredLoading.value = false;
+  }
+}
+
+async function loadMoreUncovered(): Promise<void> {
+  uncoveredLoading.value = true;
+  try {
+    const page = await listUncoveredEndpoints(
+      props.correlationRunId,
+      uncoveredItems.value.length,
+      100,
+    );
+    uncoveredItems.value.push(...page.items);
+    uncoveredHasMore.value = page.hasMore;
+  } finally {
+    uncoveredLoading.value = false;
+  }
+}
+
 // ── Tab 懒加载 ──
 
 watch(subTab, (tab) => {
   if (tab === "endpoints") loadEvidence();
   if (tab === "findings") loadFindingEvidence();
   if (tab === "unmatched") loadUnmatched();
+  if (tab === "uncovered") loadUncovered();
 });
 </script>
 

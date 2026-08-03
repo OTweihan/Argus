@@ -103,7 +103,7 @@ def extract_origin(url: str) -> str:
     """提取并规范化 origin：默认端口归一化、Host 小写、IPv6 方括号。"""
     parsed = urlparse(url)
     scheme = parsed.scheme.lower()
-    host: str = getattr(parsed, "host", "") or ""
+    host: str = parsed.hostname or ""
     host = host.lower().strip("[]")  # IPv6 去方括号后小写
     port: int | None = getattr(parsed, "port", None)
 

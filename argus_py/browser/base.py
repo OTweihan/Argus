@@ -496,7 +496,7 @@ def _normalize_origin(url: str) -> str:
     scheme = parsed.scheme.lower()
     if scheme in ("blob", "data", "about"):
         return ""
-    host = (getattr(parsed, "host", "") or "").lower()
+    host = (parsed.hostname or "").lower()
     port: int | None = getattr(parsed, "port", None)
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         port = None

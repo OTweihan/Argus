@@ -230,6 +230,10 @@ class TaskSQLiteStorage:
     def get_latest_analysis_run(self, task_id: str) -> Any:
         return self._analysis.get_latest(task_id)
 
+    def get_latest_succeeded_analysis_by_project(self, project_id: str) -> Any:
+        """查找同一项目下最新成功的分析执行。"""
+        return self._analysis.get_latest_succeeded_by_project(project_id)
+
     def update_analysis_run_status(self, analysis_id: str, run_status: str, **kw: Any) -> None:
         self._analysis.update_status(analysis_id, run_status, **kw)
 
@@ -344,8 +348,13 @@ class TaskSQLiteStorage:
     def get_correlation_run_by_blackbox(self, blackbox_run_id: str) -> CorrelationRun | None:
         return self._correlation.get_correlation_run_by_blackbox(blackbox_run_id)
 
-    def find_waiting_correlations(self, snapshot_id: str) -> list[CorrelationRun]:
-        return self._correlation.find_waiting_analysis(snapshot_id)
+    def find_waiting_correlations(
+        self,
+        snapshot_id: str,
+        *,
+        project_id: str | None = None,
+    ) -> list[CorrelationRun]:
+        return self._correlation.find_waiting_analysis(snapshot_id, project_id=project_id)
 
     def bind_correlation_analysis(
         self,
@@ -468,6 +477,19 @@ class TaskSQLiteStorage:
         limit: int = 100,
     ) -> tuple[list[dict[str, Any]], int]:
         return self._correlation.list_finding_evidence(cr_id, offset=offset, limit=limit)
+
+    # 批量查询辅助
+    def batch_get_candidates(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        return self._correlation.batch_get_candidates(evidence_ids)
+
+    def batch_get_flows(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        return self._correlation.batch_get_flows(evidence_ids)
+
+    def batch_get_endpoint_details(self, endpoint_ids: list[str]) -> dict[str, dict[str, Any]]:
+        return self._correlation.batch_get_endpoint_details(endpoint_ids)
+
+    def batch_get_finding_details(self, finding_ids: list[str]) -> dict[str, dict[str, Any]]:
+        return self._correlation.batch_get_finding_details(finding_ids)
 
     # Attempt 明细
     def insert_attempt_reasons_batch(self, items: list[CorrelationAttemptReason]) -> None:

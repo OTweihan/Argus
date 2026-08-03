@@ -226,10 +226,11 @@ def create_container() -> RuntimeContainer:
             status=CorrelationRunStatus.WAITING_ANALYSIS,
             created_at=_now_iso(),
         )
-        # 尝试自动绑定已有分析
-        latest_analysis = storage.get_latest_analysis_run(task.task_id)
-        if latest_analysis is not None:
-            if getattr(latest_analysis, "run_status", "") == "SUCCEEDED":
+        # 尝试自动绑定同项目已有分析
+        project_id = task.project_id or ""
+        if project_id:
+            latest_analysis = storage.get_latest_succeeded_analysis_by_project(project_id)
+            if latest_analysis is not None:
                 cr.analysis_id = latest_analysis.analysis_id
                 cr.bound_source_snapshot_id = (
                     getattr(latest_analysis, "resolved_commit_sha", None) or ""
@@ -275,6 +276,15 @@ def create_container() -> RuntimeContainer:
 
         _logger = logging.getLogger(__name__)
 
+        # 黑盒已完成：若分析也已就绪则推进到 READY 再认领
+        cr = storage.get_correlation_run(correlation_run_id)
+        if cr is None:
+            return
+        if cr.status == CorrelationRunStatus.WAITING_ANALYSIS:
+            return  # 分析尚未完成，等白盒回调触发
+        if cr.status == CorrelationRunStatus.WAITING_BLACKBOX:
+            storage.set_correlation_status(correlation_run_id, "READY")
+
         attempt = storage.claim_and_create_attempt(correlation_run_id, worker_id)
         if attempt is None:
             return
@@ -291,9 +301,25 @@ def create_container() -> RuntimeContainer:
             )
 
     async def _execute_correlation(attempt: Any) -> None:
-        """执行端点匹配。"""
-        from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+        """执行端点匹配 + 调用流关联 + Finding 证据关联。
+
+        根据采集质量和匹配结果决定 completeness 是 COMPLETE 还是 PARTIAL，
+        并写入对应的 reasons 和 diagnostics。
+        """
+        from argus_py.correlation._execution import (
+            assess_capture_quality,
+            build_quality_reasons,
+            resolve_completeness,
+        )
+        from argus_py.correlation.enums import (
+            AttemptDiagnosticCode,
+            AttemptStatus,
+            EvidenceCompleteness,
+        )
         from argus_py.correlation.matcher import EndpointMatcher
+        from argus_py.correlation.models import (
+            CorrelationAttemptDiagnostic,
+        )
 
         cr = storage.get_correlation_run(attempt.correlation_run_id)
         if cr is None or cr.analysis_id is None:
@@ -304,21 +330,58 @@ def create_container() -> RuntimeContainer:
             )
             return
 
+        # ── 读取采集质量 ──
+        cq = storage.get_capture_quality(cr.blackbox_run_id)
+        capture_truncated, has_persistence_failure = assess_capture_quality(cq)
+        reasons, diagnostics = build_quality_reasons(
+            attempt.correlation_attempt_id,
+            cq,
+            capture_truncated,
+            has_persistence_failure,
+        )
+
         # 加载白盒端点
         endpoints_result = storage.list_analysis_endpoints(cr.analysis_id, limit=10_000)
         endpoints = endpoints_result[0]
         eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
 
         if not eligible_requests:
+            diagnostics.append(
+                CorrelationAttemptDiagnostic(
+                    correlation_attempt_id=attempt.correlation_attempt_id,
+                    diagnostic_code=AttemptDiagnosticCode.NO_ELIGIBLE_REQUESTS,
+                    detail=f"blackbox_run_id={cr.blackbox_run_id} 无 CONFIRMED_ELIGIBLE 请求",
+                )
+            )
+            completeness = resolve_completeness(
+                bool(reasons),
+                capture_truncated,
+                has_persistence_failure,
+            )
+            if reasons:
+                storage.insert_attempt_reasons_batch(reasons)
+            if diagnostics:
+                storage.insert_attempt_diagnostics_batch(diagnostics)
             storage.complete_and_activate_attempt(
                 attempt.correlation_attempt_id,
                 AttemptStatus.SUCCEEDED,
-                EvidenceCompleteness.COMPLETE,
+                completeness,
             )
             return
 
         matcher = EndpointMatcher(matcher_version="v1", normalization_version="v1")
         result = matcher.match_batch(eligible_requests, endpoints)
+
+        # 诊断：正则约束不可移植
+        if result.diagnostics:
+            diagnostics.extend(
+                CorrelationAttemptDiagnostic(
+                    correlation_attempt_id=attempt.correlation_attempt_id,
+                    diagnostic_code=d,
+                    detail=None,
+                )
+                for d in result.diagnostics
+            )
 
         # 写入证据（填充 correlation_run_id 和 attempt_id）
         for ev in result.evidence_list:
@@ -328,14 +391,250 @@ def create_container() -> RuntimeContainer:
         storage.insert_endpoint_evidence_batch(result.evidence_list)
         if result.candidates:
             storage.insert_candidates_batch(result.candidates)
-        if result.flows:
-            storage.insert_flows_batch(result.flows)
+
+        # ── 生成调用流关联 ──
+        flows = _generate_flows(cr.analysis_id, result.evidence_list, endpoints)
+        if flows:
+            storage.insert_flows_batch(flows)
+
+        # ── 生成 Finding 证据关联 ──
+        finding_evidence_list, finding_links = _generate_finding_evidence(
+            cr.analysis_id, attempt.correlation_attempt_id, result.evidence_list, endpoints
+        )
+        if finding_evidence_list:
+            storage.insert_finding_evidence_batch(finding_evidence_list)
+        if finding_links:
+            storage.insert_finding_links_batch(finding_links)
+
+        # ── 决定 completeness ──
+        completeness = resolve_completeness(
+            bool(reasons),
+            capture_truncated,
+            has_persistence_failure,
+        )
+        if reasons:
+            storage.insert_attempt_reasons_batch(reasons)
+        if diagnostics:
+            storage.insert_attempt_diagnostics_batch(diagnostics)
 
         storage.complete_and_activate_attempt(
             attempt.correlation_attempt_id,
             AttemptStatus.SUCCEEDED,
-            EvidenceCompleteness.COMPLETE,
+            completeness,
         )
+
+    # ── 调用流生成 ──
+    def _generate_flows(
+        analysis_id: str,
+        evidence_list: list[Any],
+        endpoints: list[dict[str, Any]],
+    ) -> list[Any]:
+        """为已匹配的端点证据生成 EndpointEvidenceFlow 关联。
+
+        查询分析执行中的 execution_flows，按 controller_method 匹配端点。
+        建立 method_name → flows 索引以避免 O(n×m) 回退扫描。
+        """
+        from argus_py.correlation.models import EndpointEvidenceFlow
+
+        # 构建 endpoint_id → endpoint 映射
+        ep_map: dict[str, dict[str, Any]] = {}
+        for ep in endpoints:
+            eid = ep.get("endpoint_id")
+            if eid:
+                ep_map[eid] = ep
+
+        # 查询分析的所有执行流
+        flows_result = storage.list_analysis_execution_flows(analysis_id, limit=10_000)
+        analysis_flows = flows_result[0]
+
+        # 双重索引：完整 entry_point + 纯方法名（去掉类前缀）
+        flows_by_entry: dict[str, list[dict[str, Any]]] = {}
+        flows_by_method: dict[str, list[dict[str, Any]]] = {}
+        for flow in analysis_flows:
+            entry = flow.get("entry_point", "")
+            if not entry:
+                continue
+            flows_by_entry.setdefault(entry, []).append(flow)
+            # "UserController.listUsers" → "listUsers"
+            dot_pos = entry.rfind(".")
+            method_name = entry[dot_pos + 1 :] if dot_pos > 0 else entry
+            flows_by_method.setdefault(method_name, []).append(flow)
+
+        result: list[Any] = []
+        seen: set[tuple[str, str]] = set()
+
+        for ev in evidence_list:
+            ep_id = ev.matched_endpoint_id
+            if not ep_id:
+                continue
+
+            endpoint = ep_map.get(ep_id)
+            if endpoint is None:
+                continue
+
+            controller_method = endpoint.get("controller_method", "")
+            controller_class = endpoint.get("controller_class", "")
+            entry_key = f"{controller_class}.{controller_method}" if controller_class else ""
+
+            # 三级查找：类.方法 → 纯方法名
+            matching_flows = flows_by_entry.get(entry_key, []) if entry_key else []
+            if not matching_flows:
+                matching_flows = flows_by_method.get(controller_method, [])
+
+            for flow in matching_flows:
+                flow_id = flow.get("execution_flow_id", "")
+                dedup_key = (ev.endpoint_evidence_id, flow_id)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+
+                endpoint_path = endpoint.get("normalized_path_template") or endpoint.get(
+                    "normalized_exact_path", ""
+                )
+                result.append(
+                    EndpointEvidenceFlow(
+                        endpoint_evidence_id=ev.endpoint_evidence_id,
+                        execution_flow_id=flow_id,
+                        relation_type="ENTRY_POINT",
+                        endpoint_method_snapshot=endpoint.get("http_method"),
+                        endpoint_path_snapshot=endpoint_path,
+                        controller_snapshot=controller_method,
+                        flow_name_snapshot=flow.get("entry_point"),
+                        source_location_snapshot=_format_endpoint_location(endpoint),
+                    )
+                )
+
+        return result
+
+    # ── Finding 证据生成 ──
+    def _generate_finding_evidence(
+        analysis_id: str,
+        correlation_attempt_id: str,
+        evidence_list: list[Any],
+        endpoints: list[dict[str, Any]],
+    ) -> tuple[list[Any], list[Any]]:
+        """为分析中的发现项生成 FindingEvidence 和 FindingEvidenceLink。
+
+        将 findings（白盒漏洞/坏味道）与匹配到的端点证据关联。
+        匹配策略：finding.location 与 endpoint.source_file 路径后缀匹配；
+        回退到 finding.url 与 endpoint 路径匹配。
+        """
+        import uuid as _uuid_mod
+
+        from argus_py.correlation.enums import FindingRelationType
+        from argus_py.correlation.models import FindingEvidence, FindingEvidenceLink
+
+        # 查询分析的所有发现项
+        findings_result = storage.get_analysis_findings(analysis_id, limit=10_000)
+        all_findings = findings_result[0]
+
+        if not all_findings:
+            return [], []
+
+        # 构建 endpoint 索引（按 source_file）
+        ep_index_by_file: dict[str, list[dict[str, Any]]] = {}
+        for ep in endpoints:
+            sf = (ep.get("source_file") or "").replace("\\", "/")
+            if sf:
+                ep_index_by_file.setdefault(sf, []).append(ep)
+
+        # 构建 evidence 索引（按 matched_endpoint_id）
+        ev_by_ep_id: dict[str, Any] = {}
+        for ev in evidence_list:
+            ep_id = ev.matched_endpoint_id
+            if ep_id:
+                ev_by_ep_id[ep_id] = ev
+
+        fe_list: list[Any] = []
+        fl_list: list[Any] = []
+
+        def _add_ep(ep: dict[str, Any]) -> None:
+            """去重添加端点到匹配列表。"""
+            eid = ep.get("endpoint_id", "")
+            if eid and eid not in seen_ep_ids:
+                seen_ep_ids.add(eid)
+                matched_eps.append(ep)
+
+        for finding in all_findings:
+            fid = getattr(finding, "finding_id", "")
+            if not fid:
+                continue
+
+            fe_id = f"fe:{_uuid_mod.uuid4().hex[:12]}"
+
+            # 尝试匹配 finding → endpoints
+            finding_loc = (getattr(finding, "location", "") or "").replace("\\", "/")
+            finding_url = getattr(finding, "url", "") or ""
+
+            matched_eps: list[dict[str, Any]] = []
+            seen_ep_ids: set[str] = set()
+
+            # Level 1: finding.location 与 endpoint.source_file 路径后缀匹配
+            if finding_loc:
+                # 以 "/" 分割 location，取文件名部分匹配
+                finding_file = finding_loc.rsplit("/", 1)[-1]
+                for sf, eps in ep_index_by_file.items():
+                    sf_file = sf.rsplit("/", 1)[-1]
+                    if sf_file and sf_file == finding_file:
+                        for ep in eps:
+                            _add_ep(ep)
+
+            # Level 2: finding.url 与 endpoint 路径匹配
+            if not matched_eps and finding_url:
+                for ep in endpoints:
+                    ep_path = ep.get("raw_path") or ep.get("normalized_exact_path", "")
+                    if ep_path and ep_path in finding_url:
+                        _add_ep(ep)
+
+            # 确定 best_relation_type
+            if matched_eps:
+                relation = FindingRelationType.DIRECT_HANDLER
+            else:
+                relation = FindingRelationType.UNKNOWN
+
+            # 创建 FindingEvidence
+            fe = FindingEvidence(
+                finding_evidence_id=fe_id,
+                correlation_attempt_id=correlation_attempt_id,
+                finding_id=fid,
+                best_relation_type=relation,
+                minimum_call_distance=0 if matched_eps else None,
+                confirmed_request_count=sum(
+                    1 for ep in matched_eps if ep.get("endpoint_id") in ev_by_ep_id
+                ),
+                candidate_request_count=len(matched_eps),
+                finding_rule_id_snapshot=getattr(finding, "rule_id", None) or None,
+                finding_location_snapshot=finding_loc or None,
+            )
+            fe_list.append(fe)
+
+            # 创建 FindingEvidenceLink（每个已匹配端点证据一条，已去重）
+            for ep in matched_eps:
+                ep_id = ep.get("endpoint_id", "")
+                ev = ev_by_ep_id.get(ep_id)
+                if ev is None:
+                    continue
+                fl = FindingEvidenceLink(
+                    finding_evidence_id=fe_id,
+                    correlation_attempt_id=correlation_attempt_id,
+                    endpoint_evidence_id=ev.endpoint_evidence_id,
+                    endpoint_id=ep_id,
+                    relation_type=relation,
+                    call_distance=0,
+                )
+                fl_list.append(fl)
+
+        return fe_list, fl_list
+
+    # ── endpoint 位置格式化 ──
+    def _format_endpoint_location(endpoint: dict[str, Any]) -> str:
+        """格式化端点源码位置为可读字符串。"""
+        sf = endpoint.get("source_file") or ""
+        sl = endpoint.get("source_start_line")
+        parts = [sf]
+        if sl is not None:
+            parts.append(str(sl))
+        return ":".join(parts)
 
     # 生成 Worker 标识（单进程单 Worker，ID 稳定）
     worker_id = getattr(settings, "worker_id", "") or generate_id("w")
@@ -346,13 +645,24 @@ def create_container() -> RuntimeContainer:
         analysis_id: str,
     ) -> None:
         """白盒分析成功后：查找 WAITING_ANALYSIS 的 CorrelationRun 并触发关联。"""
+        from argus_py.correlation.enums import BlackboxRunStatus
+
         analysis_run = storage.get_analysis_run(analysis_id)
         if analysis_run is None:
             return
         snapshot_id = getattr(analysis_run, "resolved_commit_sha", None) or ""
         if not snapshot_id:
             return  # 无源码快照信息，无法可靠绑定
-        waiting = storage.find_waiting_correlations(snapshot_id)
+
+        # 获取分析任务的项目 ID，用于匹配同项目关联运行
+        analysis_project_id = ""
+        task_header = storage.load_task_header(task_id)
+        if task_header:
+            analysis_project_id = task_header.get("project_id", "") or ""
+
+        waiting = storage.find_waiting_correlations(
+            snapshot_id, project_id=analysis_project_id or None
+        )
         for cr in waiting:
             storage.bind_correlation_analysis(
                 cr.correlation_run_id,
@@ -361,7 +671,18 @@ def create_container() -> RuntimeContainer:
                 projection_version=1,
                 alignment="UNVERIFIED",
             )
-            storage.set_correlation_status(cr.correlation_run_id, "WAITING_BLACKBOX")
+            # 检查黑盒是否也已完成；已完成则直接推进到 READY
+            bb_run = storage.get_blackbox_run(cr.blackbox_run_id)
+            bb_done = bb_run is not None and bb_run.status in (
+                BlackboxRunStatus.SUCCESS,
+                BlackboxRunStatus.FAILED,
+                BlackboxRunStatus.CANCELLED,
+                BlackboxRunStatus.TIMED_OUT,
+            )
+            if bb_done:
+                storage.set_correlation_status(cr.correlation_run_id, "READY")
+            else:
+                storage.set_correlation_status(cr.correlation_run_id, "WAITING_BLACKBOX")
             # 尝试立即推进和认领
             claimed = storage.claim_and_create_attempt(cr.correlation_run_id, worker_id)
             if claimed:

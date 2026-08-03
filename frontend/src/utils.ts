@@ -41,6 +41,20 @@ export function nullableBoolean(value: "" | "true" | "false"): boolean | null {
   return value === "true";
 }
 
+/** HTTP 方法 → Element Plus tag type。GET=success, POST=primary, PUT/PATCH=warning, DELETE=danger。 */
+export type HttpMethodTagType = "success" | "info" | "danger" | "warning" | "primary";
+
+export function httpMethodTag(method: string): HttpMethodTagType {
+  switch (method.toUpperCase()) {
+    case "GET": return "success";
+    case "POST": return "primary";
+    case "PUT":
+    case "PATCH": return "warning";
+    case "DELETE": return "danger";
+    default: return "info";
+  }
+}
+
 export function upsertById<T extends Record<K, string>, K extends keyof T>(
   items: T[],
   item: T,

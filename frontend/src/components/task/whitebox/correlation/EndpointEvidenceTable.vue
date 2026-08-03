@@ -19,7 +19,7 @@
     <el-table :data="items" size="small" stripe style="width:100%" max-height="400">
       <el-table-column label="请求" width="80">
         <template #default="{ row }">
-          <el-tag size="small" :type="methodTag(row.httpMethod ?? row.requestPath ?? '')">
+          <el-tag size="small" :type="httpMethodTag(row.httpMethod ?? row.requestPath ?? '')">
             {{ row.httpMethod ?? '-' }}
           </el-tag>
         </template>
@@ -76,6 +76,7 @@
 
 <script setup lang="ts">
 import type { EndpointEvidenceInfo } from "../../../../api/correlation";
+import { httpMethodTag } from "../../../../utils";
 
 defineProps<{
   items: EndpointEvidenceInfo[];
@@ -95,17 +96,6 @@ function onFilterChange(val: string | number | boolean | object | undefined): vo
 }
 
 type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
-
-function methodTag(method: string): ElTagType {
-  switch (method.toUpperCase()) {
-    case "GET": return "success";
-    case "POST": return "primary";
-    case "PUT":
-    case "PATCH": return "warning";
-    case "DELETE": return "danger";
-    default: return "info";
-  }
-}
 
 function strategyTag(s: string): ElTagType {
   switch (s) {

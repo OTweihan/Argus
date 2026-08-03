@@ -11,7 +11,7 @@
     <el-table :data="filteredItems" size="small" stripe style="width:100%" max-height="400">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
-          <el-tag size="small" :type="methodTag(row.httpMethod)">
+          <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
             {{ row.httpMethod }}
           </el-tag>
         </template>
@@ -43,6 +43,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { EndpointInfo } from "../../../api/task";
+import { httpMethodTag } from "../../../utils";
 
 const props = defineProps<{
   items: EndpointInfo[];
@@ -64,19 +65,6 @@ const filteredItems = computed(() => {
       (e.controllerClass || "").toLowerCase().includes(q),
   );
 });
-
-type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
-
-function methodTag(method: string): ElTagType {
-  switch (method.toUpperCase()) {
-    case "GET": return "success";
-    case "POST": return "primary";
-    case "PUT":
-    case "PATCH": return "warning";
-    case "DELETE": return "danger";
-    default: return "info";
-  }
-}
 </script>
 
 <style scoped>

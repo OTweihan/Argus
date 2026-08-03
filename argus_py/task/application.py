@@ -562,6 +562,53 @@ class TaskApplicationService:
                 offset=offset,
                 limit=limit,
             )
+
+            if not items:
+                return [], total
+
+            # ── 组装 matchedEndpointInfo / candidates / executionFlows ──
+            matched_ids = [
+                it["matched_endpoint_id"] for it in items if it.get("matched_endpoint_id")
+            ]
+            evidence_ids = [it["endpoint_evidence_id"] for it in items]
+
+            ep_map: dict[str, dict[str, Any]] = {}
+            candidates_map: dict[str, list[dict[str, Any]]] = {}
+            flows_map: dict[str, list[dict[str, Any]]] = {}
+
+            if matched_ids:
+                ep_map = storage.batch_get_endpoint_details(matched_ids)
+            if evidence_ids:
+                candidates_map = storage.batch_get_candidates(evidence_ids)
+                flows_map = storage.batch_get_flows(evidence_ids)
+
+            for it in items:
+                ep_id = it.get("matched_endpoint_id")
+                if ep_id and ep_id in ep_map:
+                    ep = ep_map[ep_id]
+                    it["matched_endpoint_info"] = {
+                        "endpointId": ep.get("endpoint_id", ""),
+                        "endpointFingerprint": ep.get("endpoint_fingerprint", ""),
+                        "analysisId": ep.get("analysis_id", ""),
+                        "sourceSnapshotId": ep.get("source_snapshot_id"),
+                        "httpMethod": ep.get("http_method", ""),
+                        "normalizedPath": ep.get("normalized_exact_path")
+                        or ep.get("normalized_path_template", ""),
+                        "normalizedPathTemplate": ep.get("normalized_path_template", ""),
+                        "isTemplated": bool(ep.get("is_templated")),
+                        "pathSegmentCount": ep.get("path_segment_count", 0),
+                        "controllerClass": ep.get("controller_class"),
+                        "controllerMethod": ep.get("controller_method"),
+                        "parameters": [],
+                        "returnType": ep.get("return_type"),
+                    }
+                else:
+                    it["matched_endpoint_info"] = None
+
+                eid = it["endpoint_evidence_id"]
+                it["candidates"] = candidates_map.get(eid, [])
+                it["execution_flows"] = flows_map.get(eid, [])
+
             return items, total
         return [], 0
 
@@ -596,6 +643,35 @@ class TaskApplicationService:
                 offset=offset,
                 limit=limit,
             )
+
+            if not items:
+                return [], total
+
+            # ── 组装 findingInfo ──
+            finding_ids = [it["finding_id"] for it in items]
+            finding_map = storage.batch_get_finding_details(finding_ids)
+
+            for it in items:
+                fid = it.get("finding_id", "")
+                f = finding_map.get(fid)
+                if f:
+                    it["finding_info"] = {
+                        "findingId": f.get("finding_id", ""),
+                        "title": f.get("title", ""),
+                        "description": f.get("description", ""),
+                        "severity": f.get("severity", ""),
+                        "findingType": f.get("finding_type", ""),
+                        "location": f.get("location"),
+                        "ruleId": f.get("rule_id"),
+                        "ruleCategory": f.get("rule_category"),
+                        "confidence": f.get("confidence"),
+                        "snippet": f.get("snippet"),
+                        "analysisId": f.get("analysis_id"),
+                        "createdAt": f.get("created_at", ""),
+                    }
+                else:
+                    it["finding_info"] = None
+
             return items, total
         return [], 0
 
@@ -615,15 +691,76 @@ class TaskApplicationService:
         source_mismatch_override: bool = False,
         source_mismatch_override_reason: str | None = None,
     ) -> None:
+        """手动绑定白盒分析到关联运行，完成校验后推进状态。
+
+        校验：分析必须存在且为 SUCCEEDED；分析任务与关联运行必须属于同一项目。
+        绑定后会检查黑盒是否已完成，已完成则直接进入 READY。
+        """
         storage = self._read.storage
-        if isinstance(storage, TaskSQLiteStorage):
-            storage.bind_correlation_analysis(
-                correlation_run_id,
-                analysis_id,
-                snapshot_id="",
-                projection_version=expected_projection_version or 0,
-                alignment="USER_DECLARED" if source_mismatch_override else "VERIFIED",
+        if not isinstance(storage, TaskSQLiteStorage):
+            raise ValueError("当前存储不支持关联操作。")
+
+        # 1. 校验分析存在且成功
+        analysis_run = storage.get_analysis_run(analysis_id)
+        if analysis_run is None:
+            raise ValueError(f"分析执行不存在：{analysis_id}")
+        if getattr(analysis_run, "run_status", "") != "SUCCEEDED":
+            raise ValueError(
+                f"只有成功的分析可以绑定，当前状态：{getattr(analysis_run, 'run_status', '')}"
             )
+
+        # 2. 校验关联运行存在且尚未绑定分析
+        cr = storage.get_correlation_run(correlation_run_id)
+        if cr is None:
+            raise ValueError(f"关联运行不存在：{correlation_run_id}")
+        if cr.analysis_id is not None:
+            raise ValueError(f"关联运行已绑定分析：{cr.analysis_id}")
+
+        # 3. 校验项目一致
+        analysis_task_header = storage.load_task_header(analysis_run.task_id)
+        if analysis_task_header is None:
+            raise ValueError(f"分析任务不存在：{analysis_run.task_id}")
+        analysis_project = analysis_task_header.get("project_id", "")
+        if analysis_project and cr.project_id and analysis_project != cr.project_id:
+            raise ValueError(
+                f"项目不一致：关联运行项目={cr.project_id}，分析任务项目={analysis_project}"
+            )
+
+        # 4. 确定 alignment — 优先从分析读取快照
+        analysis_snapshot = getattr(analysis_run, "resolved_commit_sha", None) or ""
+        if source_mismatch_override:
+            alignment = "USER_DECLARED"
+        elif (
+            analysis_snapshot
+            and cr.desired_source_snapshot_id
+            and analysis_snapshot == cr.desired_source_snapshot_id
+        ):
+            alignment = "VERIFIED"
+        else:
+            alignment = "UNVERIFIED"
+
+        storage.bind_correlation_analysis(
+            correlation_run_id,
+            analysis_id,
+            snapshot_id=analysis_snapshot,
+            projection_version=expected_projection_version or 1,
+            alignment=alignment,
+        )
+
+        # 5. 根据黑盒完成状态推进
+        from argus_py.correlation.enums import BlackboxRunStatus
+
+        bb_run = storage.get_blackbox_run(cr.blackbox_run_id)
+        bb_done = bb_run is not None and bb_run.status in (
+            BlackboxRunStatus.SUCCESS,
+            BlackboxRunStatus.FAILED,
+            BlackboxRunStatus.CANCELLED,
+            BlackboxRunStatus.TIMED_OUT,
+        )
+        if bb_done:
+            storage.set_correlation_status(correlation_run_id, "READY")
+        else:
+            storage.set_correlation_status(correlation_run_id, "WAITING_BLACKBOX")
 
     def list_uncovered_endpoints(
         self,
@@ -751,9 +888,25 @@ class TaskApplicationService:
 
 
 def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
-    """关联匹配的同步实现 — 纯 CPU + 同步 SQLite 操作。"""
-    from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+    """关联匹配的同步实现 — 纯 CPU + 同步 SQLite 操作。
+
+    根据采集质量和匹配结果决定 completeness（COMPLETE/PARTIAL），
+    并写入对应的 reasons 和 diagnostics。
+    """
+    from argus_py.correlation._execution import (
+        assess_capture_quality,
+        build_quality_reasons,
+        resolve_completeness,
+    )
+    from argus_py.correlation.enums import (
+        AttemptDiagnosticCode,
+        AttemptStatus,
+        EvidenceCompleteness,
+    )
     from argus_py.correlation.matcher import EndpointMatcher
+    from argus_py.correlation.models import (
+        CorrelationAttemptDiagnostic,
+    )
 
     if cr.analysis_id is None:
         storage.complete_and_activate_attempt(
@@ -763,20 +916,56 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
         )
         return
 
+    # ── 读取采集质量 ──
+    cq = storage.get_capture_quality(cr.blackbox_run_id)
+    capture_truncated, has_persistence_failure = assess_capture_quality(cq)
+    reasons, diagnostics = build_quality_reasons(
+        attempt.correlation_attempt_id,
+        cq,
+        capture_truncated,
+        has_persistence_failure,
+    )
+
     endpoints_result = storage.list_analysis_endpoints(cr.analysis_id, limit=10_000)
     endpoints_list = endpoints_result[0]
     eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
 
     if not eligible_requests:
+        diagnostics.append(
+            CorrelationAttemptDiagnostic(
+                correlation_attempt_id=attempt.correlation_attempt_id,
+                diagnostic_code=AttemptDiagnosticCode.NO_ELIGIBLE_REQUESTS,
+                detail=f"blackbox_run_id={cr.blackbox_run_id} 无 CONFIRMED_ELIGIBLE 请求",
+            )
+        )
+        completeness = resolve_completeness(
+            bool(reasons),
+            capture_truncated,
+            has_persistence_failure,
+        )
+        if reasons:
+            storage.insert_attempt_reasons_batch(reasons)
+        if diagnostics:
+            storage.insert_attempt_diagnostics_batch(diagnostics)
         storage.complete_and_activate_attempt(
             attempt.correlation_attempt_id,
             AttemptStatus.SUCCEEDED.value,
-            EvidenceCompleteness.COMPLETE.value,
+            completeness.value,
         )
         return
 
     matcher = EndpointMatcher(matcher_version="v1", normalization_version="v1")
     result = matcher.match_batch(eligible_requests, endpoints_list)
+
+    if result.diagnostics:
+        diagnostics.extend(
+            CorrelationAttemptDiagnostic(
+                correlation_attempt_id=attempt.correlation_attempt_id,
+                diagnostic_code=d,
+                detail=None,
+            )
+            for d in result.diagnostics
+        )
 
     for ev in result.evidence_list:
         ev.correlation_run_id = cr.correlation_run_id
@@ -788,10 +977,20 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
     if result.flows:
         storage.insert_flows_batch(result.flows)
 
+    completeness = resolve_completeness(
+        bool(reasons),
+        capture_truncated,
+        has_persistence_failure,
+    )
+    if reasons:
+        storage.insert_attempt_reasons_batch(reasons)
+    if diagnostics:
+        storage.insert_attempt_diagnostics_batch(diagnostics)
+
     storage.complete_and_activate_attempt(
         attempt.correlation_attempt_id,
         AttemptStatus.SUCCEEDED.value,
-        EvidenceCompleteness.COMPLETE.value,
+        completeness.value,
     )
 
 

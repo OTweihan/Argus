@@ -6,6 +6,7 @@ import {
     compact,
     errorMessage,
     formatDate,
+    httpMethodTag,
     nullableBoolean,
     nullableText,
     sortBy,
@@ -111,5 +112,30 @@ describe("utils.upsertById / sortBy", () => {
         const sorted = sortBy(original, (x) => x.n);
         expect(sorted.map((x) => x.n)).toEqual([1, 2, 3]);
         expect(original.map((x) => x.n)).toEqual([3, 1, 2]);
+    });
+});
+
+describe("utils.httpMethodTag", () => {
+    it("GET → success", () => {
+        expect(httpMethodTag("GET")).toBe("success");
+        expect(httpMethodTag("get")).toBe("success");
+    });
+
+    it("POST → primary", () => {
+        expect(httpMethodTag("POST")).toBe("primary");
+    });
+
+    it("PUT / PATCH → warning", () => {
+        expect(httpMethodTag("PUT")).toBe("warning");
+        expect(httpMethodTag("PATCH")).toBe("warning");
+    });
+
+    it("DELETE → danger", () => {
+        expect(httpMethodTag("DELETE")).toBe("danger");
+    });
+
+    it("unknown → info", () => {
+        expect(httpMethodTag("OPTIONS")).toBe("info");
+        expect(httpMethodTag("")).toBe("info");
     });
 });

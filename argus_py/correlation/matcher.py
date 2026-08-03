@@ -185,6 +185,30 @@ def _compute_specificity(
     )
 
 
+def _resolve_candidate_confidence(
+    strategy: MatchStrategy,
+    endpoint: dict[str, Any],
+) -> MatchConfidence:
+    """推导单个候选端点的置信度。
+
+    - EXACT 歧义：候选端点本身都是精确匹配，置信度 HIGH。
+    - TEMPLATE：检查模板中是否有正则约束。
+    - PATH_ONLY：方法不一致，置信度 LOW。
+    """
+    if strategy == MatchStrategy.EXACT:
+        return MatchConfidence.HIGH
+    if strategy == MatchStrategy.TEMPLATE:
+        has_unportable = False
+        tp = endpoint.get("normalized_path_template") or ""
+        for seg in tp.split("/"):
+            if seg.startswith("{") and seg.endswith("}"):
+                inner = seg[1:-1]
+                if ":" in inner:
+                    has_unportable = True
+        return MatchConfidence.MEDIUM if has_unportable else MatchConfidence.HIGH
+    return MatchConfidence.LOW
+
+
 @dataclass
 class MatchResult:
     """一次批量匹配的完整结果。"""
@@ -193,6 +217,14 @@ class MatchResult:
     candidates: list[EndpointEvidenceCandidate] = field(default_factory=list)
     flows: list[EndpointEvidenceFlow] = field(default_factory=list)
     diagnostics: list[AttemptDiagnosticCode] = field(default_factory=list)
+
+
+@dataclass
+class _SingleMatchResult:
+    """单次请求匹配的内部结果。"""
+
+    evidence: EndpointEvidence
+    candidate_endpoints: list[dict[str, Any]] = field(default_factory=list)
 
 
 class EndpointMatcher:
@@ -264,25 +296,38 @@ class EndpointMatcher:
         result = MatchResult()
 
         for req in requests:
-            if req.endpoint_match_eligibility == CorrelationEligibility.EXCLUDED_SW_CACHE:
+            if req.endpoint_match_eligibility in (
+                CorrelationEligibility.EXCLUDED_SW_CACHE,
+                CorrelationEligibility.ATTEMPT_ONLY,
+            ):
                 continue
 
-            evidence = self._match_single(req)
-            validate_endpoint_evidence(evidence)
-            result.evidence_list.append(evidence)
+            single = self._match_single(req)
+            validate_endpoint_evidence(single.evidence)
+            result.evidence_list.append(single.evidence)
 
-            # 收集候选
-            if evidence.resolution_status == ResolutionStatus.AMBIGUOUS:
-                # 候选由 _resolve_template/_resolve_path_only 期间填充
-                pass
+            # 歧义 → 构造 EndpointEvidenceCandidate
+            if single.evidence.resolution_status == ResolutionStatus.AMBIGUOUS:
+                _strategy = single.evidence.match_strategy
+                for rank, ep in enumerate(single.candidate_endpoints, start=1):
+                    result.candidates.append(
+                        EndpointEvidenceCandidate(
+                            endpoint_evidence_id=single.evidence.endpoint_evidence_id,
+                            endpoint_id=ep.get("endpoint_id", ""),
+                            candidate_rank=rank,
+                            match_strategy=_strategy,
+                            confidence=_resolve_candidate_confidence(_strategy, ep),
+                            selected=False,
+                        )
+                    )
 
         return result
 
-    def _match_single(self, req: HttpRequestEvidence) -> EndpointEvidence:
+    def _match_single(self, req: HttpRequestEvidence) -> _SingleMatchResult:
         """单次请求三级匹配。"""
         idx = self._index
         if idx is None:
-            return self._build_unmatched(req)
+            return _SingleMatchResult(evidence=self._build_unmatched(req))
 
         method = req.http_method
         path = req.normalized_path
@@ -291,17 +336,27 @@ class EndpointMatcher:
         # ── Level 1: 精确匹配 ──
         exact = idx.exact.get((method, path), [])
         if len(exact) == 1:
-            return self._build_evidence(
-                req, exact[0], ResolutionStatus.UNIQUE, MatchStrategy.EXACT, MatchConfidence.HIGH, 1
+            return _SingleMatchResult(
+                evidence=self._build_evidence(
+                    req,
+                    exact[0],
+                    ResolutionStatus.UNIQUE,
+                    MatchStrategy.EXACT,
+                    MatchConfidence.HIGH,
+                    1,
+                )
             )
         if len(exact) > 1:
-            return self._build_evidence(
-                req,
-                exact[0],
-                ResolutionStatus.AMBIGUOUS,
-                MatchStrategy.EXACT,
-                MatchConfidence.HIGH,
-                len(exact),
+            return _SingleMatchResult(
+                evidence=self._build_evidence(
+                    req,
+                    exact[0],
+                    ResolutionStatus.AMBIGUOUS,
+                    MatchStrategy.EXACT,
+                    MatchConfidence.HIGH,
+                    len(exact),
+                ),
+                candidate_endpoints=exact,
             )
 
         # ── Level 2: 模板匹配 ──
@@ -315,7 +370,7 @@ class EndpointMatcher:
             return path_only_result
 
         # ── Level 4: UNMATCHED ──
-        return self._build_unmatched(req)
+        return _SingleMatchResult(evidence=self._build_unmatched(req))
 
     def _match_template(
         self,
@@ -324,13 +379,18 @@ class EndpointMatcher:
         path: str,
         req_segments: list[str],
         idx: _EndpointIndex,
-    ) -> EndpointEvidence | None:
+    ) -> _SingleMatchResult | None:
         """模板匹配（HTTP 方法相同）。"""
         candidates: list[tuple[dict[str, Any], list[_SegmentMatcher]]] = []
 
         # 固定段数模板
         fixed_key = (method, len(req_segments), req_segments[0] if req_segments else "")
         candidates.extend(idx.fixed_template.get(fixed_key, []))
+        # 首段为路径参数（{param}/...）时 static_prefix 为空，需额外查空首段索引
+        if req_segments:
+            fallback_key = (method, len(req_segments), "")
+            if fallback_key != fixed_key:
+                candidates.extend(idx.fixed_template.get(fallback_key, []))
 
         # Double wildcard 模板（按 min_seg_count 查找）
         for (dw_method, min_seg), dw_candidates in idx.double_wildcard.items():
@@ -349,8 +409,10 @@ class EndpointMatcher:
         if len(matched) == 1:
             ep, compiled = matched[0]
             confidence = self._template_confidence(compiled)
-            return self._build_evidence(
-                req, ep, ResolutionStatus.UNIQUE, MatchStrategy.TEMPLATE, confidence, 1
+            return _SingleMatchResult(
+                evidence=self._build_evidence(
+                    req, ep, ResolutionStatus.UNIQUE, MatchStrategy.TEMPLATE, confidence, 1
+                )
             )
 
         # 多个候选 → 按 specificity 排序
@@ -361,17 +423,22 @@ class EndpointMatcher:
         if len(ties) == 1:
             ep, compiled = ties[0]
             confidence = self._template_confidence(compiled)
-            return self._build_evidence(
-                req, ep, ResolutionStatus.UNIQUE, MatchStrategy.TEMPLATE, confidence, len(matched)
+            return _SingleMatchResult(
+                evidence=self._build_evidence(
+                    req, ep, ResolutionStatus.UNIQUE, MatchStrategy.TEMPLATE, confidence, 1
+                )
             )
 
-        return self._build_evidence(
-            req,
-            ties[0][0],
-            ResolutionStatus.AMBIGUOUS,
-            MatchStrategy.TEMPLATE,
-            MatchConfidence.MEDIUM,
-            len(matched),
+        return _SingleMatchResult(
+            evidence=self._build_evidence(
+                req,
+                ties[0][0],
+                ResolutionStatus.AMBIGUOUS,
+                MatchStrategy.TEMPLATE,
+                MatchConfidence.MEDIUM,
+                len(matched),
+            ),
+            candidate_endpoints=[ep for ep, _ in matched],
         )
 
     def _match_path_only(
@@ -380,7 +447,7 @@ class EndpointMatcher:
         path: str,
         req_segments: list[str],
         idx: _EndpointIndex,
-    ) -> EndpointEvidence | None:
+    ) -> _SingleMatchResult | None:
         """仅路径匹配（方法不同）。"""
         candidates: list[tuple[dict[str, Any], list[_SegmentMatcher] | None]] = []
 
@@ -394,6 +461,15 @@ class EndpointMatcher:
         for ep, compiled in idx.path_only_fixed.get(fixed_key, []):
             if ep.get("http_method") != req.http_method and _segments_match(req_segments, compiled):
                 candidates.append((ep, compiled))
+        # 首段为路径参数时 static_prefix 为空，需额外查空首段索引
+        if req_segments:
+            fallback_key = (len(req_segments), "")
+            if fallback_key != fixed_key:
+                for ep, compiled in idx.path_only_fixed.get(fallback_key, []):
+                    if ep.get("http_method") != req.http_method and _segments_match(
+                        req_segments, compiled
+                    ):
+                        candidates.append((ep, compiled))
 
         # Double wildcard（方法不同）
         for min_seg, dw_candidates in idx.path_only_double_wildcard.items():
@@ -409,17 +485,27 @@ class EndpointMatcher:
 
         if len(candidates) == 1:
             ep, _ = candidates[0]
-            return self._build_evidence(
-                req, ep, ResolutionStatus.UNIQUE, MatchStrategy.PATH_ONLY, MatchConfidence.LOW, 1
+            return _SingleMatchResult(
+                evidence=self._build_evidence(
+                    req,
+                    ep,
+                    ResolutionStatus.UNIQUE,
+                    MatchStrategy.PATH_ONLY,
+                    MatchConfidence.LOW,
+                    1,
+                )
             )
 
-        return self._build_evidence(
-            req,
-            candidates[0][0],
-            ResolutionStatus.AMBIGUOUS,
-            MatchStrategy.PATH_ONLY,
-            MatchConfidence.LOW,
-            len(candidates),
+        return _SingleMatchResult(
+            evidence=self._build_evidence(
+                req,
+                candidates[0][0],
+                ResolutionStatus.AMBIGUOUS,
+                MatchStrategy.PATH_ONLY,
+                MatchConfidence.LOW,
+                len(candidates),
+            ),
+            candidate_endpoints=[ep for ep, _ in candidates],
         )
 
     def _template_confidence(self, compiled: list[_SegmentMatcher]) -> MatchConfidence:

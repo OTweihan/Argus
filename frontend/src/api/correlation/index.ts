@@ -224,6 +224,36 @@ export function listFindingEvidence(
   );
 }
 
+// ── 未触达端点 ──
+
+export interface UncoveredEndpointInfo {
+  endpointId: string;
+  endpointFingerprint: string;
+  analysisId: string;
+  sourceSnapshotId: string | null;
+  httpMethod: string;
+  normalizedPath: string;
+  normalizedPathTemplate: string;
+  isTemplated: boolean;
+  pathSegmentCount: number;
+  controllerClass: string | null;
+  controllerMethod: string | null;
+  parameters: string[];
+  returnType: string | null;
+  sourceLocation: unknown | null;
+  entryCallNodeId: string | null;
+}
+
+export function listUncoveredEndpoints(
+  runId: string,
+  offset = 0,
+  limit = 100,
+): Promise<{ items: UncoveredEndpointInfo[]; total: number; hasMore: boolean }> {
+  return request<{ items: UncoveredEndpointInfo[]; total: number; hasMore: boolean }>(
+    `/correlation-runs/${encodeURIComponent(runId)}/uncovered-endpoints?offset=${offset}&limit=${limit}`,
+  );
+}
+
 // ── 采集质量 ──
 
 export interface CaptureQualityInfo {
