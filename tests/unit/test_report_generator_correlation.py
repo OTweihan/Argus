@@ -52,6 +52,48 @@ def test_report_generator_without_correlation_has_no_section(tmp_path: Path) -> 
     assert "correlation" not in json_data
 
 
+def test_report_renders_degraded_banner(tmp_path: Path) -> None:
+    """result_json 含 completeness/qualityIssues → HTML 报告渲染降级横幅。"""
+    task = Task(goal="白盒分析", task_type=TaskType.WHITEBOX)
+    task.result_json = json.dumps(
+        {
+            "completeness": "DEGRADED",
+            "qualityIssues": [
+                {
+                    "code": "CLASSPATH_UNAVAILABLE",
+                    "level": "WARNING",
+                    "message": "Classpath 不可用，调用解析降级为源码分析",
+                    "affectedCount": 5,
+                    "totalCount": 5,
+                }
+            ],
+            "endpoints": [],
+            "callGraph": {},
+            "executionFlows": [],
+            "clusters": [],
+            "findings": [],
+            "diagnostics": {"classpathAvailable": False},
+            "summary": {"scope": "all"},
+        },
+        ensure_ascii=False,
+    )
+    generated = ReportGenerator(tmp_path / "reports").generate(task)
+
+    html = generated.html_path.read_text(encoding="utf-8")
+    assert "分析部分降级" in html
+    assert "CLASSPATH_UNAVAILABLE: Classpath 不可用" in html
+
+
+def test_report_without_completeness_shows_unknown_state(tmp_path: Path) -> None:
+    """旧 result_json（无 completeness key）→ 横幅显示分析状态未知，不误报完整。"""
+    task = Task(goal="白盒分析", task_type=TaskType.WHITEBOX)
+    task.result_json = json.dumps({"endpoints": [], "callGraph": {}, "findings": []})
+    generated = ReportGenerator(tmp_path / "reports").generate(task)
+
+    html = generated.html_path.read_text(encoding="utf-8")
+    assert "分析状态未知" in html
+
+
 class _RecordingGenerator(ReportGenerator):
     """记录每次 generate 调用的 correlation 参数（不实际写盘）。"""
 

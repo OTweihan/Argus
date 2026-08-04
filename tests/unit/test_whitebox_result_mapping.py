@@ -1,8 +1,7 @@
 """阶段四：白盒结果映射纯函数 — 单元测试。
 
-覆盖：_map_severity、_map_finding_type、_resolve_source_location、
-_compute_fingerprint、_map_findings、_build_diag_summary、
-_build_projection_data。
+覆盖：_map_severity、_map_finding_type、_compute_fingerprint、
+_map_findings、_build_diag_summary、_build_projection_data。
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from argus_py.whitebox.models import (
     AnalyzerDiagnostics,
     CallGraph,
     CallGraphNode,
-    SourceLocationData,
     WhiteboxFinding,
     WhiteboxResult,
 )
@@ -21,10 +19,10 @@ from argus_py.whitebox.runner import (
     _build_diag_summary,
     _build_projection_data,
     _compute_fingerprint,
+    _evaluate_completeness,
     _map_finding_type,
     _map_findings,
     _map_severity,
-    _resolve_source_location,
 )
 
 # ── _map_severity ─────────────────────────────────
@@ -77,67 +75,6 @@ class TestMapFindingType:
         assert _map_finding_type("RANDOM") == FindingType.UNKNOWN
 
 
-# ── _resolve_source_location ─────────────────────
-
-
-class TestResolveSourceLocation:
-    def test_prefers_source_location(self) -> None:
-        wf = WhiteboxFinding(
-            rule_id="R1",
-            severity="MEDIUM",
-            title="T",
-            description="D",
-            file_path="old.java",
-            line_number=10,
-            source_location=SourceLocationData(
-                file_path="new.java",
-                start_line=5,
-            ),
-        )
-        result = _resolve_source_location(wf)
-        assert result is not None
-        assert result.file_path == "new.java"
-        assert result.start_line == 5
-
-    def test_fallback_to_file_path(self) -> None:
-        wf = WhiteboxFinding(
-            rule_id="R1",
-            severity="MEDIUM",
-            title="T",
-            description="D",
-            file_path="fallback.java",
-            line_number=10,
-        )
-        result = _resolve_source_location(wf)
-        assert result is not None
-        assert result.file_path == "fallback.java"
-        assert result.start_line == 10
-
-    def test_rejects_zero_start_line(self) -> None:
-        wf = WhiteboxFinding(
-            rule_id="R1",
-            severity="MEDIUM",
-            title="T",
-            description="D",
-            file_path="bad.java",
-            line_number=0,
-        )
-        result = _resolve_source_location(wf)
-        assert result is None
-
-    def test_no_location_no_file_path_returns_none(self) -> None:
-        wf = WhiteboxFinding(
-            rule_id="R1",
-            severity="MEDIUM",
-            title="T",
-            description="D",
-            file_path="",
-            line_number=0,
-        )
-        result = _resolve_source_location(wf)
-        assert result is None
-
-
 # ── _compute_fingerprint ─────────────────────────
 
 
@@ -172,7 +109,6 @@ class TestMapFindings:
                 description="desc",
                 file_path="a.java",
                 line_number=10,
-                source_location=SourceLocationData(file_path="a.java", start_line=10),
             ),
             WhiteboxFinding(
                 rule_id="R1",
@@ -181,7 +117,6 @@ class TestMapFindings:
                 description="desc",
                 file_path="a.java",
                 line_number=10,
-                source_location=SourceLocationData(file_path="a.java", start_line=10),
             ),
         ]
         result = _map_findings(wfs)
@@ -196,7 +131,6 @@ class TestMapFindings:
                 description="desc",
                 file_path="a.java",
                 line_number=10,
-                source_location=SourceLocationData(file_path="a.java", start_line=10),
             ),
         ]
         result = _map_findings(wfs, analysis_id="aid-123")
@@ -212,14 +146,13 @@ class TestMapFindings:
                 file_path="a.java",
                 line_number=10,
                 snippet="catch (Exception e) {}",
-                source_location=SourceLocationData(file_path="a.java", start_line=10),
             ),
         ]
         result = _map_findings(wfs)
         assert result[0].snippet == "catch (Exception e) {}"
 
-    def test_no_source_location_still_included(self) -> None:
-        """无有效 source_location 的 finding 仍应出现在结果中（location 回退到
+    def test_invalid_location_still_included(self) -> None:
+        """line_number 无效（<1）的 finding 仍应出现在结果中（location 回退到
         file_path），但不计算 fingerprint，也不会去重。"""
         wfs = [
             WhiteboxFinding(
@@ -275,6 +208,109 @@ class TestBuildDiagSummary:
 
     def test_none_diagnostics(self) -> None:
         assert _build_diag_summary(None) == ""
+
+
+# ── _evaluate_completeness ───────────────────────
+
+
+class TestEvaluateCompleteness:
+    def test_none_diagnostics_not_evaluated(self) -> None:
+        status, issues = _evaluate_completeness(None)
+        assert status == "NOT_EVALUATED"
+        assert issues == []
+
+    def test_complete(self) -> None:
+        d = AnalyzerDiagnostics(
+            total_source_files=10,
+            parsed_file_count=10,
+            failed_file_count=0,
+            total_calls=5,
+            resolved_high=5,
+            resolved_medium=0,
+            unresolved=0,
+            classpath_available=True,
+        )
+        status, issues = _evaluate_completeness(d)
+        assert status == "COMPLETE"
+        assert issues == []
+
+    def test_no_eligible_source_unavailable(self) -> None:
+        d = AnalyzerDiagnostics(total_source_files=0)
+        status, issues = _evaluate_completeness(d)
+        assert status == "UNAVAILABLE"
+        assert issues[0]["code"] == "NO_ELIGIBLE_SOURCE_FILES"
+
+    def test_parse_partial_failure_degrades(self) -> None:
+        d = AnalyzerDiagnostics(
+            total_source_files=10,
+            parsed_file_count=8,
+            failed_file_count=2,
+            classpath_available=True,
+        )
+        status, issues = _evaluate_completeness(d)
+        assert status == "DEGRADED"
+        codes = [i["code"] for i in issues]
+        assert "MODULE_PARSE_PARTIAL_FAILURE" in codes
+
+    def test_classpath_unavailable_degrades(self) -> None:
+        d = AnalyzerDiagnostics(
+            total_source_files=10,
+            parsed_file_count=10,
+            failed_file_count=0,
+            total_calls=5,
+            resolved_high=5,
+            classpath_available=False,
+        )
+        status, issues = _evaluate_completeness(d)
+        assert status == "DEGRADED"
+        codes = [i["code"] for i in issues]
+        assert "CLASSPATH_UNAVAILABLE" in codes
+
+    def test_call_resolution_low_degrades(self) -> None:
+        d = AnalyzerDiagnostics(
+            total_source_files=10,
+            parsed_file_count=10,
+            failed_file_count=0,
+            total_calls=10,
+            resolved_high=3,
+            resolved_medium=2,
+            resolved_low=4,
+            unresolved=1,
+            classpath_available=True,
+            jar_count=5,
+        )
+        status, issues = _evaluate_completeness(d)
+        assert status == "DEGRADED"
+        codes = [i["code"] for i in issues]
+        assert "CALL_RESOLUTION_LOW" in codes
+
+
+# ── _serialize_whitebox_result ───────────────────
+
+
+class TestSerializeWhiteboxResult:
+    def test_serializes_completeness_and_quality_issues(self) -> None:
+        from argus_py.whitebox.runner import _serialize_whitebox_result
+
+        d = AnalyzerDiagnostics(
+            total_source_files=10,
+            parsed_file_count=8,
+            failed_file_count=2,
+            classpath_available=False,
+        )
+        result = WhiteboxResult(diagnostics=d)
+        data = _serialize_whitebox_result(result, 0, 0, "all")
+        assert data["completeness"] == "DEGRADED"
+        codes = [i["code"] for i in data["qualityIssues"]]
+        assert "MODULE_PARSE_PARTIAL_FAILURE" in codes
+        assert "CLASSPATH_UNAVAILABLE" in codes
+
+    def test_serializes_not_evaluated_without_diagnostics(self) -> None:
+        from argus_py.whitebox.runner import _serialize_whitebox_result
+
+        data = _serialize_whitebox_result(WhiteboxResult(), 0, 0, "all")
+        assert data["completeness"] == "NOT_EVALUATED"
+        assert data["qualityIssues"] == []
 
 
 # ── _build_projection_data ───────────────────────

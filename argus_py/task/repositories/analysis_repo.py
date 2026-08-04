@@ -43,6 +43,9 @@ def _analysis_run_to_row(run: AnalysisRun) -> tuple:
 
 
 def _row_to_analysis_run(row: dict[str, Any]) -> AnalysisRun:
+    # sqlite3.Row 没有 .get()，统一转 dict 后再读取
+    if not isinstance(row, dict):
+        row = dict(row)
     quality_issues_raw = row.get("quality_issues_json") or "[]"
     quality_issues = [QualityIssue.from_dict(qi) for qi in json.loads(quality_issues_raw)]
     return AnalysisRun(

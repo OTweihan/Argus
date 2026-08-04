@@ -1,7 +1,7 @@
 """阶段四：白盒客户端补充测试。
 
 覆盖：409 幂等冲突、409 result not ready、ConnectTimeout/ReadTimeout 分类、
-非 JSON 响应体、cancel_job 401 语义。
+非 JSON 响应体。
 """
 
 from __future__ import annotations
@@ -125,39 +125,3 @@ async def test_non_json_empty_body_raises(client: WhiteboxClient) -> None:
 
         with pytest.raises(WhiteboxClientError, match="有效 JSON"):
             await client.analyze("/tmp/project")
-
-
-# ── cancel_job 语义 ────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_cancel_job_404_silent(client: WhiteboxClient) -> None:
-    """404 → 远端已不存在，幂等完成。"""
-    with patch.object(client, "_get_client") as mock_get:
-        mock_http = AsyncMock()
-        resp = _mock_response(404, {"error": "not found"})
-        resp.is_success = False
-        mock_http.request.return_value = resp
-        mock_get.return_value = mock_http
-
-        result = await client.cancel_job("job-gone")
-        assert result.get("cancelled") is False
-        assert result.get("status") == "UNKNOWN"
-
-
-@pytest.mark.asyncio
-async def test_cancel_job_401_not_exception_but_logged(client: WhiteboxClient) -> None:
-    """401 认证失败 → _request 抛 WhiteboxAuthenticationError，
-    cancel_job 捕获后返回 cancelled=False 状态（不抛异常）。"""
-    with patch.object(client, "_get_client") as mock_get:
-        mock_http = AsyncMock()
-        # 401 走 _request 第178行 → WhiteboxAuthenticationError（在 is_success 判断之前）
-        resp = _mock_response(401, {"error": "Unauthorized"})
-        mock_http.request.return_value = resp
-        mock_get.return_value = mock_http
-
-        # cancel_job 的 allowed_statuses={404}，所以 401 会被显式检测
-        result = await client.cancel_job("job-auth-fail")
-        assert result.get("cancelled") is False
-        assert result.get("status") == "UNKNOWN"
-        assert result.get("jobId") == "job-auth-fail"

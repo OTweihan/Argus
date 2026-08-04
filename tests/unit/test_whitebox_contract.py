@@ -80,10 +80,6 @@ def test_complete_result_deserialization() -> None:
     assert result.findings[0].rule_id == "EMPTY_CATCH"
     assert result.findings[0].rule_category == "BUG"
     assert result.findings[0].analysis_confidence == "HIGH"
-    # 验证 Finding 的 sourceLocation 子结构被正确解析
-    assert result.findings[0].source_location is not None
-    assert result.findings[0].source_location.file_path == "src/main/java/com/example/BadCode.java"
-    assert result.findings[0].source_location.start_line == 12
     assert len(result.execution_flows) == 1
     assert len(result.clusters) == 1
     assert result.diagnostics is not None

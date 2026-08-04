@@ -1,5 +1,22 @@
 {% extends "base.html.j2" %}
 {% block content %}
+<style>
+  .completeness-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .completeness-banner .cb-title { font-weight: 700; }
+  .completeness-banner .cb-reason { font-size: 12px; opacity: 0.85; }
+  .completeness-banner.banner-ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+  .completeness-banner.banner-warn { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+  .completeness-banner.banner-err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  .completeness-banner.banner-muted { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+</style>
 {% set status = report.task.status %}
 {% set summary = report.summary or report.task.resultSummary or "未记录结果摘要。" %}
 {% set raw = report.task.resultJson %}
@@ -64,6 +81,33 @@
   </aside>
 
   <main class="content">
+    {# 完整性横幅：DEGRADED / UNAVAILABLE 必须醒目，避免"有结果"被误报为"完整分析成功" #}
+    {% set wb_completeness = wb.completeness or "NOT_EVALUATED" %}
+    {% set wb_issues = wb.qualityIssues or [] %}
+    {% if wb_completeness == "COMPLETE" %}
+      <div class="completeness-banner banner-ok">
+        <span class="cb-title">分析完整</span>
+      </div>
+    {% elif wb_completeness == "DEGRADED" %}
+      <div class="completeness-banner banner-warn">
+        <span class="cb-title">分析部分降级</span>
+        {% for issue in wb_issues %}
+          <div class="cb-reason">{{ issue.code }}: {{ issue.message }}</div>
+        {% endfor %}
+      </div>
+    {% elif wb_completeness == "UNAVAILABLE" %}
+      <div class="completeness-banner banner-err">
+        <span class="cb-title">无可用分析结果</span>
+        {% for issue in wb_issues %}
+          <div class="cb-reason">{{ issue.code }}: {{ issue.message }}</div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="completeness-banner banner-muted">
+        <span class="cb-title">分析状态未知</span>
+      </div>
+    {% endif %}
+
     <section class="section" id="overview">
       <div class="metrics">
         <div class="metric">

@@ -104,3 +104,20 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 | 审查修复 | 4 | SubParserAdder 提取到 `_types.py`、方法→独立函数、json import 提升、type=Path |
 
 **净减少代码：** ~433 行（删除约 663 行，新增约 230 行）
+
+---
+
+## 白盒/黑白盒关联计划收尾审计 — 遗留次要待办（2026-08-04）
+
+整体审计 `docs/optimizations/whitebox-and-blackbox-correlation-plan.md`：阶段三、四已完成；阶段一、二经本批次修复补齐实质缺口（git 源快照标识、失败错误码持久化、报告侧 completeness/降级横幅、`sourceLocation` Python 侧收敛、`cancel_job` 死代码清理、`analysis_repo._row_to_analysis_run` 的 sqlite3.Row `.get()` 崩溃修复）。
+
+以下次要项不强制，列为后续待办：
+
+1. **协议白名单不一致（防御性）**：`argus_py/whitebox/config.py::validate_git_url` 只放行 `{https, http, ssh}`（+scp），而 `source_resolver.py::_ALLOWED_SCHEMES` 额外允许 `git://`。入口已拦截，属防御性不一致，统一即可。
+2. **前端配置视图读取键死分支**：`argus_py/api/schemas/tasks.py::_build_whitebox_config_view` 读 `data.get("repo_url")`，但 `to_persisted()` 实际写入 `clone_url`，该 fallback 恒为 None（行为正确，编辑回填走 `task.source_repo_url`）。
+3. **时间线事件缺分支**：`whitebox_source_resolved` 事件 data 未含 `requested_ref`（分支只在 `task.source_requested_ref` 持久化）。
+4. **取消检查粒度**：取消 token 只在 `_poll` 每轮循环顶部检查，生效最多滞后一个 poll_interval（5–10s），可接受。
+5. **`origin="remote"` 取消分支为防御代码**：Java 状态机暂不产出 CANCELLED，该分支为未来协议预留。
+6. **`eligible_source_files` 为占位**：`_build_projection_data` 用 `total_source_files` 等价，待 Java 新增 `eligibleSourceFiles` 字段。
+7. **端点/调用节点 `source_*` 投影列恒为 None**：Java `EndpointInfo`/`CallGraphNode` 未返回源码位置，`analysis_endpoints`/`analysis_call_nodes` 的 `source_*` 列与 API `sourceLocation` 恒为空（保留无害，0002 迁移 FORWARD-ONLY 不可 DROP）。
+

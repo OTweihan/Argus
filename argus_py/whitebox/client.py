@@ -299,36 +299,6 @@ class WhiteboxClient:
 
         return _parse_response(response, "Java 分析作业结果获取", WhiteboxResult.from_dict)
 
-    # ── 取消 ──────────────────────────────────────────────────────────────
-
-    async def cancel_job(self, job_id: str) -> dict:
-        """best-effort 取消 Java 分析作业。"""
-        try:
-            response = await self._request(
-                "DELETE",
-                f"/argus/api/analyze/jobs/{job_id}",
-                allowed_statuses=frozenset({404}),
-            )
-        except WhiteboxJobNotFoundError:
-            return {"jobId": job_id, "status": "UNKNOWN", "cancelled": False}
-        except WhiteboxAuthenticationError:
-            logger.error("取消作业 %s 失败: 认证错误", job_id)
-            return {"jobId": job_id, "status": "UNKNOWN", "cancelled": False}
-        except WhiteboxTransientError:
-            logger.warning("取消作业 %s 失败（瞬时错误）", job_id, exc_info=True)
-            return {"jobId": job_id, "status": "UNKNOWN", "cancelled": False}
-        except WhiteboxClientError:
-            logger.warning("取消作业 %s 失败", job_id, exc_info=True)
-            return {"jobId": job_id, "status": "UNKNOWN", "cancelled": False}
-
-        if response.status_code == 404:
-            return {"jobId": job_id, "status": "UNKNOWN", "cancelled": False}
-
-        try:
-            return response.json()
-        except ValueError:
-            return {"jobId": job_id, "status": "UNKNOWN", "cancelled": False}
-
     # ── 可见性校验 ────────────────────────────────────────────────────────
 
     async def validate_source(self, source_path: str) -> SourceVisibilityResult:

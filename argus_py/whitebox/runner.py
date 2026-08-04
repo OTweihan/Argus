@@ -51,7 +51,6 @@ from argus_py.whitebox.exceptions import (
 )
 from argus_py.whitebox.models import (
     AnalyzerDiagnostics,
-    SourceLocationData,
     WhiteboxFinding,
     WhiteboxResult,
 )
@@ -141,7 +140,11 @@ class WhiteboxRunner:
                 self._lifecycle.create_analysis_run,
                 analysis_id=analysis_id,
                 task_id=task.task_id,
-                source_snapshot_id=resolved.content_sha256 or analysis_id,
+                # 快照标识语义统一：local 源优先内容哈希（能捕获脏工作区），
+                # git 源使用克隆 HEAD commit SHA（跨运行稳定），两者皆无时以 analysis_id 兜底。
+                source_snapshot_id=(
+                    resolved.content_sha256 or resolved.resolved_commit_sha or analysis_id
+                ),
                 resolved_commit_sha=resolved.resolved_commit_sha,
                 result_schema_version=1,
                 config_json=task.whitebox_config_json or "{}",
@@ -256,7 +259,7 @@ class WhiteboxRunner:
             await run_in_thread(
                 self._lifecycle.mark_analysis_failed,
                 analysis_id,
-                "TASK_CANCELLED",
+                exc.error_code or "TASK_CANCELLED",
                 str(exc),
             )
             raise
@@ -273,7 +276,7 @@ class WhiteboxRunner:
             await run_in_thread(
                 self._lifecycle.mark_analysis_failed,
                 analysis_id,
-                "TASK_TIMEOUT",
+                exc.error_code or "TASK_TIMEOUT",
                 str(exc),
             )
             raise
@@ -290,7 +293,7 @@ class WhiteboxRunner:
             await run_in_thread(
                 self._lifecycle.mark_analysis_failed,
                 analysis_id,
-                "ANALYSIS_FAILED",
+                getattr(exc, "error_code", None) or "ANALYSIS_FAILED",
                 str(exc),
             )
             raise
@@ -586,21 +589,6 @@ class WhiteboxRunner:
             except WhiteboxResultNotReadyError:
                 await asyncio.sleep(min(1.0, remaining))
 
-    # ── 取消远端作业 ──────────────────────────────────────────────────────────
-
-    async def _cancel_remote_job(self, job_id: str) -> bool:
-        """阶段一：不实现远端取消。
-
-        Java 没有可协作取消机制。设置 CANCELLED 状态不会中断分析线程，
-        PENDING 作业的 markRunning() 也会覆盖 CANCELLED。
-        首版只停止 Python 侧轮询，明确标注"远端作业可能仍在运行"。
-        """
-        logger.info(
-            "远端作业 %s 取消失败（阶段一未实现远端取消），只停止本地轮询",
-            job_id,
-        )
-        return False
-
     # ── 时间线安全封装 ────────────────────────────────────────────────────────
 
     async def _safe_emit(self, event_type: str, task_id: str, **kwargs: Any) -> None:
@@ -659,21 +647,6 @@ def _map_finding_type(rule_category: str | None) -> FindingType:
     return mapping.get(rule_category.upper(), FindingType.UNKNOWN)
 
 
-def _resolve_source_location(wf: WhiteboxFinding) -> SourceLocationData | None:
-    """优先使用结构化 source_location，回退兼容 file_path + line_number。
-
-    start_line 必须 >=1，不可伪造第 0 行。
-    """
-    if wf.source_location and wf.source_location.is_valid:
-        return wf.source_location
-    if wf.file_path and wf.line_number and wf.line_number >= 1:
-        return SourceLocationData(
-            file_path=wf.file_path,
-            start_line=wf.line_number,
-        )
-    return None
-
-
 def _compute_fingerprint(
     rule_id: str | None,
     file_path: str,
@@ -716,21 +689,25 @@ def _map_findings(
 
     rule_category / analysis_confidence 由 Java 返回，Python 不做推导。
     snippet / analysis_id 透传到 Finding 持久化字段。
+    源码定位以 file_path + line_number 为唯一权威（start_line 必须 >=1）；
     相同 fingerprint 的去重。
     """
     findings: list[Finding] = []
     seen: set[str] = set()
     for wf in whitebox_findings:
-        sl = _resolve_source_location(wf)
-        if sl is None:
-            location = wf.file_path or "(unknown)"
-        else:
-            location = f"{sl.file_path}:{sl.start_line}"
-            # fingerprint 仅在位置有效时计算
+        has_valid_location = bool(wf.file_path and wf.line_number and wf.line_number >= 1)
+        location = (
+            f"{wf.file_path}:{wf.line_number}"
+            if has_valid_location
+            else (wf.file_path or "(unknown)")
+        )
+        # fingerprint 仅在位置有效时计算（跨执行稳定）
+        fp = None
+        if has_valid_location:
             fp = _compute_fingerprint(
                 wf.rule_id,
-                sl.file_path,
-                sl.start_line,
+                wf.file_path,
+                wf.line_number,
                 wf.title,
                 source_root=source_root,
             )
@@ -747,7 +724,7 @@ def _map_findings(
             rule_id=wf.rule_id,
             rule_category=wf.rule_category,
             confidence=wf.analysis_confidence,
-            fingerprint=fp if sl else None,
+            fingerprint=fp,
             snippet=wf.snippet,
             analysis_id=analysis_id,
         )
@@ -917,6 +894,93 @@ def _build_projection_data(result: WhiteboxResult, *, analysis_id: str) -> dict[
     }
 
 
+# ── 完整性评估 ──────────────────────────────────────────────────────────────
+
+
+def _evaluate_completeness(
+    diagnostics: AnalyzerDiagnostics | None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """从诊断信息评估分析完整性，返回（completeness_status, quality_issues）。
+
+    供投影持久化与报告序列化共用：报告层与控制台一致地醒目呈现降级，
+    不再依赖模板从诊断数字间接推断。
+    """
+    if diagnostics is None:
+        # Java 未返回 diagnostics → 无法评估，标记 NOT_EVALUATED
+        return CompletenessStatus.NOT_EVALUATED.value, []
+
+    diag = diagnostics
+    quality_issues: list[dict[str, Any]] = []
+
+    if diag.total_source_files == 0:
+        return CompletenessStatus.UNAVAILABLE.value, [
+            {
+                "code": QualityIssueCode.NO_ELIGIBLE_SOURCE_FILES.value,
+                "level": QualityIssueLevel.ERROR.value,
+                "message": "无可分析源文件",
+                "affectedCount": 0,
+                "totalCount": 0,
+            }
+        ]
+
+    completeness = CompletenessStatus.COMPLETE.value
+
+    if diag.failed_file_count > 0:
+        completeness = CompletenessStatus.DEGRADED.value
+        quality_issues.append(
+            {
+                "code": QualityIssueCode.MODULE_PARSE_PARTIAL_FAILURE.value,
+                "level": QualityIssueLevel.WARNING.value,
+                "message": (
+                    f"源文件解析部分失败: "
+                    f"{diag.parsed_file_count}/{diag.total_source_files} 成功, "
+                    f"{diag.failed_file_count} 失败"
+                ),
+                "affectedCount": diag.failed_file_count,
+                "totalCount": diag.total_source_files,
+            }
+        )
+    if not diag.classpath_available:
+        completeness = CompletenessStatus.DEGRADED.value
+        quality_issues.append(
+            {
+                "code": QualityIssueCode.CLASSPATH_UNAVAILABLE.value,
+                "level": QualityIssueLevel.WARNING.value,
+                "message": "Classpath 不可用，调用解析降级为源码分析",
+                "affectedCount": diag.total_calls,
+                "totalCount": diag.total_calls,
+            }
+        )
+    elif diag.classpath_errors:
+        completeness = CompletenessStatus.DEGRADED.value
+        quality_issues.append(
+            {
+                "code": QualityIssueCode.CLASSPATH_DEGRADED.value,
+                "level": QualityIssueLevel.WARNING.value,
+                "message": (f"Classpath 部分解析失败: {len(diag.classpath_errors)} 个 JAR 不可用"),
+                "affectedCount": len(diag.classpath_errors),
+                "totalCount": diag.jar_count,
+            }
+        )
+    elif diag.resolved_high + diag.resolved_medium < diag.total_calls:
+        completeness = CompletenessStatus.DEGRADED.value
+        quality_issues.append(
+            {
+                "code": QualityIssueCode.CALL_RESOLUTION_LOW.value,
+                "level": QualityIssueLevel.WARNING.value,
+                "message": (
+                    f"调用解析置信度偏低: "
+                    f"高 {diag.resolved_high}, 中 {diag.resolved_medium}, "
+                    f"低 {diag.resolved_low}, 未解析 {diag.unresolved}"
+                ),
+                "affectedCount": diag.resolved_low + diag.unresolved,
+                "totalCount": diag.total_calls,
+            }
+        )
+
+    return completeness, quality_issues
+
+
 async def _persist_analysis_result(
     lifecycle: TaskLifecycleService,
     analysis_id: str,
@@ -938,82 +1002,8 @@ async def _persist_analysis_result(
         result_digest,
     )
 
-    # 评估完整性
-    diag = result.diagnostics
-    quality_issues: list[dict[str, Any]] = []
-    if diag is None:
-        # Java 未返回 diagnostics → 无法评估，标记 NOT_EVALUATED
-        completeness = CompletenessStatus.NOT_EVALUATED.value
-    else:
-        completeness = CompletenessStatus.COMPLETE.value
-
-        if diag.total_source_files == 0:
-            completeness = CompletenessStatus.UNAVAILABLE.value
-            quality_issues.append(
-                {
-                    "code": QualityIssueCode.NO_ELIGIBLE_SOURCE_FILES.value,
-                    "level": QualityIssueLevel.ERROR.value,
-                    "message": "无可分析源文件",
-                    "affectedCount": 0,
-                    "totalCount": 0,
-                }
-            )
-        else:
-            if diag.failed_file_count > 0:
-                completeness = CompletenessStatus.DEGRADED.value
-                quality_issues.append(
-                    {
-                        "code": QualityIssueCode.MODULE_PARSE_PARTIAL_FAILURE.value,
-                        "level": QualityIssueLevel.WARNING.value,
-                        "message": (
-                            f"源文件解析部分失败: "
-                            f"{diag.parsed_file_count}/{diag.total_source_files} 成功, "
-                            f"{diag.failed_file_count} 失败"
-                        ),
-                        "affectedCount": diag.failed_file_count,
-                        "totalCount": diag.total_source_files,
-                    }
-                )
-            if not diag.classpath_available:
-                completeness = CompletenessStatus.DEGRADED.value
-                quality_issues.append(
-                    {
-                        "code": QualityIssueCode.CLASSPATH_UNAVAILABLE.value,
-                        "level": QualityIssueLevel.WARNING.value,
-                        "message": "Classpath 不可用，调用解析降级为源码分析",
-                        "affectedCount": diag.total_calls,
-                        "totalCount": diag.total_calls,
-                    }
-                )
-            elif diag.classpath_errors:
-                completeness = CompletenessStatus.DEGRADED.value
-                quality_issues.append(
-                    {
-                        "code": QualityIssueCode.CLASSPATH_DEGRADED.value,
-                        "level": QualityIssueLevel.WARNING.value,
-                        "message": (
-                            f"Classpath 部分解析失败: {len(diag.classpath_errors)} 个 JAR 不可用"
-                        ),
-                        "affectedCount": len(diag.classpath_errors),
-                        "totalCount": diag.jar_count,
-                    }
-                )
-            elif diag.resolved_high + diag.resolved_medium < diag.total_calls:
-                completeness = CompletenessStatus.DEGRADED.value
-                quality_issues.append(
-                    {
-                        "code": QualityIssueCode.CALL_RESOLUTION_LOW.value,
-                        "level": QualityIssueLevel.WARNING.value,
-                        "message": (
-                            f"调用解析置信度偏低: "
-                            f"高 {diag.resolved_high}, 中 {diag.resolved_medium}, "
-                            f"低 {diag.resolved_low}, 未解析 {diag.unresolved}"
-                        ),
-                        "affectedCount": diag.resolved_low + diag.unresolved,
-                        "totalCount": diag.total_calls,
-                    }
-                )
-
+    # 评估完整性（与报告序列化共用同一 helper）
+    completeness, quality_issues = _evaluate_completeness(result.diagnostics)
     issues_json = json.dumps(quality_issues, ensure_ascii=False)
 
     # 事务 2：投影写入 + 标记 SUCCEEDED
@@ -1062,8 +1052,12 @@ def _serialize_whitebox_result(
     """将 WhiteboxResult 序列化为可 JSON 序列化的字典（供报告模板和审计留存使用）。
 
     序列化全部结果数据（endpoints / callGraph / executionFlows / clusters /
-    diagnostics / findings / summary），确保 raw_result_json 作为完整的审计数据源。"""
+    diagnostics / findings / summary）及完整性结论（completeness / qualityIssues），
+    确保 raw_result_json 作为完整的审计数据源，报告模板可直接渲染降级横幅。"""
+    completeness, quality_issues = _evaluate_completeness(result.diagnostics)
     return {
+        "completeness": completeness,
+        "qualityIssues": quality_issues,
         "endpoints": [
             {
                 "path": e.path,

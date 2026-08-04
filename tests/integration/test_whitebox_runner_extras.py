@@ -23,6 +23,7 @@ from argus_py.whitebox.exceptions import (
     WhiteboxTaskCancelled,
     WhiteboxTaskError,
     WhiteboxTaskTimeout,
+    WhiteboxVisibilityError,
 )
 from argus_py.whitebox.models import (
     CallGraph,
@@ -84,6 +85,11 @@ async def test_job_failed_raises_remote_job_failed(app_stack, tmp_path) -> None:
     with pytest.raises(WhiteboxRemoteJobFailed, match="j1"):
         await runner.run(task)
 
+    # 稳定错误码持久化到 analysis_runs.failure_code（不再落通用 ANALYSIS_FAILED）
+    runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task.task_id)
+    assert len(runs) == 1
+    assert runs[0].failure_code == "WHITEBOX_REMOTE_JOB_FAILED"
+
 
 @pytest.mark.asyncio
 async def test_job_cancelled_remote(app_stack, tmp_path) -> None:
@@ -106,6 +112,10 @@ async def test_job_cancelled_remote(app_stack, tmp_path) -> None:
     with pytest.raises(WhiteboxTaskCancelled):
         await runner.run(task)
 
+    runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task.task_id)
+    assert len(runs) == 1
+    assert runs[0].failure_code == "WHITEBOX_TASK_CANCELLED"
+
 
 @pytest.mark.asyncio
 async def test_job_timed_out(app_stack, tmp_path) -> None:
@@ -127,6 +137,10 @@ async def test_job_timed_out(app_stack, tmp_path) -> None:
 
     with pytest.raises(WhiteboxTaskTimeout):
         await runner.run(task)
+
+    runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task.task_id)
+    assert len(runs) == 1
+    assert runs[0].failure_code == "WHITEBOX_TASK_TIMEOUT"
 
 
 @pytest.mark.asyncio
@@ -242,16 +256,66 @@ async def test_job_not_found(app_stack, tmp_path) -> None:
         await runner.run(task)
 
 
-# ── 取消 ──────────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
-async def test_cancel_remote_job_is_noop(app_stack, tmp_path) -> None:
-    """_cancel_remote_job 返回 False 且不发送 HTTP 请求。"""
+async def test_git_source_snapshot_id_uses_commit_sha(app_stack, tmp_path) -> None:
+    """git 源 source_snapshot_id 使用克隆 HEAD commit SHA（跨运行稳定），不再退化为 analysis_id。"""
     client = _make_mock_client()
     client.submit_analyze_job.return_value = WhiteboxJobStatus(job_id="j1", status="PENDING")
     client.get_analyze_job.return_value = WhiteboxJobStatus(job_id="j1", status="SUCCEEDED")
     client.get_analyze_job_result.return_value = WhiteboxResult(call_graph=CallGraph(nodes={}))
+
+    # git 源：content_sha256=None，resolved_commit_sha 为权威快照标识
+    resolver = MagicMock(spec=SourceResolver)
+    resolver.resolve.return_value = ResolvedSource(
+        source_type="git",
+        resolved_path=str(tmp_path),
+        requested_ref="main",
+        resolved_commit_sha="deadbeef" * 5,
+        ref_type="branch",
+        is_dirty=False,
+        content_sha256=None,
+        managed_snapshot=True,
+    )
+
+    task = Task(
+        task_type=TaskType.WHITEBOX,
+        goal="test",
+        parameters={"repo_url": "https://example.com/repo.git", "ref": "main", "scope": "all"},
+        timeout_seconds=_LONG_TIMEOUT,
+    )
+    app_stack.lifecycle.save_task(task)
+
+    runner = WhiteboxRunner(
+        client=client,
+        source_resolver=resolver,
+        timeline_service=app_stack.timeline,
+        lifecycle=app_stack.lifecycle,
+        poll_interval=0,
+    )
+    await runner.run(task)
+
+    run = app_stack.lifecycle.storage.get_analysis_run(_latest_analysis_id(app_stack, task.task_id))
+    assert run.source_snapshot_id == "deadbeef" * 5
+    assert run.resolved_commit_sha == "deadbeef" * 5
+
+
+def _latest_analysis_id(app_stack, task_id: str) -> str:
+    """通过应用服务读取最新 analysis_id（list_analysis_runs 只用于取 ID）。"""
+    runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task_id)
+    assert runs, "应至少存在一条分析记录"
+    return runs[0].analysis_id
+
+
+@pytest.mark.asyncio
+async def test_visibility_failure_persists_error_code(app_stack, tmp_path) -> None:
+    """容器路径可见性校验失败 → WhiteboxVisibilityError，错误码持久化到 analysis_runs。"""
+    client = _make_mock_client()
+    client.validate_source.return_value = SourceVisibilityResult(
+        status=VisibilityStatus.ENDPOINT_UNSUPPORTED,
+        exists=True,
+        readable=True,
+        reason="analyzer version too old",
+    )
 
     task = Task(
         task_type=TaskType.WHITEBOX,
@@ -269,6 +333,9 @@ async def test_cancel_remote_job_is_noop(app_stack, tmp_path) -> None:
         poll_interval=0,
     )
 
-    cancelled = await runner._cancel_remote_job("j1")
-    assert cancelled is False
-    client.cancel_job.assert_not_called()
+    with pytest.raises(WhiteboxVisibilityError):
+        await runner.run(task)
+
+    runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task.task_id)
+    assert len(runs) == 1
+    assert runs[0].failure_code == "WHITEBOX_VISIBILITY_ERROR"

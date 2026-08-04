@@ -46,14 +46,7 @@
       "lineNumber": 12,
       "snippet": "catch (Exception e) {}",
       "ruleCategory": "BUG",
-      "analysisConfidence": "HIGH",
-      "sourceLocation": {
-        "filePath": "src/main/java/com/example/BadCode.java",
-        "startLine": 12,
-        "startColumn": 9,
-        "endLine": 12,
-        "endColumn": 29
-      }
+      "analysisConfidence": "HIGH"
     }
   ],
   "executionFlows": [
