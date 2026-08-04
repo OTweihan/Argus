@@ -374,6 +374,19 @@ class CorrelationRepository:
             return None
         return _row_to_correlation_run(dict(row))
 
+    def list_by_analysis_ids(self, analysis_ids: list[str]) -> list[CorrelationRun]:
+        """通过白盒 analysis_id 列表查找关联运行（白盒任务→关联证据入口）。"""
+        if not analysis_ids:
+            return []
+        placeholders = ", ".join(["?"] * len(analysis_ids))
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM correlation_runs WHERE analysis_id IN ({placeholders}) "
+                "ORDER BY created_at DESC",
+                analysis_ids,
+            ).fetchall()
+        return [_row_to_correlation_run(dict(r)) for r in rows]
+
     def set_status(self, correlation_run_id: str, status: CorrelationRunStatus) -> None:
         with self._pool.tx() as conn:
             conn.execute(
@@ -389,13 +402,13 @@ class CorrelationRepository:
     ) -> list[CorrelationRun]:
         """查找 WAITING_ANALYSIS 的关联运行。
 
-        匹配策略：
-        - desired_source_snapshot_id 精确匹配，或 run 未指定快照（空字符串 = 任意快照接受）。
-        - 若提供 project_id，只匹配同项目运行。
+        仅匹配 desired_source_snapshot_id 精确一致的运行。
+        空字符串也按精确值处理；是否用它承接“黑盒先启动、白盒后完成”
+        的回退绑定，由应用编排层显式决定。
         """
         with self._pool.ro_conn() as conn:
             conditions = [
-                "(  desired_source_snapshot_id = ?  OR desired_source_snapshot_id = '')",
+                "desired_source_snapshot_id = ?",
                 "status = 'WAITING_ANALYSIS'",
             ]
             params: list[Any] = [desired_source_snapshot_id]
@@ -427,6 +440,9 @@ class CorrelationRepository:
             conn.execute(
                 """UPDATE correlation_runs
                    SET analysis_id = ?, bound_source_snapshot_id = ?,
+                       desired_source_snapshot_id =
+                           CASE WHEN desired_source_snapshot_id = ''
+                           THEN ? ELSE desired_source_snapshot_id END,
                        analysis_projection_version = ?, source_alignment_status = ?,
                        source_mismatch_overridden = ?,
                        source_mismatch_override_by = ?,
@@ -435,6 +451,7 @@ class CorrelationRepository:
                    WHERE correlation_run_id = ? AND analysis_id IS NULL""",
                 (
                     analysis_id,
+                    bound_source_snapshot_id,
                     bound_source_snapshot_id,
                     analysis_projection_version,
                     source_alignment_status,

@@ -228,15 +228,21 @@ def _flow_step_to_row(fid: str, step: dict[str, Any]) -> tuple:
 
 
 def _row_to_flow_step(row: dict[str, Any]) -> dict[str, Any]:
+    # 兼容 sqlite3.Row（无 .get()）和 dict
+    keys = row.keys()
+
+    def _g(k: str, default: Any = None) -> Any:
+        return row[k] if k in keys else default
+
     return {
-        "flow_step_id": row["flow_step_id"],
-        "execution_flow_id": row["execution_flow_id"],
-        "step_index": row["step_index"],
-        "depth": row.get("depth", 0),
-        "method_key": row.get("method_key"),
-        "class_name": row.get("class_name"),
-        "method_name": row.get("method_name"),
-        "call_node_id": row.get("call_node_id"),
+        "flow_step_id": _g("flow_step_id"),
+        "execution_flow_id": _g("execution_flow_id"),
+        "step_index": _g("step_index"),
+        "depth": _g("depth", 0),
+        "method_key": _g("method_key"),
+        "class_name": _g("class_name"),
+        "method_name": _g("method_name"),
+        "call_node_id": _g("call_node_id"),
     }
 
 
@@ -828,7 +834,7 @@ class AnalysisRunRepository:
             rows = conn.execute(sql, params_with_limit).fetchall()
 
         has_more = len(rows) > limit
-        items = rows[:limit]
+        items = [dict(r) for r in rows[:limit]]
         next_cursor = None
         if has_more and items:
             # 游标编码最后一行的排序键

@@ -28,6 +28,11 @@ _TOKEN_PATTERNS = [
         "{uuid}",
     ),
     (re.compile(r"^[\w.+-]+@[\w-]+\.[\w.-]+$"), "{email}"),  # email
+    # JWT / magic-link / opaque bearer token: 2+ 个 base64url 段以 '.' 分隔，每段 ≥20 字符
+    (
+        re.compile(r"^[A-Za-z0-9_-]{20,}(?:\.[A-Za-z0-9_-]{20,})+$"),
+        "{token}",
+    ),
 ]
 
 

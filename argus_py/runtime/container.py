@@ -149,6 +149,7 @@ def create_container() -> RuntimeContainer:
         CorrelationRunStatus,
         RequestOutcome,
         RequestOwner,
+        SourceAlignmentStatus,
     )
     from argus_py.correlation.models import BlackboxRun, CorrelationRun, HttpRequestEvidence
     from argus_py.correlation.path_utils import compute_config_digest
@@ -214,23 +215,35 @@ def create_container() -> RuntimeContainer:
         """创建 CorrelationRun（WAITING_ANALYSIS 或 WAITING_BLACKBOX）。"""
         digest = compute_config_digest("v1", "v1")
         snapshot_id = getattr(task, "source_resolved_commit_sha", None) or ""
+        snapshot_was_explicit = bool(snapshot_id)
         cr = CorrelationRun(
             correlation_run_id=f"cr:{_uuid.uuid4().hex[:12]}",
             project_id=task.project_id or "",
             blackbox_run_id=blackbox_run_id,
             desired_source_snapshot_id=snapshot_id,
-            desired_analysis_config_digest=snapshot_id,
+            desired_analysis_config_digest="",
             correlation_config_digest=digest,
             matcher_version="v1",
             normalization_version="v1",
             status=CorrelationRunStatus.WAITING_ANALYSIS,
             created_at=_now_iso(),
         )
-        # 尝试自动绑定同项目、同快照的已有分析
+        # 尝试自动绑定同项目、同快照的已有分析。
+        # 黑盒任务通常没有 source_resolved_commit_sha；
+        # 此时以同项目最新成功分析的快照值作为期望快照，
+        # 冻结本次关联的源码边界并标记为 UNVERIFIED。
         project_id = task.project_id or ""
-        if project_id:
+        if not snapshot_id and project_id:
+            latest_analysis = storage.get_latest_succeeded_analysis_by_project(project_id)
+            if latest_analysis is not None:
+                analysis_snapshot = getattr(latest_analysis, "resolved_commit_sha", None) or ""
+                if analysis_snapshot:
+                    snapshot_id = analysis_snapshot
+                    cr.desired_source_snapshot_id = snapshot_id
+
+        if project_id and snapshot_id:
             latest_analysis = storage.get_latest_succeeded_analysis_by_project(
-                project_id, source_snapshot_id=snapshot_id or None
+                project_id, source_snapshot_id=snapshot_id
             )
             if latest_analysis is not None:
                 cr.analysis_id = latest_analysis.analysis_id
@@ -238,6 +251,11 @@ def create_container() -> RuntimeContainer:
                     getattr(latest_analysis, "resolved_commit_sha", None) or ""
                 )
                 cr.analysis_projection_version = 1
+                cr.source_alignment_status = (
+                    SourceAlignmentStatus.VERIFIED
+                    if snapshot_was_explicit
+                    else SourceAlignmentStatus.UNVERIFIED
+                )
                 cr.status = CorrelationRunStatus.WAITING_BLACKBOX
         try:
             storage.create_correlation_run(cr)
@@ -462,13 +480,25 @@ def create_container() -> RuntimeContainer:
         waiting = storage.find_waiting_correlations(
             snapshot_id, project_id=analysis_project_id or None
         )
+        # 若没有精确快照匹配，回退匹配空快照的 WAITING_ANALYSIS
+        # （黑盒任务先于任何分析启动时，desired_source_snapshot_id 为空）
+        is_fallback = False
+        if not waiting and analysis_project_id:
+            waiting = storage.find_waiting_correlations("", project_id=analysis_project_id or None)
+            is_fallback = True
         for cr in waiting:
+            if is_fallback:
+                alignment = "UNVERIFIED"
+            elif snapshot_id == cr.desired_source_snapshot_id:
+                alignment = "VERIFIED"
+            else:
+                alignment = "UNVERIFIED"
             storage.bind_correlation_analysis(
                 cr.correlation_run_id,
                 analysis_id,
                 snapshot_id,
                 projection_version=1,
-                alignment="UNVERIFIED",
+                alignment=alignment,
             )
             # 检查黑盒是否也已完成；已完成则直接推进到 READY
             bb_run = storage.get_blackbox_run(cr.blackbox_run_id)

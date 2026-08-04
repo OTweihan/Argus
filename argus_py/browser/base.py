@@ -326,9 +326,12 @@ class BrowserSession:
 
         # 立即规范化 + 脱敏 + 丢弃 raw URL
         origin = extract_origin(request.url)
-        normalized = normalize_for_matching(request.url)
-        display = sanitize_for_display(normalized)
-        path_too_long = len(normalized) > 512
+        raw_normalized = normalize_for_matching(request.url)
+        # 请求路径既用于匹配也会持久化。敏感段必须在进入 _CapturedRequest
+        # 前完成脱敏，避免 JWT、magic-link token、UUID 等原文落库。
+        normalized = sanitize_for_display(raw_normalized)
+        display = normalized
+        path_too_long = len(raw_normalized) > 512
         if path_too_long:
             self._filtered_path_too_long += 1
 

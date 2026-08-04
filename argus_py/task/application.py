@@ -498,17 +498,39 @@ class TaskApplicationService:
     # ── 关联（CorrelationRun / Evidence）──────────────────────
 
     def list_correlation_runs_by_task(self, task_id: str) -> list[dict[str, Any]]:
-        """通过 taskId 查找所有关联运行。"""
+        """通过 taskId 查找所有关联运行。
+
+        支持黑盒任务 ID（BlackboxRun.task_id → CorrelationRun）
+        和白盒任务 ID（AnalysisRun.task_id → analysis_id → CorrelationRun）。
+        """
         storage = self._read.storage
-        if isinstance(storage, TaskSQLiteStorage):
-            bb_runs = storage._correlation.list_blackbox_runs_by_task(task_id)
-            result: list[dict[str, Any]] = []
-            for bb in bb_runs:
-                cr = storage.get_correlation_run_by_blackbox(bb.blackbox_run_id)
-                if cr is not None:
-                    result.append(_correlation_run_to_dict(cr))
-            return result
-        return []
+        if not isinstance(storage, TaskSQLiteStorage):
+            return []
+
+        seen: set[str] = set()
+        result: list[dict[str, Any]] = []
+
+        # 路径 1：黑盒任务 → BlackboxRun → CorrelationRun
+        bb_runs = storage._correlation.list_blackbox_runs_by_task(task_id)
+        for bb in bb_runs:
+            cr = storage.get_correlation_run_by_blackbox(bb.blackbox_run_id)
+            if cr is not None and cr.correlation_run_id not in seen:
+                seen.add(cr.correlation_run_id)
+                result.append(_correlation_run_to_dict(cr))
+
+        # 路径 2：白盒任务 → AnalysisRun → CorrelationRun
+        _MAX_ANALYSIS_RUNS = 200
+        analysis_runs, _ = storage.list_analysis_runs(task_id, limit=_MAX_ANALYSIS_RUNS)
+        if analysis_runs:
+            analysis_ids = [a.analysis_id for a in analysis_runs]
+            if analysis_ids:
+                wb_crs = storage._correlation.list_by_analysis_ids(analysis_ids)
+                for cr in wb_crs:
+                    if cr.correlation_run_id not in seen:
+                        seen.add(cr.correlation_run_id)
+                        result.append(_correlation_run_to_dict(cr))
+
+        return result
 
     def get_correlation_run(self, correlation_run_id: str) -> dict[str, Any] | None:
         storage = self._read.storage
