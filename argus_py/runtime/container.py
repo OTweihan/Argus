@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import threading as _threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -22,9 +24,11 @@ from argus_py.infra.queue import TaskQueue
 from argus_py.infra.worker import TaskWorker
 from argus_py.llm.client import set_llm_semaphore
 from argus_py.observability.audit import AuditService, set_audit_service
+from argus_py.observability.context import run_in_thread
 from argus_py.observability.debug_bundle import DebugBundleBuilder
 from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
+from argus_py.report.generator import ReportGenerator
 from argus_py.task.event import TaskTimelineService, _NullTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
@@ -38,6 +42,9 @@ if TYPE_CHECKING:
     from argus_py.task.application import TaskApplicationService
 
 _TASK_HANDLER_TYPE = dict
+
+# 关联完成后白盒报告重生成的串行化锁（写幂等，last-write-wins）
+_report_regen_lock = _threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,7 @@ class RuntimeContainer:
     task_queue: TaskQueue
     task_worker: TaskWorker
     llm_semaphore: asyncio.Semaphore | None
+    report_generator: ReportGenerator
     # 白盒
     whitebox_client: WhiteboxClient
     whitebox_runner: WhiteboxRunner
@@ -71,13 +79,57 @@ def create_task_application_service(
     """创建 TaskApplicationService，聚合容器中的子服务。"""
     from argus_py.task.application import TaskApplicationService
 
+    def _on_correlation_completed(analysis_id: str, _correlation_run_id: str) -> None:
+        # 同步路径（bind/retry/recalculate 在 run_in_thread 内调用）
+        _regen_report_for_container(container, analysis_id)
+
     return TaskApplicationService(
         lifecycle=container.lifecycle_service,
         task_read=container.task_read_service,
         queue=container.task_queue,
         project_service=container.project_service,
         model_config_service=container.model_config_service,
+        on_correlation_completed=_on_correlation_completed,
     )
+
+
+def _regen_report_for_container(container: RuntimeContainer, analysis_id: str) -> None:
+    """关联 Attempt 完成后重新生成该白盒任务的报告（同步，含关联数据）。
+
+    调用方负责线程（事件循环内需经 run_in_thread）；锁串行化幂等重写。
+    """
+    _regen_report_locked(
+        container.lifecycle_service.storage,
+        container.report_generator,
+        container.lifecycle_service.save_task,
+        analysis_id,
+    )
+
+
+def _regen_report_locked(
+    storage: Any,
+    report_generator: ReportGenerator,
+    save_task: Any,
+    analysis_id: str,
+) -> None:
+    """在模块锁内重生成白盒任务报告，异常仅记日志不阻断主流程。"""
+    from argus_py.report.generator import regenerate_report_for_analysis
+    from argus_py.task.application import build_correlation_report_data
+
+    try:
+        with _report_regen_lock:
+            regenerate_report_for_analysis(
+                storage,
+                build_correlation_report_data,
+                report_generator,
+                save_task,
+                analysis_id,
+            )
+    except Exception:
+        _regen_logger.exception("关联完成后白盒报告再生成失败: analysis_id=%s", analysis_id)
+
+
+_regen_logger = logging.getLogger(__name__)
 
 
 @lru_cache
@@ -153,6 +205,9 @@ def create_container() -> RuntimeContainer:
     )
     from argus_py.correlation.models import BlackboxRun, CorrelationRun, HttpRequestEvidence
     from argus_py.correlation.path_utils import compute_config_digest
+
+    # 报告生成器单例：初始生成与关联完成后重生成共用同一实例（相同输出路径）
+    report_generator = ReportGenerator()
 
     # 关联回调 — 延迟绑定（storage 是 TaskSQLiteStorage）
     async def _correlation_persist_batch(
@@ -287,6 +342,25 @@ def create_container() -> RuntimeContainer:
         if quality is not None:
             storage.upsert_capture_quality(quality)
 
+    def _regen_report(analysis_id: str) -> None:
+        """同步重生成白盒任务报告（含关联数据）。由关联完成路径调用。"""
+        _regen_report_locked(
+            storage,
+            report_generator,
+            lifecycle_service.save_task,
+            analysis_id,
+        )
+
+    async def _regen_report_after_attempt(attempt: Any) -> None:
+        """Attempt 完成（成功/失败）后刷新该分析对应的白盒报告。"""
+        cr = storage.get_correlation_run(attempt.correlation_run_id)
+        if cr is None or not cr.analysis_id:
+            return
+        try:
+            await run_in_thread(_regen_report, cr.analysis_id)
+        except Exception:
+            _corr_logger.exception("关联完成后报告重生成失败: analysis_id=%s", cr.analysis_id)
+
     async def _correlation_claim_and_execute(
         correlation_run_id: str,
         worker_id: str,
@@ -309,16 +383,19 @@ def create_container() -> RuntimeContainer:
         if attempt is None:
             return
         try:
-            await _execute_correlation(attempt)
-        except Exception:
-            _logger.exception("关联匹配失败: attempt=%s", attempt.correlation_attempt_id)
-            from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+            try:
+                await _execute_correlation(attempt)
+            except Exception:
+                _logger.exception("关联匹配失败: attempt=%s", attempt.correlation_attempt_id)
+                from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
 
-            storage.complete_and_activate_attempt(
-                attempt.correlation_attempt_id,
-                AttemptStatus.FAILED,
-                EvidenceCompleteness.PARTIAL,
-            )
+                storage.complete_and_activate_attempt(
+                    attempt.correlation_attempt_id,
+                    AttemptStatus.FAILED,
+                    EvidenceCompleteness.PARTIAL,
+                )
+        finally:
+            await _regen_report_after_attempt(attempt)
 
     async def _execute_correlation(attempt: Any) -> None:
         """执行端点匹配 + 调用流关联 + Finding 证据关联。
@@ -515,7 +592,10 @@ def create_container() -> RuntimeContainer:
             # 尝试立即推进和认领
             claimed = storage.claim_and_create_attempt(cr.correlation_run_id, worker_id)
             if claimed:
-                await _execute_correlation(claimed)
+                try:
+                    await _execute_correlation(claimed)
+                finally:
+                    await _regen_report_after_attempt(claimed)
 
     # 重新创建白盒 runner，带上关联唤醒回调
     whitebox_runner = WhiteboxRunner(
@@ -532,6 +612,7 @@ def create_container() -> RuntimeContainer:
         log_service=log_service,
         timeline_service=timeline_service,
         model_config_service=model_config_service,
+        report_generator=report_generator,
         persist_request_batch=_correlation_persist_batch,
         create_blackbox_run=_correlation_create_blackbox_run,
         create_correlation_run=_correlation_create_correlation_run,
@@ -553,6 +634,7 @@ def create_container() -> RuntimeContainer:
         handlers=handlers,
         concurrency=settings.scheduler_concurrency,
         model_config_service=model_config_service,
+        report_generator=report_generator,
         worker_id=worker_id,
     )
 
@@ -577,6 +659,7 @@ def create_container() -> RuntimeContainer:
         task_queue=task_queue,
         task_worker=task_worker,
         llm_semaphore=llm_semaphore,
+        report_generator=report_generator,
         whitebox_client=whitebox_client,
         whitebox_runner=whitebox_runner,
         task_handlers=handlers,

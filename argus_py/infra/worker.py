@@ -15,6 +15,7 @@ from argus_py.execution.runner import TaskHandler, TaskRunner
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.aspect import log_operation
 from argus_py.observability.context import run_in_thread
+from argus_py.report.generator import ReportGenerator
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.read import TaskReadService
 
@@ -37,6 +38,7 @@ class TaskWorker:
         handlers: dict[TaskType, TaskHandler],
         concurrency: int = 1,
         model_config_service: ModelConfigService | None = None,
+        report_generator: ReportGenerator | None = None,
         worker_id: str = "",
     ) -> None:
         self.queue = queue
@@ -44,6 +46,7 @@ class TaskWorker:
         self._reader = reader
         self._handlers = handlers
         self._model_config_service = model_config_service
+        self._report_generator = report_generator
         self._worker_id = worker_id
         self.concurrency = max(1, concurrency)
         self._tasks: list[asyncio.Task[None]] = []
@@ -121,6 +124,7 @@ class TaskWorker:
         runner = TaskRunner(
             lifecycle=self._lifecycle,
             handlers=self._handlers,
+            report_generator=self._report_generator,
             worker_id=self._worker_id,
         )
         try:

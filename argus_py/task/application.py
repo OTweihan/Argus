@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import ModelConfigService
@@ -66,12 +66,15 @@ class TaskApplicationService:
         queue: TaskQueue,
         project_service: ProjectService,
         model_config_service: ModelConfigService,
+        on_correlation_completed: Any | None = None,
     ) -> None:
         self._lifecycle = lifecycle
         self._read = task_read
         self._queue = queue
         self._project = project_service
         self._model_config = model_config_service
+        # 关联 Attempt 完成后回调（analysis_id, correlation_run_id）→ 报告重生成
+        self._on_correlation_completed = on_correlation_completed
 
     # ── 参数解析（合并项目默认值、模型配置校验、执行限制推断）──
 
@@ -569,6 +572,16 @@ class TaskApplicationService:
             return _summary_to_dict(summary)
         return {}
 
+    def build_correlation_report_data(self, analysis_id: str) -> dict[str, Any] | None:
+        """构建白盒任务文件型报告的关联数据（跨运行聚合，camelCase）。
+
+        仅供报告重生成（serve-time 兜底）复用；组合根注入路径直接调用模块级函数。
+        """
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return build_correlation_report_data(storage, analysis_id)
+        return None
+
     def list_endpoint_evidence(
         self,
         correlation_run_id: str,
@@ -809,7 +822,12 @@ class TaskApplicationService:
                 attempt = storage.claim_and_create_attempt(correlation_run_id, worker_id)
                 if attempt is not None:
                     try:
-                        _execute_matching_sync(storage, updated_cr, attempt)
+                        _execute_matching_sync(
+                            storage,
+                            updated_cr,
+                            attempt,
+                            on_completed=self._on_correlation_completed,
+                        )
                     except Exception:
                         from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
 
@@ -861,7 +879,12 @@ class TaskApplicationService:
             raise ValueError("认领关联运行失败，可能已被其他 Worker 执行。")
 
         try:
-            _execute_matching_sync(storage, cr, attempt)
+            _execute_matching_sync(
+                storage,
+                cr,
+                attempt,
+                on_completed=self._on_correlation_completed,
+            )
         except Exception:
             from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
 
@@ -931,7 +954,12 @@ class TaskApplicationService:
             raise ValueError("认领关联运行失败，可能已被其他 Worker 执行。")
 
         try:
-            _execute_matching_sync(storage, new_cr, attempt)
+            _execute_matching_sync(
+                storage,
+                new_cr,
+                attempt,
+                on_completed=self._on_correlation_completed,
+            )
         except Exception:
             storage.complete_and_activate_attempt(
                 attempt.correlation_attempt_id,
@@ -946,11 +974,17 @@ class TaskApplicationService:
 # ── 同步匹配执行器（run_in_thread 可调用）──────────────────────────
 
 
-def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
+def _execute_matching_sync(
+    storage: Any,
+    cr: Any,
+    attempt: Any,
+    on_completed: Any | None = None,
+) -> None:
     """关联匹配的同步实现 — 纯 CPU + 同步 SQLite 操作。
 
     根据采集质量和匹配结果决定 completeness（COMPLETE/PARTIAL），
     并写入对应的 reasons 和 diagnostics。
+    on_completed(analysis_id, correlation_run_id) 在 Attempt 落终态后调用。
     """
     from argus_py.correlation._execution import (
         assess_capture_quality,
@@ -1017,6 +1051,8 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
             ).value,
             completeness.value,
         )
+        if on_completed is not None:
+            on_completed(cr.analysis_id, cr.correlation_run_id)
         return
 
     matcher = EndpointMatcher(matcher_version="v1", normalization_version="v1")
@@ -1077,6 +1113,8 @@ def _execute_matching_sync(storage: Any, cr: Any, attempt: Any) -> None:
         ).value,
         completeness.value,
     )
+    if on_completed is not None:
+        on_completed(cr.analysis_id, cr.correlation_run_id)
 
 
 # ── 关联字典转换辅助（模块级）──────────────────────────────────────
@@ -1202,3 +1240,251 @@ def _http_request_to_dict(req: Any) -> dict[str, Any]:
         "capturedAt": req.captured_at,
         "finishedAt": req.finished_at,
     }
+
+
+# ── 白盒报告关联数据构建（文件型报告 #correlation 区块）────────────────
+# 契约：本函数返回的 dict 只含 camelCase key。report_to_dict 末尾会递归执行
+# camel_keys_inplace，snake_case 键会被静默改名；因此任何新字段必须写 camelCase。
+
+
+def build_correlation_report_data(
+    storage: TaskSQLiteStorage,
+    analysis_id: str,
+) -> dict[str, Any] | None:
+    """聚合绑定到该分析的所有关联运行，构建报告关联数据。
+
+    无任何关联运行 → 返回 None（模板渲染空态，且不触发重生成）。
+    跨运行语义：confirmedTouchedEndpointCount 为各运行确认触达端点的并集；
+    unmatchedRequests 仅取最新运行的明细；findingRelations 按 finding 去重。
+    """
+    runs = storage._correlation.list_by_analysis_ids([analysis_id])
+    if not runs:
+        return None
+
+    run_dicts: list[dict[str, Any]] = []
+    sums = _zero_correlation_sums()
+    touched: dict[str, dict[str, Any]] = {}
+    for run in runs:  # list_by_analysis_ids 按 created_at DESC，首个即最新
+        summary = storage.get_correlation_summary(run.correlation_run_id)
+        sd = _summary_to_dict(summary) if summary is not None else {}
+        run_dicts.append({**_correlation_run_to_dict(run), "summary": sd})
+        _accumulate_correlation_sums(sums, sd)
+        if not run.active_attempt_id:
+            continue
+        for g in storage._correlation.list_confirmed_touched_endpoints(run.active_attempt_id):
+            item = touched.setdefault(
+                g["endpoint_id"],
+                {
+                    "endpointId": g["endpoint_id"],
+                    "httpMethod": g["http_method"],
+                    "confirmedRequestCount": 0,
+                    "evidenceIds": [],
+                    "runIds": [],
+                },
+            )
+            item["confirmedRequestCount"] += g["confirmed_request_count"]
+            item["evidenceIds"].extend(e for e in str(g.get("evidence_ids") or "").split(",") if e)
+            if run.correlation_run_id not in item["runIds"]:
+                item["runIds"].append(run.correlation_run_id)
+
+    ep_map = _chunked_batch(storage, storage.batch_get_endpoint_details, list(touched))
+    for eid, item in touched.items():
+        ep = ep_map.get(eid, {})
+        item["path"] = ep.get("normalized_path_template") or ep.get("normalized_exact_path") or ""
+        item["controllerClass"] = ep.get("controller_class")
+        item["controllerMethod"] = ep.get("controller_method")
+        item["returnType"] = ep.get("return_type")
+
+    all_evidence_ids = [eid for item in touched.values() for eid in item["evidenceIds"]]
+    flows_map = _chunked_batch(storage, storage.batch_get_flows, all_evidence_ids)
+    flow_steps = _group_flow_steps(storage.list_all_analysis_flow_steps(analysis_id))
+    for item in touched.values():
+        item["flows"] = _dedupe_flows(
+            _to_flow_dict(frow, flow_steps)
+            for eid in item["evidenceIds"]
+            for frow in flows_map.get(eid, [])
+        )
+        item.pop("evidenceIds", None)
+
+    # list_analysis_endpoints 每页最多 200 行，total 为真实总数。
+    # 未覆盖列表展示前 200（按路径排序），但计数必须用真实 total。
+    endpoints, _, endpoint_total, _ = storage.list_analysis_endpoints(analysis_id, limit=10_000)
+    total_endpoint_count = endpoint_total if endpoint_total is not None else len(endpoints)
+    touched_ids = set(touched)
+    uncovered = [
+        _endpoint_to_report_dict(ep) for ep in endpoints if ep.get("endpoint_id") not in touched_ids
+    ]
+
+    latest = runs[0]
+    unmatched_rows, _ = storage.list_unmatched_requests(
+        latest.correlation_run_id, offset=0, limit=50
+    )
+    unmatched = [_http_request_to_dict(r) for r in unmatched_rows]
+
+    finding_relations = _build_finding_relations(storage, runs)
+
+    return {
+        "analysisId": analysis_id,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "runs": run_dicts,
+        "aggregate": {
+            "runCount": len(runs),
+            "latestCorrelationRunId": latest.correlation_run_id,
+            "evidenceCompleteness": sums["evidenceCompleteness"],
+            "capturedRequestCount": sums["capturedRequestCount"],
+            "correlatableRequestCount": sums["correlatableRequestCount"],
+            "confirmedMatchedRequestCount": sums["confirmedMatchedRequestCount"],
+            "ambiguousRequestCount": sums["ambiguousRequestCount"],
+            "unmatchedRequestCount": sums["unmatchedRequestCount"],
+            "confirmedTouchedEndpointCount": len(touched),
+            "uncoveredEndpointCount": max(0, total_endpoint_count - len(touched)),
+            "totalEndpointCount": total_endpoint_count,
+            "confirmedRelatedFindingCount": sums["confirmedRelatedFindingCount"],
+            "unrelatedFindingCount": sums["unrelatedFindingCount"],
+        },
+        "touchedEndpoints": list(touched.values()),
+        "uncoveredEndpoints": uncovered,
+        "unmatchedRequests": unmatched,
+        "findingRelations": finding_relations,
+    }
+
+
+def _zero_correlation_sums() -> dict[str, Any]:
+    return {
+        "evidenceCompleteness": "COMPLETE",
+        "capturedRequestCount": 0,
+        "correlatableRequestCount": 0,
+        "confirmedMatchedRequestCount": 0,
+        "ambiguousRequestCount": 0,
+        "unmatchedRequestCount": 0,
+        "confirmedRelatedFindingCount": 0,
+        "unrelatedFindingCount": 0,
+    }
+
+
+def _accumulate_correlation_sums(sums: dict[str, Any], sd: dict[str, Any]) -> None:
+    """累加单个运行的汇总计数（camelCase key 的 _summary_to_dict 输出）。"""
+    for key in (
+        "capturedRequestCount",
+        "correlatableRequestCount",
+        "confirmedMatchedRequestCount",
+        "ambiguousRequestCount",
+        "unmatchedRequestCount",
+        "confirmedRelatedFindingCount",
+        "unrelatedFindingCount",
+    ):
+        value = sd.get(key)
+        if isinstance(value, int):
+            sums[key] = sums.get(key, 0) + value
+    completeness = sd.get("evidenceCompleteness")
+    if isinstance(completeness, str):
+        sums["evidenceCompleteness"] = completeness  # 取最新运行
+
+
+def _chunked_batch(
+    storage: TaskSQLiteStorage,
+    batch_fn: Callable[[list[str]], dict[str, Any]],
+    ids: list[str],
+    chunk_size: int = 800,
+) -> dict[str, Any]:
+    """按批次大小分片调用批量查询（correlation repo 单次上限 900）。
+
+    batch_fn 返回 {id: row} 映射，合并返回。
+    """
+    result: dict[str, Any] = {}
+    for i in range(0, len(ids), chunk_size):
+        result.update(batch_fn(ids[i : i + chunk_size]))
+    return result
+
+
+def _group_flow_steps(flow_steps: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """按 flow_id 分组 flow steps（保留 step_index 顺序）。"""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for step in flow_steps:
+        grouped.setdefault(step["execution_flow_id"], []).append(step)
+    return grouped
+
+
+def _to_flow_dict(
+    flow_row: dict[str, Any],
+    flow_steps: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """将 endpoint_evidence_flows 行 + steps 组装为 ExecutionFlowResponse 形状。"""
+    flow_id = flow_row.get("execution_flow_id", "")
+    steps = flow_steps.get(flow_id, [])
+    return {
+        "executionFlowId": flow_id,
+        "entryPoint": flow_row.get("flow_name_snapshot") or flow_id,
+        "callDepth": max((s.get("depth") or 0 for s in steps), default=0),
+        "steps": [
+            {
+                "flowStepId": s.get("flow_step_id"),
+                "stepIndex": s.get("step_index"),
+                "depth": s.get("depth") or 0,
+                "methodKey": s.get("method_key") or "",
+                "className": s.get("class_name"),
+                "methodName": s.get("method_name"),
+                "callNodeId": s.get("call_node_id"),
+            }
+            for s in steps
+        ],
+    }
+
+
+def _dedupe_flows(flows: Any) -> list[dict[str, Any]]:
+    """按 execution_flow_id 去重。"""
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for flow in flows:
+        fid = flow.get("executionFlowId")
+        if fid and fid not in seen:
+            seen.add(fid)
+            result.append(flow)
+    return result
+
+
+def _endpoint_to_report_dict(ep: dict[str, Any]) -> dict[str, Any]:
+    """将 analysis_endpoints 行转为报告用 camelCase dict。"""
+    return {
+        "endpointId": ep.get("endpoint_id"),
+        "httpMethod": ep.get("http_method"),
+        "path": ep.get("normalized_path_template") or ep.get("normalized_exact_path") or "",
+        "controllerClass": ep.get("controller_class"),
+        "controllerMethod": ep.get("controller_method"),
+        "returnType": ep.get("return_type"),
+    }
+
+
+def _build_finding_relations(
+    storage: TaskSQLiteStorage,
+    runs: list[Any],
+) -> list[dict[str, Any]]:
+    """跨运行聚合 Finding 关联：按 finding_id 去重，保留最大确认请求数。"""
+    merged: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        rows, _ = storage.list_finding_evidence(run.correlation_run_id, offset=0, limit=500)
+        for row in rows:
+            fid = row.get("finding_id")
+            if not fid:
+                continue
+            count = row.get("confirmed_request_count") or 0
+            existing = merged.get(fid)
+            if existing is not None and count <= existing.get("confirmedRequestCount", 0):
+                continue
+            merged[fid] = {
+                "findingId": fid,
+                "bestRelationType": row.get("best_relation_type") or "UNKNOWN",
+                "confirmedRequestCount": count,
+            }
+    if not merged:
+        return []
+    details = _chunked_batch(storage, storage.batch_get_finding_details, list(merged))
+    for fid, item in merged.items():
+        d = details.get(fid, {})
+        item["title"] = d.get("title") or ""
+        item["severity"] = d.get("severity") or ""
+        item["findingType"] = d.get("finding_type") or "unknown"
+        item["ruleId"] = d.get("rule_id")
+        item["ruleCategory"] = d.get("rule_category")
+        item["location"] = d.get("location")
+    return list(merged.values())

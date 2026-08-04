@@ -48,12 +48,13 @@ def write_html_report(
     path: str | Path,
     template_name: str = "blackbox_report.html.j2",
 ) -> Path:
-    """写入 HTML 报告。"""
+    """原子写入 HTML 报告。"""
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
+    from argus_py.utils.jsonx import atomic_write_text
+
+    atomic_write_text(
+        target,
         render_html_report(report_dict, output_path=target, template_name=template_name),
-        encoding="utf-8",
     )
     return target
 

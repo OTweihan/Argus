@@ -512,6 +512,9 @@ class TaskSQLiteStorage:
         return self._correlation.batch_get_finding_details(finding_ids)
 
     # Attempt 明细
+    def list_confirmed_touched_endpoints(self, attempt_id: str) -> list[dict[str, Any]]:
+        return self._correlation.list_confirmed_touched_endpoints(attempt_id)
+
     def insert_attempt_reasons_batch(self, items: list[CorrelationAttemptReason]) -> None:
         self._correlation.insert_attempt_reasons_batch(items)
 

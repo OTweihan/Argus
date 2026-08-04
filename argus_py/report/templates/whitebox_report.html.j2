@@ -59,6 +59,7 @@
       <a class="nav-link" href="#callgraph"><span>调用图</span><span>06</span></a>
       <a class="nav-link" href="#clusters"><span>功能聚类</span><span>07</span></a>
       <a class="nav-link" href="#findings"><span>代码缺陷</span><span>08</span></a>
+      <a class="nav-link" href="#correlation"><span>黑白盒关联</span><span>09</span></a>
     </nav>
   </aside>
 
@@ -488,6 +489,274 @@
           <div>
             <strong>未发现代码缺陷</strong>
             <span>代码质量良好，未检测到明显坏味道或安全问题。</span>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="section card" id="correlation">
+      <div class="section-head">
+        <div>
+          <h2>黑白盒关联</h2>
+          <p class="section-subtitle">黑盒请求与白盒端点的匹配证据（关联运行完成后刷新）。</p>
+        </div>
+        {% if report.correlation %}
+          <span class="badge info">{{ report.correlation.aggregate.runCount }} runs</span>
+        {% else %}
+          <span class="badge info">等待关联</span>
+        {% endif %}
+      </div>
+
+      {% if report.correlation %}
+        {% set corr = report.correlation %}
+        {% set agg = corr.aggregate %}
+        <div class="metrics">
+          <div class="metric">
+            <span>关联运行</span>
+            <strong>{{ agg.runCount }}</strong>
+          </div>
+          <div class="metric">
+            <span>确认触达端点</span>
+            <strong>{{ agg.confirmedTouchedEndpointCount }}</strong>
+          </div>
+          <div class="metric">
+            <span>未覆盖端点</span>
+            <strong>{{ agg.uncoveredEndpointCount }}</strong>
+          </div>
+          <div class="metric">
+            <span>确认匹配请求</span>
+            <strong>{{ agg.confirmedMatchedRequestCount }}</strong>
+          </div>
+          <div class="metric">
+            <span>未匹配请求</span>
+            <strong>{{ agg.unmatchedRequestCount }}</strong>
+          </div>
+          <div class="metric">
+            <span>关联缺陷</span>
+            <strong>{{ agg.confirmedRelatedFindingCount }}</strong>
+          </div>
+          <div class="metric">
+            <span>证据完整性</span>
+            <strong>
+              {% if agg.evidenceCompleteness == 'COMPLETE' %}
+                <span style="color: #22c55e;">COMPLETE</span>
+              {% else %}
+                <span style="color: #eab308;">{{ agg.evidenceCompleteness }}</span>
+              {% endif %}
+            </strong>
+          </div>
+        </div>
+
+        {% if corr.runs %}
+          <details class="flow-card" {% if loop is defined and loop.first %}open{% endif %}>
+            <summary>
+              <strong>关联运行明细</strong>
+              <span class="badge info">{{ corr.runs | length }} runs</span>
+            </summary>
+            <table class="info-table">
+              <thead>
+                <tr>
+                  <th>关联运行 ID</th>
+                  <th>状态</th>
+                  <th>源码对齐</th>
+                  <th>采集/可关联/确认匹配/未匹配</th>
+                  <th>完整性</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for run in corr.runs %}
+                  <tr>
+                    <td><code>{{ run.correlationRunId }}</code></td>
+                    <td><span class="badge {{ run.status }}">{{ run.status }}</span></td>
+                    <td><span class="badge info">{{ run.sourceAlignmentStatus }}</span></td>
+                    <td>
+                      {{ run.summary.capturedRequestCount if run.summary else "-" }} /
+                      {{ run.summary.correlatableRequestCount if run.summary else "-" }} /
+                      {{ run.summary.confirmedMatchedRequestCount if run.summary else "-" }} /
+                      {{ run.summary.unmatchedRequestCount if run.summary else "-" }}
+                    </td>
+                    <td>{{ run.summary.evidenceCompleteness if run.summary else "-" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+        {% endif %}
+
+        <div class="section-head">
+          <div>
+            <h3 style="margin: 0;">确认触达端点</h3>
+          </div>
+          <span class="badge success">{{ corr.touchedEndpoints | length }} endpoints</span>
+        </div>
+        {% if corr.touchedEndpoints %}
+          {% for ep in corr.touchedEndpoints %}
+            <details class="flow-card" {% if loop.first %}open{% endif %}>
+              <summary>
+                <strong>{{ ep.httpMethod }} {{ ep.path }}</strong>
+                <span class="badge success">{{ ep.confirmedRequestCount }} req</span>
+                {% if ep.flows %}
+                  <span class="badge info">{{ ep.flows | length }} flows</span>
+                {% endif %}
+              </summary>
+              <table class="info-table">
+                <tr>
+                  <th>Controller</th>
+                  <td>{{ ep.controllerClass or "-" }}.{{ ep.controllerMethod or "-" }}</td>
+                </tr>
+                <tr>
+                  <th>返回类型</th>
+                  <td><code>{{ ep.returnType or "-" }}</code></td>
+                </tr>
+                {% if ep.runIds %}
+                  <tr>
+                    <th>关联运行</th>
+                    <td>{% for rid in ep.runIds %}<code>{{ rid }}</code>{% if not loop.last %}；{% endif %}{% endfor %}</td>
+                  </tr>
+                {% endif %}
+              </table>
+              {% if ep.flows %}
+                {% for flow in ep.flows %}
+                  <details class="flow-card">
+                    <summary>
+                      <strong>{{ flow.entryPoint }}</strong>
+                      <span class="badge info">深度 {{ flow.callDepth }}</span>
+                    </summary>
+                    <div class="flow-tree">
+                      {% for step in flow.steps %}
+                        <div class="flow-step" style="padding-left: {{ step.depth * 24 }}px;">
+                          <span class="flow-depth-indicator">{{ step.depth }}</span>
+                          <code>{{ step.className or "-" }}.{{ step.methodName or step.methodKey }}</code>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  </details>
+                {% endfor %}
+              {% endif %}
+            </details>
+          {% endfor %}
+        {% else %}
+          <div class="empty-state">
+            <div>
+              <strong>尚无确认触达端点</strong>
+              <span>黑盒任务未确认命中任何白盒端点。</span>
+            </div>
+          </div>
+        {% endif %}
+
+        <div class="section-head">
+          <div>
+            <h3 style="margin: 0;">未覆盖端点</h3>
+          </div>
+          <span class="badge info">{{ corr.uncoveredEndpoints | length }} endpoints</span>
+        </div>
+        {% if corr.uncoveredEndpoints %}
+          <table class="info-table">
+            <thead>
+              <tr>
+                <th>HTTP 方法</th>
+                <th>路径</th>
+                <th>Controller</th>
+                <th>方法</th>
+                <th>返回类型</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for ep in corr.uncoveredEndpoints %}
+                <tr>
+                  <td><span class="badge info">{{ ep.httpMethod }}</span></td>
+                  <td><code>{{ ep.path }}</code></td>
+                  <td>{{ ep.controllerClass or "-" }}</td>
+                  <td><code>{{ ep.controllerMethod or "-" }}</code></td>
+                  <td><code>{{ ep.returnType or "-" }}</code></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty-state">
+            <div>
+              <strong>所有白盒端点均已触达</strong>
+              <span>未发现未覆盖端点。</span>
+            </div>
+          </div>
+        {% endif %}
+
+        <div class="section-head">
+          <div>
+            <h3 style="margin: 0;">未匹配请求</h3>
+          </div>
+          <span class="badge info">{{ corr.unmatchedRequests | length }} requests</span>
+        </div>
+        {% if corr.unmatchedRequests %}
+          <table class="info-table">
+            <thead>
+              <tr>
+                <th>HTTP 方法</th>
+                <th>请求路径</th>
+                <th>来源</th>
+                <th>状态码</th>
+                <th>请求方</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for req in corr.unmatchedRequests %}
+                <tr>
+                  <td><span class="badge info">{{ req.httpMethod }}</span></td>
+                  <td><code>{{ req.displayPath }}</code></td>
+                  <td>{{ req.origin or "-" }}</td>
+                  <td>{{ req.responseStatus if req.responseStatus is not none else "-" }}</td>
+                  <td>{{ req.requestOwner }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="empty-state">
+            <div>
+              <strong>无未匹配请求</strong>
+              <span>所有可关联请求均已匹配到端点。</span>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if corr.findingRelations %}
+          <div class="section-head">
+            <div>
+              <h3 style="margin: 0;">发现项关联</h3>
+            </div>
+            <span class="badge success">{{ corr.findingRelations | length }} findings</span>
+          </div>
+          <table class="info-table">
+            <thead>
+              <tr>
+                <th>缺陷</th>
+                <th>严重级别</th>
+                <th>关系</th>
+                <th>确认请求数</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for fr in corr.findingRelations %}
+                <tr>
+                  <td>
+                    {{ fr.title }}
+                    {% if fr.ruleId %}<br><code>{{ fr.ruleId }}</code>{% endif %}
+                    {% if fr.location %}<br><span class="muted">{{ fr.location }}</span>{% endif %}
+                  </td>
+                  <td><span class="badge {{ fr.severity }}">{{ fr.severity }}</span></td>
+                  <td>{{ fr.bestRelationType }}</td>
+                  <td>{{ fr.confirmedRequestCount }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      {% else %}
+        <div class="empty-state">
+          <div>
+            <strong>暂无关联数据</strong>
+            <span>关联运行在黑盒任务完成后生成；当有黑盒任务与该分析关联时将在此展示端点触达与请求证据。</span>
           </div>
         </div>
       {% endif %}

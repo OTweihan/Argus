@@ -12,6 +12,68 @@ def test_report_to_dict():
     assert data["reportId"].startswith("report-")
 
 
+def test_report_to_dict_no_correlation_key_absent():
+    """无关联数据时 correlation 键必须移除，保持黑盒/未关联白盒报告输出不变。"""
+    report = Report.from_task(Task(goal="打开页面"))
+    data = report_to_dict(report)
+    assert "correlation" not in data
+
+
+def test_report_to_dict_correlation_section_preserved():
+    """camelCase 嵌套关联数据经序列化后原样保留（camel_keys_inplace 不改名）。"""
+    correlation = {
+        "analysisId": "an-1",
+        "aggregate": {"runCount": 2, "confirmedTouchedEndpointCount": 3},
+        "touchedEndpoints": [
+            {"endpointId": "ep-1", "httpMethod": "GET", "confirmedRequestCount": 5},
+        ],
+        "unmatchedRequests": [
+            {
+                "httpMethod": "GET",
+                "displayPath": "/api/users/0f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6a7b8c9d",
+            },
+        ],
+        "findingRelations": [
+            {"findingId": "f-1", "title": "空 catch", "severity": "high"},
+        ],
+    }
+    report = Report.from_task(Task(goal="分析"), correlation=correlation)
+    data = report_to_dict(report)
+
+    assert data["correlation"]["analysisId"] == "an-1"
+    assert data["correlation"]["aggregate"]["runCount"] == 2
+    assert data["correlation"]["touchedEndpoints"][0]["confirmedRequestCount"] == 5
+    # snake_case key 不会被意外引入
+    assert "confirmed_request_count" not in data["correlation"]["touchedEndpoints"][0]
+
+
+def test_report_correlation_redacts_unmatched_display_path_and_finding():
+    """关联数据脱敏：未匹配请求路径 token→{token}，finding 文本含 [REDACTED]。"""
+    correlation = {
+        "analysisId": "an-1",
+        "unmatchedRequests": [
+            {
+                "httpMethod": "GET",
+                "displayPath": "/api/users/0f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6a7b8c9d",
+            },
+        ],
+        "findingRelations": [
+            {
+                "findingId": "f-1",
+                "title": "token=secret123",
+                "location": "App.java:1?api_key=abc123",
+                "severity": "high",
+            },
+        ],
+    }
+    data = report_to_dict(Report.from_task(Task(goal="分析"), correlation=correlation))
+
+    corr = data["correlation"]
+    assert corr["unmatchedRequests"][0]["displayPath"] == "/api/users/{token}"
+    assert "[REDACTED]" in corr["findingRelations"][0]["title"]
+    assert "[REDACTED]" in corr["findingRelations"][0]["location"]
+
+
 def test_report_to_dict_hides_internal_success_steps():
     task = Task(goal="测试新增用户")
     task.logs.extend(

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from enum import Enum
@@ -29,15 +31,35 @@ def to_jsonable(value: Any) -> Any:
     return value
 
 
-def write_json(path: str | Path, data: Any, indent: int = 2) -> Path:
-    """以 UTF-8 写入 JSON。"""
+def atomic_write_text(path: str | Path, text: str, encoding: str = "utf-8") -> Path:
+    """原子写入文本：先写同目录临时文件再 os.replace，避免撕裂/半写文件。
+
+    幂等：并发调用时 last-write-wins，但每次落盘都是完整内容。
+    """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(to_jsonable(data), ensure_ascii=False, indent=indent),
-        encoding="utf-8",
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp"
     )
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as fh:
+            fh.write(text)
+        os.replace(tmp_name, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     return target
+
+
+def write_json(path: str | Path, data: Any, indent: int = 2) -> Path:
+    """以 UTF-8 原子写入 JSON。"""
+    return atomic_write_text(
+        path,
+        json.dumps(to_jsonable(data), ensure_ascii=False, indent=indent),
+    )
 
 
 def read_json(path: str | Path) -> Any:

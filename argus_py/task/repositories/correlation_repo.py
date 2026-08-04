@@ -814,6 +814,32 @@ class CorrelationRepository:
             ).fetchall()
         return [dict(r) for r in rows], total
 
+    def list_confirmed_touched_endpoints(self, attempt_id: str) -> list[dict[str, Any]]:
+        """按端点分组的确认触达证据（UNIQUE + EXACT/TEMPLATE，排除 ATTEMPT_ONLY）。
+
+        返回 rows: {endpoint_id, http_method, confirmed_request_count, evidence_ids}
+        evidence_ids 为逗号分隔的 endpoint_evidence_id 列表（报告重生成聚合调用流用）。
+        """
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                """SELECT ee.matched_endpoint_id AS endpoint_id,
+                          hre.http_method,
+                          COUNT(*) AS confirmed_request_count,
+                          GROUP_CONCAT(ee.endpoint_evidence_id) AS evidence_ids
+                   FROM endpoint_evidence ee
+                   JOIN http_request_evidence hre
+                     ON hre.request_evidence_id = ee.request_evidence_id
+                   WHERE ee.correlation_attempt_id = ?
+                     AND ee.resolution_status = 'UNIQUE'
+                     AND ee.match_strategy IN ('EXACT', 'TEMPLATE')
+                     AND ee.matched_endpoint_id IS NOT NULL
+                     AND hre.endpoint_match_eligibility != 'ATTEMPT_ONLY'
+                   GROUP BY ee.matched_endpoint_id, hre.http_method
+                   ORDER BY ee.matched_endpoint_id""",
+                (attempt_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_summary(self, correlation_run_id: str) -> CorrelationSummary:
         cr = self.get_correlation_run(correlation_run_id)
         attempt_id = cr.active_attempt_id if cr else None

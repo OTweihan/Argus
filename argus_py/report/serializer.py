@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from argus_py.correlation.path_utils import sanitize_for_display
 from argus_py.redaction import (
     redact_finding_entry,
     redact_href,
@@ -26,6 +27,10 @@ def report_to_dict(report: Report) -> dict[str, Any]:
     """将报告转换为 camelCase dict，所有步骤参数和 URL 中的敏感信息会被脱敏。"""
     # 先以 snake_case 做所有脱敏和结构操作，最后统一转 camelCase
     data = to_jsonable(report)
+
+    # 无关联数据时移除键，保持黑盒/未关联白盒报告输出逐字节不变
+    if data.get("correlation") is None:
+        data.pop("correlation", None)
 
     # 脱敏 steps 和 task.logs：Report.from_task 让两者指向同一份 task.logs，
     # to_jsonable 序列化后才拆成两个独立 dict 列表，因此必须各自脱敏后写回，
@@ -67,7 +72,30 @@ def report_to_dict(report: Report) -> dict[str, Any]:
     data["total_steps_count"] = len(steps)
     data["hidden_steps_count"] = len(steps) - len(display_steps)
 
-    return camel_keys_inplace(data)
+    result = camel_keys_inplace(data)
+    _redact_correlation_section(result.get("correlation"))
+    return result
+
+
+def _redact_correlation_section(correlation: dict[str, Any] | None) -> None:
+    """对关联数据二次脱敏（camelCase 结构）。
+
+    provider 契约：build_correlation_report_data 只返回 camelCase key，
+    camel_keys_inplace 不会改名；此处对未匹配请求路径和 finding 文本做二次防护。
+    """
+    if not isinstance(correlation, dict):
+        return
+    for req in correlation.get("unmatchedRequests", []):
+        if not isinstance(req, dict):
+            continue
+        dp = req.get("displayPath")
+        if isinstance(dp, str):
+            req["displayPath"] = sanitize_for_display(dp)
+    finding_relations = correlation.get("findingRelations")
+    if isinstance(finding_relations, list):
+        for i, fr in enumerate(finding_relations):
+            if isinstance(fr, dict):
+                finding_relations[i] = redact_finding_entry(fr)
 
 
 def _should_display_step(step: dict[str, Any]) -> bool:
