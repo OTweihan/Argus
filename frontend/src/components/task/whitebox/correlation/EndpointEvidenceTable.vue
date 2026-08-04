@@ -60,6 +60,37 @@
           <span v-else class="text-faint">-</span>
         </template>
       </el-table-column>
+      <el-table-column label="调用流" min-width="220">
+        <template #default="{ row }">
+          <template v-if="row.executionFlows?.length">
+            <el-collapse>
+              <el-collapse-item
+                v-for="flow in row.executionFlows"
+                :key="flow.executionFlowId"
+                :title="flow.entryPoint"
+              >
+                <template #title>
+                  <span class="mono flow-entry">{{ flow.entryPoint }}</span>
+                  <span class="badge depth">深度 {{ flow.callDepth }}</span>
+                </template>
+                <el-table :data="flow.steps ?? []" size="small" :show-header="false" style="width:100%">
+                  <el-table-column label="深度" width="50">
+                    <template #default="{ row: step }">
+                      {{ step.depth }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="方法" min-width="200">
+                    <template #default="{ row: step }">
+                      <span class="mano">{{ step.className || "-" }}.{{ step.methodName || step.methodKey }}</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-collapse-item>
+            </el-collapse>
+          </template>
+          <span v-else class="text-faint">-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="候选数" width="70">
         <template #default="{ row }">
           {{ row.candidateCount }}
@@ -164,6 +195,23 @@ function resolutionLabel(r: string): string {
 .candidate-hint {
   font-size: 12px;
   color: var(--text-faint);
+}
+
+.flow-entry {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge.depth {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0 6px;
+  white-space: nowrap;
 }
 
 .text-faint {

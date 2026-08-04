@@ -28,7 +28,33 @@ function makeItem(overrides: Partial<EndpointEvidenceInfo> = {}): EndpointEviden
         origin: "https://example.com",
         resourceType: null,
         candidates: [],
-        executionFlows: [],
+        executionFlows: [
+            {
+                executionFlowId: "fl-1",
+                entryPoint: "UserController.list()",
+                callDepth: 3,
+                steps: [
+                    {
+                        flowStepId: "fs-1",
+                        stepIndex: 0,
+                        depth: 0,
+                        methodKey: "UserController.list()",
+                        className: "UserController",
+                        methodName: "list",
+                        callNodeId: "cn-1",
+                    },
+                    {
+                        flowStepId: "fs-2",
+                        stepIndex: 1,
+                        depth: 1,
+                        methodKey: "UserService.find()",
+                        className: "UserService",
+                        methodName: "find",
+                        callNodeId: "cn-2",
+                    },
+                ],
+            },
+        ],
         ...overrides,
     };
 }
@@ -126,8 +152,20 @@ describe("EndpointEvidenceTable", () => {
                 items: [
                     makeItem({
                         matchedEndpointInfo: {
+                            endpointId: "ep-1",
+                            endpointFingerprint: "f1",
+                            analysisId: "an-1",
                             httpMethod: "DELETE",
                             normalizedPath: "/api/resource/{id}",
+                            normalizedPathTemplate: "/api/resource/{id}",
+                            isTemplated: true,
+                            pathSegmentCount: 3,
+                            controllerClass: "ResourceController",
+                            controllerMethod: "delete",
+                            parameters: [],
+                            returnType: "void",
+                            sourceLocation: null,
+                            entryCallNodeId: null,
                         },
                     }),
                 ],
@@ -185,6 +223,32 @@ describe("EndpointEvidenceTable", () => {
             props: {
                 items,
                 total: 3,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("有执行流时折叠项渲染不崩溃", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [makeItem({ executionFlows: [{ executionFlowId: "fl-9", entryPoint: "GET /api/x", callDepth: 2, steps: [] }] })],
+                total: 1,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("executionFlows 为空时折叠列不崩溃", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [makeItem({ executionFlows: [] })],
+                total: 1,
                 hasMore: false,
                 loading: false,
                 statusFilter: "",

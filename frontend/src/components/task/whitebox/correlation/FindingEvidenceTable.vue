@@ -6,6 +6,23 @@
       </span>
     </div>
     <el-table :data="items" size="small" stripe style="width:100%" max-height="400">
+      <el-table-column label="缺陷" min-width="220">
+        <template #default="{ row }">
+          <template v-if="row.findingInfo">
+            <div class="finding-title-row">
+              <span class="finding-title">{{ row.findingInfo.title }}</span>
+              <span :class="['severity-tag', `tag-${(row.findingInfo.severity ?? '').toLowerCase()}`]">
+                {{ row.findingInfo.severity }}
+              </span>
+            </div>
+            <div class="finding-meta-row">
+              <code v-if="row.findingInfo.ruleId" class="mono">{{ row.findingInfo.ruleId }}</code>
+              <span v-if="row.findingInfo.location" class="mono loc">{{ row.findingInfo.location }}</span>
+            </div>
+          </template>
+          <span v-else class="text-hint">-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="关联类型" width="130">
         <template #default="{ row }">
           <el-tag size="small" :type="relationTag(row.bestRelationType)">
@@ -111,6 +128,51 @@ function relationLabel(r: string): string {
 .count-confirmed {
   color: #059669;
   font-weight: 600;
+}
+
+.finding-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.finding-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.severity-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.tag-critical { background: #fee2e2; color: #b91c1c; }
+.tag-high { background: #ffedd5; color: #c2410c; }
+.tag-medium { background: #fef9c3; color: #a16207; }
+.tag-low { background: #dcfce7; color: #15803d; }
+.tag-info { background: #e0f2fe; color: #0369a1; }
+
+.finding-meta-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.finding-meta-row .mono {
+  color: #64748b;
+}
+
+.loc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 .dist-direct {

@@ -1,4 +1,5 @@
 import { request } from "../client";
+import type { EndpointInfo, ExecutionFlowInfo, FindingInfo } from "../task";
 
 // ── 关联运行 ──
 
@@ -118,7 +119,7 @@ export interface EndpointEvidenceInfo {
   matchStrategy: string;
   confidence: string;
   matchedEndpointId: string | null;
-  matchedEndpointInfo: unknown | null;
+  matchedEndpointInfo: EndpointInfo | null;
   matchReasonCode: string;
   candidateCount: number;
   httpMethod: string | null;
@@ -127,7 +128,7 @@ export interface EndpointEvidenceInfo {
   origin: string | null;
   resourceType: string | null;
   candidates: EndpointEvidenceCandidateInfo[];
-  executionFlows: unknown[];
+  executionFlows: ExecutionFlowInfo[];
 }
 
 export interface EndpointEvidencePage {
@@ -201,7 +202,7 @@ export interface FindingEvidenceInfo {
   findingEvidenceId: string;
   correlationAttemptId: string;
   findingId: string;
-  findingInfo: unknown | null;
+  findingInfo: FindingInfo | null;
   bestRelationType: string;
   minimumCallDistance: number | null;
   confirmedRequestCount: number;
