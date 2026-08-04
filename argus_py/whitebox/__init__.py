@@ -7,7 +7,6 @@ from argus_py.whitebox.models import (
     CallGraph,
     CallGraphNode,
     Endpoint,
-    SourceLocationData,
     WhiteboxFinding,
     WhiteboxJobEvent,
     WhiteboxJobStatus,

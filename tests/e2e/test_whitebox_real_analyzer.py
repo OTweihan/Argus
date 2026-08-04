@@ -115,7 +115,11 @@ public class HelloController {
 
     @pytest.mark.asyncio
     async def test_async_job_pipeline(self, java_analyzer_url: str) -> None:
-        """临时源码 → 异步 submit → 轮询 → 获取结果。"""
+        """临时源码 → 异步 submit → 轮询 → get_result() 验证最终结果。
+
+        P1 回归：之前只轮询到 SUCCEEDED 就结束，没有调用 get_result()
+        验证实际分析结果内容，导致 result 端点回归无法发现。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             src_dir = Path(tmp) / "src"
             src_dir.mkdir()
@@ -150,3 +154,9 @@ public class HelloController {
 
             assert final_status is not None
             assert final_status.status == "SUCCEEDED"
+
+            # P1 修复：获取并验证最终结果
+            result = await client.get_analyze_job_result(submitted.job_id)
+            assert result is not None
+            assert len(result.endpoints) > 0
+            assert any(ep.path == "/hello" for ep in result.endpoints)

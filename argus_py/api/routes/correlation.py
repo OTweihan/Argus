@@ -78,7 +78,7 @@ async def get_attempt(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> CorrelationAttemptResponse:
     """获取单次尝试详情。"""
-    data = await run_in_thread(app.get_correlation_attempt, attempt_id)
+    data = await run_in_thread(app.get_correlation_attempt, correlation_run_id, attempt_id)
     if data is None:
         raise _not_found("CorrelationAttempt", attempt_id)
     return CorrelationAttemptResponse(**data)

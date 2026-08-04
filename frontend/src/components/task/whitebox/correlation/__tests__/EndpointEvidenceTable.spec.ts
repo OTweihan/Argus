@@ -1,0 +1,210 @@
+/** EndpointEvidenceTable 组件测试：渲染、过滤、分页。
+ *
+ * 注意：Element Plus el-table 在 jsdom 中 body 数据可能不通过 text()
+ * 完整渲染，因此关键断言以组件挂载、table 存在和 toolbar 文案为准。
+ */
+
+import { describe, expect, it } from "vitest";
+import { mount } from "@vue/test-utils";
+
+import EndpointEvidenceTable from "../EndpointEvidenceTable.vue";
+import type { EndpointEvidenceInfo } from "../../../../../api/correlation";
+
+function makeItem(overrides: Partial<EndpointEvidenceInfo> = {}): EndpointEvidenceInfo {
+    return {
+        endpointEvidenceId: "eev-1",
+        correlationAttemptId: "ca-1",
+        requestEvidenceId: "req-1",
+        resolutionStatus: "UNIQUE",
+        matchStrategy: "EXACT",
+        confidence: "HIGH",
+        matchedEndpointId: "ep-1",
+        matchedEndpointInfo: null,
+        matchReasonCode: "",
+        candidateCount: 1,
+        httpMethod: "GET",
+        requestPath: "/api/users",
+        displayPath: "/api/users",
+        origin: "https://example.com",
+        resourceType: null,
+        candidates: [],
+        executionFlows: [],
+        ...overrides,
+    };
+}
+
+describe("EndpointEvidenceTable", () => {
+    it("空数据时表格正常渲染", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [],
+                total: null,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("有数据时表格存在且不崩溃", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [
+                    makeItem({
+                        httpMethod: "POST",
+                        displayPath: "/api/login",
+                        resolutionStatus: "UNIQUE",
+                        matchStrategy: "EXACT",
+                        confidence: "HIGH",
+                    }),
+                ],
+                total: 1,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("total 不为 null 时显示计数", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [makeItem()],
+                total: 5,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.text()).toContain("共 5 条");
+    });
+
+    it("total 为 null 时不显示计数", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [makeItem()],
+                total: null,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.text()).not.toContain("共");
+    });
+
+    it("hasMore 为 true 时显示加载更多按钮", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [makeItem()],
+                total: 1,
+                hasMore: true,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.text()).toContain("加载更多");
+    });
+
+    it("hasMore 为 false 时不显示加载更多按钮", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [makeItem()],
+                total: 1,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.text()).not.toContain("加载更多");
+    });
+
+    it("有 matchedEndpointInfo 的 item 不破坏渲染", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [
+                    makeItem({
+                        matchedEndpointInfo: {
+                            httpMethod: "DELETE",
+                            normalizedPath: "/api/resource/{id}",
+                        },
+                    }),
+                ],
+                total: 1,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("有 candidates 无 matchedEndpointInfo 时正常渲染", () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [
+                    makeItem({
+                        matchedEndpointInfo: null,
+                        candidates: [
+                            {
+                                endpointId: "ep-a",
+                                candidateRank: 1,
+                                matchStrategy: "TEMPLATE",
+                                confidence: "MEDIUM",
+                                reasonCode: "",
+                                selected: false,
+                            },
+                            {
+                                endpointId: "ep-b",
+                                candidateRank: 2,
+                                matchStrategy: "TEMPLATE",
+                                confidence: "LOW",
+                                reasonCode: "",
+                                selected: false,
+                            },
+                        ],
+                    }),
+                ],
+                total: 1,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("各项 resolutionStatus 均不崩溃", () => {
+        const items = [
+            makeItem({ resolutionStatus: "UNIQUE", matchStrategy: "EXACT" }),
+            makeItem({ resolutionStatus: "AMBIGUOUS", matchStrategy: "TEMPLATE" }),
+            makeItem({ resolutionStatus: "UNMATCHED", matchStrategy: "PATH_ONLY" }),
+        ];
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items,
+                total: 3,
+                hasMore: false,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("点击加载更多触发 load-more 事件", async () => {
+        const wrapper = mount(EndpointEvidenceTable, {
+            props: {
+                items: [makeItem()],
+                total: 10,
+                hasMore: true,
+                loading: false,
+                statusFilter: "",
+            },
+        });
+        const btn = wrapper.findComponent({ name: "ElButton" });
+        await btn.trigger("click");
+        expect(wrapper.emitted("load-more")).toHaveLength(1);
+    });
+});

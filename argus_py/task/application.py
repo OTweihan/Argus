@@ -526,11 +526,16 @@ class TaskApplicationService:
             return [_attempt_to_dict(a) for a in attempts]
         return []
 
-    def get_correlation_attempt(self, attempt_id: str) -> dict[str, Any] | None:
+    def get_correlation_attempt(
+        self, correlation_run_id: str, attempt_id: str
+    ) -> dict[str, Any] | None:
         storage = self._read.storage
         if isinstance(storage, TaskSQLiteStorage):
             attempt = storage._correlation.get_attempt(attempt_id)
             if attempt is None:
+                return None
+            # 归属校验：Attempt 必须属于指定的 CorrelationRun
+            if attempt.correlation_run_id != correlation_run_id:
                 return None
             return _attempt_to_dict(attempt)
         return None

@@ -83,6 +83,9 @@ def test_stale_attempt_aborted_and_run_reset(tmp_path: Path) -> None:
     assert cr.status in (CorrelationRunStatus.READY, CorrelationRunStatus.FAILED), (
         f"Expected READY or FAILED, got {cr.status}"
     )
+    assert cr.active_attempt_id is None, (
+        f"active_attempt_id should be cleared after recovery, got {cr.active_attempt_id}"
+    )
 
     # 验证旧 attempt 已 ABORTED
     conn = sqlite3.connect(str(db))

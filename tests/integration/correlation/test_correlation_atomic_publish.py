@@ -63,10 +63,16 @@ def test_evidence_inserted_but_not_activated_is_invisible(tmp_path: Path) -> Non
     )
     storage.insert_endpoint_evidence_batch([ev])
 
-    # 未 activate → 直接用 attempt_id 查询可见（单元测试验证写入成功）
+    # staging 写入成功——直接按 attempt_id 查询可见（用于调试/管理）
     items, total = storage.list_endpoint_evidence(attempt_id, resolution_status="UNIQUE")
     assert total >= 1
     assert items[0]["endpoint_evidence_id"] == "eev-staging"
+
+    # 未 activate → active_attempt_id 为 None
+    # → API 层（通过 active_attempt_id 查询）不会返回 staging 数据
+    cr = storage.get_correlation_run(cr_id)
+    assert cr is not None
+    assert cr.active_attempt_id is None
 
 
 def test_activate_alters_active_attempt(tmp_path: Path) -> None:
@@ -95,15 +101,37 @@ def test_activate_partial_sets_run_partial(tmp_path: Path) -> None:
 
 
 def test_activate_failed_not_alter_active_attempt(tmp_path: Path) -> None:
-    """FAILED attempt 不应该成为 active。"""
+    """FAILED attempt 不覆盖已有 active_attempt_id。"""
     db = tmp_path / "test.db"
-    storage, cr_id, attempt_id = _setup_ready_run(db)
+    storage, cr_id, attempt1_id = _setup_ready_run(db)
 
-    storage.complete_and_activate_attempt(attempt_id, "FAILED", completeness="COMPLETE")
+    # 先完成一个 SUCCEEDED Attempt 作为旧 active
+    storage.complete_and_activate_attempt(attempt1_id, "SUCCEEDED", completeness="COMPLETE")
+    cr = storage.get_correlation_run(cr_id)
+    assert cr is not None
+    assert cr.status == CorrelationRunStatus.SUCCEEDED
+    assert cr.active_attempt_id == attempt1_id
 
+    # 手动回退 Run 状态为 READY 并保留 active_attempt_id（模拟重试）
+    # 使用公共 API set_correlation_status，它只更新 status 列，
+    # active_attempt_id 保持不变
+    storage.set_correlation_status(cr_id, "READY")
+
+    # 重试：认领新 Attempt → 不应覆盖 active_attempt_id
+    attempt2 = storage.claim_and_create_attempt(cr_id, "worker-2")
+    assert attempt2 is not None
+    cr = storage.get_correlation_run(cr_id)
+    assert cr is not None
+    assert cr.active_attempt_id == attempt1_id  # 旧 active 未被 claim 覆盖
+
+    # 新 Attempt 失败 → active_attempt_id 仍为旧 SUCCEEDED
+    storage.complete_and_activate_attempt(
+        attempt2.correlation_attempt_id, "FAILED", completeness="COMPLETE"
+    )
     cr = storage.get_correlation_run(cr_id)
     assert cr is not None
     assert cr.status == CorrelationRunStatus.FAILED
+    assert cr.active_attempt_id == attempt1_id  # 旧 active 未被 FAILED 覆盖
 
 
 # ── 跨 Run 归属阻断 ────────────────────────────────────────

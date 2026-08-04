@@ -265,6 +265,88 @@ def test_get_attempt_404(api_client: tuple) -> None:
     assert resp.status_code == 404
 
 
+def test_get_attempt_cross_run_rejected(tmp_path: Path) -> None:
+    """P1 回归：Run A 的 URL 访问 Run B 的 attempt_id → 404。"""
+    app, stack = _build_correlation_test_app(tmp_path)
+    storage = stack.lifecycle.storage
+    assert isinstance(storage, TaskSQLiteStorage)
+
+    # 基础数据：project + task + blackbox_run
+    project = stack.project_service.create_project(
+        name="corr-api-cross", description="test", base_url="https://example.com"
+    )
+    task = Task(
+        task_id="t-cross",
+        goal="cross-run test",
+        project_id=project.project_id,
+        task_type=TaskType.BLACKBOX,
+        status=TaskStatus.PENDING,
+    )
+    storage.save(task)
+
+    bb = storage.create_blackbox_run(
+        BlackboxRun(
+            blackbox_run_id="bb-cross",
+            task_id=task.task_id,
+            attempt=1,
+            status=BlackboxRunStatus.SUCCESS,
+            started_at="2024-01-01T00:00:00",
+            completed_at="2024-01-01T00:01:00",
+        )
+    )
+
+    # 创建 Run A + Attempt A
+    storage.create_correlation_run(
+        CorrelationRun(
+            correlation_run_id="cr-a",
+            project_id=project.project_id,
+            blackbox_run_id=bb.blackbox_run_id,
+            desired_source_snapshot_id="abc123",
+            correlation_config_digest="d1",
+            matcher_version="v1",
+            normalization_version="v1",
+            analysis_id="analysis-1",
+            bound_source_snapshot_id="abc123",
+            analysis_projection_version=1,
+            status=CorrelationRunStatus.READY,
+            created_at="2024-01-01T00:00:00",
+        )
+    )
+    attempt_a = storage.claim_and_create_attempt("cr-a", "w1")
+    assert attempt_a is not None
+
+    # 创建 Run B + Attempt B
+    storage.create_correlation_run(
+        CorrelationRun(
+            correlation_run_id="cr-b",
+            project_id=project.project_id,
+            blackbox_run_id=bb.blackbox_run_id,
+            desired_source_snapshot_id="xyz789",
+            correlation_config_digest="d2",
+            matcher_version="v1",
+            normalization_version="v1",
+            analysis_id="analysis-2",
+            bound_source_snapshot_id="xyz789",
+            analysis_projection_version=2,
+            status=CorrelationRunStatus.READY,
+            created_at="2024-01-01T00:00:00",
+        )
+    )
+    attempt_b = storage.claim_and_create_attempt("cr-b", "w2")
+    assert attempt_b is not None
+
+    client = TestClient(app)
+
+    # 用 Run A 的 URL 访问 Run B 的 attempt → 404
+    resp = client.get(f"{_BASE}/cr-a/attempts/{attempt_b.correlation_attempt_id}")
+    assert resp.status_code == 404
+
+    # 用 Run B 的 URL 访问 Run B 的 attempt → 200
+    resp = client.get(f"{_BASE}/cr-b/attempts/{attempt_b.correlation_attempt_id}")
+    assert resp.status_code == 200
+    assert resp.json()["correlationAttemptId"] == attempt_b.correlation_attempt_id
+
+
 # ── GET /{cr_id}/summary ──────────────────────────────────────
 
 
@@ -273,8 +355,18 @@ def test_summary_200(api_client: tuple) -> None:
     resp = client.get(f"{_BASE}/{cr_id}/summary")
     assert resp.status_code == 200
     data = resp.json()
-    # CorrelationSummary 响应字段（schemas/correlation.py）
-    assert isinstance(data, dict)
+    # 核心标识
+    assert data["correlationRunId"] == cr_id
+    assert data["status"] == "SUCCEEDED"
+    assert isinstance(data["matcherVersion"], str)
+    assert isinstance(data["normalizationVersion"], str)
+    # 请求级指标
+    assert data["capturedRequestCount"] >= 1
+    assert isinstance(data["correlatableRequestCount"], int)
+    assert isinstance(data["confirmedMatchedRequestCount"], int)
+    assert isinstance(data["unmatchedRequestCount"], int)
+    # 证据完备性
+    assert data["evidenceCompleteness"] in ("COMPLETE", "PARTIAL")
 
 
 # ── GET /{cr_id}/endpoint-evidence ───────────────────────────
@@ -311,7 +403,17 @@ def test_list_unmatched_requests_200(api_client: tuple) -> None:
     client, cr_id, _ = api_client
     resp = client.get(f"{_BASE}/{cr_id}/unmatched-requests")
     assert resp.status_code == 200
-    assert "items" in resp.json()
+    data = resp.json()
+    assert isinstance(data["items"], list)
+    assert isinstance(data["total"], int)
+    assert isinstance(data["hasMore"], bool)
+    # 请求证据 不 暴露 normalizedPath（敏感字段）
+    if data["items"]:
+        item0 = data["items"][0]
+        assert "displayPath" in item0, f"Expected displayPath, got keys: {sorted(item0.keys())}"
+        assert "normalizedPath" not in item0, (
+            "Sensitive field 'normalizedPath' should not be exposed"
+        )
 
 
 # ── GET /{cr_id}/finding-evidence ────────────────────────────
@@ -321,7 +423,17 @@ def test_list_finding_evidence_200(api_client: tuple) -> None:
     client, cr_id, _ = api_client
     resp = client.get(f"{_BASE}/{cr_id}/finding-evidence")
     assert resp.status_code == 200
-    assert "items" in resp.json()
+    data = resp.json()
+    assert isinstance(data["items"], list)
+    assert isinstance(data["total"], int)
+    assert isinstance(data["hasMore"], bool)
+    # 有数据时校验 Finding 证据结构
+    if data["items"]:
+        fe = data["items"][0]
+        assert "findingEvidenceId" in fe
+        assert "findingId" in fe
+        assert "bestRelationType" in fe
+        assert "confirmedRequestCount" in fe
 
 
 # ── GET /{cr_id}/capture-quality ─────────────────────────────
@@ -342,7 +454,16 @@ def test_uncovered_endpoints_200(api_client: tuple) -> None:
     client, cr_id, _ = api_client
     resp = client.get(f"{_BASE}/{cr_id}/uncovered-endpoints")
     assert resp.status_code == 200
-    assert "items" in resp.json()
+    data = resp.json()
+    assert isinstance(data["items"], list)
+    assert isinstance(data["total"], int)
+    assert isinstance(data["hasMore"], bool)
+    # 有数据时校验未触达端点结构
+    if data["items"]:
+        ep = data["items"][0]
+        assert "endpointId" in ep
+        assert "httpMethod" in ep
+        assert "normalizedPathTemplate" in ep
 
 
 # ── GET ?taskId= ─────────────────────────────────────────────
@@ -399,12 +520,11 @@ def test_recalculate_201(api_client: tuple) -> None:
     assert "correlationRunId" in data
 
 
-# ── display_path 可见 / normalized_path 不可见 ───────────────
+# ── display_path 可见 / 敏感字段不暴露 ──────────────────
 
 
 def test_endpoint_evidence_response_has_display_path(api_client: tuple) -> None:
-    """端点证据 API 的 response model 通过 by_alias=True 返回 camelCase 字段；
-    requestEvidenceId 等 HTTP 请求证据字段嵌入在 evidence 内。"""
+    """端点证据 API 必须返回 displayPath，且不暴露 normalizedPath 等敏感字段。"""
     client, cr_id, _ = api_client
     resp = client.get(f"{_BASE}/{cr_id}/endpoint-evidence?limit=1")
     assert resp.status_code == 200
@@ -412,11 +532,25 @@ def test_endpoint_evidence_response_has_display_path(api_client: tuple) -> None:
     if not items:
         pytest.skip("No endpoint evidence available")
     item = items[0]
-    # 核心字段
+    # 核心标识
     assert "endpointEvidenceId" in item, f"Expected camelCase keys, got: {sorted(item.keys())}"
     assert "resolutionStatus" in item
     assert "matchStrategy" in item
     assert "confidence" in item
+    # displayPath 可见
+    assert "displayPath" in item, (
+        f"Expected displayPath in response, got keys: {sorted(item.keys())}"
+    )
+    assert isinstance(item["displayPath"], str), (
+        f"displayPath should be a string, got {type(item['displayPath']).__name__}"
+    )
+    assert len(item["displayPath"]) > 0, (
+        f"displayPath must be non-empty, got {item['displayPath']!r}"
+    )
+    # 敏感字段 不 返回
+    SENSITIVE_KEYS = {"normalizedPath"}
+    for key in SENSITIVE_KEYS:
+        assert key not in item, f"Sensitive field '{key}' should not be exposed in API response"
 
 
 # ── OpenAPI schema 包含 correlation routes ───────────────────

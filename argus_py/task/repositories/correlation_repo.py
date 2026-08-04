@@ -564,12 +564,6 @@ class CorrelationRepository:
                 _attempt_to_row(attempt),
             )
 
-            # 设置 active_attempt_id，使后续查询可按活跃 Attempt 过滤
-            conn.execute(
-                "UPDATE correlation_runs SET active_attempt_id = ? WHERE correlation_run_id = ?",
-                (attempt_id, correlation_run_id),
-            )
-
             return attempt
 
     def complete_and_activate_attempt(
@@ -601,12 +595,22 @@ class CorrelationRepository:
                 if status == AttemptStatus.SUCCEEDED
                 else status.value
             )
-            conn.execute(
-                """UPDATE correlation_runs
-                   SET active_attempt_id = ?, status = ?, completed_at = ?
-                   WHERE correlation_run_id = ?""",
-                (attempt_id, cr_status, _utc_now_iso(), cr_id),
-            )
+
+            if status == AttemptStatus.FAILED:
+                # FAILED 不发布：不更新 active_attempt_id，保留旧 active 结果可见
+                conn.execute(
+                    """UPDATE correlation_runs
+                       SET status = ?, completed_at = ?
+                       WHERE correlation_run_id = ?""",
+                    (cr_status, _utc_now_iso(), cr_id),
+                )
+            else:
+                conn.execute(
+                    """UPDATE correlation_runs
+                       SET active_attempt_id = ?, status = ?, completed_at = ?
+                       WHERE correlation_run_id = ?""",
+                    (attempt_id, cr_status, _utc_now_iso(), cr_id),
+                )
 
     # ══════════════════════════════════════════════════════════
     # HttpRequestEvidence
@@ -1223,10 +1227,21 @@ class CorrelationRepository:
             cr = self.get_correlation_run(attempt.correlation_run_id)
             if cr is not None:
                 if cr.status in (CorrelationRunStatus.RUNNING,):
-                    if cr.analysis_id is not None:
-                        self.set_status(cr.correlation_run_id, CorrelationRunStatus.READY)
-                    else:
-                        self.set_status(
-                            cr.correlation_run_id, CorrelationRunStatus.WAITING_ANALYSIS
+                    new_status = (
+                        CorrelationRunStatus.READY
+                        if cr.analysis_id is not None
+                        else CorrelationRunStatus.WAITING_ANALYSIS
+                    )
+                    # 回退状态并清除 active_attempt_id 和 completed_at：
+                    # claim 不再设置 active_attempt_id，完成时才原子发布，
+                    # 因此恢复时必须清除旧的 active_attempt_id 避免指向 ABORTED attempt。
+                    # 同时清除 completed_at，避免 READY 状态下残留旧完成时间戳。
+                    with self._pool.tx() as conn:
+                        conn.execute(
+                            """UPDATE correlation_runs
+                               SET status = ?, active_attempt_id = NULL,
+                                   completed_at = NULL
+                               WHERE correlation_run_id = ?""",
+                            (new_status.value, cr.correlation_run_id),
                         )
         return stale

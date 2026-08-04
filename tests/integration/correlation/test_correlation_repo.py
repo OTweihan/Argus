@@ -645,6 +645,9 @@ class TestEndpointEvidence:
         )
         storage.insert_endpoint_evidence_batch([ev_matched, ev_unmatched])
 
+        # 激活 Attempt 后才能通过 active_attempt_id 查询未匹配请求
+        storage.complete_and_activate_attempt(attempt_id, "SUCCEEDED", completeness="COMPLETE")
+
         items, total = storage.list_unmatched_requests(cr_id)
         assert total >= 1
         request_ids = {r.request_evidence_id for r in items}
