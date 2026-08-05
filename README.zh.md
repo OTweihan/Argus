@@ -86,7 +86,7 @@ playwright install chromium
 先使用 uv 创建锁定的 Python 环境并安装前端依赖：
 
 ```bash
-uv sync --frozen --extra browser --dev
+uv sync --frozen --extra browser --extra dev
 pnpm --dir frontend install --frozen-lockfile
 ```
 

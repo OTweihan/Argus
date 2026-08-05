@@ -47,7 +47,7 @@ python scripts/cleanup_outputs.py --targets logs,temp   # 只清指定子目录
   macOS/Linux 为 `.venv/bin/python`。启动器不会自动安装或更新依赖；环境缺失时执行：
 
   ```pwsh
-  uv sync --frozen --extra browser --dev
+  uv sync --frozen --extra browser --extra dev
   pnpm --dir frontend install --frozen-lockfile
   ```
 

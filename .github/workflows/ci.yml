@@ -150,7 +150,10 @@ jobs:
           enable-cache: true
 
       - name: Backend deps (for OpenAPI export)
-        run: uv sync --frozen --extra dev
+        # create_app 的 import 链（api.routes → blackbox → browser）在
+        # browser/__init__.py 顶层强制要求 playwright，因此 codegen 必须带
+        # browser extra。仅需 playwright 纯 Python 包，无需 playwright install。
+        run: uv sync --frozen --extra dev --extra browser
 
       - name: Frontend deps
         working-directory: frontend

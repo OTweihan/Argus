@@ -209,12 +209,12 @@ async function runPreflight() {
   assertFile(paths.uvLock, "缺少 uv.lock，无法确认 Python 锁定依赖。");
   assertFile(
     paths.venvConfig,
-    "缺少 .venv/pyvenv.cfg，请执行：uv sync --frozen --extra browser --dev",
+    "缺少 .venv/pyvenv.cfg，请执行：uv sync --frozen --extra browser --extra dev",
   );
   assertFile(
     paths.python,
     `当前平台缺少虚拟环境解释器 ${path.relative(projectRoot, paths.python)}。` +
-      "如果 .venv 来自其他操作系统，请删除后执行：uv sync --frozen --extra browser --dev",
+      "如果 .venv 来自其他操作系统，请删除后执行：uv sync --frozen --extra browser --extra dev",
   );
   assertFile(
     paths.frontendModules,
@@ -225,7 +225,7 @@ async function runPreflight() {
   const venvConfig = fs.readFileSync(paths.venvConfig, "utf8");
   if (!/^uv\s*=\s*.+$/m.test(venvConfig)) {
     throw new Error(
-      ".venv 不是可识别的 uv 管理环境，请重新执行：uv sync --frozen --extra browser --dev",
+      ".venv 不是可识别的 uv 管理环境，请重新执行：uv sync --frozen --extra browser --extra dev",
     );
   }
 
