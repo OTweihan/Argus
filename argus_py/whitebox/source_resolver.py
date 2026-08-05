@@ -18,8 +18,8 @@ from argus_py.llm.url_guard import assert_llm_base_url_safe
 
 logger = logging.getLogger(__name__)
 
-# 允许的 Git 协议
-_ALLOWED_SCHEMES = {"http", "https", "ssh", "git"}
+# 允许的 Git 协议（与 config.py::validate_git_url 的入口白名单保持一致，不额外放行 git://）
+_ALLOWED_SCHEMES = frozenset({"https", "http", "ssh"})
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 _STALE_SNAPSHOT_SECONDS = 24 * 60 * 60
@@ -114,7 +114,9 @@ class SourceResolver:
             # SCP 风格 — 允许
             pass
         elif parsed.scheme not in _ALLOWED_SCHEMES and parsed.scheme:
-            raise SourceResolutionError(f"不支持的协议: {parsed.scheme}，仅支持 {_ALLOWED_SCHEMES}")
+            raise SourceResolutionError(
+                f"不支持的协议: {parsed.scheme}，仅支持 {'/'.join(sorted(_ALLOWED_SCHEMES))} 或 scp 风格"
+            )
 
         # SSRF 校验：复用 LLM URL guard
         try:

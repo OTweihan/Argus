@@ -301,6 +301,58 @@ async def test_git_source_snapshot_id_uses_commit_sha(app_stack, tmp_path) -> No
     assert run.resolved_commit_sha == "deadbeef" * 5
 
 
+@pytest.mark.asyncio
+async def test_source_resolved_event_carries_requested_ref(app_stack, tmp_path) -> None:
+    """whitebox_source_resolved 时间线事件 data 应携带 requested_ref（分支）。
+
+    回归 2026-08-04 审计项：此前分支只在 task.source_requested_ref 持久化，
+    时间线事件缺该字段，审计展示无法从事件还原用户请求的 ref。
+    """
+    client = _make_mock_client()
+    client.submit_analyze_job.return_value = WhiteboxJobStatus(job_id="j1", status="PENDING")
+    client.get_analyze_job.return_value = WhiteboxJobStatus(job_id="j1", status="SUCCEEDED")
+    client.get_analyze_job_result.return_value = WhiteboxResult(call_graph=CallGraph(nodes={}))
+
+    resolver = MagicMock(spec=SourceResolver)
+    resolver.resolve.return_value = ResolvedSource(
+        source_type="git",
+        resolved_path=str(tmp_path),
+        requested_ref="main",
+        resolved_commit_sha="deadbeef" * 5,
+        ref_type="branch",
+        is_dirty=False,
+        content_sha256=None,
+        managed_snapshot=True,
+    )
+
+    task = Task(
+        task_type=TaskType.WHITEBOX,
+        goal="test",
+        parameters={"repo_url": "https://example.com/repo.git", "ref": "main", "scope": "all"},
+        timeout_seconds=_LONG_TIMEOUT,
+    )
+    app_stack.lifecycle.save_task(task)
+
+    runner = WhiteboxRunner(
+        client=client,
+        source_resolver=resolver,
+        timeline_service=app_stack.timeline,
+        lifecycle=app_stack.lifecycle,
+        poll_interval=0,
+    )
+    await runner.run(task)
+
+    events = app_stack.timeline.list_by_task(task.task_id)
+    resolved_events = [e for e in events if e.event_type == "whitebox_source_resolved"]
+    assert resolved_events, (
+        f"应发出 whitebox_source_resolved 事件，实际: {[e.event_type for e in events]}"
+    )
+    data = resolved_events[0].data
+    assert data.get("requested_ref") == "main"
+    assert data.get("commit_sha") == "deadbeef" * 5
+    assert data.get("ref_type") == "branch"
+
+
 def _latest_analysis_id(app_stack, task_id: str) -> str:
     """通过应用服务读取最新 analysis_id（list_analysis_runs 只用于取 ID）。"""
     runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task_id)

@@ -135,6 +135,7 @@ class WhiteboxRunner:
                     "source_type": resolved.source_type,
                     "commit_sha": resolved.resolved_commit_sha,
                     "content_sha256": resolved.content_sha256,
+                    "requested_ref": resolved.requested_ref,
                     "ref_type": resolved.ref_type,
                     "dirty": resolved.is_dirty,
                 },
@@ -769,7 +770,9 @@ def _build_projection_data(result: WhiteboxResult, *, analysis_id: str) -> dict[
                 "class_name": node.class_name,
                 "method_name": node.method_name,
                 "method_signature": node.method_signature,
-                "source_file": "",
+                # source_* 列保留：Java CallGraphNode 暂未返回源码位置，恒为 NULL。
+                # 0002 迁移 FORWARD-ONLY 不可 DROP，待 Java 端补充后再填充。
+                "source_file": None,
                 "source_start_line": None,
                 "source_start_column": None,
                 "source_end_line": None,
@@ -831,6 +834,8 @@ def _build_projection_data(result: WhiteboxResult, *, analysis_id: str) -> dict[
             )
 
     # Endpoint
+    # source_* 列保留：Java EndpointInfo 暂未返回源码位置，恒为 NULL。
+    # 0002 迁移 FORWARD-ONLY 不可 DROP，待 Java 端补充后再填充。
     endpoints: list[dict[str, Any]] = []
     for ep in result.endpoints:
         endpoints.append(

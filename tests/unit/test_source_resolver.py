@@ -126,6 +126,12 @@ def test_resolve_unsupported_scheme(tmp_path: Path) -> None:
         _resolver(tmp_path).resolve("ftp://example.com/repo.git")
 
 
+def test_resolve_git_scheme_rejected(tmp_path: Path) -> None:
+    """git:// 协议与 config.py::validate_git_url 入口白名单保持一致，解析器同样拒绝。"""
+    with pytest.raises(SourceResolutionError, match="不支持的协议"):
+        _resolver(tmp_path).resolve("git://example.com/repo.git")
+
+
 def test_resolve_ssrf_rejection(tmp_path: Path) -> None:
     with pytest.raises(SourceResolutionError, match="SSRF"):
         _resolver(tmp_path).resolve("http://169.254.169.254/latest/meta-data/")

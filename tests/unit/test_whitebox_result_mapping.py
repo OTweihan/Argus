@@ -343,3 +343,28 @@ class TestBuildProjectionData:
         data = _build_projection_data(result, analysis_id="aid-1")
         assert len(data["call_nodes"]) == 1
         assert data["call_edges"] == []
+
+    def test_call_node_source_location_normalized_to_none(self) -> None:
+        """CallNode 的 source_* 投影统一为 None（与端点列一致）。
+
+        Java CallGraphNode 暂不返回源码位置，空串 "" 会与端点列的
+        NULL 语义不一致；此处锁定为 None，避免后续误判为已有源码位置。
+        """
+        result = WhiteboxResult(
+            call_graph=CallGraph(
+                nodes={
+                    "com.example.A#method": CallGraphNode(
+                        class_name="com.example.A",
+                        method_name="method",
+                        method_signature="void method()",
+                    ),
+                }
+            ),
+        )
+        data = _build_projection_data(result, analysis_id="aid-1")
+        node = data["call_nodes"][0]
+        assert node["source_file"] is None
+        assert node["source_start_line"] is None
+        assert node["source_start_column"] is None
+        assert node["source_end_line"] is None
+        assert node["source_end_column"] is None

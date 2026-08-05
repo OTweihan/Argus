@@ -244,7 +244,9 @@ def _build_whitebox_config_view(task: Task) -> dict[str, Any] | None:
             "sourcePathDisplay": (_redact_path(source_path) if source_path else None),
             "sourcePathConfigured": bool(source_path),
             # 编辑级真实值
-            "repoUrl": task.source_repo_url or data.get("repo_url"),
+            # 主路径走 task.source_repo_url（已脱敏但可编辑回填）；
+            # 兜底读取持久化 JSON 的 clone_url（to_persisted() 实际写入的键，旧 repo_url 键恒为 None）。
+            "repoUrl": task.source_repo_url or data.get("clone_url"),
             "sourcePath": source_path,
             "ref": data.get("ref"),
             "scope": data.get("scope", "all"),
