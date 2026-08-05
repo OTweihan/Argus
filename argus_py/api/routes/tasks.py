@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -656,7 +655,7 @@ async def list_analysis_clusters(
             ClusterResponse(
                 cluster_id=item["cluster_id"],
                 suggested_label=item.get("suggested_label", ""),
-                member_keys=json.loads(item.get("member_keys_json") or "[]"),
+                member_keys=item.get("member_keys", []),
                 member_count=item.get("member_count", 0),
             )
             for item in items

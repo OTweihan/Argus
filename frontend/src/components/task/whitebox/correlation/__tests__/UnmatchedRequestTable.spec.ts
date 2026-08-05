@@ -85,7 +85,7 @@ describe("UnmatchedRequestTable", () => {
         expect(wrapper.text()).not.toContain("未匹配请求");
     });
 
-    it("hasMore 为 true 时显示加载更多按钮", () => {
+    it("hasMore 为 true 时显示下滑加载提示", () => {
         const wrapper = mount(UnmatchedRequestTable, {
             props: {
                 items: [makeItem()],
@@ -94,10 +94,10 @@ describe("UnmatchedRequestTable", () => {
                 loading: false,
             },
         });
-        expect(wrapper.text()).toContain("加载更多");
+        expect(wrapper.text()).toContain("下滑加载更多");
     });
 
-    it("hasMore 为 false 时不显示加载更多按钮", () => {
+    it("hasMore 为 false 时不显示下滑加载提示", () => {
         const wrapper = mount(UnmatchedRequestTable, {
             props: {
                 items: [makeItem()],
@@ -106,7 +106,7 @@ describe("UnmatchedRequestTable", () => {
                 loading: false,
             },
         });
-        expect(wrapper.text()).not.toContain("加载更多");
+        expect(wrapper.text()).not.toContain("下滑加载更多");
     });
 
     it("各种 outcome 均不崩溃", () => {
@@ -144,7 +144,7 @@ describe("UnmatchedRequestTable", () => {
         expect(wrapper.find("table").exists()).toBe(true);
     });
 
-    it("点击加载更多触发 load-more 事件", async () => {
+    it("hasMore 为 true 时哨兵存在且不崩溃", () => {
         const wrapper = mount(UnmatchedRequestTable, {
             props: {
                 items: [makeItem()],
@@ -153,9 +153,7 @@ describe("UnmatchedRequestTable", () => {
                 loading: false,
             },
         });
-        const btn = wrapper.findComponent({ name: "ElButton" });
-        await btn.trigger("click");
-        expect(wrapper.emitted("load-more")).toHaveLength(1);
+        expect(wrapper.find(".inf-load").exists()).toBe(true);
     });
 
     it("多条数据时表格正常渲染", () => {

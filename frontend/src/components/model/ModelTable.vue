@@ -25,15 +25,18 @@
         }}
       </template>
     </el-table-column>
-    <el-table-column label="操作" width="240" fixed="right">
+    <el-table-column label="操作" width="380" fixed="right">
       <template #default="{ row }">
-        <el-button @click="$emit('edit', row)">
+        <el-button size="large" :disabled="row.isDefault" @click="$emit('set-default', row.modelConfigId)">
+          {{ row.isDefault ? "默认模型" : "设为默认" }}
+        </el-button>
+        <el-button size="large" @click="$emit('edit', row)">
           编辑
         </el-button>
-        <el-button @click="$emit('test', row.modelConfigId)">
+        <el-button size="large" @click="$emit('test', row.modelConfigId)">
           测试
         </el-button>
-        <el-button type="danger" @click="$emit('delete', row.modelConfigId)">
+        <el-button size="large" type="danger" @click="$emit('delete', row.modelConfigId)">
           删除
         </el-button>
       </template>
@@ -46,5 +49,10 @@
 import type {ModelConfig} from "../../types";
 
 defineProps<{ models: ModelConfig[]; height?: string | number }>();
-defineEmits<{ edit: [model: ModelConfig]; test: [modelConfigId: string]; delete: [modelConfigId: string] }>();
+defineEmits<{
+  edit: [model: ModelConfig];
+  "set-default": [modelConfigId: string];
+  test: [modelConfigId: string];
+  delete: [modelConfigId: string];
+}>();
 </script>

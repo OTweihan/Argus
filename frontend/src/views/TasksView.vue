@@ -78,7 +78,7 @@
         <template #header>
           <div class="card-header">
             <span class="card-title">任务列表</span>
-            <el-button type="primary" @click="openNewTaskDialog">
+            <el-button size="large" type="primary" @click="openNewTaskDialog">
               新增任务
             </el-button>
           </div>

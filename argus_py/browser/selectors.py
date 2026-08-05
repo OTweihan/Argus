@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from playwright.async_api import Locator, Page, expect
 
@@ -127,8 +127,12 @@ def resolve_locator(page: Page, query: str | SelectorQuery) -> Locator:
     if parsed.strategy == "text":
         return page.get_by_text(parsed.value, exact=parsed.exact).first
     if parsed.strategy == "role":
-        options: dict[str, bool | str | None] = {"exact": parsed.exact, "name": parsed.name}
-        return page.get_by_role(parsed.value, **options).first  # type: ignore[arg-type]
+        # playwright 的 role 参数类型桩是 Literal[...] 联合类型，而 parsed.value 是任意
+        # str。用 cast 断言为可接受的任意 Literal 成员，避免在无 playwright 类型桩的
+        # dev 环境下触发 unused-ignore（此时 Page 退化为 Any，任何 type: ignore 都会被
+        # mypy 视为冗余）。运行时 get_by_role 接受任意字符串 role。
+        role_arg: Literal["button"] = cast(Literal["button"], parsed.value)
+        return page.get_by_role(role_arg, exact=parsed.exact, name=parsed.name).first
     if parsed.strategy == "label":
         return page.get_by_label(parsed.value, exact=parsed.exact).first
     if parsed.strategy == "placeholder":

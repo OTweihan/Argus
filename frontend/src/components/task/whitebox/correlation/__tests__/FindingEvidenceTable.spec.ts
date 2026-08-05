@@ -59,11 +59,18 @@ describe("FindingEvidenceTable", () => {
         expect(wrapper.text()).toContain("共 5 条");
     });
 
-    it("hasMore 为 true 时显示加载更多按钮", () => {
+    it("hasMore 为 true 时显示下滑加载提示", () => {
         const wrapper = mount(FindingEvidenceTable, {
             props: { items: [makeItem()], total: 1, hasMore: true, loading: false },
         });
-        expect(wrapper.text()).toContain("加载更多");
+        expect(wrapper.text()).toContain("下滑加载更多");
+    });
+
+    it("hasMore 为 false 时不显示下滑加载提示", () => {
+        const wrapper = mount(FindingEvidenceTable, {
+            props: { items: [makeItem()], total: 1, hasMore: false, loading: false },
+        });
+        expect(wrapper.text()).not.toContain("下滑加载更多");
     });
 
     it("findingInfo 缺失时显示占位符", () => {
@@ -80,12 +87,10 @@ describe("FindingEvidenceTable", () => {
         expect(wrapper.find("table").exists()).toBe(true);
     });
 
-    it("点击加载更多触发 load-more 事件", async () => {
+    it("hasMore 为 true 时哨兵存在且不崩溃", () => {
         const wrapper = mount(FindingEvidenceTable, {
             props: { items: [makeItem()], total: 10, hasMore: true, loading: false },
         });
-        const btn = wrapper.findComponent({ name: "ElButton" });
-        await btn.trigger("click");
-        expect(wrapper.emitted("load-more")).toHaveLength(1);
+        expect(wrapper.find(".inf-load").exists()).toBe(true);
     });
 });

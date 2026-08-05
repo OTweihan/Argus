@@ -52,18 +52,17 @@
           <span class="text-hint">静态可达，不代表该分支实际执行</span>
         </template>
       </el-table-column>
+      <template #append>
+        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+      </template>
     </el-table>
-    <div v-if="hasMore" class="list-more">
-      <el-button size="small" :loading="loading" @click="$emit('load-more')">
-        加载更多
-      </el-button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import type { FindingEvidenceInfo } from "../../../../api/correlation";
+import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{
   items: FindingEvidenceInfo[];
@@ -118,11 +117,6 @@ function relationLabel(r: string): string {
 .list-count {
   font-size: 12px;
   color: var(--text-faint);
-}
-
-.list-more {
-  margin-top: 8px;
-  text-align: center;
 }
 
 .count-confirmed {

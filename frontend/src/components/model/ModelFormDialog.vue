@@ -1,7 +1,8 @@
 <template>
   <el-dialog
     :model-value="visible" :title="editing ? '编辑模型' : '新增模型'"
-    width="580px" align-center append-to-body @update:model-value="$emit('close')"
+    width="580px" align-center append-to-body :close-on-click-modal="false" :close-on-press-escape="false"
+    @update:model-value="$emit('close')"
   >
     <el-form :model="localForm" label-position="top" @submit.prevent="$emit('save')">
       <el-form-item label="名称" :error="formErrors.modelName" required>
@@ -59,13 +60,13 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="$emit('test')">
+      <el-button size="large" @click="$emit('test')">
         测试
       </el-button>
-      <el-button @click="$emit('close')">
+      <el-button size="large" @click="$emit('close')">
         取消
       </el-button>
-      <el-button type="primary" @click="$emit('save')">
+      <el-button size="large" type="primary" @click="$emit('save')">
         {{ editing ? '保存' : '创建' }}
       </el-button>
     </template>

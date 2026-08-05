@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 
 import TaskTable from "../TaskTable.vue";
 import type { Project, Task } from "../../../types";
+
+// el-table 的固定列与列宽测量依赖 ResizeObserver，jsdom 未提供，
+// 补充一个空实现使表格在单测环境完成布局渲染。
+class ResizeObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+}
+(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver =
+    ResizeObserverStub;
+
 
 const mockProjects: Project[] = [
     { projectId: "p1", name: "测试项目" } as Project,
@@ -84,5 +95,35 @@ describe("TaskTable", () => {
         await wrapper.vm.$nextTick();
         // 更新后不再显示空状态
         expect(wrapper.find("table").exists()).toBe(true);
+    });
+
+    it("compact 模式操作列仅渲染详情类按钮", async () => {
+        const wrapper = mount(TaskTable, {
+            props: { tasks: mockTasks, projects: mockProjects, compactActions: true },
+        });
+        // el-table 的 body 行与固定列异步渲染，等待布局完成后再断言按钮。
+        await flushPromises();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const buttons = wrapper.findAll("button").map((b) => b.text());
+        expect(buttons).toContain("任务详情");
+        expect(buttons).toContain("报告详情");
+        // 压缩列不渲染编辑 / 删除 / 启动 / 重试
+        expect(buttons.join()).not.toContain("编辑");
+        expect(buttons.join()).not.toContain("删除");
+        expect(buttons.join()).not.toContain("启动");
+        expect(buttons.join()).not.toContain("重试");
+    });
+
+    it("完整模式操作列渲染全部操作按钮", async () => {
+        const wrapper = mount(TaskTable, {
+            props: { tasks: mockTasks, projects: mockProjects },
+        });
+        await flushPromises();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const buttons = wrapper.findAll("button").map((b) => b.text());
+        expect(buttons).toContain("任务详情");
+        expect(buttons).toContain("报告详情");
+        expect(buttons).toContain("编辑");
+        expect(buttons).toContain("删除");
     });
 });

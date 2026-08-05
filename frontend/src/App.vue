@@ -11,10 +11,10 @@
               <span class="dot" :class="eventStatus" />
               <span>事件流：{{ eventStatusText }}</span>
             </div>
-            <el-button v-if="hasApiToken" plain @click="lockConsole">
+            <el-button v-if="hasApiToken" size="large" plain @click="lockConsole">
               清除 Token
             </el-button>
-            <el-button class="refresh-btn" type="primary" plain @click="loadAll">
+            <el-button size="large" class="refresh-btn" type="primary" plain @click="loadAll">
               <svg
                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                 stroke-linejoin="round" width="16" height="16" class="refresh-icon"
@@ -53,7 +53,7 @@
       >
         <span>{{ dialog?.message }}</span>
         <template #footer>
-          <el-button type="primary" @click="closeDialog">
+          <el-button size="large" type="primary" @click="closeDialog">
             确定
           </el-button>
         </template>
@@ -71,7 +71,7 @@
         <p>服务已启用 API Token，请输入后继续。Token 仅保存在当前标签页会话中。</p>
         <el-input v-model="tokenInput" type="password" show-password autocomplete="current-password" @keyup.enter="unlockConsole" />
         <template #footer>
-          <el-button type="primary" :disabled="!tokenInput.trim()" @click="unlockConsole">
+          <el-button size="large" type="primary" :disabled="!tokenInput.trim()" @click="unlockConsole">
             验证
           </el-button>
         </template>

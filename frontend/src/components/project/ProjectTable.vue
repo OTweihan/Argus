@@ -25,13 +25,13 @@
     </el-table-column>
     <el-table-column label="操作" width="260" fixed="right">
       <template #default="{ row }">
-        <el-button @click="$emit('detail', row)">
+        <el-button size="large" @click="$emit('detail', row)">
           详细
         </el-button>
-        <el-button @click="$emit('edit', row)">
+        <el-button size="large" @click="$emit('edit', row)">
           编辑
         </el-button>
-        <el-button type="danger" @click="$emit('delete', row.projectId)">
+        <el-button size="large" type="danger" @click="$emit('delete', row.projectId)">
           删除
         </el-button>
       </template>

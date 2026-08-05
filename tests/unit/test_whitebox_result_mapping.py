@@ -12,6 +12,8 @@ from argus_py.whitebox.models import (
     AnalyzerDiagnostics,
     CallGraph,
     CallGraphNode,
+    ExecutionFlow,
+    FlowStep,
     WhiteboxFinding,
     WhiteboxResult,
 )
@@ -368,3 +370,43 @@ class TestBuildProjectionData:
         assert node["source_start_column"] is None
         assert node["source_end_line"] is None
         assert node["source_end_column"] is None
+
+    def test_execution_flows_dedup_same_entry_point(self) -> None:
+        """同一分析内按 entry_point 去重，避免唯一约束冲突。
+
+        回归：Java ExecutionFlowTracer 按端点生成执行流，多个端点共享同一
+        controller 方法时会产出 entry_point 相同的多条流（步骤一致），而
+        analysis_execution_flows 唯一约束为 (analysis_id, execution_flow_fingerprint)，
+        重复指纹会导致投影事务整体回滚（sqlite3.IntegrityError）。
+        """
+        flow_steps = [
+            FlowStep(depth=0, method_key="com.example.A#method"),
+            FlowStep(depth=1, method_key="com.example.B#helper"),
+        ]
+        result = WhiteboxResult(
+            execution_flows=[
+                ExecutionFlow(
+                    entry_point="com.example.A#method",
+                    steps=flow_steps,
+                    call_depth=1,
+                ),
+                ExecutionFlow(
+                    entry_point="com.example.A#method",
+                    steps=flow_steps,
+                    call_depth=1,
+                ),
+                ExecutionFlow(
+                    entry_point="com.example.C#other",
+                    steps=[FlowStep(depth=0, method_key="com.example.C#other")],
+                    call_depth=0,
+                ),
+            ],
+        )
+        data = _build_projection_data(result, analysis_id="aid-1")
+        assert len(data["execution_flows"]) == 2
+        fingerprints = [f["execution_flow_fingerprint"] for f in data["execution_flows"]]
+        assert len(fingerprints) == len(set(fingerprints))
+        assert data["execution_flows"][0]["entry_point"] == "com.example.A#method"
+        assert data["execution_flows"][1]["entry_point"] == "com.example.C#other"
+        # 重复 entry_point 的 steps 不重复写入
+        assert len(data["flow_steps"]) == 3

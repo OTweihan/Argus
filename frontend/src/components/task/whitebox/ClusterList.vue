@@ -28,16 +28,13 @@
 
     <el-empty v-else-if="!loading" description="该分析执行未生成功能聚类" />
 
-    <div v-if="hasMore" class="load-more">
-      <el-button :loading="loading" @click="$emit('load-more')">
-        加载更多
-      </el-button>
-    </div>
+    <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
   </div>
 </template>
 
 <script setup lang="ts">
 import type { ClusterInfo } from "../../../api/task";
+import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 defineProps<{
   items: ClusterInfo[];
@@ -129,12 +126,6 @@ defineEmits<{
   padding: 2px 6px;
   border-radius: 4px;
   color: #344054;
-}
-
-.load-more {
-  display: flex;
-  justify-content: center;
-  margin-top: 12px;
 }
 
 .skeleton {

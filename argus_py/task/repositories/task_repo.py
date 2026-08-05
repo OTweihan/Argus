@@ -95,7 +95,7 @@ class TaskRepository:
         """只加载 tasks 表的一行（不含日志/发现项）。"""
         with self._pool.ro_conn() as conn:
             row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
-        return row
+        return dict(row) if row else None
 
     def get_report_path(self, task_id: str) -> str | None:
         """窄查询：只返回 report_path 字段。"""

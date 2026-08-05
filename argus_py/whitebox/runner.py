@@ -805,10 +805,19 @@ def _build_projection_data(result: WhiteboxResult, *, analysis_id: str) -> dict[
             )
 
     # ExecutionFlow
+    # Java ExecutionFlowTracer 按端点生成执行流；多个端点共享同一 controller
+    # 方法时（如 @RequestMapping 多路径/多方法映射），会产生 entry_point 相同的
+    # 多条流（步骤内容完全一致）。而 analysis_execution_flows 唯一约束为
+    # (analysis_id, execution_flow_fingerprint)——同一分析内指纹必须唯一，
+    # 这里按 entry_point 去重、只保留首条，避免 UNIQUE 冲突导致投影事务整体回滚。
     execution_flows: list[dict[str, Any]] = []
     flow_steps: list[dict[str, Any]] = []
+    seen_flow_keys: set[str] = set()
     for flow in result.execution_flows:
         fid = f"{aid}:ef:{flow.entry_point}"
+        if flow.entry_point in seen_flow_keys:
+            continue
+        seen_flow_keys.add(flow.entry_point)
         execution_flows.append(
             {
                 "execution_flow_id": fid,

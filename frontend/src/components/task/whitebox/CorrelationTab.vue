@@ -184,12 +184,10 @@
                     {{ row.pathSegmentCount }}
                   </template>
                 </el-table-column>
+                <template #append>
+                  <InfiniteScrollLoad :has-more="uncoveredHasMore" :loading="uncoveredLoading" @load-more="loadMoreUncovered" />
+                </template>
               </el-table>
-              <div v-if="uncoveredHasMore" class="list-more">
-                <el-button size="small" :loading="uncoveredLoading" @click="loadMoreUncovered">
-                  加载更多
-                </el-button>
-              </div>
             </template>
           </div>
         </el-tab-pane>
@@ -306,6 +304,7 @@ import { errorMessage, httpMethodTag } from "../../../utils";
 import EndpointEvidenceTable from "./correlation/EndpointEvidenceTable.vue";
 import FindingEvidenceTable from "./correlation/FindingEvidenceTable.vue";
 import UnmatchedRequestTable from "./correlation/UnmatchedRequestTable.vue";
+import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{ correlationRunId: string }>();
 
@@ -640,11 +639,6 @@ watch(subTab, (tab) => {
 .list-count {
   font-size: 12px;
   color: var(--text-faint);
-}
-
-.list-more {
-  margin-top: 8px;
-  text-align: center;
 }
 
 .mano {

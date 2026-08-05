@@ -30,17 +30,14 @@
 
     <el-empty v-else description="无执行流数据" :image-size="60" />
 
-    <div v-if="hasMore" class="list-more">
-      <el-button size="small" :loading="loading" @click="$emit('load-more')">
-        加载更多
-      </el-button>
-    </div>
+    <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ExecutionFlowInfo } from "../../../api/task";
+import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{
   items: ExecutionFlowInfo[];
@@ -67,10 +64,5 @@ const isLarge = computed(() => props.items.length > 3);
 .mono {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
-}
-
-.list-more {
-  text-align: center;
-  padding: 10px 0;
 }
 </style>

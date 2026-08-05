@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">模型列表</span>
-          <el-button type="primary" @click="openNewModelDialog">
+          <el-button size="large" type="primary" @click="openNewModelDialog">
             新增模型
           </el-button>
         </div>
@@ -27,6 +27,7 @@
         height="100%"
         @edit="editModel"
         @test="testModel"
+        @set-default="setDefaultModel"
         @delete="deleteModel"
       />
     </el-card>
@@ -51,7 +52,7 @@ import {injectConsoleApp} from "../composables/useConsoleApp";
 
 const {
   models, modelForm, showModelDialog, formErrors,
-  editModel, testModel, deleteModel, saveModel, openNewModelDialog,
+  editModel, testModel, deleteModel, setDefaultModel, saveModel, openNewModelDialog,
 } = injectConsoleApp();
 
 const modelSearchQuery = ref("");

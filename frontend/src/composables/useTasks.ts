@@ -200,7 +200,7 @@ function defaultWhiteboxConfig(): WhiteboxFormConfig {
         repoUrl: "",
         sourcePath: "",
         ref: "",
-        scope: "ALL",
+        scope: "all",
         targetModules: [],
         mavenClasspathMode: "AUTO",
         mavenOffline: false,

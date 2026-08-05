@@ -1,6 +1,6 @@
 <template>
   <el-dialog
-    :model-value="visible" title="任务详情" width="600px" align-center append-to-body
+    :model-value="visible" title="任务详情" width="600px" align-center append-to-body :close-on-click-modal="false"
     @update:model-value="$emit('close')"
   >
     <div v-loading="loading" class="dialog-body">

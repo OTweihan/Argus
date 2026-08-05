@@ -103,6 +103,18 @@ export function useModels(opts: {
         showModelDialog.value = true;
     }
 
+    async function setDefaultModel(modelConfigId: string): Promise<void> {
+        try {
+            await apiUpdateModel(modelConfigId, {isDefault: true});
+            await loadModels();
+            message.value = "已设为默认模型。";
+            error.value = "";
+        } catch (caught) {
+            error.value = errorMessage(caught);
+            message.value = "";
+        }
+    }
+
     async function deleteModel(modelConfigId: string): Promise<void> {
         try {
             await ElMessageBox.confirm("确认删除这个模型配置？", "警告", {
@@ -179,6 +191,7 @@ export function useModels(opts: {
         saveModel,
         editModel,
         deleteModel,
+        setDefaultModel,
         testModel,
         openNewModelDialog,
         resetModelForm,

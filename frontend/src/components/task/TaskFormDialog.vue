@@ -1,7 +1,8 @@
 <template>
   <el-dialog
     :model-value="visible" :title="editing ? '编辑任务' : '创建任务'"
-    width="800px" align-center append-to-body @update:model-value="$emit('close')"
+    width="800px" align-center append-to-body :close-on-click-modal="false" :close-on-press-escape="false"
+    @update:model-value="$emit('close')"
   >
     <el-form :model="localForm" label-position="top" @submit.prevent="$emit('save')">
       <!-- 任务类型 -->
@@ -110,11 +111,11 @@
                 @input="clearError('taskParameters')"
               />
               <el-input v-model="entry.value" placeholder="值（字符串）" class="param-value" />
-              <el-button type="danger" circle @click="$emit('remove-param', index)">
+              <el-button size="large" type="danger" circle @click="$emit('remove-param', index)">
                 ×
               </el-button>
             </div>
-            <el-button class="param-add-btn" @click="$emit('add-param')">
+            <el-button size="large" class="param-add-btn" @click="$emit('add-param')">
               + 添加参数
             </el-button>
           </div>
@@ -284,10 +285,10 @@
       </template>
     </el-form>
     <template #footer>
-      <el-button @click="$emit('close')">
+      <el-button size="large" @click="$emit('close')">
         取消
       </el-button>
-      <el-button type="primary" @click="$emit('save')">
+      <el-button size="large" type="primary" @click="$emit('save')">
         {{ editing ? "保存" : "创建" }}
       </el-button>
     </template>

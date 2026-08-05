@@ -640,13 +640,14 @@ class AnalysisRunRepository:
     def list_endpoints(
         self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
     ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
-        return self._paginated_query(
+        items, next_cursor, total, has_more = self._paginated_query(
             "analysis_endpoints",
             analysis_id,
             order="normalized_path_template ASC, http_method ASC, endpoint_id ASC",
             cursor=cursor,
             limit=limit,
         )
+        return [_row_to_endpoint(r) for r in items], next_cursor, total, has_more
 
     def list_call_nodes(
         self,
@@ -665,13 +666,19 @@ class AnalysisRunRepository:
         if method_name:
             where += " AND method_name LIKE ?"
             params.append(f"%{method_name}%")
-        return self._paginated_query(
+        items, next_cursor, total, has_more = self._paginated_query(
             "analysis_call_nodes",
             params=params,
             where_clause=where,
             order="class_name ASC, method_name ASC, call_node_id ASC",
             cursor=cursor,
             limit=limit,
+        )
+        return (
+            [_row_to_call_node(r) for r in items],
+            next_cursor,
+            total,
+            has_more,
         )
 
     def list_call_edges(
@@ -688,7 +695,7 @@ class AnalysisRunRepository:
         else:
             where = "analysis_id = ?"
             params = [analysis_id]
-        return self._paginated_query(
+        items, next_cursor, total, has_more = self._paginated_query(
             "analysis_call_edges",
             params=params,
             where_clause=where,
@@ -696,17 +703,24 @@ class AnalysisRunRepository:
             cursor=cursor,
             limit=limit,
         )
+        return (
+            [_row_to_call_edge(r) for r in items],
+            next_cursor,
+            total,
+            has_more,
+        )
 
     def list_execution_flows(
         self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
     ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
-        return self._paginated_query(
+        items, next_cursor, total, has_more = self._paginated_query(
             "analysis_execution_flows",
             analysis_id,
             order="entry_point ASC, execution_flow_id ASC",
             cursor=cursor,
             limit=limit,
         )
+        return [_row_to_flow(r) for r in items], next_cursor, total, has_more
 
     def get_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
         with self._pool.ro_conn() as conn:
@@ -738,6 +752,7 @@ class AnalysisRunRepository:
             ).fetchone()
         if row is None:
             return None
+        row = dict(row)  # sqlite3.Row 无 .get()，统一转 dict
         return {
             "analysis_id": row["analysis_id"],
             "total_source_files": row["total_source_files"],
@@ -763,13 +778,14 @@ class AnalysisRunRepository:
         self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
     ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
         """分页查询聚类。"""
-        return self._paginated_query(
+        items, next_cursor, total, has_more = self._paginated_query(
             "analysis_clusters",
             analysis_id,
             order="suggested_label ASC, cluster_id ASC",
             cursor=cursor,
             limit=limit,
         )
+        return [_row_to_cluster(r) for r in items], next_cursor, total, has_more
 
     def get_counts(self, analysis_id: str) -> dict[str, int]:
         """返回各投影表的记录数（含 findings 表按 analysis_id 过滤）。"""

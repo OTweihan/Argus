@@ -1,7 +1,8 @@
 <template>
   <el-dialog
     :model-value="visible" :title="editing ? '编辑项目' : '新增项目'"
-    width="800px" align-center append-to-body @update:model-value="$emit('close')"
+    width="800px" align-center append-to-body :close-on-click-modal="false" :close-on-press-escape="false"
+    @update:model-value="$emit('close')"
   >
     <el-form label-position="top" @submit.prevent="$emit('save')">
       <el-form-item label="名称" :error="formErrors.name" required>
@@ -69,21 +70,21 @@
               v-model="entry.value" placeholder="值（字符串）" class="param-value"
               @input="clearError('projectParameters')"
             />
-            <el-button type="danger" circle @click="$emit('remove-param', index)">
+            <el-button size="large" type="danger" circle @click="$emit('remove-param', index)">
               ×
             </el-button>
           </div>
-          <el-button class="param-add-btn" @click="$emit('add-param')">
+          <el-button size="large" class="param-add-btn" @click="$emit('add-param')">
             + 添加参数
           </el-button>
         </div>
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="$emit('close')">
+      <el-button size="large" @click="$emit('close')">
         取消
       </el-button>
-      <el-button type="primary" @click="$emit('save')">
+      <el-button size="large" type="primary" @click="$emit('save')">
         {{ editing ? '保存' : '创建' }}
       </el-button>
     </template>

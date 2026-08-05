@@ -31,12 +31,10 @@
           {{ row.controllerMethod || "-" }}
         </template>
       </el-table-column>
+      <template #append>
+        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+      </template>
     </el-table>
-    <div v-if="hasMore" class="list-more">
-      <el-button size="small" :loading="loading" @click="$emit('load-more')">
-        加载更多
-      </el-button>
-    </div>
   </div>
 </template>
 
@@ -44,6 +42,7 @@
 import { computed, ref } from "vue";
 import type { EndpointInfo } from "../../../api/task";
 import { httpMethodTag } from "../../../utils";
+import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{
   items: EndpointInfo[];
@@ -92,10 +91,5 @@ const filteredItems = computed(() => {
 .mono {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
-}
-
-.list-more {
-  text-align: center;
-  padding: 10px 0;
 }
 </style>

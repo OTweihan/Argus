@@ -32,6 +32,9 @@
           <span class="mono">{{ row.methodName }}</span>
         </template>
       </el-table-column>
+      <template #append>
+        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+      </template>
     </el-table>
 
     <!-- Callee edges -->
@@ -60,18 +63,13 @@
         </el-table-column>
       </el-table>
     </div>
-
-    <div v-if="hasMore" class="list-more">
-      <el-button size="small" :loading="loading" @click="$emit('load-more')">
-        加载更多
-      </el-button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { CallEdgeInfo, CallNodeInfo } from "../../../api/task";
+import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{
   items: CallNodeInfo[];
@@ -173,10 +171,5 @@ function confidenceTag(c: string | null | undefined): ElTagType {
 .mono {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
-}
-
-.list-more {
-  text-align: center;
-  padding: 10px 0;
 }
 </style>

@@ -53,16 +53,13 @@
 
     <el-empty v-else-if="!loading" description="该分析执行未产生发现项" />
 
-    <div v-if="hasMore" class="load-more">
-      <el-button :loading="loading" @click="$emit('load-more')">
-        加载更多
-      </el-button>
-    </div>
+    <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
   </div>
 </template>
 
 <script setup lang="ts">
 import type { FindingInfo } from "../../../api/task";
+import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 defineProps<{
   items: FindingInfo[];
@@ -205,12 +202,6 @@ code {
 .snippet code {
   display: block;
   font-size: 12px;
-}
-
-.load-more {
-  display: flex;
-  justify-content: center;
-  margin-top: 12px;
 }
 
 .skeleton {

@@ -39,18 +39,17 @@
           <span v-else class="faint-text">-</span>
         </template>
       </el-table-column>
+      <template #append>
+        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+      </template>
     </el-table>
-    <div v-if="hasMore" class="list-more">
-      <el-button size="small" :loading="loading" @click="$emit('load-more')">
-        加载更多
-      </el-button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { HttpRequestEvidenceInfo } from "../../../../api/correlation";
 import { httpMethodTag } from "../../../../utils";
+import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
 
 defineProps<{
   items: HttpRequestEvidenceInfo[];
@@ -114,11 +113,6 @@ function eligibilityLabel(e: string): string {
 .list-count {
   font-size: 12px;
   color: var(--text-faint);
-}
-
-.list-more {
-  margin-top: 8px;
-  text-align: center;
 }
 
 .status-ok  { color: #059669; font-weight: 600; }

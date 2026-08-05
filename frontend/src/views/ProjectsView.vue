@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">项目列表</span>
-          <el-button type="primary" @click="openNewProjectDialog">
+          <el-button size="large" type="primary" @click="openNewProjectDialog">
             新增项目
           </el-button>
         </div>
