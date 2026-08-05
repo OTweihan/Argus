@@ -19,7 +19,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
 
-from argus_py.analysis.enums import CompletenessStatus, QualityIssueCode, QualityIssueLevel
+from argus_py.analysis.enums import (
+    AnalysisRunStatus,
+    CompletenessStatus,
+    QualityIssueCode,
+    QualityIssueLevel,
+)
 from argus_py.core.constants import utc_now
 from argus_py.core.enums import FindingSeverity, FindingType, TaskStatus
 from argus_py.observability.context import run_in_thread
@@ -256,9 +261,17 @@ class WhiteboxRunner:
                     "errorCode": exc.error_code,
                 },
             )
+            # 取消终态按 origin 分派：本地取消 = 我们只停止等待，远端作业可能仍在运行；
+            # 远端确认取消（Java 状态机暂不产出，防御性）才落 CANCELLED。
+            run_status = (
+                AnalysisRunStatus.CANCELLED
+                if exc.origin == "remote"
+                else AnalysisRunStatus.STOPPED_WAITING
+            )
             await run_in_thread(
-                self._lifecycle.mark_analysis_failed,
+                self._lifecycle.mark_analysis_terminal,
                 analysis_id,
+                run_status,
                 exc.error_code or "TASK_CANCELLED",
                 str(exc),
             )
@@ -274,8 +287,9 @@ class WhiteboxRunner:
                 },
             )
             await run_in_thread(
-                self._lifecycle.mark_analysis_failed,
+                self._lifecycle.mark_analysis_terminal,
                 analysis_id,
+                AnalysisRunStatus.TIMED_OUT,
                 exc.error_code or "TASK_TIMEOUT",
                 str(exc),
             )

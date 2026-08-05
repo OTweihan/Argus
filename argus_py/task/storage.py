@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from argus_py.analysis.enums import AnalysisRunStatus
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.core.paths import DATA_DIR, TEMP_DIR
 from argus_py.correlation.models import (
@@ -251,6 +252,21 @@ class TaskSQLiteStorage:
         self, analysis_id: str, failure_code: str, failure_message: str
     ) -> None:
         self._analysis.mark_failed(analysis_id, failure_code, failure_message)
+
+    def mark_analysis_terminal(
+        self,
+        analysis_id: str,
+        run_status: AnalysisRunStatus,
+        failure_code: str,
+        failure_message: str,
+    ) -> None:
+        """将 analysis_runs 置为取消/超时等非失败终态。"""
+        self._analysis.mark_terminal(
+            analysis_id,
+            run_status,
+            failure_code,
+            failure_message,
+        )
 
     def complete_analysis_projection(
         self,

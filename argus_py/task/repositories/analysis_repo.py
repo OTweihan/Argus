@@ -12,6 +12,17 @@ from argus_py.analysis.enums import (
 from argus_py.analysis.models import AnalysisRun, QualityIssue
 from argus_py.infra.db import DbPool
 
+# mark_terminal 仅允许的非失败终态（取消/超时）；真实失败一律走 mark_failed。
+# SUCCEEDED 必须由 complete_projection 事务写入（同时构建投影与完整性结论），
+# 不允许经 mark_terminal 直接置位，否则会出现"无投影的 SUCCEEDED"。
+_MARK_TERMINAL_ALLOWED: frozenset[AnalysisRunStatus] = frozenset(
+    {
+        AnalysisRunStatus.STOPPED_WAITING,
+        AnalysisRunStatus.CANCELLED,
+        AnalysisRunStatus.TIMED_OUT,
+    }
+)
+
 # ── 行映射 ──────────────────────────────────────────────────────────
 
 
@@ -421,6 +432,29 @@ class AnalysisRunRepository:
         self.update_status(
             analysis_id,
             run_status=AnalysisRunStatus.FAILED.value,
+            failure_code=failure_code,
+            failure_message=failure_message,
+        )
+
+    def mark_terminal(
+        self,
+        analysis_id: str,
+        run_status: AnalysisRunStatus,
+        failure_code: str,
+        failure_message: str,
+    ) -> None:
+        """将 analysis_runs 置为指定终态，保留失败代码/消息供诊断。
+
+        仅接受取消（STOPPED_WAITING / CANCELLED）与超时（TIMED_OUT）等
+        非失败终态；失败路径仍走 :meth:`mark_failed`，SUCCEEDED 必须由
+        :meth:`complete_projection` 事务写入。
+        """
+        if run_status not in _MARK_TERMINAL_ALLOWED:
+            allowed = sorted(s.value for s in _MARK_TERMINAL_ALLOWED)
+            raise ValueError(f"mark_terminal 仅接受非失败终态 {allowed}，收到: {run_status}")
+        self.update_status(
+            analysis_id,
+            run_status=run_status.value,
             failure_code=failure_code,
             failure_message=failure_message,
         )

@@ -121,3 +121,21 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 6. **`eligible_source_files` 为占位**：`_build_projection_data` 用 `total_source_files` 等价，待 Java 新增 `eligibleSourceFiles` 字段。
 7. **端点/调用节点 `source_*` 投影列恒为 None**：Java `EndpointInfo`/`CallGraphNode` 未返回源码位置，`analysis_endpoints`/`analysis_call_nodes` 的 `source_*` 列与 API `sourceLocation` 恒为空（保留无害，0002 迁移 FORWARD-ONLY 不可 DROP）。
 
+---
+
+## 白盒/黑白盒关联计划整体复核 — 新增次要待办（2026-08-05）
+
+对 `docs/optimizations/whitebox-and-blackbox-correlation-plan.md` 四阶段整体复核确认：阶段一、二、三、四均已落地。
+本次修复 1 个实质接线缺口：**本地取消时 analysis_runs 由 FAILED 改为落 `STOPPED_WAITING` 终态**（远端确认取消 → `CANCELLED`，任务超时 → `TIMED_OUT`），
+新增 `analysis_repo.mark_terminal` / `storage.mark_analysis_terminal` / `lifecycle.mark_analysis_terminal` 三层透传，
+与 `AnalysisRunStatus` 枚举、前端「已停止等待/已取消/超时」展示对齐；时间线事件与失败消息保留不变，任务级状态仍由 `execution/runner.py` 映射为 CANCELLED/TIMEOUT。
+
+以下为本次复核新发现次要项，不强制，列为后续待办：
+
+1. **`EndpointEvidence.match_reason_code` 死字段**：`correlation/models.py` 与 `endpoint_evidence` 表均声明该列，但 `matcher._build_evidence` 从不赋值（恒 `""`），无任何消费方。
+2. **`correlation_repo.get_summary` 的 `candidate_related_finding_count` 恒为 0**：只累计 confirmed 与 unrelated，candidate 计数无赋值路径，前端/报告展示恒 0。
+3. **`PathMapping`（网关前缀剥离）休眠**：`matcher` 的 `EndpointMatcher` 支持 `strip_prefixes`/`context_path`，但容器/配置从未注入（恒 `None`），`normalize_for_matching` 的网关前缀能力未接入运行时。
+4. **自动绑定回退放宽快照边界（设计取舍）**：黑盒任务无快照信息时，`_correlation_create_correlation_run` 回退绑定「同项目最新成功分析」只标 `UNVERIFIED`（不拒绝也不标 `MISMATCHED`）；严格「同一源码快照」仅在手动绑定路径强制（不一致需 `source_mismatch_override`）。
+5. **`config_json` 存 `clone_url` 原始 URL**：`validate_git_url` 拒绝含 token / `user:password` 的 URL，但仅用户名 URL（如 `https://user@host/repo.git`）会原样写入 `analysis_runs.config_json`；展示路径已脱敏，泄露风险低。
+6. **CLI 终端无结构化降级徽标**：降级醒目展示落地于 HTML 报告模板与前端 `CompletenessBanner`；CLI 仅 `result_summary` 文本摘要（含解析覆盖/classpath），属展示颗粒度差异，非功能缺失。
+

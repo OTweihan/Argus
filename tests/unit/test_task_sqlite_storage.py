@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from argus_py.analysis.enums import AnalysisRunStatus
+from argus_py.analysis.models import AnalysisRun
 from argus_py.core.enums import (
     FindingSeverity,
     FindingType,
@@ -573,3 +575,75 @@ class TestTimelineEvents:
         s2 = TaskSQLiteStorage(tmp_path / "cross.db")
         events = s2.load_events("t1")
         assert len(events) == 1
+
+
+class TestAnalysisRunTerminalStates:
+    """analysis_runs 非失败终态持久化（STOPPED_WAITING / CANCELLED / TIMED_OUT）。"""
+
+    def _create_run(self, store: TaskSQLiteStorage, task_id: str, analysis_id: str) -> None:
+        _make_task(store, task_id, "白盒分析")
+        store.create_analysis_run(
+            AnalysisRun(
+                analysis_id=analysis_id,
+                task_id=task_id,
+                source_snapshot_id="snap-1",
+                run_status="RUNNING",
+                external_job_id="job-1",
+                result_schema_version=1,
+                config_json="{}",
+            )
+        )
+
+    def test_mark_terminal_stopped_waiting(self, store: TaskSQLiteStorage) -> None:
+        self._create_run(store, "t-cancel", "a-cancel")
+        store.mark_analysis_terminal(
+            "a-cancel",
+            AnalysisRunStatus.STOPPED_WAITING,
+            "WHITEBOX_TASK_CANCELLED",
+            "只停止等待，远端作业可能仍在运行",
+        )
+        run = store.get_analysis_run("a-cancel")
+        assert run is not None
+        assert run.run_status == AnalysisRunStatus.STOPPED_WAITING.value
+        assert run.failure_code == "WHITEBOX_TASK_CANCELLED"
+        assert run.failure_message == "只停止等待，远端作业可能仍在运行"
+
+    def test_mark_terminal_cancelled(self, store: TaskSQLiteStorage) -> None:
+        self._create_run(store, "t-remote-cancel", "a-remote")
+        store.mark_analysis_terminal(
+            "a-remote",
+            AnalysisRunStatus.CANCELLED,
+            "WHITEBOX_TASK_CANCELLED",
+            "远端作业已取消",
+        )
+        run = store.get_analysis_run("a-remote")
+        assert run is not None
+        assert run.run_status == AnalysisRunStatus.CANCELLED.value
+
+    def test_mark_terminal_timed_out(self, store: TaskSQLiteStorage) -> None:
+        self._create_run(store, "t-timeout", "a-timeout")
+        store.mark_analysis_terminal(
+            "a-timeout",
+            AnalysisRunStatus.TIMED_OUT,
+            "WHITEBOX_TASK_TIMEOUT",
+            "白盒分析超时",
+        )
+        run = store.get_analysis_run("a-timeout")
+        assert run is not None
+        assert run.run_status == AnalysisRunStatus.TIMED_OUT.value
+        assert run.failure_code == "WHITEBOX_TASK_TIMEOUT"
+
+    def test_mark_terminal_rejects_succeeded(self, store: TaskSQLiteStorage) -> None:
+        """SUCCEEDED 必须由 complete_projection 事务写入，禁止经 mark_terminal 直接置位。"""
+        self._create_run(store, "t-invalid", "a-invalid")
+        with pytest.raises(ValueError, match="mark_terminal 仅接受非失败终态"):
+            store.mark_analysis_terminal(
+                "a-invalid",
+                AnalysisRunStatus.SUCCEEDED,
+                "X",
+                "msg",
+            )
+        # 确认未被写入
+        run = store.get_analysis_run("a-invalid")
+        assert run is not None
+        assert run.run_status == "RUNNING"

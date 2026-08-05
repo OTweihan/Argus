@@ -459,6 +459,13 @@ async def test_cancel_emits_timeline_event(app_stack, tmp_path) -> None:
     assert cancel_event.data.get("jobId") == "timeline-job"
     assert cancel_event.data.get("origin") == "local"
 
+    # 本地取消 → analysis_runs 落 STOPPED_WAITING（只停止等待，远端可能仍在运行），
+    # 同时保留 failure_code 供诊断
+    runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task.task_id)
+    assert len(runs) == 1
+    assert runs[0].run_status == "STOPPED_WAITING"
+    assert runs[0].failure_code == "WHITEBOX_TASK_CANCELLED"
+
 
 @pytest.mark.asyncio
 async def test_update_task_preserves_whitebox_config(app_stack) -> None:

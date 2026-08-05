@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from argus_py.analysis.enums import AnalysisRunStatus
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S, utc_now
 from argus_py.core.enums import TaskStatus, TaskType
@@ -383,6 +384,19 @@ class TaskLifecycleService(_StorageEventBase):
         """事务 3：投影失败标记。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             self.storage.mark_analysis_failed(analysis_id, failure_code, failure_message)
+
+    def mark_analysis_terminal(
+        self,
+        analysis_id: str,
+        run_status: AnalysisRunStatus,
+        failure_code: str,
+        failure_message: str,
+    ) -> None:
+        """将 analysis_runs 置为取消/超时等非失败终态（STOPPED_WAITING / CANCELLED / TIMED_OUT）。"""
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.mark_analysis_terminal(
+                analysis_id, run_status, failure_code, failure_message
+            )
 
     def save_task_findings(self, task: Task) -> None:
         """持久化任务的 findings 列表（含 snippet / analysis_id）。

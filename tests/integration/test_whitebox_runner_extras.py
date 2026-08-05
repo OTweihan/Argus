@@ -114,6 +114,7 @@ async def test_job_cancelled_remote(app_stack, tmp_path) -> None:
 
     runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task.task_id)
     assert len(runs) == 1
+    assert runs[0].run_status == "CANCELLED"
     assert runs[0].failure_code == "WHITEBOX_TASK_CANCELLED"
 
 
@@ -140,6 +141,7 @@ async def test_job_timed_out(app_stack, tmp_path) -> None:
 
     runs, _ = app_stack.lifecycle.storage.list_analysis_runs(task.task_id)
     assert len(runs) == 1
+    assert runs[0].run_status == "TIMED_OUT"
     assert runs[0].failure_code == "WHITEBOX_TASK_TIMEOUT"
 
 
