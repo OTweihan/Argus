@@ -2,15 +2,17 @@
 
 标记: @pytest.mark.slow + @pytest.mark.e2e
 
-需要：Java Analyzer JAR 已构建、JDK 21+ 可用。
-环境变量 REQUIRE_JAVA_E2E=1 时启动失败视为 FAILED；
-REQUIRE_JAVA_E2E=0（默认）时跳过。
+需要：Maven 与 JDK 21+ 可用（与 scripts/dev.mjs 相同的环境要求）。
+缺少 JAR 时自动执行 ``mvn -B package -DskipTests``（命令与 java_analyzer/Dockerfile
+一致），产物为 ``java_analyzer/target/java-analyzer-*.jar``。自动构建失败时：
+REQUIRE_JAVA_E2E=1 → FAILED；否则 → skipped。
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -20,14 +22,61 @@ import httpx
 import pytest
 
 _REQUIRE_JAVA = os.environ.get("REQUIRE_JAVA_E2E", "0") == "1"
+_JAVA_DIR = Path(__file__).parent.parent.parent / "java_analyzer"
+_POM = _JAVA_DIR / "pom.xml"
+
+
+def _find_java() -> str:
+    """解析 Java 可执行文件：优先 JAVA_HOME，其次 PATH。
+
+    与 scripts/dev.mjs 一致：运行 Java Analyzer 应使用与 Maven 构建相同的 JDK。
+    Windows 上 PATH 中的 java 可能是 Oracle javapath stub，会解析到错误的 JRE，
+    因此不能直接依赖 PATH。
+    """
+    java_home = os.environ.get("JAVA_HOME")
+    if java_home:
+        candidate = Path(java_home) / "bin" / ("java.exe" if os.name == "nt" else "java")
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which("java")
+    if found:
+        return found
+    return "java"
 
 
 def _find_jar() -> Path | None:
-    java_dir = Path(__file__).parent.parent.parent / "java_analyzer" / "target"
-    if not java_dir.exists():
+    target_dir = _JAVA_DIR / "target"
+    if not target_dir.exists():
         return None
-    jars = sorted(java_dir.glob("argus-analyzer-*.jar"))
+    jars = sorted(target_dir.glob("java-analyzer-*.jar"))
     return jars[-1] if jars else None
+
+
+def _build_jar() -> Path | None:
+    """缺 JAR 时自动执行 Maven package（命令与 Dockerfile Stage 1 一致）。"""
+    mvn = shutil.which("mvn")
+    if mvn is None:
+        print("未找到 Maven（mvn 不在 PATH 中），无法自动构建 Java Analyzer。")
+        return None
+    print(f"未找到 Java Analyzer JAR，正在自动构建：{mvn} -f {_POM} -B package -DskipTests …")
+    try:
+        result = subprocess.run(
+            [mvn, "-f", str(_POM), "-B", "package", "-DskipTests"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        print("Maven 构建超时（600s），已放弃自动构建。")
+        return None
+    if result.returncode != 0:
+        # 仅保留构建输出尾部，避免刷屏
+        tail = result.stdout[-2000:].strip()
+        print(f"Maven 构建失败（exit={result.returncode}）：\n{tail}")
+        return None
+    print("Maven 构建完成。")
+    return _find_jar()
 
 
 def _find_free_port() -> int:
@@ -42,7 +91,9 @@ def _wait_health(url: str, timeout: float = 30) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            r = httpx.get(f"{url}/actuator/health", timeout=2)
+            # trust_env=False：请求是本地 Java 进程，不得经过系统代理
+            # （Windows 系统代理会对 127.0.0.1 返回 502）。
+            r = httpx.get(f"{url}/actuator/health", timeout=2, trust_env=False)
             if r.status_code == 200:
                 return True
         except Exception:
@@ -56,6 +107,8 @@ def java_analyzer_url():
     """启动 Java Analyzer 进程，返回 base_url。"""
     jar = _find_jar()
     if jar is None:
+        jar = _build_jar()
+    if jar is None:
         if _REQUIRE_JAVA:
             pytest.fail("Java Analyzer JAR not found and REQUIRE_JAVA_E2E=1")
         pytest.skip("Java Analyzer JAR not found")
@@ -63,7 +116,7 @@ def java_analyzer_url():
     port = _find_free_port()
     base_url = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
-        ["java", "-jar", str(jar), f"--server.port={port}"],
+        [_find_java(), "-jar", str(jar), f"--server.port={port}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

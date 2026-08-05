@@ -133,6 +133,9 @@ class WhiteboxClient:
                 timeout=self._request_timeout,
                 limits=limits,
                 transport=transport,
+                # 内网分析服务连接不得经过系统代理（Windows 系统代理会对
+                # 127.0.0.1 返回 502），显式关闭 trust_env。
+                trust_env=False,
             )
         return self._client
 

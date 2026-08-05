@@ -92,7 +92,7 @@ self.addEventListener('fetch', (event) => {
         pass
 
 
-class TestHttpServer:
+class LocalHttpServer:
     """本地测试 HTTP 服务器上下文管理器。"""
 
     def __init__(self, handler_class: type = _TestPageHandler) -> None:
@@ -114,7 +114,7 @@ class TestHttpServer:
         if self._thread:
             self._thread.join(timeout=5)
 
-    def __enter__(self) -> TestHttpServer:
+    def __enter__(self) -> LocalHttpServer:
         self.start()
         return self
 
@@ -122,8 +122,8 @@ class TestHttpServer:
         self.stop()
 
 
-def create_test_servers() -> tuple[TestHttpServer, TestHttpServer]:
+def create_test_servers() -> tuple[LocalHttpServer, LocalHttpServer]:
     """创建 Server A（同源）和 Server B（跨域）。"""
-    server_a = TestHttpServer()
-    server_b = TestHttpServer()
+    server_a = LocalHttpServer()
+    server_b = LocalHttpServer()
     return server_a, server_b
