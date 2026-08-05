@@ -755,6 +755,73 @@ class TestFindingEvidence:
             pass
 
 
+# ── Summary finding 三桶 ────────────────────────────────────────────
+
+
+class TestSummaryFindingBuckets:
+    """get_summary 的 Finding 三桶：confirmed / candidate / unrelated 按请求证据切分。"""
+
+    @pytest.fixture
+    def cr_id(self, storage: TaskSQLiteStorage) -> str:
+        _ensure_task_and_project(storage, "t:sum", "proj:sum")
+        _make_blackbox_run(storage, "bb:sum", task_id="t:sum")
+        _make_correlation_run(
+            storage,
+            "cr:sum",
+            "bb:sum",
+            project_id="proj:sum",
+            status=CorrelationRunStatus.READY,
+            analysis_id="analysis_1",
+            bound_source_snapshot_id="abc123",
+            analysis_projection_version=1,
+        )
+        return "cr:sum"
+
+    def test_three_buckets_partition_total(self, storage: TaskSQLiteStorage, cr_id: str) -> None:
+        """confirmed=请求触达，candidate=静态关联未触达，unrelated=其余。"""
+        attempt = storage.claim_and_create_attempt(cr_id, "w-sum")
+        assert attempt is not None
+        storage.insert_finding_evidence_batch(
+            [
+                FindingEvidence(
+                    finding_evidence_id="fe:s1",
+                    correlation_attempt_id=attempt.correlation_attempt_id,
+                    finding_id="f1",
+                    best_relation_type=FindingRelationType.DIRECT_HANDLER,
+                    confirmed_request_count=2,
+                    candidate_request_count=2,
+                ),
+                FindingEvidence(
+                    finding_evidence_id="fe:s2",
+                    correlation_attempt_id=attempt.correlation_attempt_id,
+                    finding_id="f2",
+                    best_relation_type=FindingRelationType.STATIC_REACHABLE,
+                    confirmed_request_count=0,
+                    candidate_request_count=1,
+                ),
+                FindingEvidence(
+                    finding_evidence_id="fe:s3",
+                    correlation_attempt_id=attempt.correlation_attempt_id,
+                    finding_id="f3",
+                    best_relation_type=FindingRelationType.UNKNOWN,
+                    confirmed_request_count=0,
+                    candidate_request_count=0,
+                ),
+            ]
+        )
+        storage.complete_and_activate_attempt(
+            attempt.correlation_attempt_id,
+            AttemptStatus.SUCCEEDED,
+            completeness=EvidenceCompleteness.COMPLETE,
+        )
+
+        summary = storage.get_correlation_summary(cr_id)
+        assert summary.total_finding_count == 3
+        assert summary.confirmed_related_finding_count == 1
+        assert summary.candidate_related_finding_count == 1
+        assert summary.unrelated_finding_count == 1
+
+
 # ── CaptureQuality ───────────────────────────────────────────────────
 
 

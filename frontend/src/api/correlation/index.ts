@@ -107,7 +107,6 @@ export interface EndpointEvidenceCandidateInfo {
   candidateRank: number;
   matchStrategy: string;
   confidence: string;
-  reasonCode: string;
   selected: boolean;
 }
 
@@ -120,7 +119,6 @@ export interface EndpointEvidenceInfo {
   confidence: string;
   matchedEndpointId: string | null;
   matchedEndpointInfo: EndpointInfo | null;
-  matchReasonCode: string;
   candidateCount: number;
   httpMethod: string | null;
   requestPath: string | null;

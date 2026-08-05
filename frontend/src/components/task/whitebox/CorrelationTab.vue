@@ -86,13 +86,16 @@
                 <span class="stat-k">白盒发现项</span><span class="stat-v">{{ summary.totalFindingCount }}</span>
               </div>
               <div class="stat-row confirmed">
-                <span class="stat-k">已确认关联</span><span class="stat-v">{{ summary.confirmedRelatedFindingCount }}</span>
+                <span class="stat-k" title="被黑盒实际触达（confirmed_request_count > 0）的发现项">已确认关联</span>
+                <span class="stat-v">{{ summary.confirmedRelatedFindingCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">候选关联</span><span class="stat-v">{{ summary.candidateRelatedFindingCount }}</span>
+                <span class="stat-k" title="有静态关联但未被黑盒请求触达的发现项">候选关联</span>
+                <span class="stat-v">{{ summary.candidateRelatedFindingCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">未关联</span><span class="stat-v">{{ summary.unrelatedFindingCount }}</span>
+                <span class="stat-k" title="无任何关联证据的发现项">未关联</span>
+                <span class="stat-v">{{ summary.unrelatedFindingCount }}</span>
               </div>
             </div>
 

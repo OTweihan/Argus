@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from typing import Any
@@ -90,6 +91,35 @@ def setup_cli_logging(verbose: int = 0) -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def _print_whitebox_degradation(task: Any) -> None:
+    """白盒分析完整性非 COMPLETE 时打印结构化警示。
+
+    与 HTML 报告模板 / 前端 CompletenessBanner 使用同一来源
+    （``task.result_json`` 中的 completeness + qualityIssues），
+    让终端同样醒目呈现降级，而不是只有文本摘要。
+    """
+    raw = getattr(task, "result_json", None)
+    if not raw:
+        return
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return
+    completeness = data.get("completeness")
+    if completeness not in ("DEGRADED", "UNAVAILABLE", "NOT_EVALUATED"):
+        return
+    label = {
+        "DEGRADED": "分析降级",
+        "UNAVAILABLE": "结果不可用",
+        "NOT_EVALUATED": "完整性未评估",
+    }.get(completeness, completeness)
+    cli_warn(f"白盒{label}（completeness={completeness}）")
+    for issue in data.get("qualityIssues") or []:
+        message = issue.get("message") or ""
+        if message:
+            cli_warn(f"  - {message}")
+
+
 def print_task_result(task: Any, show_steps: bool = False) -> None:
     """输出任务执行结果。
 
@@ -107,6 +137,7 @@ def print_task_result(task: Any, show_steps: bool = False) -> None:
         cli_print(f"HTML 报告：{task.report_path}")
     if task.error_message:
         cli_print(f"错误信息：{task.error_message}")
+    _print_whitebox_degradation(task)
 
 
 __all__ = [

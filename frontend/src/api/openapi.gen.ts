@@ -1511,8 +1511,6 @@ export interface components {
             matchStrategy: string;
             /** Confidence */
             confidence: string;
-            /** Reasoncode */
-            reasonCode: string;
             /** Selected */
             selected: boolean;
         };
@@ -1547,8 +1545,6 @@ export interface components {
             /** Matchedendpointid */
             matchedEndpointId?: string | null;
             matchedEndpointInfo?: components["schemas"]["EndpointResponse"] | null;
-            /** Matchreasoncode */
-            matchReasonCode: string;
             /** Candidatecount */
             candidateCount: number;
             /** Httpmethod */

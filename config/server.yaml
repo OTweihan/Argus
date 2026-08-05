@@ -103,3 +103,14 @@ observability:
     writer_flush_interval: 0.5      # 空闲 flush 间隔（秒），低 QPS 下也能及时落盘
     retention_days: 7               # 启动期 TTL：删除 mtime 超出该天数的 trace 文件
     total_size_mb: 500              # 启动期总量上限：按 mtime 从旧到新清理
+
+# 黑白盒关联 — 网关前缀映射（默认关闭）。
+# 若浏览器请求经反代/网关在到达后端前被剥离了路径前缀（如 Spring 服务实际挂在
+# /api 之后），在匹配前按段边界剥离相同前缀，使浏览器侧路径对齐后端 Controller
+# 端点，避免所有请求误判为 UNMATCHED。strip 后可选重挂新前缀。
+# 示例：浏览器请求 /api/orders/1，后端端点为 /orders/{id} →
+#   gateway_strip_prefixes: ["/api"]
+#   gateway_prepend_prefix: ""
+correlation:
+  gateway_strip_prefixes: []
+  gateway_prepend_prefix: ""

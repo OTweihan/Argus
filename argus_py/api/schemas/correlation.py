@@ -121,7 +121,6 @@ class EndpointEvidenceCandidateResponse(ApiModel):
     candidate_rank: int = Field(alias="candidateRank")
     match_strategy: str = Field(alias="matchStrategy")
     confidence: str
-    reason_code: str = Field(alias="reasonCode")
     selected: bool
 
 
@@ -138,7 +137,6 @@ class EndpointEvidenceResponse(ApiModel):
     matched_endpoint_info: EndpointResponse | None = Field(
         default=None, alias="matchedEndpointInfo"
     )
-    match_reason_code: str = Field(alias="matchReasonCode")
     candidate_count: int = Field(alias="candidateCount")
     # 反规范化字段（JOIN 获得）
     http_method: str | None = Field(default=None, alias="httpMethod")

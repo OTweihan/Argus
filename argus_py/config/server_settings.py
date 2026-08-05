@@ -74,6 +74,11 @@ class ServerSettings:
     java_analyzer_request_timeout: float = 30.0
     whitebox_allowed_source_roots: list[str] = field(default_factory=list)
     whitebox_source_work_dir: str | None = None
+    # 黑白盒关联 — 网关前缀映射（见 correlation/PathMapping）
+    # 反代在浏览器与后端之间剥离的路径前缀（如 ["/api"]）与需要重挂的前缀。
+    # 请求路径在匹配前按段边界剥离这些前缀，使浏览器侧路径对齐后端 Controller 端点。
+    correlation_gateway_strip_prefixes: list[str] = field(default_factory=list)
+    correlation_gateway_prepend_prefix: str = ""
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -88,6 +93,7 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
     llm_trace = observability.get("llm_trace") or {}
     llm = data.get("llm") or {}
     whitebox = data.get("whitebox") or {}
+    correlation = data.get("correlation") or {}
     rate_limit = data.get("rate_limit") or {}
     rate_limit_routes_raw = rate_limit.get("routes") or []
     rate_limit_routes = [item for item in rate_limit_routes_raw if isinstance(item, dict)]
@@ -155,6 +161,13 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
             os.getenv(WHITEBOX_SOURCE_WORK_DIR_ENV)
             or _as_optional_str(whitebox.get("source_work_dir"))
         ),
+        correlation_gateway_strip_prefixes=_as_str_list(
+            correlation.get("gateway_strip_prefixes"), []
+        ),
+        correlation_gateway_prepend_prefix=_as_optional_str(
+            correlation.get("gateway_prepend_prefix")
+        )
+        or "",
     )
 
 

@@ -159,7 +159,6 @@ class EndpointEvidence:
     match_strategy: MatchStrategy = MatchStrategy.NONE
     confidence: MatchConfidence = MatchConfidence.UNKNOWN
     matched_endpoint_id: str | None = None
-    match_reason_code: str = ""
     matcher_version: str = "v1"
     normalization_version: str = "v1"
     candidate_count: int = 0
@@ -178,7 +177,6 @@ class EndpointEvidenceCandidate:
     candidate_rank: int = 1
     match_strategy: MatchStrategy = MatchStrategy.NONE
     confidence: MatchConfidence = MatchConfidence.UNKNOWN
-    reason_code: str = ""
     selected: bool = False  # UNIQUE→True, AMBIGUOUS→全部 False
 
 

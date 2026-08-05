@@ -47,6 +47,24 @@ _TASK_HANDLER_TYPE = dict
 _report_regen_lock = _threading.Lock()
 
 
+def _build_path_mapping_from_settings(settings: ServerSettings) -> Any:
+    """从服务配置构造关联网关前缀映射；未配置时返回 None。
+
+    延迟导入 PathMapping 以避免模块导入期循环依赖。
+    """
+    if (
+        not settings.correlation_gateway_strip_prefixes
+        and not settings.correlation_gateway_prepend_prefix
+    ):
+        return None
+    from argus_py.correlation.models import PathMapping
+
+    return PathMapping(
+        strip_prefixes=list(settings.correlation_gateway_strip_prefixes),
+        prepend_prefix=settings.correlation_gateway_prepend_prefix,
+    )
+
+
 @dataclass(frozen=True)
 class RuntimeContainer:
     """运行时容器：保存所有已初始化服务的引用。"""
@@ -90,6 +108,7 @@ def create_task_application_service(
         project_service=container.project_service,
         model_config_service=container.model_config_service,
         on_correlation_completed=_on_correlation_completed,
+        correlation_path_mapping=_build_path_mapping_from_settings(container.settings),
     )
 
 
@@ -206,6 +225,11 @@ def create_container() -> RuntimeContainer:
     from argus_py.correlation.models import BlackboxRun, CorrelationRun, HttpRequestEvidence
     from argus_py.correlation.path_utils import compute_config_digest
 
+    # 关联网关前缀映射：任一前缀/重挂前缀非空时启用，否则恒 None（默认关闭）。
+    # 注入 matcher 供匹配时对齐浏览器侧路径与后端端点；配置变更会体现在
+    # correlation_config_digest（compute_config_digest 已含 strip_prefixes）。
+    path_mapping = _build_path_mapping_from_settings(settings)
+
     # 报告生成器单例：初始生成与关联完成后重生成共用同一实例（相同输出路径）
     report_generator = ReportGenerator()
 
@@ -268,7 +292,13 @@ def create_container() -> RuntimeContainer:
         task: Any,
     ) -> dict[str, Any] | None:
         """创建 CorrelationRun（WAITING_ANALYSIS 或 WAITING_BLACKBOX）。"""
-        digest = compute_config_digest("v1", "v1")
+        digest = compute_config_digest(
+            "v1",
+            "v1",
+            strip_prefixes=list(settings.correlation_gateway_strip_prefixes),
+            context_path="",
+            prepend_prefix=settings.correlation_gateway_prepend_prefix,
+        )
         snapshot_id = getattr(task, "source_resolved_commit_sha", None) or ""
         snapshot_was_explicit = bool(snapshot_id)
         cr = CorrelationRun(
@@ -470,7 +500,11 @@ def create_container() -> RuntimeContainer:
             )
             return
 
-        matcher = EndpointMatcher(matcher_version="v1", normalization_version="v1")
+        matcher = EndpointMatcher(
+            matcher_version="v1",
+            normalization_version="v1",
+            path_mapping=path_mapping,
+        )
         result = matcher.match_batch(eligible_requests, endpoints)
 
         # 诊断：正则约束不可移植

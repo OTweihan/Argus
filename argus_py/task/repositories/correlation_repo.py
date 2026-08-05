@@ -264,7 +264,6 @@ def _ee_to_row(ee: EndpointEvidence) -> tuple:
         ee.match_strategy.value,
         ee.confidence.value,
         ee.matched_endpoint_id,
-        ee.match_reason_code,
         ee.matcher_version,
         ee.normalization_version,
         ee.candidate_count,
@@ -729,9 +728,9 @@ class CorrelationRepository:
                 """INSERT INTO endpoint_evidence (
                     endpoint_evidence_id, correlation_run_id, correlation_attempt_id,
                     request_evidence_id, resolution_status, match_strategy, confidence,
-                    matched_endpoint_id, match_reason_code, matcher_version,
+                    matched_endpoint_id, matcher_version,
                     normalization_version, candidate_count, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [_ee_to_row(item) for item in items],
             )
 
@@ -740,8 +739,8 @@ class CorrelationRepository:
             conn.executemany(
                 """INSERT OR IGNORE INTO endpoint_evidence_candidates (
                     endpoint_evidence_id, endpoint_id, candidate_rank,
-                    match_strategy, confidence, reason_code, selected
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    match_strategy, confidence, selected
+                ) VALUES (?, ?, ?, ?, ?, ?)""",
                 [
                     (
                         c.endpoint_evidence_id,
@@ -749,7 +748,6 @@ class CorrelationRepository:
                         c.candidate_rank,
                         c.match_strategy.value,
                         c.confidence.value,
-                        c.reason_code,
                         int(c.selected),
                     )
                     for c in items
@@ -971,21 +969,30 @@ class CorrelationRepository:
             summary.attempted_evidence_count = attempted["cnt"] if attempted else 0
 
             # ── Finding 统计 ──
+            # 三桶按请求证据切分，保证 confirmed + candidate + unrelated == total：
+            # - confirmed  = confirmed_request_count > 0（黑盒实际触达端点）
+            # - candidate  = 静态关联但无任何触达请求（confirmed_request_count == 0
+            #                且 candidate_request_count > 0）
+            # - unrelated  = 其余（无静态关联或无数值）
             fe_stats = conn.execute(
-                """SELECT best_relation_type, COUNT(*) AS cnt
+                """SELECT best_relation_type,
+                          COUNT(*) AS cnt,
+                          SUM(CASE WHEN confirmed_request_count > 0 THEN 1 ELSE 0 END) AS confirmed_cnt,
+                          SUM(CASE WHEN confirmed_request_count = 0
+                                    AND candidate_request_count > 0 THEN 1 ELSE 0 END) AS candidate_cnt
                    FROM finding_evidence
                    WHERE correlation_attempt_id = ?
                    GROUP BY best_relation_type""",
                 (attempt_id,),
             ).fetchall()
             for row in fe_stats:
-                rt = row["best_relation_type"]
-                cnt = row["cnt"]
+                cnt = row["cnt"] or 0
+                confirmed_cnt = row["confirmed_cnt"] or 0
+                candidate_cnt = row["candidate_cnt"] or 0
                 summary.total_finding_count += cnt
-                if rt in ("DIRECT_HANDLER", "STATIC_REACHABLE", "FLOW_MEMBER"):
-                    summary.confirmed_related_finding_count += cnt
-                elif rt == "UNKNOWN":
-                    summary.unrelated_finding_count += cnt
+                summary.confirmed_related_finding_count += confirmed_cnt
+                summary.candidate_related_finding_count += candidate_cnt
+                summary.unrelated_finding_count += cnt - confirmed_cnt - candidate_cnt
 
             # Attempt 完整性
             attempt = conn.execute(

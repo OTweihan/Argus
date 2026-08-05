@@ -458,3 +458,102 @@ class TestBatchProcessing:
         ev3 = result.evidence_list[2]
         assert ev3.request_evidence_id == "req3"
         assert ev3.resolution_status == ResolutionStatus.UNMATCHED
+
+
+class TestPathMapping:
+    """网关前缀映射（PathMapping）在匹配前对齐浏览器侧路径与后端端点。"""
+
+    def test_strip_prefix_matches_backend_endpoint(self) -> None:
+        """浏览器侧 /api/orders/5 剥离 /api 后匹配后端 /orders/{id}。"""
+        from argus_py.correlation.enums import AttemptDiagnosticCode
+        from argus_py.correlation.models import PathMapping
+
+        matcher = EndpointMatcher(
+            matcher_version="v1",
+            normalization_version="v1",
+            path_mapping=PathMapping(strip_prefixes=["/api"]),
+        )
+        eps = [
+            _make_endpoint("ep1", "GET", "/orders/{id}", is_templated=True),
+        ]
+        req = _make_request(http_method="GET", normalized_path="/api/orders/5")
+        result = matcher.match_batch([req], eps)
+        ev = result.evidence_list[0]
+        assert ev.resolution_status == ResolutionStatus.UNIQUE
+        assert ev.match_strategy == MatchStrategy.TEMPLATE
+        assert ev.matched_endpoint_id == "ep1"
+        # 映射命中 → 诊断码
+        assert AttemptDiagnosticCode.PATH_MAPPING_APPLIED in result.diagnostics
+
+    def test_no_mapping_when_prefix_absent(self) -> None:
+        """未配置前缀时请求路径原样匹配，不产生 PATH_MAPPING_APPLIED 诊断。"""
+        from argus_py.correlation.enums import AttemptDiagnosticCode
+
+        matcher = EndpointMatcher()
+        eps = [
+            _make_endpoint("ep1", "GET", "/orders/{id}", is_templated=True),
+        ]
+        req = _make_request(http_method="GET", normalized_path="/orders/5")
+        result = matcher.match_batch([req], eps)
+        assert result.evidence_list[0].matched_endpoint_id == "ep1"
+        assert AttemptDiagnosticCode.PATH_MAPPING_APPLIED not in result.diagnostics
+
+    def test_prepend_prefix_after_strip(self) -> None:
+        """剥离 /legacy 并重挂 /api 后仍可匹配后端端点。"""
+        from argus_py.correlation.models import PathMapping
+
+        matcher = EndpointMatcher(
+            matcher_version="v1",
+            normalization_version="v1",
+            path_mapping=PathMapping(strip_prefixes=["/legacy"], prepend_prefix="/api"),
+        )
+        eps = [
+            _make_endpoint("ep1", "GET", "/api/users", is_templated=False),
+        ]
+        req = _make_request(http_method="GET", normalized_path="/legacy/users")
+        result = matcher.match_batch([req], eps)
+        ev = result.evidence_list[0]
+        assert ev.resolution_status == ResolutionStatus.UNIQUE
+        assert ev.matched_endpoint_id == "ep1"
+
+    def test_strip_prefix_no_segment_boundary_no_match(self) -> None:
+        """前缀按段边界匹配：/api/order 不命中 /api/orders/1 场景由索引保证。
+
+        此处验证 strip_prefixes 不含请求前缀时原样匹配，避免误剥离。
+        """
+        from argus_py.correlation.models import PathMapping
+
+        matcher = EndpointMatcher(
+            matcher_version="v1",
+            normalization_version="v1",
+            path_mapping=PathMapping(strip_prefixes=["/admin"]),
+        )
+        eps = [
+            _make_endpoint("ep1", "GET", "/orders/{id}", is_templated=True),
+        ]
+        req = _make_request(http_method="GET", normalized_path="/api/orders/5")
+        result = matcher.match_batch([req], eps)
+        # /admin 不命中 → 无映射，/api/orders/5 与 /orders/{id} 不匹配
+        assert result.evidence_list[0].resolution_status == ResolutionStatus.UNMATCHED
+
+    def test_prepend_root_after_strip_normalizes_trailing_slash(self) -> None:
+        """剥离后为根路径再重挂前缀时，去掉尾斜杠以匹配根端点。
+
+        回归：/legacy（根）剥离后 "/" 重挂 /api 曾产出 "/api/"，无法匹配
+        规范化端点 "/api"（根路径无尾斜杠）。
+        """
+        from argus_py.correlation.models import PathMapping
+
+        matcher = EndpointMatcher(
+            matcher_version="v1",
+            normalization_version="v1",
+            path_mapping=PathMapping(strip_prefixes=["/legacy"], prepend_prefix="/api"),
+        )
+        eps = [
+            _make_endpoint("ep1", "GET", "/api", is_templated=False),
+        ]
+        req = _make_request(http_method="GET", normalized_path="/legacy")
+        result = matcher.match_batch([req], eps)
+        ev = result.evidence_list[0]
+        assert ev.resolution_status == ResolutionStatus.UNIQUE
+        assert ev.matched_endpoint_id == "ep1"

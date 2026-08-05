@@ -23,7 +23,10 @@ from argus_py.correlation.models import (
     HttpRequestEvidence,
     PathMapping,
 )
-from argus_py.correlation.path_utils import compute_path_segments
+from argus_py.correlation.path_utils import (
+    compute_path_segments,
+    strip_longest_segment_prefix,
+)
 from argus_py.correlation.validator import validate_endpoint_evidence
 
 logger = logging.getLogger(__name__)
@@ -240,6 +243,7 @@ class EndpointMatcher:
         self._normalization_version = normalization_version
         self._path_mapping = path_mapping
         self._index: _EndpointIndex | None = None
+        self._mapping_applied = False
 
     def build_indices(self, endpoints: list[dict[str, Any]]) -> None:
         """构造多层内存索引。"""
@@ -294,6 +298,7 @@ class EndpointMatcher:
             self.build_indices(endpoints)
 
         result = MatchResult()
+        self._mapping_applied = False
 
         for req in requests:
             if req.endpoint_match_eligibility == (CorrelationEligibility.EXCLUDED_SW_CACHE):
@@ -318,7 +323,31 @@ class EndpointMatcher:
                         )
                     )
 
+        # 网关前缀映射在本批次至少命中一次请求时记录诊断
+        if self._mapping_applied:
+            result.diagnostics.append(AttemptDiagnosticCode.PATH_MAPPING_APPLIED)
+
         return result
+
+    def _apply_path_mapping(self, path: str) -> str:
+        """按 PathMapping 剥离网关前缀并可选重挂新前缀。
+
+        浏览器侧路径（含网关前缀）→ 后端 Controller 相对路径。
+        未配置或未命中时原样返回。
+        """
+        pm = self._path_mapping
+        if pm is None:
+            return path
+        if pm.strip_prefixes:
+            path, _ = strip_longest_segment_prefix(path, pm.strip_prefixes)
+        if pm.prepend_prefix:
+            prefix = pm.prepend_prefix.rstrip("/")
+            path = prefix + path
+            # 剥离后为根路径（"/"）时重挂会产出尾斜杠（如 "/api/"），
+            # 与端点规范化（根 "/api" 无尾斜杠）不一致，去掉它。
+            if path.endswith("/") and path != "/":
+                path = path.rstrip("/")
+        return path
 
     def _match_single(self, req: HttpRequestEvidence) -> _SingleMatchResult:
         """单次请求三级匹配。"""
@@ -328,6 +357,12 @@ class EndpointMatcher:
 
         method = req.http_method
         path = req.normalized_path
+        # 网关前缀映射：剥离浏览器侧前缀使路径对齐后端端点（映射命中才算应用）
+        if self._path_mapping is not None:
+            mapped = self._apply_path_mapping(path)
+            if mapped != path:
+                path = mapped
+                self._mapping_applied = True
         req_segments = compute_path_segments(path)
 
         # ── Level 1: 精确匹配 ──

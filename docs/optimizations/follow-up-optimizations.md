@@ -111,15 +111,15 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 
 整体审计 `docs/optimizations/whitebox-and-blackbox-correlation-plan.md`：阶段三、四已完成；阶段一、二经本批次修复补齐实质缺口（git 源快照标识、失败错误码持久化、报告侧 completeness/降级横幅、`sourceLocation` Python 侧收敛、`cancel_job` 死代码清理、`analysis_repo._row_to_analysis_run` 的 sqlite3.Row `.get()` 崩溃修复）。
 
-以下次要项不强制，列为后续待办：
+以下次要项不强制，已于 2026-08-05 全部处理完毕（代码改动或复核确认）：
 
-1. **协议白名单不一致（防御性）**：`argus_py/whitebox/config.py::validate_git_url` 只放行 `{https, http, ssh}`（+scp），而 `source_resolver.py::_ALLOWED_SCHEMES` 额外允许 `git://`。入口已拦截，属防御性不一致，统一即可。
-2. **前端配置视图读取键死分支**：`argus_py/api/schemas/tasks.py::_build_whitebox_config_view` 读 `data.get("repo_url")`，但 `to_persisted()` 实际写入 `clone_url`，该 fallback 恒为 None（行为正确，编辑回填走 `task.source_repo_url`）。
-3. **时间线事件缺分支**：`whitebox_source_resolved` 事件 data 未含 `requested_ref`（分支只在 `task.source_requested_ref` 持久化）。
-4. **取消检查粒度**：取消 token 只在 `_poll` 每轮循环顶部检查，生效最多滞后一个 poll_interval（5–10s），可接受。
-5. **`origin="remote"` 取消分支为防御代码**：Java 状态机暂不产出 CANCELLED，该分支为未来协议预留。
-6. **`eligible_source_files` 为占位**：`_build_projection_data` 用 `total_source_files` 等价，待 Java 新增 `eligibleSourceFiles` 字段。
-7. **端点/调用节点 `source_*` 投影列恒为 None**：Java `EndpointInfo`/`CallGraphNode` 未返回源码位置，`analysis_endpoints`/`analysis_call_nodes` 的 `source_*` 列与 API `sourceLocation` 恒为空（保留无害，0002 迁移 FORWARD-ONLY 不可 DROP）。
+1. **协议白名单不一致（防御性）** ✅ 已处理：`source_resolver.py::_ALLOWED_SCHEMES` 移除 `git://`，与 `config.py::validate_git_url` 入口白名单统一为 `frozenset({https, http, ssh})`；解析器报错消息改为按排序确定性输出。
+2. **前端配置视图读取键死分支** ✅ 已处理：`_build_whitebox_config_view` 兜底键 `data.get("repo_url")` 改为 `data.get("clone_url")`（与 `to_persisted()` 实际写入键一致），主路径仍走 `task.source_repo_url`。新增 `tests/unit/test_tasks_config_view.py` 覆盖主路径与兜底路径。
+3. **时间线事件缺分支** ✅ 已处理：`whitebox_source_resolved` 事件 data 补充 `requested_ref`，时间线可还原用户请求的 ref；新增集成测试断言事件携带分支。
+4. **取消检查粒度** ✅ 已复核，维持现状：取消 token 在 `_poll` 每轮循环顶部检查，滞后最多一个 poll_interval（5–10s），且 transient error 退避、`get_analyze_job` 请求时间均受 deadline 与 request_timeout 约束，可接受，不引入更细粒度检查。
+5. **`origin="remote"` 取消分支为防御代码** ✅ 已复核，维持现状：Java 状态机暂不产出 CANCELLED，该分支为未来协议预留；接线已由 `test_job_cancelled_remote` 覆盖（远端确认取消 → `CANCELLED` 终态）。
+6. **`eligible_source_files` 为占位** ✅ 已复核，维持现状：已确认 Java `AnalyzerDiagnostics` 仅含 `totalSourceFiles`，无 `eligibleSourceFiles` 字段；`_build_projection_data` 中占位注释保留，待 Java 端新增字段后再区分。
+7. **端点/调用节点 `source_*` 投影列恒为 None** ✅ 已处理（决策保留列 + 一致性收尾）：Java `EndpointInfo`/`CallGraphNode` 未返回源码位置，`source_*` 列保留无害（0002 迁移 FORWARD-ONLY 不可 DROP）；`call_nodes` 的 `source_file` 由 `""` 规范化为 `None` 与端点列一致（API 层两种取值均返回 `sourceLocation=null`），并补充保留语义注释。
 
 ---
 
@@ -130,12 +130,12 @@ _由代码审查生成的 8 项延后/待处理事项，按优先级排列。_
 新增 `analysis_repo.mark_terminal` / `storage.mark_analysis_terminal` / `lifecycle.mark_analysis_terminal` 三层透传，
 与 `AnalysisRunStatus` 枚举、前端「已停止等待/已取消/超时」展示对齐；时间线事件与失败消息保留不变，任务级状态仍由 `execution/runner.py` 映射为 CANCELLED/TIMEOUT。
 
-以下为本次复核新发现次要项，不强制，列为后续待办：
+以下为本次复核新发现次要项，不强制，已于 2026-08-05 全部处理完毕（代码改动或复核确认）：
 
-1. **`EndpointEvidence.match_reason_code` 死字段**：`correlation/models.py` 与 `endpoint_evidence` 表均声明该列，但 `matcher._build_evidence` 从不赋值（恒 `""`），无任何消费方。
-2. **`correlation_repo.get_summary` 的 `candidate_related_finding_count` 恒为 0**：只累计 confirmed 与 unrelated，candidate 计数无赋值路径，前端/报告展示恒 0。
-3. **`PathMapping`（网关前缀剥离）休眠**：`matcher` 的 `EndpointMatcher` 支持 `strip_prefixes`/`context_path`，但容器/配置从未注入（恒 `None`），`normalize_for_matching` 的网关前缀能力未接入运行时。
-4. **自动绑定回退放宽快照边界（设计取舍）**：黑盒任务无快照信息时，`_correlation_create_correlation_run` 回退绑定「同项目最新成功分析」只标 `UNVERIFIED`（不拒绝也不标 `MISMATCHED`）；严格「同一源码快照」仅在手动绑定路径强制（不一致需 `source_mismatch_override`）。
-5. **`config_json` 存 `clone_url` 原始 URL**：`validate_git_url` 拒绝含 token / `user:password` 的 URL，但仅用户名 URL（如 `https://user@host/repo.git`）会原样写入 `analysis_runs.config_json`；展示路径已脱敏，泄露风险低。
-6. **CLI 终端无结构化降级徽标**：降级醒目展示落地于 HTML 报告模板与前端 `CompletenessBanner`；CLI 仅 `result_summary` 文本摘要（含解析覆盖/classpath），属展示颗粒度差异，非功能缺失。
+1. **`EndpointEvidence.match_reason_code` 死字段** ✅ 已处理（连同孪生死字段 `EndpointEvidenceCandidate.reason_code` 一并清理）：两字段恒 `""`、无任何消费方（前端表格/详情均不渲染）。从 dataclass、`_ee_to_row`/`insert_evidence_batch`/`insert_candidates_batch` 写入、`EndpointEvidenceResponse`/`EndpointEvidenceCandidateResponse` API schema 全部移除；同步删除前端 `EndpointEvidenceInfo.matchReasonCode`、`EndpointEvidenceCandidateInfo.reasonCode` 类型与测试 fixture，并重新生成 `openapi.gen.ts`（`pnpm codegen:openapi`）。DB 列保留（0004 迁移 FORWARD-ONLY 不可 DROP，默认值兜底）。
+2. **`correlation_repo.get_summary` 的 `candidate_related_finding_count` 恒为 0** ✅ 已处理：三桶改为按请求证据切分并保证 `confirmed + candidate + unrelated == total`——`confirmed` = `confirmed_request_count > 0`（黑盒实际触达）、`candidate` = 静态关联但无触达请求（`confirmed_request_count == 0 AND candidate_request_count > 0`）、`unrelated` = 其余。报告聚合 `_accumulate_correlation_sums` 同步纳入 `candidateRelatedFindingCount`。**口径说明**：`confirmed` 语义从「按 relation 类型」收紧为「按请求证据」——未触达的 DIRECT_HANDLER finding 现在落入 candidate。此举同时消除了既有双口径不一致：此前 summary 的 confirmed 按 relation 类型统计，而前端 `FindingEvidenceTable` 的 `confirmedCount`/`candidateCount` 一直按 `confirmedRequestCount`/`candidateRequestCount > 0` 统计，两处数字本就不可比；新实现使 summary 与表格同口径（confirmed 均 = 触达请求数 > 0）。CorrelationTab 顶部分类计数与表格明细因此语义一致。
+3. **`PathMapping`（网关前缀剥离）休眠** ✅ 已处理（完整接线）：新增 `ServerSettings.correlation_gateway_strip_prefixes` / `correlation_gateway_prepend_prefix`（含 `config/server.yaml` 示例），容器经 `_build_path_mapping_from_settings` 构造 `PathMapping` 注入 `EndpointMatcher(path_mapping=...)`（容器异步路径 + `application._execute_matching_sync` 同步路径）；`_match_single` 在匹配前按段边界剥离/重挂前缀，命中时产出 `PATH_MAPPING_APPLIED` 诊断（激活原本休眠的枚举值）；`correlation_config_digest` 纳入前缀配置。默认空 → 行为不变。
+4. **自动绑定回退放宽快照边界（设计取舍）** ✅ 已复核，维持现状：黑盒任务无快照时回退绑定「同项目最新成功分析」并标 `UNVERIFIED`，严格「同一源码快照」仅在手动绑定路径强制；`_on_whitebox_analysis_succeeded` 空快照回退同样标 `UNVERIFIED`，`source_alignment_status` 已持久化并对外展示，审计可追溯。属刻意放宽的默认行为，不收紧。
+5. **`config_json` 存 `clone_url` 原始 URL** ✅ 已复核，维持现状：确认 `analysis_runs.config_json` 仅内部存储（API/报告响应均不含该字段），展示/审计走 `task.source_repo_url`（`_sanitize_repo_url_for_display` 剥离 userinfo），仅用户名 URL 的泄露面仅限库内 at-rest，风险低；编辑表单回填该值即用户自身输入，无新增暴露。
+6. **CLI 终端无结构化降级徽标** ✅ 已处理：`cli/io.py::print_task_result` 新增 `_print_whitebox_degradation`，解析 `task.result_json` 的 `completeness` + `qualityIssues`（与 HTML 报告模板/前端 CompletenessBanner 同一来源），当 `DEGRADED`/`UNAVAILABLE`/`NOT_EVALUATED` 时向 stderr 打印「白盒分析降级/结果不可用/完整性未评估」标题与逐条质量问题；黑盒任务及无 `completeness` 键时静默。
 

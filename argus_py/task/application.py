@@ -67,6 +67,7 @@ class TaskApplicationService:
         project_service: ProjectService,
         model_config_service: ModelConfigService,
         on_correlation_completed: Any | None = None,
+        correlation_path_mapping: Any | None = None,
     ) -> None:
         self._lifecycle = lifecycle
         self._read = task_read
@@ -75,6 +76,8 @@ class TaskApplicationService:
         self._model_config = model_config_service
         # 关联 Attempt 完成后回调（analysis_id, correlation_run_id）→ 报告重生成
         self._on_correlation_completed = on_correlation_completed
+        # 关联网关前缀映射（PathMapping | None）— 容器注入，同步匹配路径使用
+        self._correlation_path_mapping = correlation_path_mapping
 
     # ── 参数解析（合并项目默认值、模型配置校验、执行限制推断）──
 
@@ -827,6 +830,7 @@ class TaskApplicationService:
                             updated_cr,
                             attempt,
                             on_completed=self._on_correlation_completed,
+                            path_mapping=self._correlation_path_mapping,
                         )
                     except Exception:
                         from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
@@ -884,6 +888,7 @@ class TaskApplicationService:
                 cr,
                 attempt,
                 on_completed=self._on_correlation_completed,
+                path_mapping=self._correlation_path_mapping,
             )
         except Exception:
             from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
@@ -959,6 +964,7 @@ class TaskApplicationService:
                 new_cr,
                 attempt,
                 on_completed=self._on_correlation_completed,
+                path_mapping=self._correlation_path_mapping,
             )
         except Exception:
             storage.complete_and_activate_attempt(
@@ -979,6 +985,7 @@ def _execute_matching_sync(
     cr: Any,
     attempt: Any,
     on_completed: Any | None = None,
+    path_mapping: Any | None = None,
 ) -> None:
     """关联匹配的同步实现 — 纯 CPU + 同步 SQLite 操作。
 
@@ -1055,7 +1062,11 @@ def _execute_matching_sync(
             on_completed(cr.analysis_id, cr.correlation_run_id)
         return
 
-    matcher = EndpointMatcher(matcher_version="v1", normalization_version="v1")
+    matcher = EndpointMatcher(
+        matcher_version="v1",
+        normalization_version="v1",
+        path_mapping=path_mapping,
+    )
     result = matcher.match_batch(eligible_requests, endpoints_list)
 
     if result.diagnostics:
@@ -1340,6 +1351,7 @@ def build_correlation_report_data(
             "uncoveredEndpointCount": max(0, total_endpoint_count - len(touched)),
             "totalEndpointCount": total_endpoint_count,
             "confirmedRelatedFindingCount": sums["confirmedRelatedFindingCount"],
+            "candidateRelatedFindingCount": sums["candidateRelatedFindingCount"],
             "unrelatedFindingCount": sums["unrelatedFindingCount"],
         },
         "touchedEndpoints": list(touched.values()),
@@ -1358,6 +1370,7 @@ def _zero_correlation_sums() -> dict[str, Any]:
         "ambiguousRequestCount": 0,
         "unmatchedRequestCount": 0,
         "confirmedRelatedFindingCount": 0,
+        "candidateRelatedFindingCount": 0,
         "unrelatedFindingCount": 0,
     }
 
@@ -1371,6 +1384,7 @@ def _accumulate_correlation_sums(sums: dict[str, Any], sd: dict[str, Any]) -> No
         "ambiguousRequestCount",
         "unmatchedRequestCount",
         "confirmedRelatedFindingCount",
+        "candidateRelatedFindingCount",
         "unrelatedFindingCount",
     ):
         value = sd.get(key)

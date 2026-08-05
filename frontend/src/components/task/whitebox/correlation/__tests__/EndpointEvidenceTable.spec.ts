@@ -20,7 +20,6 @@ function makeItem(overrides: Partial<EndpointEvidenceInfo> = {}): EndpointEviden
         confidence: "HIGH",
         matchedEndpointId: "ep-1",
         matchedEndpointInfo: null,
-        matchReasonCode: "",
         candidateCount: 1,
         httpMethod: "GET",
         requestPath: "/api/users",
@@ -190,7 +189,6 @@ describe("EndpointEvidenceTable", () => {
                                 candidateRank: 1,
                                 matchStrategy: "TEMPLATE",
                                 confidence: "MEDIUM",
-                                reasonCode: "",
                                 selected: false,
                             },
                             {
@@ -198,7 +196,6 @@ describe("EndpointEvidenceTable", () => {
                                 candidateRank: 2,
                                 matchStrategy: "TEMPLATE",
                                 confidence: "LOW",
-                                reasonCode: "",
                                 selected: false,
                             },
                         ],
