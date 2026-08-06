@@ -144,8 +144,16 @@ const whiteboxRef = computed(() => {
 const whiteboxScope = computed(() => {
   const s = whiteboxConfig.value?.scope;
   if (!s) return "";
-  const labels: Record<string, string> = { ALL: "全量分析", MODULES: "指定模块" };
-  return labels[s] || s;
+  const labels: Record<string, string> = {
+    all: "全量分析",
+    changed: "增量分析",
+    modules: "指定模块",
+    endpoints: "仅端点提取",
+    callgraph: "仅调用关系",
+    flows: "调用关系 + 执行流",
+    clusters: "调用关系 + 功能聚类",
+  };
+  return labels[s.toLowerCase()] || s;
 });
 const whiteboxModules = computed(() => {
   return whiteboxConfig.value?.targetModules || [];
