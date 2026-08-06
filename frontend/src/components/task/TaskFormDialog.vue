@@ -35,11 +35,21 @@
       <el-form-item label="任务名称">
         <el-input v-model="localForm.name" maxlength="50" show-word-limit />
       </el-form-item>
+      <!--
+        目标字段为任务通用字段。
+        黑盒任务：goal 驱动 LLM Planner/Evaluator 规划与判定。
+        白盒任务：goal 仅存档展示（任务列表/详情/报告），静态分析流程不消费；
+        Java 静态分析由 scope / targetModules 驱动。白盒下置灰并自动填充固定文案。
+      -->
       <el-form-item label="目标" :error="formErrors.goal" required>
         <el-input
           v-model="localForm.goal" type="textarea" :rows="4" maxlength="200" show-word-limit
+          :disabled="localForm.taskType === 'whitebox'"
           @input="clearError('goal')"
         />
+        <div v-if="localForm.taskType === 'whitebox'" class="form-hint">
+          白盒为静态分析，目标无需填写（自动填充）
+        </div>
       </el-form-item>
 
       <!-- ══════════ 黑盒专属字段 ══════════ -->
@@ -124,8 +134,13 @@
 
       <!-- ══════════ 白盒专属字段 ══════════ -->
       <template v-if="localForm.taskType === 'whitebox'">
+        <!--
+          模型配置：黑盒任务由 LLM 执行流程消费；白盒为纯静态分析
+          （Java 分析 + 确定性关联匹配），modelConfigId 仅并入 task parameters
+          存档，不会通过 llm/resolver 解析。白盒下置灰不可选，预留未来模型化分析。
+        -->
         <el-form-item label="模型配置">
-          <el-select v-model="localForm.modelConfigId" style="width:100%">
+          <el-select v-model="localForm.modelConfigId" style="width:100%" disabled>
             <el-option label="默认模型" :value="SENTINEL_DEFAULT" />
             <el-option
               v-for="model in enabledModels" :key="model.modelConfigId" :label="model.name"
@@ -393,6 +408,28 @@ const resolvedProjectExtensions = computed<PromptExtensions>(() => {
   if (!project) return emptyPromptExtensions();
   return extractPromptExtensions(project.parameters);
 });
+
+// 白盒为纯静态分析：goal 与 modelConfigId 均不被分析流程消费。
+// goal 置灰并自动填充固定文案以满足后端必填；仅在由自动填充产生时，
+// 切回黑盒才清理默认值，避免误删用户数据（编辑已有任务时保留原 goal）。
+const DEFAULT_WHITEBOX_GOAL = "白盒静态分析";
+const autoFilledGoal = ref(false);
+
+watch(
+  () => localForm.taskType,
+  (t) => {
+    if (t === "whitebox") {
+      if (!localForm.goal.trim()) {
+        localForm.goal = DEFAULT_WHITEBOX_GOAL;
+        autoFilledGoal.value = true;
+      }
+    } else if (t === "blackbox" && autoFilledGoal.value) {
+      if (localForm.goal === DEFAULT_WHITEBOX_GOAL) localForm.goal = "";
+      autoFilledGoal.value = false;
+    }
+  },
+  { immediate: true },
+);
 
 function clearError(key: string): void {
   delete (props.formErrors as Record<string, string | undefined>)[key];

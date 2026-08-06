@@ -114,6 +114,41 @@ describe("TaskFormDialog", () => {
         expect(wrapper.find('input[placeholder*="/opt"]').exists()).toBe(true);
     });
 
+    it("白盒下目标输入框置灰禁用", async () => {
+        const wrapper = mountForm(makeForm("blackbox"));
+        await wrapper.setProps({ form: makeForm("whitebox") });
+        expect(wrapper.find("textarea").attributes("disabled")).toBeDefined();
+    });
+
+    it("白盒下模型配置下拉置灰禁用", async () => {
+        const wrapper = mountForm(makeForm("blackbox"));
+        await wrapper.setProps({ form: makeForm("whitebox") });
+        // Element Plus select 的 disabled 态渲染在 .el-select__wrapper 的 is-disabled class
+        const disabledWrappers = wrapper.findAll(".el-select__wrapper.is-disabled");
+        expect(disabledWrappers.length).toBeGreaterThan(0);
+    });
+
+    it("切到白盒且 goal 为空时自动填充固定文案", async () => {
+        const wrapper = mountForm(makeForm("blackbox"));
+        const whitebox = makeForm("whitebox");
+        whitebox.goal = "";
+        await wrapper.setProps({ form: whitebox });
+        expect(wrapper.find("textarea").element.value).toBe("白盒静态分析");
+    });
+
+    it("由自动填充产生的白盒默认文案在切回黑盒时清空", async () => {
+        const wrapper = mountForm(makeForm("blackbox"));
+        const whitebox = makeForm("whitebox");
+        whitebox.goal = "";
+        await wrapper.setProps({ form: whitebox });
+        expect(wrapper.find("textarea").element.value).toBe("白盒静态分析");
+
+        const blackbox = makeForm("blackbox");
+        blackbox.goal = "";
+        await wrapper.setProps({ form: blackbox });
+        expect(wrapper.find("textarea").element.value).toBe("");
+    });
+
     it("formErrors.repoUrl 透传到字段错误展示", async () => {
         // el-form-item 的错误态经 100ms refDebounced 后才显示
         vi.useFakeTimers();
