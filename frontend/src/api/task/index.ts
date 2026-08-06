@@ -7,6 +7,7 @@ export function listTasks(
     filters: {
         status?: TaskDisplayStatus | "";
         projectId?: string;
+        taskType?: components["schemas"]["TaskType"] | "";
         q?: string;
         offset?: number;
         limit?: number;
@@ -15,6 +16,7 @@ export function listTasks(
     const params = new URLSearchParams();
     if (filters.status && filters.status !== "queued") params.set("status", filters.status);
     if (filters.projectId) params.set("projectId", filters.projectId);
+    if (filters.taskType) params.set("taskType", filters.taskType);
     if (filters.q) params.set("q", filters.q);
     if (filters.offset !== undefined) params.set("offset", String(filters.offset));
     if (filters.limit !== undefined) params.set("limit", String(filters.limit));

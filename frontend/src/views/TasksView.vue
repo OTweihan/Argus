@@ -50,12 +50,12 @@
           <el-tab-pane lazy :label="isWhitebox ? '分析报告' : '报告'" name="report">
             <WhiteboxReportView
               v-if="isWhitebox"
-              :key="selectedTask.taskId"
+              :key="'whitebox-' + selectedTask.taskId"
               :task-id="selectedTask.taskId"
             />
             <ReportView
               v-else
-              :key="selectedTask.taskId"
+              :key="'report-' + selectedTask.taskId"
               :report="reportData"
               :loading="reportLoading"
               :task-id="selectedTask.taskId"
@@ -84,7 +84,7 @@
           </div>
         </template>
         <div class="filter-bar">
-          <el-input v-model="taskSearchQuery" placeholder="搜索目标、任务 ID、URL" clearable class="search-input">
+          <el-input v-model="taskSearchQuery" size="large" placeholder="搜索目标、任务 ID、URL" clearable class="search-input">
             <template #prefix>
               <svg
                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -95,14 +95,18 @@
               </svg>
             </template>
           </el-input>
-          <el-select v-model="taskStatusFilter" placeholder="全部状态" clearable style="width:140px">
+          <el-select v-model="taskStatusFilter" size="large" placeholder="全部状态" clearable style="width:140px">
             <el-option v-for="status in taskStatuses" :key="status" :label="status" :value="status" />
           </el-select>
-          <el-select v-model="taskProjectFilter" placeholder="全部项目" clearable style="width:160px">
+          <el-select v-model="taskProjectFilter" size="large" placeholder="全部项目" clearable style="width:160px">
             <el-option
               v-for="project in projects" :key="project.projectId" :label="project.name"
               :value="project.projectId"
             />
+          </el-select>
+          <el-select v-model="taskTypeFilter" size="large" placeholder="全部类型" clearable style="width:130px">
+            <el-option label="白盒" value="whitebox" />
+            <el-option label="黑盒" value="blackbox" />
           </el-select>
         </div>
         <div v-loading="taskLoading" class="table-wrap">
@@ -174,7 +178,7 @@ const LLMDebugTab = defineAsyncComponent(() => import("../components/task/LLMDeb
 const CorrelationTab = defineAsyncComponent(() => import("../components/task/whitebox/CorrelationTab.vue"));
 
 const {
-  view, projects, allTasks, taskStatusFilter, taskProjectFilter,
+  view, projects, allTasks, taskStatusFilter, taskProjectFilter, taskTypeFilter,
   taskSearchQuery, taskStatuses, selectedTask, selectedTaskTab, reportData, reportLoading, taskForm,
   showTaskDialog, formErrors, error, enabledModels,
   page, pageSize, total, taskLoading,
@@ -260,6 +264,12 @@ watch(selectedTask, async (task) => {
   flex-shrink: 0;
 }
 
+.card-title {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -298,10 +308,7 @@ watch(selectedTask, async (task) => {
   background: var(--surface-glass-strong);
   border: 1px solid var(--line-soft);
   border-bottom: 0;
-  border-top-left-radius: var(--radius-md);
-  border-top-right-radius: var(--radius-md);
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
   box-shadow: var(--shadow-xs);
   backdrop-filter: blur(var(--blur-soft));
   -webkit-backdrop-filter: blur(var(--blur-soft));

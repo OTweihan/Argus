@@ -2856,6 +2856,7 @@ export interface operations {
             query?: {
                 status?: components["schemas"]["TaskStatus"] | null;
                 projectId?: string | null;
+                taskType?: components["schemas"]["TaskType"] | null;
                 q?: string | null;
                 offset?: number;
                 limit?: number;

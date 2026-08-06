@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from argus_py.core.constants import KEYWORD_FIELDS, TASK_SEARCH_MIN_LENGTH
-from argus_py.core.enums import TaskStatus
+from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.core.paths import REPORTS_DIR, SCREENSHOTS_DIR
 from argus_py.observability.events import log_event
@@ -68,24 +68,28 @@ class TaskReadService:
         self,
         status: TaskStatus | None = None,
         project_id: str | None = None,
+        task_type: TaskType | None = None,
         offset: int = 0,
         limit: int | None = None,
     ) -> list[Task]:
-        """列出任务，可按状态和项目过滤，支持分页。"""
+        """列出任务，可按状态、项目和类型过滤，支持分页。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             return self.storage.list_tasks(
                 offset=offset,
                 limit=limit,
                 status=status.value if status else None,
                 project_id=project_id,
+                task_type=task_type.value if task_type else None,
             )
-        has_filter = status is not None or project_id is not None
+        has_filter = status is not None or project_id is not None or task_type is not None
         if has_filter:
             tasks = self.storage.list_tasks()
             if status is not None:
                 tasks = [task for task in tasks if task.status is status]
             if project_id is not None:
                 tasks = [task for task in tasks if task.project_id == project_id]
+            if task_type is not None:
+                tasks = [task for task in tasks if task.task_type is task_type]
             if offset:
                 tasks = tasks[offset:]
             if limit is not None:
@@ -108,17 +112,19 @@ class TaskReadService:
         status: TaskStatus | None = None,
         project_id: str | None = None,
         q: str | None = None,
+        task_type: TaskType | None = None,
     ) -> int:
-        """返回任务总数，支持按状态、项目和关键词过滤。"""
+        """返回任务总数，支持按状态、项目、类型和关键词过滤。"""
         if isinstance(self.storage, TaskSQLiteStorage):
             return self.storage.count_tasks(
                 status=status.value if status else None,
                 project_id=project_id,
                 q=q,
+                task_type=task_type.value if task_type else None,
             )
-        if status is None and project_id is None and q is None:
+        if status is None and project_id is None and q is None and task_type is None:
             return self.storage.count_tasks()
-        tasks = self.list_tasks(status=status, project_id=project_id)
+        tasks = self.list_tasks(status=status, project_id=project_id, task_type=task_type)
         if q and len(q) >= TASK_SEARCH_MIN_LENGTH:
             kw = q.lower()
             tasks = [t for t in tasks if _task_matches_keyword(t, kw)]
@@ -128,6 +134,7 @@ class TaskReadService:
         self,
         status: TaskStatus | None = None,
         project_id: str | None = None,
+        task_type: TaskType | None = None,
         offset: int = 0,
         limit: int | None = None,
         q: str | None = None,
@@ -140,8 +147,9 @@ class TaskReadService:
                 status=status.value if status else None,
                 project_id=project_id,
                 q=q,
+                task_type=task_type.value if task_type else None,
             )
-        tasks = self.list_tasks(status=status, project_id=project_id)
+        tasks = self.list_tasks(status=status, project_id=project_id, task_type=task_type)
         if q and len(q) >= TASK_SEARCH_MIN_LENGTH:
             kw = q.lower()
             tasks = [t for t in tasks if _task_matches_keyword(t, kw)]

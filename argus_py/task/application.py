@@ -343,12 +343,18 @@ class TaskApplicationService:
         self,
         status: TaskStatus | None = None,
         project_id: str | None = None,
+        task_type: TaskType | None = None,
         offset: int = 0,
         limit: int | None = None,
         q: str | None = None,
     ) -> tuple[list[Any], int]:
         return self._read.list_task_summaries(
-            status=status, project_id=project_id, offset=offset, limit=limit, q=q
+            status=status,
+            project_id=project_id,
+            task_type=task_type,
+            offset=offset,
+            limit=limit,
+            q=q,
         )
 
     def count_tasks(
@@ -356,8 +362,11 @@ class TaskApplicationService:
         status: TaskStatus | None = None,
         project_id: str | None = None,
         q: str | None = None,
+        task_type: TaskType | None = None,
     ) -> int:
-        return self._read.count_tasks(status=status, project_id=project_id, q=q)
+        return self._read.count_tasks(
+            status=status, project_id=project_id, q=q, task_type=task_type
+        )
 
     async def snapshot_queue_statuses(self) -> dict[str, str]:
         return await self._queue.snapshot_statuses()

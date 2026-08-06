@@ -61,16 +61,18 @@
           <span class="header-title">最近任务</span>
         </div>
       </template>
-      <TaskTable
-        :tasks="recentTasks"
-        :projects="projects"
-        :show-edit="false"
-        :show-delete="false"
-        :show-run-actions="false"
-        compact-actions
-        @select="showTaskDetail"
-        @report="showTaskReport"
-      />
+      <div v-loading="statsLoading" class="table-wrap">
+        <TaskTable
+          :tasks="recentTasks"
+          :projects="projects"
+          :show-edit="false"
+          :show-delete="false"
+          :show-run-actions="false"
+          compact-actions
+          @select="showTaskDetail"
+          @report="showTaskReport"
+        />
+      </div>
     </el-card>
 
     <TaskDetailDialog
@@ -102,6 +104,7 @@ const {
   error,
   selectedTask,
   selectTask,
+  statsLoading,
 } = injectConsoleApp();
 
 const {detailVisible, detailLoading, detailTask, showTaskDetail} = useTaskViewActions({
@@ -174,5 +177,11 @@ async function showTaskReport(taskId: string): Promise<void> {
   background-image: var(--brand-gradient);
   border-radius: 2px;
   box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
+}
+
+.table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 </style>

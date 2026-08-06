@@ -154,6 +154,7 @@ async def delete_task(
 async def list_tasks(
     status: TaskStatus | None = None,
     project_id: str | None = Query(default=None, alias="projectId"),
+    task_type: TaskType | None = Query(default=None, alias="taskType"),
     q: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, gt=0, le=200),
@@ -166,6 +167,7 @@ async def list_tasks(
         app.list_task_summaries,
         status=status,
         project_id=project_id,
+        task_type=task_type,
         offset=offset,
         limit=limit,
         q=q,

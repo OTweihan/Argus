@@ -280,6 +280,32 @@ class TestListAndCount:
         assert multi_store.count_tasks(project_id="proj-b") == 2
         assert multi_store.count_tasks(status="pending", project_id="proj-b") == 1
 
+    def test_list_and_count_by_type(self, tmp_path: Path) -> None:
+        store = TaskSQLiteStorage(tmp_path / "type_filter.db")
+        for i in range(3):
+            _make_task(store, f"wb{i}", f"白盒任务{i}", task_type=TaskType.WHITEBOX)
+        for i in range(2):
+            _make_task(store, f"bb{i}", f"黑盒任务{i}")
+
+        white = store.list_tasks(task_type="whitebox")
+        assert {t.task_id for t in white} == {"wb0", "wb1", "wb2"}
+        assert store.count_tasks(task_type="whitebox") == 3
+        black = store.list_task_summaries(task_type="blackbox")
+        assert {s.task_id for s in black[0]} == {"bb0", "bb1"}
+        assert black[1] == 2
+
+        # 类型 + 状态组合过滤
+        for tid in ("wb0", "bb0"):
+            task = store.load(tid)
+            task.status = TaskStatus.COMPLETED
+            store.save(task)
+        combined = store.list_task_summaries(
+            status="completed",
+            task_type="whitebox",
+        )
+        assert [s.task_id for s in combined[0]] == ["wb0"]
+        assert combined[1] == 1
+
     def test_empty_db_list(self, store: TaskSQLiteStorage) -> None:
         assert store.list_tasks() == []
         assert store.count_tasks() == 0

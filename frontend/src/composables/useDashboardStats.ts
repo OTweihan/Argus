@@ -19,12 +19,16 @@ import { errorMessage } from "../utils";
 export function useDashboardStats(opts: { error: Ref<string> }) {
     const { error } = opts;
     const dashboardStats = ref<DashboardStats | null>(null);
+    const statsLoading = ref(false);
 
     async function loadDashboardStats(): Promise<void> {
+        statsLoading.value = true;
         try {
             dashboardStats.value = await apiDashboardStats(8);
         } catch (caught) {
             error.value = errorMessage(caught);
+        } finally {
+            statsLoading.value = false;
         }
     }
 
@@ -36,6 +40,7 @@ export function useDashboardStats(opts: { error: Ref<string> }) {
 
     return {
         dashboardStats,
+        statsLoading,
         loadDashboardStats,
         tasksTotal,
         runningCount,

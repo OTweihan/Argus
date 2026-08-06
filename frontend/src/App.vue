@@ -28,8 +28,6 @@
         </el-header>
 
         <el-main class="content-area">
-          <el-alert v-if="loading" type="info" :closable="false" show-icon title="正在加载数据" class="banner" />
-
           <Suspense>
             <template #default>
               <component :is="currentView" />
@@ -119,7 +117,6 @@ const {
   viewTitle,
   eventStatus,
   eventStatusText,
-  loading,
   dialog,
   closeDialog,
   loadAll,

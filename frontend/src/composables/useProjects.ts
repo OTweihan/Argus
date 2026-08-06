@@ -41,10 +41,16 @@ export function useProjects(opts: {
     const {projects, error, message, formErrors} = opts;
     const projectForm = reactive<ProjectForm>(defaultProjectForm());
     const showProjectDialog = ref(false);
+    const projectLoading = ref(false);
 
     async function loadProjects(): Promise<void> {
-        const res = await apiListProjects();
-        projects.value = res.projects ?? [];
+        projectLoading.value = true;
+        try {
+            const res = await apiListProjects();
+            projects.value = res.projects ?? [];
+        } finally {
+            projectLoading.value = false;
+        }
     }
 
     async function saveProject(): Promise<void> {
@@ -147,6 +153,7 @@ export function useProjects(opts: {
     return {
         projectForm,
         showProjectDialog,
+        projectLoading,
         loadProjects,
         saveProject,
         editProject,

@@ -40,10 +40,16 @@ export function useModels(opts: {
     const {models, error, message, formErrors, dialog} = opts;
     const modelForm = reactive<ModelForm>(defaultModelForm());
     const showModelDialog = ref(false);
+    const modelLoading = ref(false);
 
     async function loadModels(): Promise<void> {
-        const res = await apiListModels(true);
-        models.value = sortBy(res.models ?? [], (m) => (m.isDefault ? 0 : 1));
+        modelLoading.value = true;
+        try {
+            const res = await apiListModels(true);
+            models.value = sortBy(res.models ?? [], (m) => (m.isDefault ? 0 : 1));
+        } finally {
+            modelLoading.value = false;
+        }
     }
 
     async function saveModel(): Promise<void> {
@@ -187,6 +193,7 @@ export function useModels(opts: {
     return {
         modelForm,
         showModelDialog,
+        modelLoading,
         loadModels,
         saveModel,
         editModel,

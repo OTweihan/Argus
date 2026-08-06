@@ -151,16 +151,18 @@ class TaskSQLiteStorage:
         limit: int | None = None,
         status: str | None = None,
         project_id: str | None = None,
+        task_type: str | None = None,
     ) -> list[Task]:
-        return self._tasks.list_tasks(offset, limit, status, project_id)
+        return self._tasks.list_tasks(offset, limit, status, project_id, task_type)
 
     def count_tasks(
         self,
         status: str | None = None,
         project_id: str | None = None,
         q: str | None = None,
+        task_type: str | None = None,
     ) -> int:
-        return self._tasks.count_tasks(status, project_id, q)
+        return self._tasks.count_tasks(status, project_id, q, task_type)
 
     def list_task_summaries(
         self,
@@ -169,8 +171,9 @@ class TaskSQLiteStorage:
         status: str | None = None,
         project_id: str | None = None,
         q: str | None = None,
+        task_type: str | None = None,
     ) -> tuple[list[Task], int]:
-        return self._tasks.list_task_summaries(offset, limit, status, project_id, q)
+        return self._tasks.list_task_summaries(offset, limit, status, project_id, q, task_type)
 
     # ── 步骤日志 ─────────────────────────────────────────────
 

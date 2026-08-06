@@ -210,6 +210,7 @@ class TaskRepository:
         limit: int | None = None,
         status: str | None = None,
         project_id: str | None = None,
+        task_type: str | None = None,
     ) -> list[Task]:
         """列出任务（含完整日志和发现项），支持过滤和分页。"""
         with self._pool.ro_conn() as conn:
@@ -221,6 +222,9 @@ class TaskRepository:
             if project_id is not None:
                 where_clauses.append("project_id = ?")
                 params.append(project_id)
+            if task_type is not None:
+                where_clauses.append("task_type = ?")
+                params.append(task_type)
 
             query = "SELECT * FROM tasks"
             if where_clauses:
@@ -273,8 +277,9 @@ class TaskRepository:
         status: str | None = None,
         project_id: str | None = None,
         q: str | None = None,
+        task_type: str | None = None,
     ) -> int:
-        """返回任务总数，支持按状态、项目和关键词过滤。"""
+        """返回任务总数，支持按状态、项目、类型和关键词过滤。"""
         with self._pool.ro_conn() as conn:
             query = "SELECT COUNT(*) AS cnt FROM tasks"
             params: list[Any] = []
@@ -285,6 +290,9 @@ class TaskRepository:
             if project_id is not None:
                 where_clauses.append("project_id = ?")
                 params.append(project_id)
+            if task_type is not None:
+                where_clauses.append("task_type = ?")
+                params.append(task_type)
             if q:
                 if len(q) >= TASK_SEARCH_MIN_LENGTH:
                     clause, kw_params = _sql_keyword_where(q)
@@ -302,6 +310,7 @@ class TaskRepository:
         status: str | None = None,
         project_id: str | None = None,
         q: str | None = None,
+        task_type: str | None = None,
     ) -> tuple[list[Task], int]:
         """轻量列表查询，返回 (tasks, total_count)。
 
@@ -318,6 +327,9 @@ class TaskRepository:
             if project_id is not None:
                 where_clauses.append("project_id = ?")
                 params.append(project_id)
+            if task_type is not None:
+                where_clauses.append("task_type = ?")
+                params.append(task_type)
             if q:
                 if len(q) >= TASK_SEARCH_MIN_LENGTH:
                     clause, kw_params = _sql_keyword_where(q)

@@ -10,7 +10,7 @@
         </div>
       </template>
       <div class="filter-bar">
-        <el-input v-model="modelSearchQuery" placeholder="搜索名称、供应商、模型、Base URL" clearable class="search-input">
+        <el-input v-model="modelSearchQuery" size="large" placeholder="搜索名称、供应商、模型、Base URL" clearable class="search-input">
           <template #prefix>
             <svg
               viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -22,14 +22,16 @@
           </template>
         </el-input>
       </div>
-      <ModelTable
-        :models="filteredModels"
-        height="100%"
-        @edit="editModel"
-        @test="testModel"
-        @set-default="setDefaultModel"
-        @delete="deleteModel"
-      />
+      <div v-loading="modelLoading" class="table-wrap">
+        <ModelTable
+          :models="filteredModels"
+          height="100%"
+          @edit="editModel"
+          @test="testModel"
+          @set-default="setDefaultModel"
+          @delete="deleteModel"
+        />
+      </div>
     </el-card>
   </div>
 
@@ -51,7 +53,7 @@ import ModelFormDialog from "../components/model/ModelFormDialog.vue";
 import {injectConsoleApp} from "../composables/useConsoleApp";
 
 const {
-  models, modelForm, showModelDialog, formErrors,
+  models, modelForm, showModelDialog, formErrors, modelLoading,
   editModel, testModel, deleteModel, setDefaultModel, saveModel, openNewModelDialog,
 } = injectConsoleApp();
 
@@ -96,6 +98,12 @@ const filteredModels = computed(() => {
   padding: 0 22px 22px;
 }
 
+.card-title {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -118,5 +126,13 @@ const filteredModels = computed(() => {
   width: 16px;
   height: 16px;
   color: var(--text-placeholder, #9ca3af);
+}
+
+.table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 4px;
 }
 </style>

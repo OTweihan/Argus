@@ -10,7 +10,7 @@
         </div>
       </template>
       <div class="filter-bar">
-        <el-input v-model="searchQuery" placeholder="搜索名称、基础 URL" clearable class="search-input">
+        <el-input v-model="searchQuery" size="large" placeholder="搜索名称、基础 URL" clearable class="search-input">
           <template #prefix>
             <svg
               viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -22,7 +22,7 @@
           </template>
         </el-input>
       </div>
-      <div class="table-wrap">
+      <div v-loading="projectLoading" class="table-wrap">
         <ProjectTable
           :projects="filteredProjects" height="100%" @detail="showDetail" @edit="editProject"
           @delete="deleteProject"
@@ -58,7 +58,7 @@ import ProjectDetailDialog from "../components/project/ProjectDetailDialog.vue";
 import {injectConsoleApp} from "../composables/useConsoleApp";
 
 const {
-  projects, projectForm, showProjectDialog, formErrors,
+  projects, projectForm, showProjectDialog, formErrors, projectLoading,
   editProject, deleteProject, saveProject, openNewProjectDialog,
 } = injectConsoleApp();
 
@@ -107,6 +107,12 @@ const filteredProjects = computed(() => {
   display: flex;
   flex-direction: column;
   padding: 0 22px 22px;
+}
+
+.card-title {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .card-header {

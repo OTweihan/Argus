@@ -29,7 +29,7 @@ from argus_py.api.schemas import (
     TaskCreateRequest,
     TaskUpdateRequest,
 )
-from argus_py.core.enums import TaskStatus
+from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import ProjectError, TaskError
 
 from tests.helpers.factories import make_app_stack
@@ -97,32 +97,66 @@ async def test_list_tasks_pagination_and_filter(tmp_path: Path) -> None:
 
     # 直接 await 调路由函数会绕过 FastAPI 依赖解析，所有 Query/Path 形参的默认值
     # 都是 ``Query(...)`` 对象（非 int / str / None）。这里所有调用点必须显式
-    # 传齐 status / project_id / q / offset / limit 五个参数，模拟 FastAPI 在
-    # 真实请求中替我们填好的值。
+    # 传齐 status / project_id / task_type / q / offset / limit 六个参数，模拟
+    # FastAPI 在真实请求中替我们填好的值。
     full = await task_routes.list_tasks(
-        status=None, project_id=None, q=None, offset=0, limit=50, app=stack.app
+        status=None, project_id=None, task_type=None, q=None, offset=0, limit=50, app=stack.app
     )
     assert full.total == 3
     assert len(full.tasks) == 3
 
     # offset/limit 分页
     page = await task_routes.list_tasks(
-        status=None, project_id=None, q=None, offset=1, limit=1, app=stack.app
+        status=None, project_id=None, task_type=None, q=None, offset=1, limit=1, app=stack.app
     )
     assert page.total == 3
     assert len(page.tasks) == 1
 
     # status=PENDING 过滤
     pending = await task_routes.list_tasks(
-        status=TaskStatus.PENDING, project_id=None, q=None, offset=0, limit=50, app=stack.app
+        status=TaskStatus.PENDING,
+        project_id=None,
+        task_type=None,
+        q=None,
+        offset=0,
+        limit=50,
+        app=stack.app,
     )
     assert pending.total == 3
 
     # status=COMPLETED 应该过滤为空
     completed_list = await task_routes.list_tasks(
-        status=TaskStatus.COMPLETED, project_id=None, q=None, offset=0, limit=50, app=stack.app
+        status=TaskStatus.COMPLETED,
+        project_id=None,
+        task_type=None,
+        q=None,
+        offset=0,
+        limit=50,
+        app=stack.app,
     )
     assert completed_list.total == 0
+
+    # taskType 过滤：契约测试里创建的都是黑盒任务
+    blackbox = await task_routes.list_tasks(
+        status=None,
+        project_id=None,
+        task_type=TaskType.BLACKBOX,
+        q=None,
+        offset=0,
+        limit=50,
+        app=stack.app,
+    )
+    assert blackbox.total == 3
+    whitebox = await task_routes.list_tasks(
+        status=None,
+        project_id=None,
+        task_type=TaskType.WHITEBOX,
+        q=None,
+        offset=0,
+        limit=50,
+        app=stack.app,
+    )
+    assert whitebox.total == 0
 
 
 async def test_infer_limits_returns_positive_numbers(tmp_path: Path) -> None:

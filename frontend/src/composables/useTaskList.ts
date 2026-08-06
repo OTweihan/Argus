@@ -1,6 +1,6 @@
 import { ref, watch, type Ref } from "vue";
 import { listTasks as apiListTasks } from "../api";
-import type { Task } from "../types";
+import type { Task, TaskType } from "../types";
 import { useDebounceFn } from "./useDebounceFn";
 
 export function useTaskList(opts: {
@@ -9,6 +9,7 @@ export function useTaskList(opts: {
     const { allTasks } = opts;
     const taskStatusFilter = ref<TaskDisplayStatus | "">("");
     const taskProjectFilter = ref("");
+    const taskTypeFilter = ref<TaskType | "">("");
     const taskSearchQuery = ref("");
     const page = ref(1);
     const pageSize = ref(20);
@@ -22,6 +23,7 @@ export function useTaskList(opts: {
             const res = await apiListTasks({
                 status,
                 projectId: taskProjectFilter.value || undefined,
+                taskType: taskTypeFilter.value || undefined,
                 q: taskSearchQuery.value.trim() || undefined,
                 offset: (page.value - 1) * pageSize.value,
                 limit: pageSize.value,
@@ -50,7 +52,7 @@ export function useTaskList(opts: {
     }, 300);
     watch(taskSearchQuery, debouncedSearch);
 
-    watch([taskStatusFilter, taskProjectFilter], () => {
+    watch([taskStatusFilter, taskProjectFilter, taskTypeFilter], () => {
         page.value = 1;
         loadTasks();
     });
@@ -58,6 +60,7 @@ export function useTaskList(opts: {
     return {
         taskStatusFilter,
         taskProjectFilter,
+        taskTypeFilter,
         taskSearchQuery,
         page,
         pageSize,

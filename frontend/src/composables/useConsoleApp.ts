@@ -21,7 +21,6 @@ export type { ViewKey };
 export const ConsoleAppKey: InjectionKey<ReturnType<typeof useConsoleApp>> = Symbol("ConsoleApp");
 
 export function useConsoleApp() {
-    const loading = ref(false);
     const message = ref("");
     const error = ref("");
     const formErrors = reactive<Record<string, string>>({});
@@ -145,7 +144,6 @@ export function useConsoleApp() {
     /* ── 数据加载 ── */
 
     async function loadAll(): Promise<void> {
-        loading.value = true;
         error.value = "";
         message.value = "";
         try {
@@ -157,8 +155,6 @@ export function useConsoleApp() {
             ]);
         } catch (caught) {
             error.value = errorMessage(caught);
-        } finally {
-            loading.value = false;
         }
     }
 
@@ -185,9 +181,9 @@ export function useConsoleApp() {
         formErrors,
         goBackToTasks: taskDomain.goBackToTasks,
         loadAll,
-        loading,
         message,
         modelForm: modelDomain.modelForm,
+        modelLoading: modelDomain.modelLoading,
         models,
         onPageChange: taskDomain.onPageChange,
         onPageSizeChange: taskDomain.onPageSizeChange,
@@ -198,6 +194,7 @@ export function useConsoleApp() {
         page: taskDomain.page,
         pageSize: taskDomain.pageSize,
         projectForm: projectDomain.projectForm,
+        projectLoading: projectDomain.projectLoading,
         projects,
         recentTasks: dashboard.recentTasks,
         removeParam: taskDomain.removeParam,
@@ -218,12 +215,14 @@ export function useConsoleApp() {
         showTaskDialog: taskDomain.showTaskDialog,
         startTask: taskDomain.startTask,
         retryTask: taskDomain.retryTask,
+        statsLoading: dashboard.statsLoading,
         taskForm: taskDomain.taskForm,
         taskLoading: taskDomain.taskLoading,
         taskProjectFilter: taskDomain.taskProjectFilter,
         taskSearchQuery: taskDomain.taskSearchQuery,
         taskStatuses: taskDomain.taskStatuses,
         taskStatusFilter: taskDomain.taskStatusFilter,
+        taskTypeFilter: taskDomain.taskTypeFilter,
         testModel: modelDomain.testModel,
         total: taskDomain.total,
         view: nav.view,
