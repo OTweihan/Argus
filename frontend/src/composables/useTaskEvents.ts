@@ -157,6 +157,7 @@ export function useTaskEvents(
     if (eventSummary.reportPath !== undefined) patch.reportPath = eventSummary.reportPath as string | null;
     if (eventSummary.resultSummary !== undefined) patch.resultSummary = eventSummary.resultSummary as string | null;
     if (eventSummary.errorMessage !== undefined) patch.errorMessage = eventSummary.errorMessage as string | null;
+    if (eventSummary.executionAttempt !== undefined) patch.executionAttempt = eventSummary.executionAttempt as number;
 
     if (event.eventType === "task.complete") {
       if (data.reportPath) patch.reportPath = data.reportPath as string;

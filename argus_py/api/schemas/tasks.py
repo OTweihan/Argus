@@ -326,6 +326,7 @@ class _TaskResponseBase(ApiModel):
     report_path: str | None = Field(default=None, alias="reportPath")
     result_summary: str | None = Field(default=None, alias="resultSummary")
     error_message: str | None = Field(default=None, alias="errorMessage")
+    execution_attempt: int = Field(alias="executionAttempt", ge=1)
     # 白盒扩展字段
     whitebox_config_view: WhiteboxConfigViewResponse | None = Field(
         default=None, alias="whiteboxConfigView"
@@ -361,6 +362,7 @@ class _TaskResponseBase(ApiModel):
             "error_message": (
                 redact_sensitive_text(task.error_message) if task.error_message else None
             ),
+            "execution_attempt": task.execution_attempt,
             "whitebox_config_view": _build_whitebox_config_view(task),
             "latest_analysis_run": None,
         }

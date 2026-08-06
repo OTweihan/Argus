@@ -4,6 +4,7 @@ import {
     canRestartTask,
     canStartTask,
     compact,
+    displayTaskName,
     errorMessage,
     formatDate,
     httpMethodTag,
@@ -137,5 +138,21 @@ describe("utils.httpMethodTag", () => {
     it("unknown → info", () => {
         expect(httpMethodTag("OPTIONS")).toBe("info");
         expect(httpMethodTag("")).toBe("info");
+    });
+});
+
+describe("utils.displayTaskName", () => {
+    it("有 name 时展示「名称（第N次）」", () => {
+        expect(displayTaskName({ name: "登录测试", executionAttempt: 2 })).toBe("登录测试（第2次）");
+        expect(displayTaskName({ name: "登录测试", executionAttempt: 1 })).toBe("登录测试（第1次）");
+    });
+
+    it("name 为空回退为 -（不带次数）", () => {
+        expect(displayTaskName({ name: null, executionAttempt: 1 })).toBe("-");
+        expect(displayTaskName({ name: "", executionAttempt: 3 })).toBe("-");
+    });
+
+    it("executionAttempt 缺失时按第 1 次兜底", () => {
+        expect(displayTaskName({ name: "登录测试" })).toBe("登录测试（第1次）");
     });
 });

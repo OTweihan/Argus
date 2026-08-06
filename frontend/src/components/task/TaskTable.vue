@@ -2,7 +2,7 @@
   <el-table v-if="tasks.length" :data="tasks" row-key="taskId" stripe style="width:100%" :height="height">
     <el-table-column label="任务名称" min-width="240">
       <template #default="{ row }">
-        <strong>{{ row.name || "-" }}</strong>
+        <strong>{{ displayTaskName(row) }}</strong>
         <div style="color:#909399;font-size:12px">
           {{ row.taskId }}
         </div>
@@ -84,7 +84,7 @@
 
 <script setup lang="ts">
 import type {Project, Task} from "../../types";
-import {canRestartTask, canStartTask, compact, formatDate, taskDisplayStatus} from "../../utils";
+import {canRestartTask, canStartTask, compact, displayTaskName, formatDate, taskDisplayStatus} from "../../utils";
 
 const props = withDefaults(
     defineProps<{

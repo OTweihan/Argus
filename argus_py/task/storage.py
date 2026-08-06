@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 from argus_py.analysis.enums import AnalysisRunStatus
-from argus_py.core.exceptions import TaskNotFoundError
+from argus_py.core.exceptions import TaskNotFoundError, TaskRetryConflictError
 from argus_py.core.paths import DATA_DIR, TEMP_DIR
 from argus_py.correlation.models import (
     BlackboxRun,
@@ -79,6 +80,13 @@ class TaskFileStorage:
         """快速返回任务总数（仅列文件名，不反序列化）。"""
         return len(self.list_ids())
 
+    def has_retry_child(self, task_id: str) -> bool:
+        """是否存在以 ``task_id`` 为直接前驱的重试子任务。
+
+        文件存储仅用于测试/开发路径：无唯一索引兜底，这里遍历任务列表过滤。
+        """
+        return any(task.retry_parent_task_id == task_id for task in self.list_tasks())
+
     def delete(self, task_id: str) -> None:
         """删除任务快照。"""
         path = self.task_path(task_id)
@@ -134,7 +142,17 @@ class TaskSQLiteStorage:
         )
 
     def save(self, task: Task) -> Task:
-        return self._tasks.save(task)
+        try:
+            return self._tasks.save(task)
+        except sqlite3.IntegrityError as exc:
+            if "uq_tasks_retry_parent" in str(exc) or "tasks.retry_parent_task_id" in str(exc):
+                raise TaskRetryConflictError(
+                    f"任务 {task.retry_parent_task_id} 已有直接重试子任务，重试链必须线性。"
+                ) from exc
+            raise
+
+    def has_retry_child(self, task_id: str) -> bool:
+        return self._tasks.has_retry_child(task_id)
 
     def update_task(self, task_id: str, **fields: Any) -> None:
         self._tasks.update_task(task_id, **fields)

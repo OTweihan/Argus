@@ -2389,6 +2389,8 @@ export interface components {
             resultSummary?: string | null;
             /** Errormessage */
             errorMessage?: string | null;
+            /** Executionattempt */
+            executionAttempt: number;
             whiteboxConfigView?: components["schemas"]["WhiteboxConfigViewResponse"] | null;
             latestAnalysisRun?: components["schemas"]["AnalysisRunSummaryResponse"] | null;
             /** Logs */
@@ -2467,6 +2469,8 @@ export interface components {
             resultSummary?: string | null;
             /** Errormessage */
             errorMessage?: string | null;
+            /** Executionattempt */
+            executionAttempt: number;
             whiteboxConfigView?: components["schemas"]["WhiteboxConfigViewResponse"] | null;
             latestAnalysisRun?: components["schemas"]["AnalysisRunSummaryResponse"] | null;
             /** Findingcount */

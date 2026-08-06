@@ -17,6 +17,15 @@ _parse_bool = parse_bool
 _parse_enum = parse_enum
 
 
+def normalize_task_name(name: str | None, task_id: str) -> str:
+    """任务名称归一化：去除首尾空白，为空时回退为 task_id 后 8 位。
+
+    保证 name 在运行期恒非空，覆盖创建、编辑、反序列化与直接构造所有路径。
+    """
+    normalized = (name or "").strip()
+    return normalized or task_id[-8:]
+
+
 @dataclass
 class TaskLog:
     """任务执行步骤日志。"""
@@ -139,11 +148,14 @@ class Task:
     worker_id: str | None = None
     worker_lease_expires_at: str | None = None
     execution_attempt: int = 1
+    # 重试链中该任务的直接前驱任务 ID（非根任务）。内部字段，不对外暴露。
+    retry_parent_task_id: str | None = None
 
     def __post_init__(self) -> None:
-        """初始化内部缓存字段。"""
+        """初始化内部缓存字段并归一化任务名称。"""
         object.__setattr__(self, "_step_cache", None)
         object.__setattr__(self, "_finding_cache", None)
+        object.__setattr__(self, "name", normalize_task_name(self.name, self.task_id))
 
     @property
     def current_step(self) -> int:
@@ -214,4 +226,5 @@ class Task:
             worker_id=data.get("worker_id"),
             worker_lease_expires_at=data.get("worker_lease_expires_at"),
             execution_attempt=int(data.get("execution_attempt", 1)),
+            retry_parent_task_id=data.get("retry_parent_task_id"),
         )

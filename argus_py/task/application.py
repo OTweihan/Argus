@@ -7,13 +7,14 @@ CLI 也可复用此类避免重复编排逻辑。
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus, TaskType
-from argus_py.core.exceptions import TaskError
+from argus_py.core.exceptions import TaskError, TaskRetryConflictError
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.context import run_in_thread
 from argus_py.project.service import ProjectService
@@ -78,6 +79,9 @@ class TaskApplicationService:
         self._on_correlation_completed = on_correlation_completed
         # 关联网关前缀映射（PathMapping | None）— 容器注入，同步匹配路径使用
         self._correlation_path_mapping = correlation_path_mapping
+        # 重试链进程内锁：以源任务 ID 为键，避免同实例并发重试竞争；
+        # 正确性由数据库 uq_tasks_retry_parent 部分唯一索引兜底（多实例场景）。
+        self._restart_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     # ── 参数解析（合并项目默认值、模型配置校验、执行限制推断）──
 
@@ -252,7 +256,13 @@ class TaskApplicationService:
     # ── 重试 ──
 
     async def restart_task(self, task_id: str) -> tuple[Any, str]:
-        """重试失败/超时/取消的任务，创建新任务并立即入队。"""
+        """重试失败/超时/取消的任务，创建新任务并立即入队。
+
+        重试链保持线性：同一源任务在任一时刻最多一个直接重试子任务。
+        进程内 asyncio.Lock 负责同实例并发去重并给出友好错误；数据库
+        ``uq_tasks_retry_parent`` 部分唯一索引负责跨实例兜底。
+        """
+        # 锁外快速失败（非终态），避免为显然不可重试的任务占锁。
         task = await run_in_thread(self._read.get_task, task_id)
         if not can_retry(task.status):
             raise TaskAppError(
@@ -260,7 +270,42 @@ class TaskApplicationService:
                 f"只有失败/超时/取消的任务可以重试，当前状态：{task.status.value}。",
                 details={"task_id": task.task_id, "status": task.status.value},
             )
-        new_task = await run_in_thread(self._lifecycle.restart_task, task)
+        lock = self._restart_locks[task_id]
+        try:
+            async with lock:
+                # 锁内重新读取并做完整校验：任务状态可能在等待期间变化；子任务
+                # 检查必须与创建处于同一临界区。锁需覆盖持久化（restart_task
+                # 内部已 save），保证子任务先落库再释放锁。
+                resolved = await run_in_thread(self._read.get_task, task_id)
+                if not can_retry(resolved.status):
+                    raise TaskAppError(
+                        "TASK_NOT_RETRYABLE",
+                        f"只有失败/超时/取消的任务可以重试，当前状态：{resolved.status.value}。",
+                        details={"task_id": resolved.task_id, "status": resolved.status.value},
+                    )
+                if await run_in_thread(self._lifecycle.has_retry_child, task_id):
+                    raise TaskAppError(
+                        "TASK_ALREADY_RETRIED",
+                        "该任务已有重试任务，请重试最新一次。",
+                        details={"task_id": task_id},
+                    )
+                try:
+                    new_task = await run_in_thread(self._lifecycle.restart_task, resolved)
+                except TaskRetryConflictError as exc:
+                    # 跨实例/绕过锁的并发写入被唯一索引拦下
+                    raise TaskAppError(
+                        "TASK_ALREADY_RETRIED",
+                        "该任务已有重试任务，请重试最新一次。",
+                        details={"task_id": task_id},
+                    ) from exc
+        finally:
+            # 清理锁表，避免随重试次数无限增长。等待中的协程持有锁对象引用，
+            # 删除字典项不影响它们继续等待；极端并发下第二个请求可能短暂拿到
+            # 新锁，由数据库唯一索引兜底拒绝。
+            if self._restart_locks.get(task_id) is lock:
+                self._restart_locks.pop(task_id, None)
+        # 锁已释放、子任务已持久化后才入队；入队失败回滚删除子任务，
+        # 父任务随之重新获得重试资格（删除语义规则 B）。
         try:
             result = await self._queue.enqueue(new_task.task_id)
         except (Exception, asyncio.CancelledError):

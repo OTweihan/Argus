@@ -44,10 +44,12 @@ class TaskRepository:
                   source_resolved_commit_sha, source_ref_type, source_dirty,
                   external_job_id, external_job_status,
                   external_job_submitted_at, external_job_last_polled_at,
-                  worker_id, worker_lease_expires_at, execution_attempt
+                  worker_id, worker_lease_expires_at, execution_attempt,
+                  retry_parent_task_id
                 ) VALUES (
                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  ?
                 )
                 ON CONFLICT(task_id) DO UPDATE SET
                   goal = excluded.goal, name = excluded.name,
@@ -80,11 +82,21 @@ class TaskRepository:
                   external_job_last_polled_at = excluded.external_job_last_polled_at,
                   worker_id = excluded.worker_id,
                   worker_lease_expires_at = excluded.worker_lease_expires_at,
-                  execution_attempt = excluded.execution_attempt
+                  execution_attempt = excluded.execution_attempt,
+                  retry_parent_task_id = excluded.retry_parent_task_id
                 """,
                 task_to_row(task),
             )
         return task
+
+    def has_retry_child(self, retry_parent_task_id: str) -> bool:
+        """是否存在以给定任务为直接前驱的重试子任务（走部分唯一索引）。"""
+        with self._pool.ro_conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM tasks WHERE retry_parent_task_id = ? LIMIT 1",
+                (retry_parent_task_id,),
+            ).fetchone()
+        return row is not None
 
     def exists(self, task_id: str) -> bool:
         with self._pool.ro_conn() as conn:

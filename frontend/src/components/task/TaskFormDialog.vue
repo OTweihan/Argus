@@ -34,6 +34,9 @@
       </el-form-item>
       <el-form-item label="任务名称">
         <el-input v-model="localForm.name" maxlength="50" show-word-limit />
+        <div class="form-hint">
+          {{ editing ? "清空后保存将使用任务 ID 后八位作为任务名" : "不填写时自动使用任务 ID 后八位作为任务名" }}
+        </div>
       </el-form-item>
       <!--
         目标字段为任务通用字段。

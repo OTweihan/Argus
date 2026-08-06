@@ -2,7 +2,14 @@
 
 覆盖 ``argus_py.analysis.enums``（状态机/枚举）、``argus_py.analysis.models``（dataclass）
 和 ``argus_py.api.schemas.analysis``（Pydantic 响应模型）的核心行为。
+
+注：本文件刻意用 camelCase 别名构造 Pydantic 响应模型，以验证 ``ApiModel`` 的
+``populate_by_name=True`` 别名输入契约（外部客户端按 OpenAPI 的 camelCase 调用）。
+mypy 的 pydantic 插件只识别 snake_case 字段名、不识别 alias，会把这些合法调用误报为
+call-arg，故在文件级关闭该错误码。
 """
+
+# mypy: disable-error-code="call-arg"
 
 from __future__ import annotations
 

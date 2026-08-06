@@ -6,7 +6,7 @@
     </div>
     <div class="detail-row">
       <span class="detail-label">任务名称</span>
-      <span class="detail-value">{{ task.name || "-" }}</span>
+      <span class="detail-value">{{ displayTaskName(task) }}</span>
     </div>
     <div class="detail-row">
       <span class="detail-label">任务类型</span>
@@ -99,6 +99,7 @@ import {
     splitParametersFromPromptExtensions,
 } from "../../promptExtensions";
 import PromptExtensionViewer from "../prompt/PromptExtensionViewer.vue";
+import {displayTaskName} from "../../utils";
 
 const props = defineProps<{ task: Task; projects: Project[]; enabledModels: ModelConfig[] }>();
 

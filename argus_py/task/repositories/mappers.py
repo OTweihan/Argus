@@ -28,6 +28,7 @@ _TASK_SUMMARY_COLUMNS = (
     "report_path",
     "result_summary",
     "error_message",
+    "execution_attempt",
 )
 
 
@@ -75,6 +76,7 @@ def task_to_row(task: Task) -> tuple[Any, ...]:
         task.worker_id,
         task.worker_lease_expires_at,
         task.execution_attempt,
+        task.retry_parent_task_id,
     )
 
 
@@ -184,6 +186,7 @@ def row_to_task(
         worker_id=task_row["worker_id"],
         worker_lease_expires_at=task_row["worker_lease_expires_at"],
         execution_attempt=task_row["execution_attempt"],
+        retry_parent_task_id=task_row["retry_parent_task_id"],
     )
 
 
@@ -231,6 +234,7 @@ def row_to_task_summary(task_row: Any) -> Task:
         report_path=task_row["report_path"],
         result_summary=task_row["result_summary"],
         error_message=task_row["error_message"],
+        execution_attempt=task_row["execution_attempt"],
     )
 
 

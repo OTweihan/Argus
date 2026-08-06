@@ -136,6 +136,11 @@ async def update_task(
         parameters=request.parameters,
         whitebox_config=request.whitebox_config,
     )
+    # name 三态语义：未显式提供 → 保持原名（resolve_create_params 返回 dict 恒含
+    # name，此处弹出后走 lifecycle 的 _UNSET 默认值）；显式传 null/空串/纯空白 →
+    # 由 lifecycle 归一化为任务 ID 后 8 位；正常值 → 去除首尾空白后使用。
+    if "name" not in request.model_fields_set:
+        params.pop("name", None)
     updated, sched = await _acall(app.update_task, task_id, params)
     return TaskResponse.from_task(updated, scheduler_status=sched)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from argus_py.analysis.enums import AnalysisRunStatus
 from argus_py.core.cancellation import CancellationToken
@@ -14,12 +14,22 @@ from argus_py.core.exceptions import TaskError
 from argus_py.observability import audit
 from argus_py.redaction import redact_href, redact_sensitive_text
 from argus_py.task._base import TaskEventPublisher, _StorageEventBase
-from argus_py.task.models import Task
+from argus_py.task.models import Task, normalize_task_name
 from argus_py.task.policies import can_delete, can_edit, can_retry
 from argus_py.task.status import assert_transition
 from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 
 __all__ = ["TaskEventPublisher", "TaskLifecycleService"]
+
+
+class _UnsetType:
+    """区分"字段未提供"与"显式传 None"的哨兵类型。"""
+
+    __slots__ = ()
+
+
+# 更新接口中"未提供 name"的标记：调用方不传时保持原名，而不是误清空。
+_UNSET: Final = _UnsetType()
 
 
 class TaskLifecycleService(_StorageEventBase):
@@ -74,7 +84,7 @@ class TaskLifecycleService(_StorageEventBase):
         task: Task | str,
         *,
         goal: str,
-        name: str | None,
+        name: str | None | _UnsetType = _UNSET,
         start_url: str | None,
         task_type: TaskType,
         project_id: str | None,
@@ -84,13 +94,20 @@ class TaskLifecycleService(_StorageEventBase):
         parameters: dict[str, Any],
         whitebox_config_json: str | None = None,
     ) -> Task:
-        """更新待执行任务的基础信息。"""
+        """更新待执行任务的基础信息。
+
+        ``name`` 三态语义：
+          - 未提供（保持 ``_UNSET``）→ 保持原名称
+          - 显式 ``None`` / ``""`` / 纯空白 → 归一化为 task_id 后 8 位
+          - 正常值 → 去除首尾空白后使用
+        """
         resolved = self._resolve_task(task)
         if not can_edit(resolved.status):
             raise TaskError(f"只有 pending 任务可以编辑，当前状态：{resolved.status.value}。")
 
         resolved.goal = goal
-        resolved.name = name
+        if not isinstance(name, _UnsetType):
+            resolved.name = normalize_task_name(name, resolved.task_id)
         resolved.start_url = start_url
         resolved.task_type = task_type
         resolved.project_id = project_id
@@ -197,20 +214,21 @@ class TaskLifecycleService(_StorageEventBase):
         }
 
     def restart_task(self, task: Task | str) -> Task:
-        """复制已结束的任务为新 pending 任务（重试）。"""
+        """复制已结束的任务为新 pending 任务（重试）。
+
+        新任务完全继承源任务的 name（不再追加「-重试」后缀），并通过
+        ``retry_parent_task_id`` 记录直接前驱，保证重试链严格线性。
+        调用方（应用层）需确保当前任务没有直接重试子任务。
+        """
         resolved = self._resolve_task(task)
         if not can_retry(resolved.status):
             raise TaskError(
                 f"只有失败/超时/取消的任务可以重试，当前状态：{resolved.status.value}。"
             )
 
-        name = resolved.name
-        if name:
-            name = f"{name}-重试"
-
         new_task = Task(
             goal=resolved.goal,
-            name=name,
+            name=resolved.name,
             start_url=resolved.start_url,
             task_type=resolved.task_type,
             project_id=resolved.project_id,
@@ -220,6 +238,7 @@ class TaskLifecycleService(_StorageEventBase):
             parameters=dict(resolved.parameters),
             whitebox_config_json=resolved.whitebox_config_json,
             execution_attempt=resolved.execution_attempt + 1,
+            retry_parent_task_id=resolved.task_id,
         )
         self.storage.save(new_task)
         self._publish("task.created", new_task, {"task": _task_summary(new_task)})
@@ -230,6 +249,10 @@ class TaskLifecycleService(_StorageEventBase):
             task=_task_summary(new_task),
         )
         return new_task
+
+    def has_retry_child(self, task_id: str) -> bool:
+        """当前任务是否已存在直接重试子任务。"""
+        return self.storage.has_retry_child(task_id)
 
     def start_task(self, task: Task | str, worker_id: str | None = None) -> Task:
         """将任务标记为运行中，并写入 worker 租约。"""
@@ -425,6 +448,7 @@ def _task_summary(task: Task) -> dict[str, Any]:
         "status": task.status.value,
         "currentStep": task.current_step,
         "findingCount": task.finding_count,
+        "executionAttempt": task.execution_attempt,
         "reportPath": _path_name(task.report_path),
         "resultSummary": _redact_optional_text(task.result_summary),
         "errorMessage": _redact_optional_text(task.error_message),

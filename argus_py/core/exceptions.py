@@ -41,6 +41,15 @@ class TaskNotFoundError(TaskError):
     """
 
 
+class TaskRetryConflictError(TaskError):
+    """重试冲突：源任务已存在直接重试子任务。
+
+    由存储层在 `retry_parent_task_id` 部分唯一索引冲突时抛出，
+    应用层转换为 HTTP 409。避免在应用/存储层直接 import sqlite3 判断
+    IntegrityError 字符串。
+    """
+
+
 class ProjectError(ArgusError):
     """项目管理失败。"""
 

@@ -17,6 +17,15 @@ export function taskDisplayStatus(task: Task): TaskDisplayStatus {
   return task.status;
 }
 
+type TaskNameDisplaySource = Pick<Task, "name"> & { executionAttempt?: number | null };
+
+export function displayTaskName(task: TaskNameDisplaySource): string {
+  const base = task.name?.trim() || "";
+  if (!base) return "-";
+  const attempt = task.executionAttempt ?? 1;
+  return `${base}（第${attempt}次）`;
+}
+
 export function canStartTask(task: Task): boolean {
   return task.status === "pending" && !task.schedulerStatus;
 }

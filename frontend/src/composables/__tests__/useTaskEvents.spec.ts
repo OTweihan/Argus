@@ -295,6 +295,20 @@ describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
         h.dispose();
     });
 
+    it("增量合并：summary 携带 executionAttempt 时实时 patch 重试次数", async () => {
+        const h = setupHarness([makeTask({ taskId: "t1", name: "登录测试", executionAttempt: 1 })]);
+
+        h.events.applyEvent({
+            eventType: "task.updated",
+            data: { taskId: "t1", task: { taskId: "t1", executionAttempt: 2 } },
+        } as TaskEvent);
+
+        expect(h.allTasks.value[0]?.executionAttempt).toBe(2);
+        expect(h.loadTasks).not.toHaveBeenCalled();
+
+        h.dispose();
+    });
+
     it("高频事件期间多次 fallback：stats 刷新被合并为 1 次（350ms 防抖）", async () => {
         const h = setupHarness([makeTask({ taskId: "t1" })]);
 
