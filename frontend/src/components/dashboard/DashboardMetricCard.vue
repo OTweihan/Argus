@@ -28,28 +28,14 @@ defineProps<{
 .metric-card {
   position: relative;
   overflow: hidden;
-  border-radius: var(--radius-lg);
+  /* 与其他页面卡片统一圆角（全局 .el-card 已统一为 --radius-md） */
+  border-radius: var(--radius-md);
   border: 1px solid var(--line-soft);
   background: var(--surface-glass-strong);
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(var(--blur-soft));
   -webkit-backdrop-filter: blur(var(--blur-soft));
   transition: transform var(--transition-base), box-shadow var(--transition-base);
-}
-
-.metric-card::after {
-  content: "";
-  position: absolute;
-  right: -36px;
-  bottom: -36px;
-  width: 120px;
-  height: 120px;
-  border-radius: 999px;
-  background: var(--brand-gradient-soft);
-  filter: blur(2px);
-  pointer-events: none;
-  transition: transform var(--transition-slow), opacity var(--transition-slow);
-  opacity: 0.85;
 }
 
 :deep(.el-card__body) {
@@ -61,11 +47,6 @@ defineProps<{
 .metric-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-md);
-}
-
-.metric-card:hover::after {
-  transform: scale(1.08);
-  opacity: 1;
 }
 
 .metric-content {
@@ -92,13 +73,9 @@ defineProps<{
 
 .metric-card:hover .metric-icon { transform: scale(1.08); }
 .metric-projects .metric-icon { background: linear-gradient(135deg, #eef2ff, #e0e7ff); color: var(--brand-600); }
-.metric-projects::after { background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(139, 92, 246, 0.10)); }
 .metric-tasks .metric-icon { background: linear-gradient(135deg, #ecfdf5, #d1fae5); color: #059669; }
-.metric-tasks::after { background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(5, 150, 105, 0.08)); }
 .metric-running .metric-icon { background: linear-gradient(135deg, #fffbeb, #fef3c7); color: #d97706; }
-.metric-running::after { background: linear-gradient(135deg, rgba(245, 158, 11, 0.20), rgba(217, 119, 6, 0.08)); }
 .metric-findings .metric-icon { background: linear-gradient(135deg, #fef2f2, #fee2e2); color: #dc2626; }
-.metric-findings::after { background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(220, 38, 38, 0.08)); }
 
 .metric-info { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .metric-value {

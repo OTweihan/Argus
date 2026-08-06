@@ -130,7 +130,8 @@ async function showTaskReport(taskId: string): Promise<void> {
 /* 最近任务卡片 */
 .recent-card {
   margin-top: 4px;
-  border-radius: var(--radius-lg);
+  /* 与其他页面卡片统一圆角（全局 .el-card 已统一为 --radius-md） */
+  border-radius: var(--radius-md);
   border: 1px solid var(--line-soft);
   background: var(--surface-glass-strong);
   box-shadow: var(--shadow-sm);

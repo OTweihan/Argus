@@ -206,7 +206,7 @@ body {
  * 避免外层 el-main 抢占滚动容器导致 report-bar 与 tabs 头条被一起滚走。 */
 .el-main.content-area {
     background: transparent;
-    padding: 22px 26px 26px;
+    padding: 12px 12px 12px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -252,19 +252,20 @@ body {
    Element Plus 全局覆盖
    ============================================================ */
 
-/* ----- Card ----- */
-.el-card {
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--line-soft);
-    background: var(--surface-glass-strong);
+/* ----- Card -----
+ * 注意：element-plus 按需注入的组件样式晚于本文件加载。
+ * - 圆角默认 4px、阴影默认 0 0 12px rgba(0,0,0,0.12)（四边均匀浓阴影，
+ *   在圆角处会形成一圈显眼的暗影残留）。
+ * - 此处用三重类选择器把特异性提升到 (0,3,0) 压过 element-plus 的
+ *   .el-card.is-always-shadow (0,2,0)，统一为设计体系的圆角与浅阴影。 */
+.el-card.el-card,
+.el-card.el-card.is-always-shadow {
+    border-radius: var(--radius-md);
     box-shadow: var(--shadow-sm);
-    backdrop-filter: blur(var(--blur-soft));
-    -webkit-backdrop-filter: blur(var(--blur-soft));
-    transition: box-shadow var(--transition-base), transform var(--transition-base);
 }
 
-.el-card.is-hover-shadow:hover,
-.el-card.is-always-shadow {
+.el-card.is-hover-shadow.el-card:hover,
+.el-card.is-hover-shadow.el-card:focus {
     box-shadow: var(--shadow-md);
 }
 
@@ -443,14 +444,8 @@ body {
     -webkit-backdrop-filter: blur(4px);
 }
 
-.el-dialog {
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    border: 1px solid var(--line-soft);
-    overflow: hidden;
-    background: var(--surface-glass-strong);
-    backdrop-filter: blur(var(--blur-strong));
-    -webkit-backdrop-filter: blur(var(--blur-strong));
+.el-dialog.el-dialog {
+    border-radius: var(--radius-md);
 }
 
 .el-dialog__header {
@@ -584,18 +579,16 @@ body {
 }
 
 /* ----- Message / MessageBox ----- */
-.el-message {
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-md);
-    border: 1px solid var(--line-soft);
-    backdrop-filter: blur(var(--blur-soft));
-    -webkit-backdrop-filter: blur(var(--blur-soft));
+.el-message.el-message {
+    border-radius: var(--radius-md);
 }
 
-.el-message-box {
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    border: 1px solid var(--line-soft);
+.el-message-box.el-message-box {
+    border-radius: var(--radius-md);
+}
+
+.el-notification.el-notification {
+    border-radius: var(--radius-md);
 }
 
 /* ===== Shared components ===== */
