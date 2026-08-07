@@ -11,6 +11,7 @@ import sys
 import time
 import types
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -328,3 +329,264 @@ class TestCleanupOutputs:
         assert code == 0
         assert not old.exists()
         assert new.exists()
+
+
+# ── fix_retry_chain ────────────────────────────────────────────────────────
+
+
+fix_retry_chain = _load_script("fix_retry_chain")
+
+
+def _task_row(**kw: Any) -> dict[str, Any]:
+    base = {
+        "task_id": "task-20260805000000-aaaaaaaa",
+        "project_id": "proj-1",
+        "task_type": "whitebox",
+        "goal": "分析一下代码",
+        "name": None,
+        "execution_attempt": 1,
+        "retry_parent_task_id": None,
+        "created_at": "2026-08-05T06:00:00+00:00",
+    }
+    base.update(kw)
+    return base
+
+
+def _rows_by_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {row["task_id"]: row for row in rows}
+
+
+class TestInferRetryParents:
+    def test_basic_chain(self) -> None:
+        a = _task_row(task_id="task-...-aaaa1111", created_at="2026-08-05T06:00:00+00:00")
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=2,
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        assert fix_retry_chain.infer_retry_parents([a, b]) == {b["task_id"]: a["task_id"]}
+
+    def test_existing_parent_preserved(self) -> None:
+        a = _task_row(task_id="task-...-aaaa1111", created_at="2026-08-05T06:00:00+00:00")
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=2,
+            retry_parent_task_id=a["task_id"],
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        assert fix_retry_chain.infer_retry_parents([a, b]) == {b["task_id"]: a["task_id"]}
+
+    def test_different_group_not_linked(self) -> None:
+        a = _task_row(
+            task_id="task-...-aaaa1111", goal="目标一", created_at="2026-08-05T06:00:00+00:00"
+        )
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=2,
+            goal="目标二",
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        assert fix_retry_chain.infer_retry_parents([a, b]) == {}
+
+    def test_attempt_not_consecutive_not_linked(self) -> None:
+        a = _task_row(task_id="task-...-aaaa1111", created_at="2026-08-05T06:00:00+00:00")
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=3,  # 跳过 attempt 2
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        assert fix_retry_chain.infer_retry_parents([a, b]) == {}
+
+    def test_multiple_candidates_takes_closest(self) -> None:
+        a1 = _task_row(task_id="task-...-aaaa1111", created_at="2026-08-05T06:00:00+00:00")
+        a2 = _task_row(task_id="task-...-cccc3333", created_at="2026-08-05T06:30:00+00:00")
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=2,
+            created_at="2026-08-05T06:45:00+00:00",
+        )
+        assert fix_retry_chain.infer_retry_parents([a1, a2, b]) == {b["task_id"]: a2["task_id"]}
+
+
+class TestRootBaseName:
+    def test_walks_to_root(self) -> None:
+        a = _task_row(
+            task_id="task-...-aaaa1111", name="根任务名", created_at="2026-08-05T06:00:00+00:00"
+        )
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=2,
+            name="中间名",
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        c = _task_row(
+            task_id="task-...-cccc3333",
+            execution_attempt=3,
+            name="末尾名",
+            created_at="2026-08-05T08:00:00+00:00",
+        )
+        parents = {b["task_id"]: a["task_id"], c["task_id"]: b["task_id"]}
+        assert (
+            fix_retry_chain.root_base_name(c["task_id"], parents, _rows_by_id([a, b, c]))
+            == "根任务名"
+        )
+
+    def test_root_without_name_uses_root_task_id_tail(self) -> None:
+        a = _task_row(
+            task_id="task-20260805060000-aaaa1111",
+            name=None,
+            created_at="2026-08-05T06:00:00+00:00",
+        )
+        b = _task_row(
+            task_id="task-20260805070000-bbbb2222",
+            execution_attempt=2,
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        assert (
+            fix_retry_chain.root_base_name(
+                b["task_id"], {b["task_id"]: a["task_id"]}, _rows_by_id([a, b])
+            )
+            == "aaaa1111"
+        )
+
+
+class TestPlanFixes:
+    def test_missing_parent_and_empty_name(self) -> None:
+        a = _task_row(
+            task_id="task-20260805060000-aaaa1111", created_at="2026-08-05T06:00:00+00:00"
+        )
+        b = _task_row(
+            task_id="task-20260805070000-bbbb2222",
+            execution_attempt=2,
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        fixes, warnings = fix_retry_chain.plan_fixes([a, b])
+        assert warnings == []
+        fields = {(f["task_id"], f["field"]) for f in fixes}
+        assert (b["task_id"], "retry_parent_task_id") in fields
+        assert (b["task_id"], "name") in fields
+        name_fix = next(f for f in fixes if f["field"] == "name")
+        assert name_fix["new"] == "aaaa1111"  # 根基础名 = 根 A 的 task_id 后 8 位
+
+    def test_old_suffix_name_cleaned(self) -> None:
+        a = _task_row(
+            task_id="task-...-aaaa1111", name="登录测试", created_at="2026-08-05T06:00:00+00:00"
+        )
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=2,
+            name="登录测试-重试",
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        fixes, warnings = fix_retry_chain.plan_fixes([a, b])
+        assert warnings == []
+        name_fix = next(f for f in fixes if f["field"] == "name")
+        assert name_fix["new"] == "登录测试"
+
+    def test_manual_name_kept_with_warning(self) -> None:
+        a = _task_row(task_id="task-...-aaaa1111", created_at="2026-08-05T06:00:00+00:00")
+        b = _task_row(
+            task_id="task-...-bbbb2222",
+            execution_attempt=2,
+            name="我手动改的名",
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        fixes, warnings = fix_retry_chain.plan_fixes([a, b])
+        name_fixes = [f for f in fixes if f["field"] == "name"]
+        assert name_fixes == []  # 不覆盖手动名
+        assert len(warnings) == 1
+        # 父链仍修复
+        assert any(f["field"] == "retry_parent_task_id" for f in fixes)
+
+    def test_already_correct_name_untouched(self) -> None:
+        a = _task_row(
+            task_id="task-20260805060000-aaaa1111",
+            name="登录测试",
+            created_at="2026-08-05T06:00:00+00:00",
+        )
+        b = _task_row(
+            task_id="task-20260805070000-bbbb2222",
+            execution_attempt=2,
+            name="登录测试",
+            retry_parent_task_id=a["task_id"],
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        fixes, warnings = fix_retry_chain.plan_fixes([a, b])
+        assert fixes == []
+        assert warnings == []
+
+
+def _seed_tasks_db(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    try:
+        cols = ", ".join(f"{c} TEXT" for c in fix_retry_chain._TASK_COLUMNS)
+        conn.execute(f"CREATE TABLE tasks ({cols})")
+        for row in rows:
+            names = ", ".join(row)
+            placeholders = ", ".join("?" for _ in row)
+            conn.execute(f"INSERT INTO tasks ({names}) VALUES ({placeholders})", list(row.values()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class TestFixRetryChainMain:
+    def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
+        db = tmp_path / "argus.db"
+        a = _task_row(
+            task_id="task-20260805060000-aaaa1111", created_at="2026-08-05T06:00:00+00:00"
+        )
+        b = _task_row(
+            task_id="task-20260805070000-bbbb2222",
+            execution_attempt=2,
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        _seed_tasks_db(db, [a, b])
+
+        code = fix_retry_chain.main(["--db", str(db)])
+        assert code == 0
+        conn = sqlite3.connect(db)
+        try:
+            row = conn.execute(
+                "SELECT retry_parent_task_id, name FROM tasks WHERE task_id = ?",
+                (b["task_id"],),
+            ).fetchone()
+            assert row[0] is None  # 未写库
+            assert row[1] is None
+        finally:
+            conn.close()
+
+    def test_apply_writes_parent_and_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(fix_retry_chain, "BACKUP_DIR", tmp_path / "backups")
+        db = tmp_path / "argus.db"
+        a = _task_row(
+            task_id="task-20260805060000-aaaa1111", created_at="2026-08-05T06:00:00+00:00"
+        )
+        b = _task_row(
+            task_id="task-20260805070000-bbbb2222",
+            execution_attempt=2,
+            created_at="2026-08-05T07:00:00+00:00",
+        )
+        _seed_tasks_db(db, [a, b])
+
+        code = fix_retry_chain.main(["--db", str(db), "--apply"])
+        assert code == 0
+        assert (tmp_path / "backups").exists()  # 已备份
+
+        conn = sqlite3.connect(db)
+        try:
+            row = conn.execute(
+                "SELECT retry_parent_task_id, name FROM tasks WHERE task_id = ?",
+                (b["task_id"],),
+            ).fetchone()
+            assert row[0] == a["task_id"]
+            assert row[1] == "aaaa1111"
+        finally:
+            conn.close()
+
+    def test_missing_db_returns_error(self, tmp_path: Path) -> None:
+        code = fix_retry_chain.main(["--db", str(tmp_path / "missing.db")])
+        assert code == 2

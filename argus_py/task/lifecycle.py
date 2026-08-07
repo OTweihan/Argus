@@ -10,7 +10,7 @@ from argus_py.analysis.enums import AnalysisRunStatus
 from argus_py.core.cancellation import CancellationToken
 from argus_py.core.constants import DEFAULT_MAX_STEPS, DEFAULT_TASK_TIMEOUT_S, utc_now
 from argus_py.core.enums import TaskStatus, TaskType
-from argus_py.core.exceptions import TaskError
+from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.observability import audit
 from argus_py.redaction import redact_href, redact_sensitive_text
 from argus_py.task._base import TaskEventPublisher, _StorageEventBase
@@ -216,9 +216,9 @@ class TaskLifecycleService(_StorageEventBase):
     def restart_task(self, task: Task | str) -> Task:
         """复制已结束的任务为新 pending 任务（重试）。
 
-        新任务完全继承源任务的 name（不再追加「-重试」后缀），并通过
-        ``retry_parent_task_id`` 记录直接前驱，保证重试链严格线性。
-        调用方（应用层）需确保当前任务没有直接重试子任务。
+        新任务继承**重试链根任务**的 name（同一重试链基础名一致，不再追加
+        「-重试」后缀），并通过 ``retry_parent_task_id`` 记录直接前驱，保证
+        重试链严格线性。调用方（应用层）需确保当前任务没有直接重试子任务。
         """
         resolved = self._resolve_task(task)
         if not can_retry(resolved.status):
@@ -228,7 +228,7 @@ class TaskLifecycleService(_StorageEventBase):
 
         new_task = Task(
             goal=resolved.goal,
-            name=resolved.name,
+            name=self._root_task_name(resolved),
             start_url=resolved.start_url,
             task_type=resolved.task_type,
             project_id=resolved.project_id,
@@ -249,6 +249,20 @@ class TaskLifecycleService(_StorageEventBase):
             task=_task_summary(new_task),
         )
         return new_task
+
+    def _root_task_name(self, task: Task) -> str:
+        """沿重试链回溯到根任务，返回根任务的基础名（链上名称统一）。
+
+        若链上父任务已被删除（如删除 pending 重试子任务导致链断裂），退化为
+        以当前任务名为基础名；`Task.__post_init__` 保证 name 恒非空。
+        """
+        current = task
+        while current.retry_parent_task_id:
+            try:
+                current = self.storage.load(current.retry_parent_task_id)
+            except TaskNotFoundError:
+                break
+        return normalize_task_name(current.name, current.task_id)
 
     def has_retry_child(self, task_id: str) -> bool:
         """当前任务是否已存在直接重试子任务。"""

@@ -134,6 +134,47 @@ def test_restart_without_name_uses_normalized_name(chain_lifecycle):
     assert b.retry_parent_task_id == a.task_id
 
 
+def test_restart_inherits_root_base_name_not_own(chain_lifecycle):
+    """重试任务继承根任务的基础名，而不是用自身 task_id 生成新名称。"""
+    lifecycle = chain_lifecycle
+    a = lifecycle.create_task(goal="目标")  # name 兜底为 a.task_id[-8:]
+    a = _fail_task(lifecycle, a)
+    b = lifecycle.restart_task(a)
+    assert b.task_id != a.task_id
+    assert b.name == a.task_id[-8:]  # 根 A 的基础名，而非 B 自身的 task_id 兜底
+
+
+def test_restart_uses_root_name_when_middle_renamed(chain_lifecycle):
+    """链上中间任务被改名后，继续重试仍取根任务名（链上名称统一）。"""
+    lifecycle = chain_lifecycle
+    a = lifecycle.create_task(goal="目标", name="根名称")
+    a = _fail_task(lifecycle, a)
+    b = lifecycle.restart_task(a)
+    b = _fail_task(lifecycle, b)
+    b.name = "手动改名"  # 模拟用户编辑中间任务
+    lifecycle.storage.save(b)
+
+    c = lifecycle.restart_task(b)
+    assert c.name == "根名称"  # 取根 A 的名，不是 B 的「手动改名」
+    assert c.retry_parent_task_id == b.task_id
+
+
+def test_restart_name_falls_back_when_parent_deleted(chain_lifecycle):
+    """中间父任务被删除导致链断裂时，重试退化为使用当前任务名。"""
+    lifecycle = chain_lifecycle
+    a = lifecycle.create_task(goal="目标", name="根名称")
+    a = _fail_task(lifecycle, a)
+    b = lifecycle.restart_task(a)
+    b = _fail_task(lifecycle, b)
+    c = lifecycle.restart_task(b)
+
+    lifecycle.storage.delete(b.task_id)  # 删除中间任务，C 的父链断裂
+    c = _fail_task(lifecycle, c)
+    d = lifecycle.restart_task(c)
+    assert d.name == "根名称"  # 回溯 C 时父 B 不存在 → 退化为 C 当前名（仍为根名）
+    assert d.retry_parent_task_id == c.task_id
+
+
 def test_has_retry_child(chain_lifecycle):
     lifecycle = chain_lifecycle
     a = lifecycle.create_task(goal="目标", name="任务")
