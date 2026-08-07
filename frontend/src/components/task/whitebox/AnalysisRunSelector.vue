@@ -2,8 +2,8 @@
   <div class="selector-bar">
     <span class="selector-label">分析执行</span>
     <el-select
-      :model-value="selectedId" size="small"
-      style="width: 260px" :disabled="loading" @update:model-value="$emit('select', $event as string)"
+      :model-value="selectedId" size="large"
+      style="width: 340px" :disabled="loading" @update:model-value="$emit('select', $event as string)"
     >
       <el-option
         v-for="run in runs" :key="run.analysisId"
@@ -58,7 +58,7 @@ function formatOption(run: AnalysisRunSummary): string {
 }
 
 .selector-label {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-faint, #6b7280);
   flex-shrink: 0;

@@ -81,18 +81,18 @@ const formattedTime = computed(() => {
 }
 
 .snap-label {
-  font-size: 12px;
+  font-size: 16px;
   color: var(--text-faint);
   font-weight: 600;
 }
 
 .snap-value {
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text-strong);
 }
 
 .snap-value.mono {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 12px;
+  font-size: 16px;
 }
 </style>

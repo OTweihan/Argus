@@ -2,7 +2,7 @@
   <div class="tasks-wrapper">
     <div v-if="view === 'task-detail'" class="task-detail-panel">
       <div class="report-bar">
-        <button class="tb-btn tb-back" @click="goBackToTasks">
+        <el-button size="large" class="tb-btn tb-back" @click="goBackToTasks">
           <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
             <path
               d="M10 4L6 8l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
@@ -10,10 +10,10 @@
             />
           </svg>
           返回任务列表
-        </button>
+        </el-button>
         <template v-if="selectedTask?.reportPath">
           <div class="tb-divider" />
-          <button class="tb-btn tb-action" @click="openHtmlReport">
+          <el-button size="large" class="tb-btn tb-action" @click="openHtmlReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
               <path
                 d="M2 4l6 4-6 4M8 12h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
@@ -21,8 +21,8 @@
               />
             </svg>
             查看 HTML 报告
-          </button>
-          <button class="tb-btn tb-action" @click="downloadHtmlReport">
+          </el-button>
+          <el-button size="large" class="tb-btn tb-action" @click="downloadHtmlReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
               <path
                 d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
@@ -30,8 +30,8 @@
               />
             </svg>
             下载 HTML 报告
-          </button>
-          <button class="tb-btn tb-action" @click="downloadJsonReport">
+          </el-button>
+          <el-button size="large" class="tb-btn tb-action" @click="downloadJsonReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
               <path
                 d="M5 7l-3 3 3 3M11 7l3 3-3 3M8.5 4l-1 8" stroke="currentColor" stroke-width="1.4"
@@ -39,7 +39,7 @@
               />
             </svg>
             下载 JSON 报告
-          </button>
+          </el-button>
         </template>
       </div>
       <div v-if="!selectedTask" class="empty">
@@ -84,7 +84,10 @@
           </div>
         </template>
         <div class="filter-bar">
-          <el-input v-model="taskSearchQuery" size="large" placeholder="搜索目标、任务 ID、URL" clearable class="search-input">
+          <el-input
+            v-model="taskSearchQuery" size="large" placeholder="搜索目标、任务 ID、URL" clearable
+            class="search-input"
+          >
             <template #prefix>
               <svg
                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
