@@ -39,8 +39,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { EndpointInfo } from "../../../api/task";
+import { useDebounceFn } from "../../../composables/useDebounceFn";
 import { httpMethodTag } from "../../../utils";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
@@ -54,9 +55,22 @@ const props = defineProps<{
 defineEmits<{ "load-more": [] }>();
 
 const filter = ref("");
+const appliedFilter = ref("");
+const commitFilter = useDebounceFn((value: string) => {
+  appliedFilter.value = value;
+}, 220);
+
+watch(filter, (value) => {
+  if (!value.trim()) {
+    commitFilter.cancel();
+    appliedFilter.value = "";
+    return;
+  }
+  commitFilter(value);
+});
 
 const filteredItems = computed(() => {
-  const q = filter.value.trim().toLowerCase();
+  const q = appliedFilter.value.trim().toLowerCase();
   if (!q) return props.items;
   return props.items.filter(
     (e) =>

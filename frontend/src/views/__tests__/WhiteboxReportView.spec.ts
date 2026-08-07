@@ -78,6 +78,9 @@ const WHITEBOX_CHILD_STUBS = {
   ClusterList: true,
   FindingList: true,
   CorrelationTab: true,
+  ElBacktop: {
+    template: '<div class="backtop-stub"><slot /></div>',
+  },
 };
 
 async function mountView(taskId: string) {
@@ -129,6 +132,21 @@ describe("WhiteboxReportView", () => {
     ]);
     const wrapper = await mountView("t-1");
     expect(wrapper.text()).toContain("关联证据");
+  });
+
+  it("长内容页签显示返回顶部入口", async () => {
+    mockRuns();
+    (corrApi.listCorrelationRunsByTask as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const wrapper = await mountView("t-1");
+
+    expect(wrapper.find(".backtop-stub").exists()).toBe(false);
+    const endpointTab = wrapper
+      .findAll(".el-tabs__item")
+      .find((item) => item.text().includes("端点"));
+    expect(endpointTab).toBeDefined();
+    await endpointTab!.trigger("click");
+
+    expect(wrapper.find(".backtop-stub").text()).toContain("返回顶部");
   });
 
   it("切换 run 时刷新 summary", async () => {

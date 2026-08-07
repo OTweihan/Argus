@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 const MIN_NODE_MAJOR = 20;
 const STARTUP_TIMEOUT_MS = 60_000;
 const GRACEFUL_SHUTDOWN_MS = 5_000;
+const FRONTEND_SHUTDOWN_MS = 1_500;
 const isWindows = process.platform === "win32";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
@@ -483,7 +484,28 @@ async function shutdown(exitCode, reason) {
   shuttingDown = true;
   shutdownPromise = (async () => {
     print(`\n${reason}`, exitCode === 0 || exitCode === 130 ? DIM_COLOR : ERROR_COLOR);
-    for (const record of children) {
+
+    // Vite 代理着浏览器到 Python 的 WebSocket。若先关闭 Python，仍在运行的
+    // Vite 会把预期的上游断连记录为 ws proxy ECONNRESET。先停止前端并等待
+    // 代理退出，再关闭后端服务，避免正常关停产生误导性的错误日志。
+    const frontendRecords = children.filter((record) => record.definition.name === "frontend");
+    const backendRecords = children.filter((record) => record.definition.name !== "frontend");
+    for (const record of frontendRecords) {
+      signalProcessTree(record, false);
+    }
+    await Promise.race([
+      Promise.allSettled(frontendRecords.map((record) => record.exitPromise)),
+      delay(FRONTEND_SHUTDOWN_MS),
+    ]);
+    for (const record of frontendRecords) {
+      signalProcessTree(record, true);
+    }
+    await Promise.race([
+      Promise.allSettled(frontendRecords.map((record) => record.exitPromise)),
+      delay(500),
+    ]);
+
+    for (const record of backendRecords) {
       signalProcessTree(record, false);
     }
 

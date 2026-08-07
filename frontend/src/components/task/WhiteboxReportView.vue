@@ -57,7 +57,7 @@
             @load-more="loadMoreFlows"
           />
         </el-tab-pane>
-        <el-tab-pane lazy label="诊断" name="diagnostics">
+        <el-tab-pane lazy label="诊断" name="diagnostics" class="diagnostics-pane">
           <DiagnosticsPanel :diagnostics="diagnostics" />
         </el-tab-pane>
         <el-tab-pane lazy label="聚类" name="clusters">
@@ -82,13 +82,30 @@
           <CorrelationTab :correlation-run-id="correlationRunId" />
         </el-tab-pane>
       </el-tabs>
+
+      <el-backtop
+        v-if="showBackTop"
+        target=".wb-report"
+        :visibility-height="180"
+        :right="28"
+        :bottom="24"
+        class="report-backtop"
+        aria-label="返回报告顶部"
+      >
+        <span class="backtop-content">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M3.5 9.5 8 5l4.5 4.5" />
+          </svg>
+          返回顶部
+        </span>
+      </el-backtop>
     </template>
     <el-empty v-else description="暂无分析执行数据，请先启动白盒任务" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type {
   AnalysisRunSummary,
   CallEdgeInfo,
@@ -133,6 +150,8 @@ const loading = ref(false);
 const error = ref("");
 const subTab = ref("overview");
 const correlationRunId = ref<string | null>(null);
+const SCROLLABLE_TABS = new Set(["endpoints", "callgraph", "flows", "clusters", "findings", "correlation"]);
+const showBackTop = computed(() => SCROLLABLE_TABS.has(subTab.value));
 
 // 初始化：加载历史列表 + 默认选择最新 + 检查关联
 (async () => {
@@ -433,6 +452,8 @@ watch(subTab, (tab) => {
 <style scoped>
 .wb-report {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow-y: auto;
   padding: 8px 18px 8px 18px;
@@ -444,6 +465,7 @@ watch(subTab, (tab) => {
 .report-hero {
   position: relative;
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
@@ -502,13 +524,18 @@ watch(subTab, (tab) => {
 
 .report-summary {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.8fr);
   gap: 12px;
   margin: 14px 0;
 }
 
 .report-tabs {
-  padding: 0 16px 16px;
+  display: flex;
+  flex: 1 0 auto;
+  min-height: 300px;
+  padding: 0 16px 8px;
+  flex-direction: column;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
   background: var(--surface-glass-strong);
@@ -516,11 +543,25 @@ watch(subTab, (tab) => {
 }
 
 .report-tabs :deep(.el-tabs__header) {
+  flex: 0 0 auto;
   margin: 0 -16px 16px;
   padding: 0 16px;
   border-bottom: 1px solid var(--line-soft);
   background: rgba(248, 250, 252, 0.78);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.report-tabs :deep(.el-tabs__content) {
+  flex: 1;
+}
+
+.report-tabs :deep(.el-tab-pane) {
+  min-height: 100%;
+  animation: report-pane-enter 180ms ease-out;
+}
+
+.report-tabs :deep(.diagnostics-pane) {
+  height: 100%;
 }
 
 .report-tabs :deep(.el-tabs__item) {
@@ -565,6 +606,54 @@ watch(subTab, (tab) => {
   box-shadow:
     0 0 0 1px var(--brand-500) inset,
     var(--shadow-ring);
+}
+
+.report-backtop {
+  width: 94px;
+  height: 40px;
+  color: var(--brand-700);
+  border: 1px solid rgba(10, 186, 181, 0.28);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px -12px rgba(8, 123, 120, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.report-backtop:hover {
+  color: #fff;
+  border-color: transparent;
+  background: var(--brand-700);
+  transform: translateY(-2px);
+}
+
+.backtop-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.backtop-content svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes report-pane-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 960px) {

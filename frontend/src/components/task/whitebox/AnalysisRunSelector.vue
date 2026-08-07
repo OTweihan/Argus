@@ -59,19 +59,26 @@ function formatOption(run: AnalysisRunSummary): string {
   display: flex;
   align-items: flex-start;
   flex-direction: column;
-  gap: 7px;
-  min-width: min(360px, 100%);
+  align-self: center;
+  gap: 8px;
+  min-width: min(390px, 100%);
+  padding: 12px 14px;
+  border: 1px solid rgba(10, 186, 181, 0.16);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 8px 24px -22px rgba(8, 123, 120, 0.7);
 }
 
 .selector-label {
+  line-height: 1.2;
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-muted, #4b5563);
+  color: var(--text-strong, #111827);
   flex-shrink: 0;
 }
 
 .run-select {
-  width: 360px;
+  width: 362px;
   max-width: 100%;
 }
 
@@ -98,6 +105,10 @@ function formatOption(run: AnalysisRunSummary): string {
   .run-select {
     width: 100%;
     min-width: 0;
+  }
+
+  .selector-bar {
+    padding: 11px 12px;
   }
 }
 </style>

@@ -98,8 +98,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { CallEdgeInfo, CallNodeInfo } from "../../../api/task";
+import { useDebounceFn } from "../../../composables/useDebounceFn";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{
@@ -119,12 +120,28 @@ const emit = defineEmits<{
 
 const classFilter = ref("");
 const methodFilter = ref("");
+const appliedClassFilter = ref("");
+const appliedMethodFilter = ref("");
+const commitFilters = useDebounceFn((classValue: string, methodValue: string) => {
+  appliedClassFilter.value = classValue;
+  appliedMethodFilter.value = methodValue;
+}, 220);
+
+watch([classFilter, methodFilter], ([classValue, methodValue]) => {
+  if (!classValue.trim() && !methodValue.trim()) {
+    commitFilters.cancel();
+    appliedClassFilter.value = "";
+    appliedMethodFilter.value = "";
+    return;
+  }
+  commitFilters(classValue, methodValue);
+});
 
 const expandedRowKeys = computed(() => (props.selectedNodeId ? [props.selectedNodeId] : []));
 
 const filteredItems = computed(() => {
-  const cq = classFilter.value.trim().toLowerCase();
-  const mq = methodFilter.value.trim().toLowerCase();
+  const cq = appliedClassFilter.value.trim().toLowerCase();
+  const mq = appliedMethodFilter.value.trim().toLowerCase();
   if (!cq && !mq) return props.items;
   return props.items.filter((n) => {
     if (cq && !n.className.toLowerCase().includes(cq)) return false;

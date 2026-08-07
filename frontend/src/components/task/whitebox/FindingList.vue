@@ -2,13 +2,19 @@
   <div class="finding-list">
     <div class="list-header">
       <span v-if="total !== null" class="total"> 共 {{ total }} 个发现项 </span>
+      <span class="sort-indicator" aria-label="按严重程度从高到低排序">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5 3v10m0 0-2.5-2.5M5 13l2.5-2.5M10 4h3M10 8h2M10 12h1" />
+        </svg>
+        严重程度：高 → 中 → 低
+      </span>
     </div>
 
     <div v-if="loading && !items.length" v-loading="loading" class="skeleton" />
 
     <template v-if="items.length">
       <article
-        v-for="f in items"
+        v-for="f in sortedItems"
         :key="f.findingId"
         :class="['finding-item', 'sev-' + f.severity.toLowerCase()]"
       >
@@ -56,10 +62,11 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import type { FindingInfo } from "../../../api/task";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
-defineProps<{
+const props = defineProps<{
   items: FindingInfo[];
   total: number | null;
   hasMore: boolean;
@@ -69,6 +76,22 @@ defineProps<{
 defineEmits<{
   (e: "load-more"): void;
 }>();
+
+const SEVERITY_ORDER: Readonly<Record<string, number>> = Object.freeze({
+  CRITICAL: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+  INFO: 4,
+});
+
+const sortedItems = computed(() =>
+  [...props.items].sort(
+    (left, right) =>
+      (SEVERITY_ORDER[left.severity.toUpperCase()] ?? Number.MAX_SAFE_INTEGER) -
+      (SEVERITY_ORDER[right.severity.toUpperCase()] ?? Number.MAX_SAFE_INTEGER),
+  ),
+);
 </script>
 
 <style scoped>
@@ -79,12 +102,38 @@ defineEmits<{
 .list-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
 .total {
   font-size: 13px;
   color: var(--text-faint);
+}
+
+.sort-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--brand-200);
+  border-radius: var(--radius-pill);
+  color: var(--brand-700);
+  background: var(--brand-50);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sort-indicator svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .finding-item {
@@ -247,6 +296,11 @@ code {
 }
 
 @media (max-width: 720px) {
+  .list-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .finding-meta {
     grid-template-columns: 1fr;
   }
