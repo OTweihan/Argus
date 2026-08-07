@@ -7,6 +7,8 @@ import {
   phaseColor,
   phaseLabel,
   prettyTimelineJson,
+  whiteboxLogLevel,
+  whiteboxLogStage,
 } from "../timelineFormat";
 
 describe("timeline formatting", () => {
@@ -14,7 +16,38 @@ describe("timeline formatting", () => {
     expect(phaseLabel("planner")).toBe("规划器");
     expect(phaseLabel("custom")).toBe("custom");
     expect(eventTypeLabel("complete")).toBe("完成");
+    expect(eventTypeLabel("whitebox_succeeded")).toBe("分析完成");
+    expect(phaseLabel("whitebox")).toBe("白盒分析");
     expect(phaseColor("custom")).toBe("#909399");
+  });
+
+  it("formats whitebox analyzer events as build log entries", () => {
+    const base = {
+      eventId: "e1",
+      taskId: "t1",
+      phase: "whitebox",
+      stepNumber: 0,
+      summary: "Executing Maven classpath command",
+      createdAt: "2026-08-07T00:00:00Z",
+    };
+
+    expect(
+      whiteboxLogStage({
+        ...base,
+        eventType: "whitebox_progress",
+        data: { stage: "classpath", level: "INFO" },
+      }),
+    ).toBe("MAVEN");
+    expect(
+      whiteboxLogLevel({
+        ...base,
+        eventType: "whitebox_progress",
+        data: { stage: "classpath", level: "ERROR" },
+      }),
+    ).toBe("ERROR");
+    expect(whiteboxLogLevel({ ...base, eventType: "whitebox_succeeded", data: {} })).toBe(
+      "SUCCESS",
+    );
   });
 
   it("validates timeline event shape and serializes data", () => {

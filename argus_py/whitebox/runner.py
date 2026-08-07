@@ -540,6 +540,7 @@ class WhiteboxRunner:
                     summary=evt.message,
                     data={
                         "stage": evt.stage,
+                        "level": evt.level,
                         "sequence": evt.sequence,
                         "eventId": evt.event_id,
                     },

@@ -70,11 +70,12 @@
               :task-id="selectedTask.taskId"
             />
           </el-tab-pane>
-          <el-tab-pane lazy label="执行时间线" name="timeline">
+          <el-tab-pane lazy :label="isWhitebox ? '分析日志' : '执行时间线'" name="timeline">
             <TaskTimeline
               :key="selectedTask.taskId"
               :task-id="selectedTask.taskId"
               :on-task-event="onTaskEvent"
+              :variant="isWhitebox ? 'whitebox-log' : 'timeline'"
             />
           </el-tab-pane>
           <el-tab-pane v-if="!isWhitebox" lazy label="LLM 调试" name="llm-debug">

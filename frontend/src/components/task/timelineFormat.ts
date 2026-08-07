@@ -7,6 +7,7 @@ const PHASE_COLORS: Record<string, string> = {
   executor: "#6b8a9e",
   evaluator: "#ef4444",
   report: "#0abab5",
+  whitebox: "#8b5cf6",
 };
 
 const PHASE_LABELS: Record<string, string> = {
@@ -16,6 +17,7 @@ const PHASE_LABELS: Record<string, string> = {
   executor: "执行器",
   evaluator: "评估器",
   report: "报告",
+  whitebox: "白盒分析",
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
@@ -30,6 +32,36 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   report: "报告生成",
   complete: "完成",
   fail: "失败",
+  whitebox_source_resolved: "源码已准备",
+  whitebox_source_validated: "源码校验通过",
+  whitebox_submitted: "分析作业已提交",
+  whitebox_progress: "分析进度",
+  whitebox_succeeded: "分析完成",
+  whitebox_failed: "分析失败",
+  whitebox_cancelled: "分析已取消",
+  whitebox_timed_out: "分析超时",
+  whitebox_interrupted: "分析已中断",
+};
+
+export type WhiteboxLogLevel = "INFO" | "SUCCESS" | "WARN" | "ERROR";
+
+const WHITEBOX_STAGE_LABELS: Record<string, string> = {
+  source: "SOURCE",
+  job: "JOB",
+  classpath: "MAVEN",
+  cache: "CACHE",
+  analyzer: "ANALYZER",
+};
+
+const WHITEBOX_EVENT_STAGES: Record<string, string> = {
+  whitebox_source_resolved: "source",
+  whitebox_source_validated: "source",
+  whitebox_submitted: "job",
+  whitebox_succeeded: "analyzer",
+  whitebox_failed: "analyzer",
+  whitebox_cancelled: "analyzer",
+  whitebox_timed_out: "analyzer",
+  whitebox_interrupted: "analyzer",
 };
 
 export function phaseColor(phase: string): string {
@@ -42,6 +74,32 @@ export function phaseLabel(phase: string): string {
 
 export function eventTypeLabel(eventType: string): string {
   return EVENT_TYPE_LABELS[eventType] || eventType;
+}
+
+export function whiteboxLogLevel(event: TimelineEvent): WhiteboxLogLevel {
+  const remoteLevel = event.data?.level;
+  if (typeof remoteLevel === "string") {
+    const normalized = remoteLevel.toUpperCase();
+    if (normalized === "ERROR") return "ERROR";
+    if (normalized === "WARN" || normalized === "WARNING") return "WARN";
+  }
+  if (event.eventType === "whitebox_succeeded") return "SUCCESS";
+  if (event.eventType === "whitebox_cancelled" || event.eventType === "whitebox_interrupted") {
+    return "WARN";
+  }
+  if (event.eventType === "whitebox_failed" || event.eventType === "whitebox_timed_out") {
+    return "ERROR";
+  }
+  return "INFO";
+}
+
+export function whiteboxLogStage(event: TimelineEvent): string {
+  const remoteStage = event.data?.stage;
+  const stage =
+    typeof remoteStage === "string" && remoteStage
+      ? remoteStage
+      : (WHITEBOX_EVENT_STAGES[event.eventType] ?? event.phase);
+  return WHITEBOX_STAGE_LABELS[stage] ?? stage.toUpperCase();
 }
 
 export function hasTimelineData(data: Record<string, unknown>): boolean {
