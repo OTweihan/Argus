@@ -13,7 +13,8 @@ export function compact(value: string, length: number): string {
 }
 
 export function taskDisplayStatus(task: Task): TaskDisplayStatus {
-  if (task.status === "pending" && task.schedulerStatus) return task.schedulerStatus as SchedulerStatus;
+  if (task.status === "pending" && task.schedulerStatus)
+    return task.schedulerStatus as SchedulerStatus;
   return task.status;
 }
 
@@ -55,12 +56,17 @@ export type HttpMethodTagType = "success" | "info" | "danger" | "warning" | "pri
 
 export function httpMethodTag(method: string): HttpMethodTagType {
   switch (method.toUpperCase()) {
-    case "GET": return "success";
-    case "POST": return "primary";
+    case "GET":
+      return "success";
+    case "POST":
+      return "primary";
     case "PUT":
-    case "PATCH": return "warning";
-    case "DELETE": return "danger";
-    default: return "info";
+    case "PATCH":
+      return "warning";
+    case "DELETE":
+      return "danger";
+    default:
+      return "info";
   }
 }
 

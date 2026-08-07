@@ -1,0 +1,10 @@
+# 自动生成文件，禁止 prettier 改写：
+# - openapi.gen.ts 由 scripts/codegen.mjs 的 openapi-typescript 直接输出（无格式化步骤），
+#   格式化后会使 pnpm codegen:check（git diff --exit-code）失败。
+# - components.d.ts 由 unplugin-vue-components 自动生成。
+# - pnpm-lock.yaml 有严格格式约束，prettier 重排会使 pnpm 认为锁文件不一致。
+node_modules/
+dist/
+src/api/openapi.gen.ts
+src/components.d.ts
+pnpm-lock.yaml

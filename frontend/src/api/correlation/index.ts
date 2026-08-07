@@ -52,7 +52,9 @@ export interface CorrelationAttemptInfo {
   createdAt: string;
 }
 
-export function listAttempts(runId: string): Promise<{ items: CorrelationAttemptInfo[]; total: number }> {
+export function listAttempts(
+  runId: string,
+): Promise<{ items: CorrelationAttemptInfo[]; total: number }> {
   return request<{ items: CorrelationAttemptInfo[]; total: number }>(
     `/correlation-runs/${encodeURIComponent(runId)}/attempts`,
   );
@@ -95,9 +97,7 @@ export interface CorrelationSummaryInfo {
 }
 
 export function getCorrelationSummary(runId: string): Promise<CorrelationSummaryInfo> {
-  return request<CorrelationSummaryInfo>(
-    `/correlation-runs/${encodeURIComponent(runId)}/summary`,
-  );
+  return request<CorrelationSummaryInfo>(`/correlation-runs/${encodeURIComponent(runId)}/summary`);
 }
 
 // ── 端点证据 ──
@@ -290,26 +290,19 @@ export function bindAnalysis(
   sourceMismatchOverride = false,
   sourceMismatchOverrideReason?: string,
 ): Promise<void> {
-  return request<void>(
-    `/correlation-runs/${encodeURIComponent(runId)}/bind-analysis`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        analysisId,
-        expectedProjectionVersion: expectedProjectionVersion ?? null,
-        sourceMismatchOverride,
-        sourceMismatchOverrideReason: sourceMismatchOverrideReason ?? null,
-      }),
-    },
-  );
+  return request<void>(`/correlation-runs/${encodeURIComponent(runId)}/bind-analysis`, {
+    method: "POST",
+    body: JSON.stringify({
+      analysisId,
+      expectedProjectionVersion: expectedProjectionVersion ?? null,
+      sourceMismatchOverride,
+      sourceMismatchOverrideReason: sourceMismatchOverrideReason ?? null,
+    }),
+  });
 }
 
 // ── 任务级查询 ──
 
-export function listCorrelationRunsByTask(
-  taskId: string,
-): Promise<CorrelationRunInfo[]> {
-  return request<CorrelationRunInfo[]>(
-    `/correlation-runs?taskId=${encodeURIComponent(taskId)}`,
-  );
+export function listCorrelationRunsByTask(taskId: string): Promise<CorrelationRunInfo[]> {
+  return request<CorrelationRunInfo[]>(`/correlation-runs?taskId=${encodeURIComponent(taskId)}`);
 }

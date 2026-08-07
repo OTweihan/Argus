@@ -30,11 +30,21 @@ function reportGlobalError(
 }
 
 window.onerror = (_message, _source, _lineno, _colno, error) => {
-  reportGlobalError("[window.onerror]", "运行时错误", "发生未知脚本错误，请刷新页面后重试。", error);
+  reportGlobalError(
+    "[window.onerror]",
+    "运行时错误",
+    "发生未知脚本错误，请刷新页面后重试。",
+    error,
+  );
 };
 
 window.addEventListener("unhandledrejection", (event) => {
-  reportGlobalError("[unhandledrejection]", "未处理的 Promise 拒绝", "请求处理异常，请稍后重试。", event.reason);
+  reportGlobalError(
+    "[unhandledrejection]",
+    "未处理的 Promise 拒绝",
+    "请求处理异常，请稍后重试。",
+    event.reason,
+  );
 });
 
 // ── 应用启动 ────────────────────────────────────────────────────
@@ -42,7 +52,12 @@ window.addEventListener("unhandledrejection", (event) => {
 const app = createApp(App);
 
 app.config.errorHandler = (err, _instance, info) => {
-  reportGlobalError(`[Vue errorHandler] ${info}`, "页面渲染异常", "页面渲染异常，请刷新页面后重试。", err);
+  reportGlobalError(
+    `[Vue errorHandler] ${info}`,
+    "页面渲染异常",
+    "页面渲染异常，请刷新页面后重试。",
+    err,
+  );
 };
 
 // 模板使用的 v-loading 指令需要显式注册，不再依赖 use(ElementPlus) 全量注册

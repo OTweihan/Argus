@@ -1,19 +1,13 @@
 <template>
   <div class="cluster-list">
     <div class="list-header">
-      <span v-if="total !== null" class="total">
-        共 {{ total }} 个聚类
-      </span>
+      <span v-if="total !== null" class="total"> 共 {{ total }} 个聚类 </span>
     </div>
 
     <div v-if="loading && !items.length" v-loading="loading" class="skeleton" />
 
     <template v-if="items.length">
-      <details
-        v-for="c in items"
-        :key="c.clusterId"
-        class="cluster-item"
-      >
+      <details v-for="c in items" :key="c.clusterId" class="cluster-item">
         <summary class="cluster-summary">
           <strong>{{ c.suggestedLabel || "(未命名)" }}</strong>
           <span class="badge">{{ c.memberCount }} members</span>
@@ -69,7 +63,9 @@ defineEmits<{
   border-radius: var(--radius-md);
   margin-bottom: 10px;
   background: var(--surface-glass-strong);
-  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    box-shadow var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .cluster-item[open] {

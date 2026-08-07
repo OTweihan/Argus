@@ -9,7 +9,9 @@
             placeholder="全部阶段"
             clearable
             style="width: 130px"
-            @update:model-value="(v: string) => emit('update:phaseFilter', (v ?? '') as TracePhaseFilter)"
+            @update:model-value="
+              (v: string) => emit('update:phaseFilter', (v ?? '') as TracePhaseFilter)
+            "
             @change="emit('filterChange')"
           >
             <el-option label="全部阶段" value="" />
@@ -19,14 +21,21 @@
           <el-checkbox
             :model-value="hideStarted"
             label="隐藏 started"
-            @update:model-value="(v: string | number | boolean) => emit('update:hideStarted', Boolean(v))"
+            @update:model-value="
+              (v: string | number | boolean) => emit('update:hideStarted', Boolean(v))
+            "
             @change="emit('filterChange')"
           />
         </div>
         <span class="dbg-count">
           <svg viewBox="0 0 16 16" fill="none" width="12" height="12">
             <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" />
-            <path d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+            <path
+              d="M8 5v3.5M8 11v.5"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+            />
           </svg>
           {{ traces.length }} 条追踪
         </span>
@@ -34,7 +43,13 @@
       <div class="dbg-toolbar-right">
         <button class="dbg-dl-btn" @click="emit('download')">
           <svg viewBox="0 0 16 16" fill="none" width="13" height="13">
-            <path d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+            <path
+              d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           下载调试包
         </button>
@@ -58,7 +73,7 @@
             <span class="dbg-phase-pill">{{ trace.phase }}</span>
           </div>
           <div class="dbg-item-body">
-            <span class="dbg-model">{{ trace.model || '-' }}</span>
+            <span class="dbg-model">{{ trace.model || "-" }}</span>
             <span v-if="trace.latencyMs != null && trace.latencyMs > 0" class="dbg-latency">
               {{ (trace.latencyMs / 1000).toFixed(1) }}s
             </span>
@@ -72,7 +87,12 @@
       <div v-if="loadError" class="dbg-alert dbg-alert-error">
         <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
           <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" />
-          <path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          <path
+            d="M10 6v4.5M10 13v.5"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
         </svg>
         <span>{{ loadError }}</span>
       </div>
@@ -221,10 +241,18 @@ const emit = defineEmits<{
   flex-shrink: 0;
 }
 
-.ind-success { background: linear-gradient(180deg, #10b981 0%, #059669 100%); }
-.ind-danger { background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%); }
-.ind-warning { background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%); }
-.ind-info { background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%); }
+.ind-success {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+}
+.ind-danger {
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+}
+.ind-warning {
+  background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+}
+.ind-info {
+  background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+}
 
 .dbg-item-content {
   flex: 1;

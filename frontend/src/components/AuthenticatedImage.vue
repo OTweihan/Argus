@@ -8,7 +8,7 @@
     :alt="alt"
     :loading="lazy ? 'lazy' : 'eager'"
     @click="$emit('click', $event)"
-  >
+  />
 </template>
 
 <script setup lang="ts">
@@ -33,22 +33,26 @@ function release(): void {
   objectUrl.value = "";
 }
 
-watch(() => props.path, async (path) => {
-  const current = ++generation;
-  release();
-  error.value = "";
-  if (!path) return;
-  loading.value = true;
-  try {
-    const next = await loadObjectUrl(path);
-    if (current !== generation) URL.revokeObjectURL(next);
-    else objectUrl.value = next;
-  } catch (caught) {
-    if (current === generation) error.value = errorMessage(caught);
-  } finally {
-    if (current === generation) loading.value = false;
-  }
-}, { immediate: true });
+watch(
+  () => props.path,
+  async (path) => {
+    const current = ++generation;
+    release();
+    error.value = "";
+    if (!path) return;
+    loading.value = true;
+    try {
+      const next = await loadObjectUrl(path);
+      if (current !== generation) URL.revokeObjectURL(next);
+      else objectUrl.value = next;
+    } catch (caught) {
+      if (current === generation) error.value = errorMessage(caught);
+    } finally {
+      if (current === generation) loading.value = false;
+    }
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   generation += 1;
@@ -65,5 +69,7 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.authenticated-image-error { color: var(--danger, #b42318); }
+.authenticated-image-error {
+  color: var(--danger, #b42318);
+}
 </style>

@@ -1,33 +1,31 @@
 <template>
   <el-dialog
-    :model-value="visible" :title="editing ? '编辑任务' : '创建任务'"
-    width="800px" align-center append-to-body :close-on-click-modal="false" :close-on-press-escape="false"
+    :model-value="visible"
+    :title="editing ? '编辑任务' : '创建任务'"
+    width="800px"
+    align-center
+    append-to-body
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
     @update:model-value="$emit('close')"
   >
     <el-form :model="localForm" label-position="top" @submit.prevent="$emit('save')">
       <!-- 任务类型 -->
       <el-form-item label="任务类型" required>
-        <el-radio-group
-          v-model="localForm.taskType"
-          :disabled="editing"
-        >
-          <el-radio-button value="blackbox">
-            黑盒测试
-          </el-radio-button>
-          <el-radio-button value="whitebox">
-            白盒分析
-          </el-radio-button>
+        <el-radio-group v-model="localForm.taskType" :disabled="editing">
+          <el-radio-button value="blackbox"> 黑盒测试 </el-radio-button>
+          <el-radio-button value="whitebox"> 白盒分析 </el-radio-button>
         </el-radio-group>
-        <div v-if="editing" class="form-hint">
-          编辑已有任务时不可切换任务类型
-        </div>
+        <div v-if="editing" class="form-hint">编辑已有任务时不可切换任务类型</div>
       </el-form-item>
 
       <!-- 公共字段 -->
       <el-form-item label="项目" required>
-        <el-select v-model="localForm.projectId" style="width:100%">
+        <el-select v-model="localForm.projectId" style="width: 100%">
           <el-option
-            v-for="project in projects" :key="project.projectId" :label="project.name"
+            v-for="project in projects"
+            :key="project.projectId"
+            :label="project.name"
             :value="project.projectId"
           />
         </el-select>
@@ -35,7 +33,11 @@
       <el-form-item label="任务名称">
         <el-input v-model="localForm.name" maxlength="50" show-word-limit />
         <div class="form-hint">
-          {{ editing ? "清空后保存将使用任务 ID 后八位作为任务名" : "不填写时自动使用任务 ID 后八位作为任务名" }}
+          {{
+            editing
+              ? "清空后保存将使用任务 ID 后八位作为任务名"
+              : "不填写时自动使用任务 ID 后八位作为任务名"
+          }}
         </div>
       </el-form-item>
       <!--
@@ -46,7 +48,11 @@
       -->
       <el-form-item label="目标" :error="formErrors.goal" required>
         <el-input
-          v-model="localForm.goal" type="textarea" :rows="4" maxlength="200" show-word-limit
+          v-model="localForm.goal"
+          type="textarea"
+          :rows="4"
+          maxlength="200"
+          show-word-limit
           :disabled="localForm.taskType === 'whitebox'"
           @input="clearError('goal')"
         />
@@ -59,7 +65,8 @@
       <template v-if="localForm.taskType === 'blackbox'">
         <el-form-item label="起始 URL" :error="formErrors.startUrl" required>
           <el-input
-            v-model="localForm.blackbox.startUrl" placeholder="https://example.com"
+            v-model="localForm.blackbox.startUrl"
+            placeholder="https://example.com"
             @input="clearError('startUrl')"
           />
         </el-form-item>
@@ -67,32 +74,40 @@
           <el-col :span="12">
             <el-form-item label="最大步骤">
               <el-input-number
-                v-model="localForm.blackbox.maxSteps" :min="1" :step="1" :precision="0"
-                style="width:100%"
+                v-model="localForm.blackbox.maxSteps"
+                :min="1"
+                :step="1"
+                :precision="0"
+                style="width: 100%"
               />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="超时秒数">
               <el-input-number
-                v-model="localForm.blackbox.timeoutSeconds" :min="1" :step="1" :precision="0"
-                style="width:100%"
+                v-model="localForm.blackbox.timeoutSeconds"
+                :min="1"
+                :step="1"
+                :precision="0"
+                style="width: 100%"
               />
             </el-form-item>
           </el-col>
         </el-row>
         <el-form-item label="截图">
-          <el-select v-model="localForm.blackbox.captureScreenshots" style="width:100%">
+          <el-select v-model="localForm.blackbox.captureScreenshots" style="width: 100%">
             <el-option label="使用项目默认" :value="SENTINEL_DEFAULT" />
             <el-option label="开启" value="true" />
             <el-option label="关闭" value="false" />
           </el-select>
         </el-form-item>
         <el-form-item label="模型配置">
-          <el-select v-model="localForm.modelConfigId" style="width:100%">
+          <el-select v-model="localForm.modelConfigId" style="width: 100%">
             <el-option label="默认模型" :value="SENTINEL_DEFAULT" />
             <el-option
-              v-for="model in enabledModels" :key="model.modelConfigId" :label="model.name"
+              v-for="model in enabledModels"
+              :key="model.modelConfigId"
+              :label="model.name"
               :value="model.modelConfigId"
             />
           </el-select>
@@ -101,7 +116,13 @@
           <el-collapse-item name="prompt">
             <template #title>
               <span class="prompt-collapse-title">Prompt 业务扩展</span>
-              <el-tag v-if="hasExt" size="small" type="success" effect="plain" class="prompt-collapse-tag">
+              <el-tag
+                v-if="hasExt"
+                size="small"
+                type="success"
+                effect="plain"
+                class="prompt-collapse-tag"
+              >
                 已配置
               </el-tag>
               <el-tag v-else size="small" type="info" effect="plain" class="prompt-collapse-tag">
@@ -118,9 +139,15 @@
         </el-collapse>
         <el-form-item label="参数" :error="formErrors.taskParameters">
           <div class="param-list">
-            <div v-for="(entry, index) in localForm.blackbox.parameters" :key="index" class="param-row">
+            <div
+              v-for="(entry, index) in localForm.blackbox.parameters"
+              :key="index"
+              class="param-row"
+            >
               <el-input
-                v-model="entry.key" placeholder="键名" class="param-key"
+                v-model="entry.key"
+                placeholder="键名"
+                class="param-key"
                 @input="clearError('taskParameters')"
               />
               <el-input v-model="entry.value" placeholder="值（字符串）" class="param-value" />
@@ -143,39 +170,34 @@
           存档，不会通过 llm/resolver 解析。白盒下置灰不可选，预留未来模型化分析。
         -->
         <el-form-item label="模型配置">
-          <el-select v-model="localForm.modelConfigId" style="width:100%" disabled>
+          <el-select v-model="localForm.modelConfigId" style="width: 100%" disabled>
             <el-option label="默认模型" :value="SENTINEL_DEFAULT" />
             <el-option
-              v-for="model in enabledModels" :key="model.modelConfigId" :label="model.name"
+              v-for="model in enabledModels"
+              :key="model.modelConfigId"
+              :label="model.name"
               :value="model.modelConfigId"
             />
           </el-select>
         </el-form-item>
 
-        <el-divider content-position="left">
-          源码配置
-        </el-divider>
+        <el-divider content-position="left"> 源码配置 </el-divider>
 
         <el-form-item label="源码来源" required>
           <el-radio-group v-model="localForm.whitebox.sourceType">
-            <el-radio-button value="local">
-              服务端可见目录
-            </el-radio-button>
-            <el-radio-button value="git">
-              Git 仓库
-            </el-radio-button>
+            <el-radio-button value="local"> 服务端可见目录 </el-radio-button>
+            <el-radio-button value="git"> Git 仓库 </el-radio-button>
           </el-radio-group>
         </el-form-item>
 
         <template v-if="localForm.whitebox.sourceType === 'local'">
           <el-form-item label="服务端路径" :error="formErrors.sourcePath" required>
             <el-input
-              v-model="localForm.whitebox.sourcePath" placeholder="/opt/workspaces/project-a"
+              v-model="localForm.whitebox.sourcePath"
+              placeholder="/opt/workspaces/project-a"
               @input="clearError('sourcePath')"
             />
-            <div class="form-hint">
-              输入服务端可见的源码目录路径
-            </div>
+            <div class="form-hint">输入服务端可见的源码目录路径</div>
           </el-form-item>
         </template>
 
@@ -186,9 +208,7 @@
               placeholder="https://github.com/user/repo.git"
               @input="clearError('repoUrl')"
             />
-            <div class="form-hint">
-              凭据由部署环境管理，请勿写入 URL
-            </div>
+            <div class="form-hint">凭据由部署环境管理，请勿写入 URL</div>
           </el-form-item>
           <el-form-item label="分支 / Tag / Commit">
             <el-input v-model="localForm.whitebox.ref" placeholder="main（可选）" />
@@ -196,7 +216,7 @@
         </template>
 
         <el-form-item label="分析范围" required>
-          <el-select v-model="localForm.whitebox.scope" style="width:100%">
+          <el-select v-model="localForm.whitebox.scope" style="width: 100%">
             <el-option label="全量分析" value="all" />
             <el-option label="指定模块" value="modules" />
             <el-option label="仅端点提取" value="endpoints" />
@@ -208,27 +228,33 @@
 
         <el-form-item
           v-if="localForm.whitebox.scope === 'modules'"
-          label="目标模块" :error="formErrors.targetModules" required
+          label="目标模块"
+          :error="formErrors.targetModules"
+          required
         >
           <el-input
             v-model="targetModulesText"
             placeholder="module-a, module-b"
             @input="clearError('targetModules')"
           />
-          <div class="form-hint">
-            多个模块用英文逗号分隔
-          </div>
+          <div class="form-hint">多个模块用英文逗号分隔</div>
         </el-form-item>
 
         <el-divider content-position="left">
           Maven 配置
-          <el-tag v-if="!mavenExpanded" size="small" type="info" effect="plain" style="margin-left:8px">
+          <el-tag
+            v-if="!mavenExpanded"
+            size="small"
+            type="info"
+            effect="plain"
+            style="margin-left: 8px"
+          >
             已折叠
           </el-tag>
         </el-divider>
 
         <el-form-item label="Classpath 模式">
-          <el-select v-model="localForm.whitebox.mavenClasspathMode" style="width:100%">
+          <el-select v-model="localForm.whitebox.mavenClasspathMode" style="width: 100%">
             <el-option label="自动检测" value="AUTO" />
             <el-option label="仅缓存" value="CACHE_ONLY" />
             <el-option label="Maven 构建" value="MAVEN" />
@@ -261,15 +287,24 @@
             </el-form-item>
 
             <el-form-item label="Maven 可执行文件（服务端路径）">
-              <el-input v-model="localForm.whitebox.mavenExecutable" placeholder="mvn（使用系统 PATH）" />
+              <el-input
+                v-model="localForm.whitebox.mavenExecutable"
+                placeholder="mvn（使用系统 PATH）"
+              />
             </el-form-item>
 
             <el-form-item label="settings.xml（服务端路径）">
-              <el-input v-model="localForm.whitebox.mavenSettingsXml" placeholder="~/.m2/settings.xml" />
+              <el-input
+                v-model="localForm.whitebox.mavenSettingsXml"
+                placeholder="~/.m2/settings.xml"
+              />
             </el-form-item>
 
             <el-form-item label="本地仓库（服务端路径）">
-              <el-input v-model="localForm.whitebox.mavenLocalRepository" placeholder="~/.m2/repository" />
+              <el-input
+                v-model="localForm.whitebox.mavenLocalRepository"
+                placeholder="~/.m2/repository"
+              />
             </el-form-item>
 
             <el-form-item label="Classpath 文件（服务端路径）">
@@ -285,7 +320,10 @@
                 <el-form-item label="离线超时（秒）">
                   <el-input-number
                     v-model="localForm.whitebox.mavenOfflineTimeoutSeconds"
-                    :min="1" :step="1" :precision="0" style="width:100%"
+                    :min="1"
+                    :step="1"
+                    :precision="0"
+                    style="width: 100%"
                   />
                 </el-form-item>
               </el-col>
@@ -293,7 +331,10 @@
                 <el-form-item label="在线超时（秒）">
                   <el-input-number
                     v-model="localForm.whitebox.mavenOnlineTimeoutSeconds"
-                    :min="1" :step="1" :precision="0" style="width:100%"
+                    :min="1"
+                    :step="1"
+                    :precision="0"
+                    style="width: 100%"
                   />
                 </el-form-item>
               </el-col>
@@ -303,9 +344,7 @@
       </template>
     </el-form>
     <template #footer>
-      <el-button size="large" @click="$emit('close')">
-        取消
-      </el-button>
+      <el-button size="large" @click="$emit('close')"> 取消 </el-button>
       <el-button size="large" type="primary" @click="$emit('save')">
         {{ editing ? "保存" : "创建" }}
       </el-button>
@@ -324,7 +363,9 @@ import {
 } from "../../promptExtensions";
 import type { TaskFormState } from "../../composables/useTasks";
 import { SENTINEL_DEFAULT } from "../../utils";
-const PromptExtensionEditor = defineAsyncComponent(() => import("../prompt/PromptExtensionEditor.vue"));
+const PromptExtensionEditor = defineAsyncComponent(
+  () => import("../prompt/PromptExtensionEditor.vue"),
+);
 
 const props = defineProps<{
   visible: boolean;
@@ -398,13 +439,21 @@ const targetModulesText = computed({
 });
 
 // 双向同步 props.form ↔ localForm
-watch(localForm, () => {
-  Object.assign(props.form, localForm);
-}, { deep: true });
+watch(
+  localForm,
+  () => {
+    Object.assign(props.form, localForm);
+  },
+  { deep: true },
+);
 
-watch(() => props.form, (f) => {
-  Object.assign(localForm, f);
-}, { deep: true });
+watch(
+  () => props.form,
+  (f) => {
+    Object.assign(localForm, f);
+  },
+  { deep: true },
+);
 
 const resolvedProjectExtensions = computed<PromptExtensions>(() => {
   const project = props.projects.find((p) => p.projectId === props.form.projectId);

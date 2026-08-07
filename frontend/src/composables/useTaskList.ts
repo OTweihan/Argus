@@ -3,73 +3,78 @@ import { listTasks as apiListTasks } from "../api";
 import type { Task, TaskType } from "../types";
 import { useDebounceFn } from "./useDebounceFn";
 
-export function useTaskList(opts: {
-    allTasks: Ref<Task[]>;
-}) {
-    const { allTasks } = opts;
-    const taskStatusFilter = ref<TaskDisplayStatus | "">("");
-    const taskProjectFilter = ref("");
-    const taskTypeFilter = ref<TaskType | "">("");
-    const taskSearchQuery = ref("");
-    const page = ref(1);
-    const pageSize = ref(20);
-    const total = ref(0);
-    const taskLoading = ref(false);
+export function useTaskList(opts: { allTasks: Ref<Task[]> }) {
+  const { allTasks } = opts;
+  const taskStatusFilter = ref<TaskDisplayStatus | "">("");
+  const taskProjectFilter = ref("");
+  const taskTypeFilter = ref<TaskType | "">("");
+  const taskSearchQuery = ref("");
+  const page = ref(1);
+  const pageSize = ref(20);
+  const total = ref(0);
+  const taskLoading = ref(false);
 
-    async function loadTasks(): Promise<void> {
-        taskLoading.value = true;
-        try {
-            const status = taskStatusFilter.value || undefined;
-            const res = await apiListTasks({
-                status,
-                projectId: taskProjectFilter.value || undefined,
-                taskType: taskTypeFilter.value || undefined,
-                q: taskSearchQuery.value.trim() || undefined,
-                offset: (page.value - 1) * pageSize.value,
-                limit: pageSize.value,
-            });
-            allTasks.value = res.tasks ?? [];
-            total.value = res.total;
-        } finally {
-            taskLoading.value = false;
-        }
+  async function loadTasks(): Promise<void> {
+    taskLoading.value = true;
+    try {
+      const status = taskStatusFilter.value || undefined;
+      const res = await apiListTasks({
+        status,
+        projectId: taskProjectFilter.value || undefined,
+        taskType: taskTypeFilter.value || undefined,
+        q: taskSearchQuery.value.trim() || undefined,
+        offset: (page.value - 1) * pageSize.value,
+        limit: pageSize.value,
+      });
+      allTasks.value = res.tasks ?? [];
+      total.value = res.total;
+    } finally {
+      taskLoading.value = false;
     }
+  }
 
-    function onPageChange(newPage: number): void {
-        page.value = newPage;
-        loadTasks();
-    }
+  function onPageChange(newPage: number): void {
+    page.value = newPage;
+    loadTasks();
+  }
 
-    function onPageSizeChange(newSize: number): void {
-        pageSize.value = newSize;
-        page.value = 1;
-        loadTasks();
-    }
+  function onPageSizeChange(newSize: number): void {
+    pageSize.value = newSize;
+    page.value = 1;
+    loadTasks();
+  }
 
-    const debouncedSearch = useDebounceFn(() => {
-        page.value = 1;
-        void loadTasks();
-    }, 300);
-    watch(taskSearchQuery, debouncedSearch);
+  const debouncedSearch = useDebounceFn(() => {
+    page.value = 1;
+    void loadTasks();
+  }, 300);
+  watch(taskSearchQuery, debouncedSearch);
 
-    watch([taskStatusFilter, taskProjectFilter, taskTypeFilter], () => {
-        page.value = 1;
-        loadTasks();
-    });
+  watch([taskStatusFilter, taskProjectFilter, taskTypeFilter], () => {
+    page.value = 1;
+    loadTasks();
+  });
 
-    return {
-        taskStatusFilter,
-        taskProjectFilter,
-        taskTypeFilter,
-        taskSearchQuery,
-        page,
-        pageSize,
-        total,
-        taskLoading,
-        loadTasks,
-        onPageChange,
-        onPageSizeChange,
-    };
+  return {
+    taskStatusFilter,
+    taskProjectFilter,
+    taskTypeFilter,
+    taskSearchQuery,
+    page,
+    pageSize,
+    total,
+    taskLoading,
+    loadTasks,
+    onPageChange,
+    onPageSizeChange,
+  };
 }
 
-type TaskDisplayStatus = "pending" | "queued" | "running" | "completed" | "failed" | "timeout" | "cancelled";
+type TaskDisplayStatus =
+  | "pending"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "timeout"
+  | "cancelled";

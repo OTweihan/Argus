@@ -6,7 +6,7 @@
         size="small"
         placeholder="匹配状态"
         clearable
-        style="width:160px"
+        style="width: 160px"
         @change="onFilterChange"
       >
         <el-option label="全部" value="" />
@@ -16,17 +16,17 @@
       </el-select>
       <span v-if="total !== null" class="list-count">共 {{ total }} 条</span>
     </div>
-    <el-table :data="items" size="small" stripe style="width:100%">
+    <el-table :data="items" size="small" stripe style="width: 100%">
       <el-table-column label="请求" width="80">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod ?? row.requestPath ?? '')">
-            {{ row.httpMethod ?? '-' }}
+            {{ row.httpMethod ?? "-" }}
           </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="请求路径" min-width="180">
         <template #default="{ row }">
-          <span class="mano">{{ row.displayPath || row.requestPath || '-' }}</span>
+          <span class="mano">{{ row.displayPath || row.requestPath || "-" }}</span>
         </template>
       </el-table-column>
       <el-table-column label="匹配方式" width="100">
@@ -52,7 +52,9 @@
         <template #default="{ row }">
           <template v-if="row.matchedEndpointInfo">
             <span class="mano">{{ row.matchedEndpointInfo.httpMethod }}</span>
-            <span class="mano" style="margin-left:6px">{{ row.matchedEndpointInfo.normalizedPath }}</span>
+            <span class="mano" style="margin-left: 6px">{{
+              row.matchedEndpointInfo.normalizedPath
+            }}</span>
           </template>
           <span v-else-if="row.candidates?.length > 0" class="candidate-hint">
             候选 {{ row.candidates.length }} 个
@@ -73,7 +75,12 @@
                   <span class="mono flow-entry">{{ flow.entryPoint }}</span>
                   <span class="badge depth">深度 {{ flow.callDepth }}</span>
                 </template>
-                <el-table :data="flow.steps ?? []" size="small" :show-header="false" style="width:100%">
+                <el-table
+                  :data="flow.steps ?? []"
+                  size="small"
+                  :show-header="false"
+                  style="width: 100%"
+                >
                   <el-table-column label="深度" width="50">
                     <template #default="{ row: step }">
                       {{ step.depth }}
@@ -81,7 +88,9 @@
                   </el-table-column>
                   <el-table-column label="方法" min-width="200">
                     <template #default="{ row: step }">
-                      <span class="mano">{{ step.className || "-" }}.{{ step.methodName || step.methodKey }}</span>
+                      <span class="mano"
+                        >{{ step.className || "-" }}.{{ step.methodName || step.methodKey }}</span
+                      >
                     </template>
                   </el-table-column>
                 </el-table>
@@ -97,7 +106,11 @@
         </template>
       </el-table-column>
       <template #append>
-        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+        <InfiniteScrollLoad
+          :has-more="hasMore"
+          :loading="loading"
+          @load-more="$emit('load-more')"
+        />
       </template>
     </el-table>
   </div>
@@ -129,37 +142,53 @@ type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
 
 function strategyTag(s: string): ElTagType {
   switch (s) {
-    case "EXACT": return "success";
-    case "TEMPLATE": return "primary";
-    case "PATH_ONLY": return "warning";
-    default: return "info";
+    case "EXACT":
+      return "success";
+    case "TEMPLATE":
+      return "primary";
+    case "PATH_ONLY":
+      return "warning";
+    default:
+      return "info";
   }
 }
 
 function strategyLabel(s: string): string {
   switch (s) {
-    case "EXACT": return "精确";
-    case "TEMPLATE": return "模板";
-    case "PATH_ONLY": return "仅路径";
-    default: return s;
+    case "EXACT":
+      return "精确";
+    case "TEMPLATE":
+      return "模板";
+    case "PATH_ONLY":
+      return "仅路径";
+    default:
+      return s;
   }
 }
 
 function resolutionTag(r: string): ElTagType {
   switch (r) {
-    case "UNIQUE": return "success";
-    case "AMBIGUOUS": return "warning";
-    case "UNMATCHED": return "danger";
-    default: return "info";
+    case "UNIQUE":
+      return "success";
+    case "AMBIGUOUS":
+      return "warning";
+    case "UNMATCHED":
+      return "danger";
+    default:
+      return "info";
   }
 }
 
 function resolutionLabel(r: string): string {
   switch (r) {
-    case "UNIQUE": return "唯一";
-    case "AMBIGUOUS": return "歧义";
-    case "UNMATCHED": return "未匹配";
-    default: return r;
+    case "UNIQUE":
+      return "唯一";
+    case "AMBIGUOUS":
+      return "歧义";
+    case "UNMATCHED":
+      return "未匹配";
+    default:
+      return r;
   }
 }
 </script>
@@ -181,10 +210,20 @@ function resolutionLabel(r: string): string {
   color: var(--text-faint);
 }
 
-.conf-high { color: #059669; font-weight: 600; }
-.conf-medium { color: #d97706; font-weight: 600; }
-.conf-low { color: #6b7280; }
-.conf-unknown { color: #9ca3af; }
+.conf-high {
+  color: #059669;
+  font-weight: 600;
+}
+.conf-medium {
+  color: #d97706;
+  font-weight: 600;
+}
+.conf-low {
+  color: #6b7280;
+}
+.conf-unknown {
+  color: #9ca3af;
+}
 
 .candidate-hint {
   font-size: 12px;

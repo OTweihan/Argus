@@ -12,7 +12,7 @@
       <span class="detail-label">任务类型</span>
       <span class="detail-value">
         <el-tag :type="task.taskType === 'whitebox' ? 'success' : 'info'" size="small">
-          {{ task.taskType === 'whitebox' ? '白盒分析' : '黑盒测试' }}
+          {{ task.taskType === "whitebox" ? "白盒分析" : "黑盒测试" }}
         </el-tag>
       </span>
     </div>
@@ -91,21 +91,24 @@
 </template>
 
 <script setup lang="ts">
-import {computed} from "vue";
-import type {ModelConfig, Project, Task} from "../../types";
+import { computed } from "vue";
+import type { ModelConfig, Project, Task } from "../../types";
 import {
-    hasAnyExtension,
-    PROMPT_EXTENSIONS_KEY,
-    splitParametersFromPromptExtensions,
+  hasAnyExtension,
+  PROMPT_EXTENSIONS_KEY,
+  splitParametersFromPromptExtensions,
 } from "../../promptExtensions";
 import PromptExtensionViewer from "../prompt/PromptExtensionViewer.vue";
-import {displayTaskName} from "../../utils";
+import { displayTaskName } from "../../utils";
 
 const props = defineProps<{ task: Task; projects: Project[]; enabledModels: ModelConfig[] }>();
 
 const projectName = computed(() => {
   if (!props.task.projectId) return "-";
-  return props.projects.find((project) => project.projectId === props.task.projectId)?.name ?? props.task.projectId;
+  return (
+    props.projects.find((project) => project.projectId === props.task.projectId)?.name ??
+    props.task.projectId
+  );
 });
 
 const modelConfigId = computed(() => props.task.parameters?.modelConfigId as string | undefined);
@@ -135,9 +138,7 @@ const whiteboxSourceLabel = computed(() => {
 const whiteboxSourcePath = computed(() => {
   const cfg = whiteboxConfig.value;
   if (!cfg) return "";
-  return cfg.sourceType === "git"
-    ? (cfg.repoUrlDisplay || "-")
-    : (cfg.sourcePathDisplay || "-");
+  return cfg.sourceType === "git" ? cfg.repoUrlDisplay || "-" : cfg.sourcePathDisplay || "-";
 });
 const whiteboxRef = computed(() => {
   return whiteboxConfig.value?.ref || "";

@@ -18,10 +18,10 @@ describe("timeline formatting", () => {
   });
 
   it("validates timeline event shape and serializes data", () => {
-    expect(isTimelineEvent({eventId: "e1", taskId: "t1"})).toBe(true);
-    expect(isTimelineEvent({eventId: "e1"})).toBe(false);
-    expect(hasTimelineData({value: 1})).toBe(true);
+    expect(isTimelineEvent({ eventId: "e1", taskId: "t1" })).toBe(true);
+    expect(isTimelineEvent({ eventId: "e1" })).toBe(false);
+    expect(hasTimelineData({ value: 1 })).toBe(true);
     expect(hasTimelineData({})).toBe(false);
-    expect(prettyTimelineJson({value: 1})).toContain('"value": 1');
+    expect(prettyTimelineJson({ value: 1 })).toContain('"value": 1');
   });
 });

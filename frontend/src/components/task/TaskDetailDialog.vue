@@ -1,6 +1,11 @@
 <template>
   <el-dialog
-    :model-value="visible" title="任务详情" width="600px" align-center append-to-body :close-on-click-modal="false"
+    :model-value="visible"
+    title="任务详情"
+    width="600px"
+    align-center
+    append-to-body
+    :close-on-click-modal="false"
     @update:model-value="$emit('close')"
   >
     <div v-loading="loading" class="dialog-body">
@@ -11,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import type {ModelConfig, Project, Task} from "../../types";
+import type { ModelConfig, Project, Task } from "../../types";
 import TaskDetail from "./TaskDetail.vue";
 
 defineProps<{

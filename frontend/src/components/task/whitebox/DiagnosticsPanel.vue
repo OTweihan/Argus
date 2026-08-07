@@ -3,9 +3,7 @@
     <template v-if="diagnostics">
       <!-- 解析统计 -->
       <div class="diag-section">
-        <div class="diag-title">
-          源码解析
-        </div>
+        <div class="diag-title">源码解析</div>
         <div class="source-stat-grid">
           <div class="source-stat">
             <span class="stat-label">源文件总数</span>
@@ -25,7 +23,7 @@
           </div>
         </div>
         <div v-if="(diagnostics.failedFiles ?? []).length" class="diag-sub">
-          <div v-for="f in (diagnostics.failedFiles ?? [])" :key="f" class="diag-failed-file mono">
+          <div v-for="f in diagnostics.failedFiles ?? []" :key="f" class="diag-failed-file mono">
             {{ f }}
           </div>
         </div>
@@ -33,9 +31,7 @@
 
       <!-- 调用解析 -->
       <div class="diag-section">
-        <div class="diag-title">
-          调用解析
-        </div>
+        <div class="diag-title">调用解析</div>
         <div class="call-summary">
           <div class="call-total">
             <span class="stat-label">调用总数</span>
@@ -47,10 +43,22 @@
           </div>
         </div>
         <div class="distribution-bar" aria-label="调用解析置信度分布">
-          <span class="segment segment-high" :style="{ width: percentage(diagnostics.resolvedHigh) }" />
-          <span class="segment segment-medium" :style="{ width: percentage(diagnostics.resolvedMedium) }" />
-          <span class="segment segment-low" :style="{ width: percentage(diagnostics.resolvedLow) }" />
-          <span class="segment segment-unresolved" :style="{ width: percentage(diagnostics.unresolved) }" />
+          <span
+            class="segment segment-high"
+            :style="{ width: percentage(diagnostics.resolvedHigh) }"
+          />
+          <span
+            class="segment segment-medium"
+            :style="{ width: percentage(diagnostics.resolvedMedium) }"
+          />
+          <span
+            class="segment segment-low"
+            :style="{ width: percentage(diagnostics.resolvedLow) }"
+          />
+          <span
+            class="segment segment-unresolved"
+            :style="{ width: percentage(diagnostics.unresolved) }"
+          />
         </div>
         <div class="call-stat-grid">
           <div class="call-stat high">
@@ -78,9 +86,7 @@
 
       <!-- Classpath -->
       <div class="diag-section">
-        <div class="diag-title">
-          Classpath
-        </div>
+        <div class="diag-title">Classpath</div>
         <div class="diag-row">
           <span class="diag-key">可用</span>
           <span class="diag-val">{{ diagnostics.classpathAvailable ? "是" : "否" }}</span>
@@ -95,15 +101,17 @@
         </div>
         <div v-if="diagnostics.moduleCount" class="diag-row">
           <span class="diag-key">模块数</span>
-          <span class="diag-val">{{ diagnostics.moduleCount }}（应用: {{ diagnostics.applicationModuleCount }}）</span>
+          <span class="diag-val"
+            >{{ diagnostics.moduleCount }}（应用: {{ diagnostics.applicationModuleCount }}）</span
+          >
         </div>
         <div v-if="(diagnostics.classpathWarnings ?? []).length" class="diag-sub">
-          <div v-for="(w, i) in (diagnostics.classpathWarnings ?? [])" :key="i" class="diag-warn">
+          <div v-for="(w, i) in diagnostics.classpathWarnings ?? []" :key="i" class="diag-warn">
             {{ w }}
           </div>
         </div>
         <div v-if="(diagnostics.classpathErrors ?? []).length" class="diag-sub">
-          <div v-for="(e, i) in (diagnostics.classpathErrors ?? [])" :key="i" class="diag-err">
+          <div v-for="(e, i) in diagnostics.classpathErrors ?? []" :key="i" class="diag-err">
             {{ e }}
           </div>
         </div>
@@ -119,18 +127,18 @@ import type { DiagnosticsInfo } from "../../../api/task";
 
 const props = defineProps<{ diagnostics: DiagnosticsInfo | null }>();
 
-const resolvedCount = computed(() => props.diagnostics
-  ? Math.max(0, props.diagnostics.totalCalls - props.diagnostics.unresolved)
-  : 0);
+const resolvedCount = computed(() =>
+  props.diagnostics ? Math.max(0, props.diagnostics.totalCalls - props.diagnostics.unresolved) : 0,
+);
 
 const resolvedRate = computed(() => {
   if (!props.diagnostics?.totalCalls) return 0;
-  return Math.round(resolvedCount.value / props.diagnostics.totalCalls * 100);
+  return Math.round((resolvedCount.value / props.diagnostics.totalCalls) * 100);
 });
 
 function percentage(value: number): string {
   if (!props.diagnostics?.totalCalls) return "0%";
-  return `${Math.max(0, value / props.diagnostics.totalCalls * 100)}%`;
+  return `${Math.max(0, (value / props.diagnostics.totalCalls) * 100)}%`;
 }
 </script>
 
@@ -260,10 +268,18 @@ function percentage(value: number): string {
   height: 100%;
 }
 
-.segment-high { background: #0f9f75; }
-.segment-medium { background: #e6a23c; }
-.segment-low { background: #60a5fa; }
-.segment-unresolved { background: #e56b4a; }
+.segment-high {
+  background: #0f9f75;
+}
+.segment-medium {
+  background: #e6a23c;
+}
+.segment-low {
+  background: #60a5fa;
+}
+.segment-unresolved {
+  background: #e56b4a;
+}
 
 .call-stat-grid {
   display: grid;
@@ -300,10 +316,18 @@ function percentage(value: number): string {
   border-radius: 50%;
 }
 
-.call-stat.high .stat-dot { background: #0f9f75; }
-.call-stat.medium .stat-dot { background: #e6a23c; }
-.call-stat.low .stat-dot { background: #60a5fa; }
-.call-stat.unresolved .stat-dot { background: #e56b4a; }
+.call-stat.high .stat-dot {
+  background: #0f9f75;
+}
+.call-stat.medium .stat-dot {
+  background: #e6a23c;
+}
+.call-stat.low .stat-dot {
+  background: #60a5fa;
+}
+.call-stat.unresolved .stat-dot {
+  background: #e56b4a;
+}
 
 .diag-row {
   font-size: 13px;

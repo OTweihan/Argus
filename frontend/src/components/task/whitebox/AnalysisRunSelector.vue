@@ -2,12 +2,17 @@
   <div class="selector-bar">
     <span class="selector-label">选择分析执行</span>
     <el-select
-      :model-value="selectedId" size="large" class="run-select"
-      :disabled="loading" @update:model-value="$emit('select', $event as string)"
+      :model-value="selectedId"
+      size="large"
+      class="run-select"
+      :disabled="loading"
+      @update:model-value="$emit('select', $event as string)"
     >
       <el-option
-        v-for="run in runs" :key="run.analysisId"
-        :label="formatOption(run)" :value="run.analysisId"
+        v-for="run in runs"
+        :key="run.analysisId"
+        :label="formatOption(run)"
+        :value="run.analysisId"
       />
     </el-select>
     <span v-if="loading" class="selector-hint">加载中...</span>
@@ -42,9 +47,7 @@ const STATUS_LABELS: Record<string, string> = {
 function formatOption(run: AnalysisRunSummary): string {
   const date = formatDate(run.createdAt);
   const status = STATUS_LABELS[run.runStatus] || run.runStatus;
-  const sha = run.resolvedCommitSha
-    ? run.resolvedCommitSha.slice(0, 8)
-    : "";
+  const sha = run.resolvedCommitSha ? run.resolvedCommitSha.slice(0, 8) : "";
   return `${date} — ${status}${sha ? ` (${sha})` : ""}`;
 }
 </script>
@@ -80,7 +83,9 @@ function formatOption(run: AnalysisRunSummary): string {
 }
 
 .run-select :deep(.el-select__wrapper.is-focused) {
-  box-shadow: 0 0 0 1px var(--brand-500), var(--shadow-ring);
+  box-shadow:
+    0 0 0 1px var(--brand-500),
+    var(--shadow-ring);
 }
 
 .selector-hint {

@@ -12,65 +12,71 @@ import tseslint from "typescript-eslint";
 import globals from "globals";
 
 export default [
-    // ── global ignores（必须单独成块）──
-    {
-        ignores: [
-            "node_modules/**",
-            "dist/**",
-            // unplugin-vue-components 自动生成
-            "src/components.d.ts",
-            // vite/构建产物输出目录（指向后端 static）
-            "../argus_py/api/static/**",
-        ],
-    },
+  // ── global ignores（必须单独成块）──
+  {
+    ignores: [
+      "node_modules/**",
+      "dist/**",
+      // unplugin-vue-components 自动生成
+      "src/components.d.ts",
+      // vite/构建产物输出目录（指向后端 static）
+      "../argus_py/api/static/**",
+    ],
+  },
 
-    // ── 基础规则 ──
-    js.configs.recommended,
-    ...tseslint.configs.recommended,
-    // eslint-plugin-vue 9.x 的 flat config preset 名字是 ``flat/recommended``
-    // （vue3 默认）。老式 .eslintrc 里叫 ``vue/vue3-recommended``，迁移时容易混。
-    ...vue.configs["flat/recommended"],
+  // ── 基础规则 ──
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  // eslint-plugin-vue 9.x 的 flat config preset 名字是 ``flat/recommended``
+  // （vue3 默认）。老式 .eslintrc 里叫 ``vue/vue3-recommended``，迁移时容易混。
+  ...vue.configs["flat/recommended"],
 
-    // ── 语言/解析器配置：覆盖到 ts/vue 文件 ──
-    {
-        files: ["**/*.{ts,tsx,vue}"],
-        languageOptions: {
-            parser: vueParser,
-            parserOptions: {
-                // 内层用 typescript-eslint parser 处理 <script lang="ts"> 与 .ts
-                parser: tseslint.parser,
-                sourceType: "module",
-                ecmaVersion: "latest",
-                extraFileExtensions: [".vue"],
-            },
-            globals: {
-                ...globals.browser,
-                ...globals.node,
-                ...globals.es2021,
-            },
-        },
+  // ── 语言/解析器配置：覆盖到 ts/vue 文件 ──
+  {
+    files: ["**/*.{ts,tsx,vue}"],
+    languageOptions: {
+      parser: vueParser,
+      parserOptions: {
+        // 内层用 typescript-eslint parser 处理 <script lang="ts"> 与 .ts
+        parser: tseslint.parser,
+        sourceType: "module",
+        ecmaVersion: "latest",
+        extraFileExtensions: [".vue"],
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.es2021,
+      },
     },
+  },
 
-    // ── 项目自定义规则（与原 .eslintrc.cjs 一致 + 历史代码兼容降级）──
-    {
-        rules: {
-            "@typescript-eslint/no-explicit-any": "warn",
-            "vue/multi-word-component-names": "off",
-            "vue/max-attributes-per-line": "off",
-            // FormDialog 系列组件按 Element Plus 表单惯例直接给 ``form`` props
-            // 赋值（`v-model:form`）。Vue 推荐重构为 `defineModel()` / `update:` 事件，
-            // 但本项目存量场景较多，先降为 warn 让历史代码渐进迁移而不阻塞 lint。
-            "vue/no-mutating-props": "warn",
-        },
+  // ── 项目自定义规则（与原 .eslintrc.cjs 一致 + 历史代码兼容降级）──
+  {
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "vue/multi-word-component-names": "off",
+      "vue/max-attributes-per-line": "off",
+      // FormDialog 系列组件按 Element Plus 表单惯例直接给 ``form`` props
+      // 赋值（`v-model:form`）。Vue 推荐重构为 `defineModel()` / `update:` 事件，
+      // 但本项目存量场景较多，先降为 warn 让历史代码渐进迁移而不阻塞 lint。
+      "vue/no-mutating-props": "warn",
+      // 与 prettier 冲突的格式类规则：全库已由 prettier 接管格式（`pnpm format`），
+      // 关闭避免重复告警（对应 eslint-config-prettier 的 vue 部分关闭项）。
+      "vue/html-indent": "off",
+      "vue/html-self-closing": "off",
+      "vue/html-closing-bracket-newline": "off",
+      "vue/singleline-html-element-content-newline": "off",
     },
+  },
 
-    // ── 测试文件放宽：vitest 用 vi/expect/it 的 helper，允许更松的类型 ──
-    {
-        files: ["src/**/*.{spec,test}.ts"],
-        rules: {
-            "@typescript-eslint/no-explicit-any": "off",
-            // dummyTask 等用 `as unknown as Task` 双断言
-            "@typescript-eslint/no-non-null-assertion": "off",
-        },
+  // ── 测试文件放宽：vitest 用 vi/expect/it 的 helper，允许更松的类型 ──
+  {
+    files: ["src/**/*.{spec,test}.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      // dummyTask 等用 `as unknown as Task` 双断言
+      "@typescript-eslint/no-non-null-assertion": "off",
     },
+  },
 ];

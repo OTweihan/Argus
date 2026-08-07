@@ -1,7 +1,6 @@
-
 /* ----- 以下类型从 OpenAPI schema 自动生成，由 FastAPI Pydantic 模型驱动 ---- */
 
-import type {components} from "./api/openapi.gen";
+import type { components } from "./api/openapi.gen";
 
 /** @description 任务状态 */
 export type TaskStatus = components["schemas"]["TaskStatus"];
@@ -20,41 +19,41 @@ export type FindingType = components["schemas"]["FindingType"];
 
 /** @description 任务详情响应（含可选 logs/findings，兼容 summary） */
 export type Task = Omit<components["schemas"]["TaskResponse"], "logs" | "findings"> & {
-    logs?: components["schemas"]["TaskLogResponse"][];
-    findings?: components["schemas"]["FindingResponse"][];
-    findingCount?: number;
-    /** 白盒配置视图（阶段二） */
-    whiteboxConfigView?: {
-        status: string;
-        config?: {
-            sourceType?: string;
-            repoUrlDisplay?: string | null;
-            sourcePathDisplay?: string | null;
-            sourcePathConfigured?: boolean;
-            repoUrl?: string | null;
-            sourcePath?: string | null;
-            ref?: string | null;
-            scope?: string;
-            targetModules?: string[];
-            maven?: {
-                settingsConfigured?: boolean;
-                localRepoConfigured?: boolean;
-                executableConfigured?: boolean;
-                classpathMode?: string;
-                offline?: boolean;
-                autoDetect?: boolean;
-                settingsXml?: string | null;
-                localRepository?: string | null;
-                executable?: string | null;
-                classpathFile?: string | null;
-                generateClasspath?: boolean;
-                offlineTimeoutSeconds?: number | null;
-                onlineTimeoutSeconds?: number | null;
-                prepareReactorArtifacts?: boolean;
-            } | null;
-        } | null;
-        errorCode?: string | null;
+  logs?: components["schemas"]["TaskLogResponse"][];
+  findings?: components["schemas"]["FindingResponse"][];
+  findingCount?: number;
+  /** 白盒配置视图（阶段二） */
+  whiteboxConfigView?: {
+    status: string;
+    config?: {
+      sourceType?: string;
+      repoUrlDisplay?: string | null;
+      sourcePathDisplay?: string | null;
+      sourcePathConfigured?: boolean;
+      repoUrl?: string | null;
+      sourcePath?: string | null;
+      ref?: string | null;
+      scope?: string;
+      targetModules?: string[];
+      maven?: {
+        settingsConfigured?: boolean;
+        localRepoConfigured?: boolean;
+        executableConfigured?: boolean;
+        classpathMode?: string;
+        offline?: boolean;
+        autoDetect?: boolean;
+        settingsXml?: string | null;
+        localRepository?: string | null;
+        executable?: string | null;
+        classpathFile?: string | null;
+        generateClasspath?: boolean;
+        offlineTimeoutSeconds?: number | null;
+        onlineTimeoutSeconds?: number | null;
+        prepareReactorArtifacts?: boolean;
+      } | null;
     } | null;
+    errorCode?: string | null;
+  } | null;
 };
 
 /** @description 任务步骤日志响应 */
@@ -85,8 +84,7 @@ export type ModelConfig = components["schemas"]["ModelConfigResponse"];
 export type ModelConfigListResponse = components["schemas"]["ModelConfigListResponse"];
 
 /** @description 模型连接检查响应 */
-export type ModelConnectionTestResponse =
-    components["schemas"]["ModelConnectionTestResponse"];
+export type ModelConnectionTestResponse = components["schemas"]["ModelConnectionTestResponse"];
 
 /** @description 配置摘要 */
 export type ConfigSummary = components["schemas"]["ConfigSummaryResponse"];
@@ -98,104 +96,104 @@ export type SchedulerStatus = "queued" | "running";
 export type TaskDisplayStatus = TaskStatus | SchedulerStatus;
 
 export interface TimelineEvent {
-    eventId: string;
-    taskId: string;
-    eventType: string;
-    phase: string;
-    stepNumber: number;
-    summary: string;
-    data: Record<string, unknown>;
-    createdAt: string;
+  eventId: string;
+  taskId: string;
+  eventType: string;
+  phase: string;
+  stepNumber: number;
+  summary: string;
+  data: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface LLMTraceRecord {
-    traceId: string;
-    taskId: string;
-    phase: string;
-    event: string;
-    systemPrompt?: string;
-    inputPayload?: Record<string, unknown>;
-    model: string;
-    baseUrlHost?: string;
-    latencyMs?: number;
-    tokenUsage?: Record<string, number>;
-    rawResponse?: string;
-    parsedResult?: unknown;
-    parseError?: string;
-    error?: string;
-    timestamp: string;
+  traceId: string;
+  taskId: string;
+  phase: string;
+  event: string;
+  systemPrompt?: string;
+  inputPayload?: Record<string, unknown>;
+  model: string;
+  baseUrlHost?: string;
+  latencyMs?: number;
+  tokenUsage?: Record<string, number>;
+  rawResponse?: string;
+  parsedResult?: unknown;
+  parseError?: string;
+  error?: string;
+  timestamp: string;
 }
 
 export interface TaskEvent<T = Record<string, unknown>> {
-    sequence?: number;
-    eventType: string;
-    taskId?: string;
-    data: T;
-    createdAt?: string;
+  sequence?: number;
+  eventType: string;
+  taskId?: string;
+  data: T;
+  createdAt?: string;
 }
 
 // ── 报告类型（来自 report.json 而非 OpenAPI）─────────────────────────────────
 
 export interface ReportFinding {
-    findingId: string;
-    title: string;
-    description: string;
-    severity: FindingSeverity;
-    findingType: FindingType;
-    url: string | null;
-    location: string | null;
-    screenshotPath: string | null;
-    createdAt: string;
+  findingId: string;
+  title: string;
+  description: string;
+  severity: FindingSeverity;
+  findingType: FindingType;
+  url: string | null;
+  location: string | null;
+  screenshotPath: string | null;
+  createdAt: string;
 }
 
 export interface ReportTaskLog {
-    stepNumber: number;
-    action: string;
-    result: StepResult;
-    taskLogId: string;
-    params: Record<string, unknown>;
-    urlBefore: string | null;
-    urlAfter: string | null;
-    screenshotPath: string | null;
-    message: string | null;
-    error: string | null;
-    errorCode: string | null;
-    createdAt: string;
+  stepNumber: number;
+  action: string;
+  result: StepResult;
+  taskLogId: string;
+  params: Record<string, unknown>;
+  urlBefore: string | null;
+  urlAfter: string | null;
+  screenshotPath: string | null;
+  message: string | null;
+  error: string | null;
+  errorCode: string | null;
+  createdAt: string;
 }
 
 export interface ReportTask {
-    taskId: string;
-    projectId: string | null;
-    goal: string;
-    name?: string | null;
-    executionAttempt?: number | null;
-    startUrl: string | null;
-    taskType: TaskType;
-    status: TaskStatus;
-    maxSteps: number;
-    timeoutSeconds: number;
-    captureScreenshots: boolean;
-    currentStep: number;
-    parameters: Record<string, unknown>;
-    logs: ReportTaskLog[];
-    findings: ReportFinding[];
-    createdAt: string;
-    startedAt: string | null;
-    completedAt: string | null;
-    reportPath: string | null;
-    resultSummary: string | null;
-    errorMessage: string | null;
+  taskId: string;
+  projectId: string | null;
+  goal: string;
+  name?: string | null;
+  executionAttempt?: number | null;
+  startUrl: string | null;
+  taskType: TaskType;
+  status: TaskStatus;
+  maxSteps: number;
+  timeoutSeconds: number;
+  captureScreenshots: boolean;
+  currentStep: number;
+  parameters: Record<string, unknown>;
+  logs: ReportTaskLog[];
+  findings: ReportFinding[];
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  reportPath: string | null;
+  resultSummary: string | null;
+  errorMessage: string | null;
 }
 
 export interface ReportData {
-    task: ReportTask;
-    reportId: string;
-    title: string;
-    summary: string;
-    generatedAt: string;
-    steps: ReportTaskLog[];
-    findings: ReportFinding[];
-    displaySteps: ReportTaskLog[];
-    totalStepsCount: number;
-    hiddenStepsCount: number;
+  task: ReportTask;
+  reportId: string;
+  title: string;
+  summary: string;
+  generatedAt: string;
+  steps: ReportTaskLog[];
+  findings: ReportFinding[];
+  displaySteps: ReportTaskLog[];
+  totalStepsCount: number;
+  hiddenStepsCount: number;
 }

@@ -52,8 +52,13 @@
   border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 28px;
   background:
-      linear-gradient(135deg, rgba(14, 43, 47, 0.96), rgba(8, 123, 120, 0.93) 55%, rgba(10, 186, 181, 0.90)),
-      #111827;
+    linear-gradient(
+      135deg,
+      rgba(14, 43, 47, 0.96),
+      rgba(8, 123, 120, 0.93) 55%,
+      rgba(10, 186, 181, 0.9)
+    ),
+    #111827;
   box-shadow: var(--shadow-lg);
   color: #ffffff;
   overflow: hidden;
@@ -212,7 +217,8 @@
 }
 
 @keyframes pulse-dot {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -386,7 +392,9 @@
   color: var(--accent);
   flex-shrink: 0;
   margin-top: 1px;
-  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 4px 12px rgba(10, 186, 181, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .section-head h2 {
@@ -414,7 +422,9 @@
   padding: 22px;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  transition: box-shadow var(--transition), transform var(--transition);
+  transition:
+    box-shadow var(--transition),
+    transform var(--transition);
 }
 
 .section-card:hover {
@@ -442,7 +452,9 @@
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  transition: box-shadow var(--transition), transform var(--transition);
+  transition:
+    box-shadow var(--transition),
+    transform var(--transition);
 }
 
 .r-metric::after {
@@ -562,7 +574,8 @@
   -webkit-backdrop-filter: blur(8px);
 }
 
-.info-table th, .info-table td {
+.info-table th,
+.info-table td {
   padding: 13px 16px;
   text-align: left;
   vertical-align: top;
@@ -590,7 +603,8 @@
   overflow-wrap: anywhere;
 }
 
-.info-table code, code {
+.info-table code,
+code {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
   background: #f2f4f7;
@@ -683,8 +697,7 @@
 .failure-summary {
   border: 1px solid #fecdd3;
   border-radius: var(--radius);
-  background:
-      linear-gradient(135deg, rgba(255, 241, 242, 0.9) 0%, rgba(255, 255, 255, 0.78) 60%);
+  background: linear-gradient(135deg, rgba(255, 241, 242, 0.9) 0%, rgba(255, 255, 255, 0.78) 60%);
   padding: 20px;
   box-shadow: 0 8px 24px rgba(180, 35, 24, 0.08);
   backdrop-filter: blur(20px);

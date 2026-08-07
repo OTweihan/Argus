@@ -1,39 +1,31 @@
 <template>
   <div class="prompt-extension-editor">
     <el-alert
-      type="info" :closable="false" show-icon class="hint"
+      type="info"
+      :closable="false"
+      show-icon
+      class="hint"
       title="项目/任务扩展会按顺序追加到内置 Prompt 末尾，仅供调试，安全边界仍以内置模板为准。"
     />
     <el-tabs v-model="activeRole" class="role-tabs">
-      <el-tab-pane
-        v-for="role in ROLES" :key="role.value" :label="role.label" :name="role.value"
-      >
+      <el-tab-pane v-for="role in ROLES" :key="role.value" :label="role.label" :name="role.value">
         <div class="split">
           <div class="split-col">
-            <div class="col-title">
-              编辑（Markdown）
-            </div>
+            <div class="col-title">编辑（Markdown）</div>
             <el-input
               :model-value="local[role.value]"
               type="textarea"
-              :autosize="{minRows: 10, maxRows: 24}"
+              :autosize="{ minRows: 10, maxRows: 24 }"
               :placeholder="role.placeholder"
               @update:model-value="onInput(role.value, $event)"
             />
           </div>
           <div class="split-col">
-            <div class="col-title">
-              预览
-            </div>
+            <div class="col-title">预览</div>
             <!-- eslint-disable vue/no-v-html -->
-            <div
-              v-if="rendered[role.value]" class="md-preview"
-              v-html="rendered[role.value]"
-            />
+            <div v-if="rendered[role.value]" class="md-preview" v-html="rendered[role.value]" />
             <!-- eslint-enable vue/no-v-html -->
-            <div v-else class="md-preview placeholder">
-              未填写扩展内容
-            </div>
+            <div v-else class="md-preview placeholder">未填写扩展内容</div>
           </div>
         </div>
       </el-tab-pane>
@@ -41,9 +33,7 @@
 
     <el-collapse v-model="openPreviewPanes" class="full-preview-collapse">
       <el-collapse-item name="full" title="完整 system_prompt 预览（内置 + 项目 + 任务拼接）">
-        <div v-if="previewError" class="preview-error">
-          预览暂不可用：{{ previewError }}
-        </div>
+        <div v-if="previewError" class="preview-error">预览暂不可用：{{ previewError }}</div>
         <pre v-else-if="fullPreview" class="full-preview">{{ fullPreview }}</pre>
         <div v-else class="preview-loading">
           {{ previewLoading ? "正在计算预览…" : "切换 Tab 或输入内容后自动生成预览" }}
@@ -54,13 +44,17 @@
 </template>
 
 <script setup lang="ts">
-import {computed, onBeforeUnmount, reactive, ref, watch} from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 
-import {previewPrompt} from "../../api";
-import {useDebounceFn} from "../../composables/useDebounceFn";
-import {renderMarkdown} from "../../composables/useMarkdown";
-import {emptyPromptExtensions, type PromptExtensions, type PromptRole} from "../../promptExtensions";
-import {errorMessage} from "../../utils";
+import { previewPrompt } from "../../api";
+import { useDebounceFn } from "../../composables/useDebounceFn";
+import { renderMarkdown } from "../../composables/useMarkdown";
+import {
+  emptyPromptExtensions,
+  type PromptExtensions,
+  type PromptRole,
+} from "../../promptExtensions";
+import { errorMessage } from "../../utils";
 
 const props = withDefaults(
   defineProps<{
@@ -85,17 +79,19 @@ const ROLES: ReadonlyArray<{
   {
     value: "planner",
     label: "Planner 扩展",
-    placeholder: "用 Markdown 写入业务规则；例如：\n- 登录流程必须验证记住我复选框\n- 仅当出现退出登录按钮才视为登录成功",
+    placeholder:
+      "用 Markdown 写入业务规则；例如：\n- 登录流程必须验证记住我复选框\n- 仅当出现退出登录按钮才视为登录成功",
   },
   {
     value: "evaluator",
     label: "Evaluator 扩展",
-    placeholder: "用 Markdown 写入评估规则；例如：\n- 若结果出现连续多次重复尝试同一动作，应将完成度降级为部分完成",
+    placeholder:
+      "用 Markdown 写入评估规则；例如：\n- 若结果出现连续多次重复尝试同一动作，应将完成度降级为部分完成",
   },
 ];
 
 const activeRole = ref<PromptRole>("planner");
-const local = reactive<PromptExtensions>({...props.modelValue});
+const local = reactive<PromptExtensions>({ ...props.modelValue });
 const rendered = reactive<Record<PromptRole, string>>({
   planner: renderMarkdown(props.modelValue.planner),
   evaluator: renderMarkdown(props.modelValue.evaluator),
@@ -112,7 +108,7 @@ function onInput(role: PromptRole, value: string | number | null | undefined): v
   const text = value === null || value === undefined ? "" : String(value);
   local[role] = text;
   rendered[role] = renderMarkdown(text);
-  emit("update:modelValue", {...local});
+  emit("update:modelValue", { ...local });
 }
 
 const projectExtensionsForRequest = computed<PromptExtensions>(() => {
@@ -158,9 +154,15 @@ async function refreshPreview(): Promise<void> {
 const debouncedRefresh = useDebounceFn(refreshPreview, 600);
 
 watch(
-  () => [local.planner, local.evaluator, activeRole.value, props.projectExtensions?.planner, props.projectExtensions?.evaluator],
+  () => [
+    local.planner,
+    local.evaluator,
+    activeRole.value,
+    props.projectExtensions?.planner,
+    props.projectExtensions?.evaluator,
+  ],
   () => debouncedRefresh(),
-  {immediate: true},
+  { immediate: true },
 );
 
 watch(

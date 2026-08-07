@@ -1,14 +1,10 @@
 <template>
   <div class="list-wrap">
     <div class="list-toolbar">
-      <el-input
-        v-model="filter"
-        placeholder="过滤路径" clearable
-        class="filter-input"
-      />
+      <el-input v-model="filter" placeholder="过滤路径" clearable class="filter-input" />
       <span v-if="total !== null" class="list-count">共 {{ total }} 个端点</span>
     </div>
-    <el-table :data="filteredItems" size="small" stripe style="width:100%">
+    <el-table :data="filteredItems" size="small" stripe style="width: 100%">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
@@ -32,7 +28,11 @@
         </template>
       </el-table-column>
       <template #append>
-        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+        <InfiniteScrollLoad
+          :has-more="hasMore"
+          :loading="loading"
+          @load-more="$emit('load-more')"
+        />
       </template>
     </el-table>
   </div>

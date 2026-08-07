@@ -17,34 +17,34 @@ import { errorMessage } from "../utils";
  * @param opts.error 共享的错误 ref，stats 加载失败时写入并由顶层 ElMessage 弹出。
  */
 export function useDashboardStats(opts: { error: Ref<string> }) {
-    const { error } = opts;
-    const dashboardStats = ref<DashboardStats | null>(null);
-    const statsLoading = ref(false);
+  const { error } = opts;
+  const dashboardStats = ref<DashboardStats | null>(null);
+  const statsLoading = ref(false);
 
-    async function loadDashboardStats(): Promise<void> {
-        statsLoading.value = true;
-        try {
-            dashboardStats.value = await apiDashboardStats(8);
-        } catch (caught) {
-            error.value = errorMessage(caught);
-        } finally {
-            statsLoading.value = false;
-        }
+  async function loadDashboardStats(): Promise<void> {
+    statsLoading.value = true;
+    try {
+      dashboardStats.value = await apiDashboardStats(8);
+    } catch (caught) {
+      error.value = errorMessage(caught);
+    } finally {
+      statsLoading.value = false;
     }
+  }
 
-    // stats 还未加载时回退为 0 / 空数组，DashboardView 显示骨架值。
-    const tasksTotal = computed(() => dashboardStats.value?.tasksTotal ?? 0);
-    const runningCount = computed(() => dashboardStats.value?.runningTotal ?? 0);
-    const findingCount = computed(() => dashboardStats.value?.findingsTotal ?? 0);
-    const recentTasks = computed(() => dashboardStats.value?.recentTasks ?? []);
+  // stats 还未加载时回退为 0 / 空数组，DashboardView 显示骨架值。
+  const tasksTotal = computed(() => dashboardStats.value?.tasksTotal ?? 0);
+  const runningCount = computed(() => dashboardStats.value?.runningTotal ?? 0);
+  const findingCount = computed(() => dashboardStats.value?.findingsTotal ?? 0);
+  const recentTasks = computed(() => dashboardStats.value?.recentTasks ?? []);
 
-    return {
-        dashboardStats,
-        statsLoading,
-        loadDashboardStats,
-        tasksTotal,
-        runningCount,
-        findingCount,
-        recentTasks,
-    };
+  return {
+    dashboardStats,
+    statsLoading,
+    loadDashboardStats,
+    tasksTotal,
+    runningCount,
+    findingCount,
+    recentTasks,
+  };
 }

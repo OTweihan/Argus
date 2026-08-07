@@ -1,9 +1,9 @@
 <template>
-  <el-table v-if="models.length" :data="models" stripe style="width:100%" :height="height">
+  <el-table v-if="models.length" :data="models" stripe style="width: 100%" :height="height">
     <el-table-column label="名称" min-width="160">
       <template #default="{ row }">
         <strong>{{ row.name }}</strong>
-        <div style="color:#909399;font-size:12px">
+        <div style="color: #909399; font-size: 12px">
           {{ row.modelConfigId }}
         </div>
       </template>
@@ -12,30 +12,26 @@
     <el-table-column prop="model" label="模型" min-width="100" />
     <el-table-column label="是否默认" width="180" align="center">
       <template #default="{ row }">
-        <el-tag v-if="row.isDefault" type="warning" size="small" effect="plain">
-          默认
-        </el-tag>
-        <span v-else style="color:#909399;font-size:13px">-</span>
+        <el-tag v-if="row.isDefault" type="warning" size="small" effect="plain"> 默认 </el-tag>
+        <span v-else style="color: #909399; font-size: 13px">-</span>
       </template>
     </el-table-column>
     <el-table-column label="状态" width="200">
       <template #default="{ row }">
-        {{ row.enabled ? "启用" : "停用" }} / Key {{
-          row.apiKeySet ? "已配置" : "未配置"
-        }}
+        {{ row.enabled ? "启用" : "停用" }} / Key {{ row.apiKeySet ? "已配置" : "未配置" }}
       </template>
     </el-table-column>
     <el-table-column label="操作" width="380" fixed="right">
       <template #default="{ row }">
-        <el-button size="large" :disabled="row.isDefault" @click="$emit('set-default', row.modelConfigId)">
+        <el-button
+          size="large"
+          :disabled="row.isDefault"
+          @click="$emit('set-default', row.modelConfigId)"
+        >
           {{ row.isDefault ? "默认模型" : "设为默认" }}
         </el-button>
-        <el-button size="large" @click="$emit('edit', row)">
-          编辑
-        </el-button>
-        <el-button size="large" @click="$emit('test', row.modelConfigId)">
-          测试
-        </el-button>
+        <el-button size="large" @click="$emit('edit', row)"> 编辑 </el-button>
+        <el-button size="large" @click="$emit('test', row.modelConfigId)"> 测试 </el-button>
         <el-button size="large" type="danger" @click="$emit('delete', row.modelConfigId)">
           删除
         </el-button>
@@ -46,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import type {ModelConfig} from "../../types";
+import type { ModelConfig } from "../../types";
 
 defineProps<{ models: ModelConfig[]; height?: string | number }>();
 defineEmits<{

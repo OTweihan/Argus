@@ -4,16 +4,16 @@ import MarkdownIt from "markdown-it";
 let mdInstance: MarkdownIt | null = null;
 
 function getRenderer(): MarkdownIt {
-    if (!mdInstance) {
-        // 仍然禁掉 raw HTML 作为一道防线；DOMPurify 作为出口处第二道防线，
-        // 双保险防止未来 markdown-it 插件引入新 HTML 注入向量。
-        mdInstance = new MarkdownIt({
-            html: false,
-            breaks: true,
-            linkify: true,
-        });
-    }
-    return mdInstance;
+  if (!mdInstance) {
+    // 仍然禁掉 raw HTML 作为一道防线；DOMPurify 作为出口处第二道防线，
+    // 双保险防止未来 markdown-it 插件引入新 HTML 注入向量。
+    mdInstance = new MarkdownIt({
+      html: false,
+      breaks: true,
+      linkify: true,
+    });
+  }
+  return mdInstance;
 }
 
 /**
@@ -26,21 +26,21 @@ function getRenderer(): MarkdownIt {
  */
 let purifyHookInstalled = false;
 function ensurePurifyHook(): void {
-    if (purifyHookInstalled) return;
-    purifyHookInstalled = true;
-    DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-        if (!(node instanceof Element)) return;
-        if (node.tagName === "A") {
-            const href = node.getAttribute("href") || "";
-            // 仅允许 http(s) / 相对链接 / 锚点
-            if (!/^(https?:|\/|#|mailto:)/i.test(href)) {
-                node.removeAttribute("href");
-            }
-            if (node.hasAttribute("target")) {
-                node.setAttribute("rel", "noopener noreferrer");
-            }
-        }
-    });
+  if (purifyHookInstalled) return;
+  purifyHookInstalled = true;
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (!(node instanceof Element)) return;
+    if (node.tagName === "A") {
+      const href = node.getAttribute("href") || "";
+      // 仅允许 http(s) / 相对链接 / 锚点
+      if (!/^(https?:|\/|#|mailto:)/i.test(href)) {
+        node.removeAttribute("href");
+      }
+      if (node.hasAttribute("target")) {
+        node.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+  });
 }
 
 /**
@@ -50,21 +50,44 @@ function ensurePurifyHook(): void {
  * script / iframe / on* 事件 / 危险协议链接等）。
  */
 export function renderMarkdown(text: string | null | undefined): string {
-    if (!text || !text.trim()) return "";
-    ensurePurifyHook();
-    const raw = getRenderer().render(text);
-    return DOMPurify.sanitize(raw, {
-        // 白名单仅保留 markdown 常见标签
-        ALLOWED_TAGS: [
-            "a", "p", "br", "hr", "strong", "em", "del", "s", "ins",
-            "blockquote", "code", "pre",
-            "ul", "ol", "li",
-            "h1", "h2", "h3", "h4", "h5", "h6",
-            "table", "thead", "tbody", "tr", "th", "td",
-            "img", "span",
-        ],
-        ALLOWED_ATTR: ["href", "target", "rel", "title", "alt", "src", "class"],
-        // 禁掉 data:, vbscript:, javascript: 等危险协议
-        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[#/]|$)/i,
-    });
+  if (!text || !text.trim()) return "";
+  ensurePurifyHook();
+  const raw = getRenderer().render(text);
+  return DOMPurify.sanitize(raw, {
+    // 白名单仅保留 markdown 常见标签
+    ALLOWED_TAGS: [
+      "a",
+      "p",
+      "br",
+      "hr",
+      "strong",
+      "em",
+      "del",
+      "s",
+      "ins",
+      "blockquote",
+      "code",
+      "pre",
+      "ul",
+      "ol",
+      "li",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "table",
+      "thead",
+      "tbody",
+      "tr",
+      "th",
+      "td",
+      "img",
+      "span",
+    ],
+    ALLOWED_ATTR: ["href", "target", "rel", "title", "alt", "src", "class"],
+    // 禁掉 data:, vbscript:, javascript: 等危险协议
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[#/]|$)/i,
+  });
 }

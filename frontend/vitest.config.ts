@@ -8,23 +8,23 @@ import { ElementPlusResolver } from "unplugin-vue-components/resolvers";
 // - 强制 jsdom 环境，让 Vue effectScope / window 计时器可用
 // - 启用 unplugin-vue-components 使模板中的 <el-xxx> 在 ut 中也可解析
 export default defineConfig({
-    plugins: [
-        vue(),
-        Components({
-            resolvers: [ElementPlusResolver()],
-            dts: "src/components.d.ts",
-        }),
-    ],
-    test: {
-        environment: "jsdom",
-        include: ["src/**/*.{test,spec}.ts"],
-        globals: false,
-        clearMocks: true,
-        restoreMocks: true,
-        server: {
-            deps: {
-                inline: ["element-plus"],
-            },
-        },
+  plugins: [
+    vue(),
+    Components({
+      resolvers: [ElementPlusResolver()],
+      dts: "src/components.d.ts",
+    }),
+  ],
+  test: {
+    environment: "jsdom",
+    include: ["src/**/*.{test,spec}.ts"],
+    globals: false,
+    clearMocks: true,
+    restoreMocks: true,
+    server: {
+      deps: {
+        inline: ["element-plus"],
+      },
     },
+  },
 });

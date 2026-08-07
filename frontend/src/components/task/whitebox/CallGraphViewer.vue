@@ -1,21 +1,17 @@
 <template>
   <div class="list-wrap">
     <div class="list-toolbar">
-      <el-input
-        v-model="classFilter" class="class-filter"
-        placeholder="类名" clearable
-      />
-      <el-input
-        v-model="methodFilter" class="method-filter"
-        placeholder="方法名" clearable
-      />
+      <el-input v-model="classFilter" class="class-filter" placeholder="类名" clearable />
+      <el-input v-model="methodFilter" class="method-filter" placeholder="方法名" clearable />
       <span v-if="total !== null" class="list-count">共 {{ total }} 个节点</span>
     </div>
     <el-table
       :data="filteredItems"
       row-key="callNodeId"
       :expand-row-keys="expandedRowKeys"
-      size="small" stripe style="width:100%"
+      size="small"
+      stripe
+      style="width: 100%"
       @row-click="toggleNode"
       @expand-change="toggleExpandedNode"
     >
@@ -28,7 +24,11 @@
                   <circle cx="5" cy="10" r="2.25" stroke="currentColor" stroke-width="1.5" />
                   <circle cx="15" cy="5" r="2.25" stroke="currentColor" stroke-width="1.5" />
                   <circle cx="15" cy="15" r="2.25" stroke="currentColor" stroke-width="1.5" />
-                  <path d="M7.2 9.2l5.55-3.1M7.2 10.8l5.55 3.1" stroke="currentColor" stroke-width="1.3" />
+                  <path
+                    d="M7.2 9.2l5.55-3.1M7.2 10.8l5.55 3.1"
+                    stroke="currentColor"
+                    stroke-width="1.3"
+                  />
                 </svg>
               </span>
               <span class="callee-heading-copy">
@@ -47,7 +47,10 @@
                 <span class="edge-icon" aria-hidden="true">
                   <svg viewBox="0 0 16 16" fill="none">
                     <path
-                      d="M3 8h9M9 5l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                      d="M3 8h9M9 5l3 3-3 3"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
                       stroke-linejoin="round"
                     />
                   </svg>
@@ -84,7 +87,11 @@
         </template>
       </el-table-column>
       <template #append>
-        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+        <InfiniteScrollLoad
+          :has-more="hasMore"
+          :loading="loading"
+          @load-more="$emit('load-more')"
+        />
       </template>
     </el-table>
   </div>
@@ -113,7 +120,7 @@ const emit = defineEmits<{
 const classFilter = ref("");
 const methodFilter = ref("");
 
-const expandedRowKeys = computed(() => props.selectedNodeId ? [props.selectedNodeId] : []);
+const expandedRowKeys = computed(() => (props.selectedNodeId ? [props.selectedNodeId] : []));
 
 const filteredItems = computed(() => {
   const cq = classFilter.value.trim().toLowerCase();
@@ -208,8 +215,8 @@ function resolutionLabel(type: string): string {
   padding: 18px 22px 20px 58px;
   border-top: 1px solid rgba(10, 186, 181, 0.18);
   border-bottom: 1px solid rgba(10, 186, 181, 0.16);
-  background: linear-gradient(90deg, rgba(10, 186, 181, 0.08), transparent 34%),
-  rgba(248, 253, 252, 0.96);
+  background:
+    linear-gradient(90deg, rgba(10, 186, 181, 0.08), transparent 34%), rgba(248, 253, 252, 0.96);
   box-shadow: inset 3px 0 0 var(--brand-500);
 }
 
@@ -227,7 +234,10 @@ function resolutionLabel(type: string): string {
   border-radius: 8px;
   color: var(--brand-700);
   background: var(--brand-50);
-  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .list-wrap :deep(.el-table__expand-icon:hover),
@@ -314,7 +324,10 @@ function resolutionLabel(type: string): string {
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.84);
   box-shadow: var(--shadow-xs);
-  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    transform var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .callee-item:hover {

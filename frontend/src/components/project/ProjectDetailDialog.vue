@@ -1,6 +1,11 @@
 <template>
   <el-dialog
-    :model-value="visible" title="项目详情" width="620px" align-center append-to-body :close-on-click-modal="false"
+    :model-value="visible"
+    title="项目详情"
+    width="620px"
+    align-center
+    append-to-body
+    :close-on-click-modal="false"
     @update:model-value="$emit('close')"
   >
     <div v-if="project" class="detail-grid">
@@ -46,7 +51,9 @@
           <template v-if="Object.keys(restParameters).length">
             <div v-for="(val, key) in restParameters" :key="key" class="detail-param">
               <span class="detail-param-key">{{ key }}</span>
-              <span class="detail-param-val">{{ typeof val === "string" ? val : JSON.stringify(val) }}</span>
+              <span class="detail-param-val">{{
+                typeof val === "string" ? val : JSON.stringify(val)
+              }}</span>
             </div>
           </template>
           <span v-else>-</span>
@@ -71,13 +78,13 @@
 </template>
 
 <script setup lang="ts">
-import {computed} from "vue";
-import type {Project} from "../../types";
-import {formatDate} from "../../utils";
+import { computed } from "vue";
+import type { Project } from "../../types";
+import { formatDate } from "../../utils";
 import {
-    emptyPromptExtensions,
-    hasAnyExtension,
-    splitParametersFromPromptExtensions,
+  emptyPromptExtensions,
+  hasAnyExtension,
+  splitParametersFromPromptExtensions,
 } from "../../promptExtensions";
 import PromptExtensionViewer from "../prompt/PromptExtensionViewer.vue";
 
@@ -86,7 +93,7 @@ defineEmits<{ close: [] }>();
 
 const split = computed(() => {
   if (!props.project) {
-    return {rest: {} as Record<string, unknown>, promptExtensions: emptyPromptExtensions()};
+    return { rest: {} as Record<string, unknown>, promptExtensions: emptyPromptExtensions() };
   }
   return splitParametersFromPromptExtensions(props.project.parameters);
 });

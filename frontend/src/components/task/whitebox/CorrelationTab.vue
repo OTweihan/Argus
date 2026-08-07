@@ -22,9 +22,7 @@
           <div class="overview-grid">
             <!-- 请求级 -->
             <div class="card">
-              <div class="card-title">
-                请求证据
-              </div>
+              <div class="card-title">请求证据</div>
               <div class="stat-row">
                 <span class="stat-k">采集总数</span>
                 <span class="stat-v">{{ summary.capturedRequestCount }}</span>
@@ -53,23 +51,26 @@
 
             <!-- 端点级 -->
             <div class="card">
-              <div class="card-title">
-                端点覆盖
-              </div>
+              <div class="card-title">端点覆盖</div>
               <div class="stat-row">
-                <span class="stat-k">白盒端点总数</span><span class="stat-v">{{ summary.totalEndpointCount }}</span>
+                <span class="stat-k">白盒端点总数</span
+                ><span class="stat-v">{{ summary.totalEndpointCount }}</span>
               </div>
               <div class="stat-row confirmed">
-                <span class="stat-k">已确认触达</span><span class="stat-v">{{ summary.confirmedTouchedEndpointCount }}</span>
+                <span class="stat-k">已确认触达</span
+                ><span class="stat-v">{{ summary.confirmedTouchedEndpointCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">候选触达</span><span class="stat-v">{{ summary.candidateTouchedEndpointCount }}</span>
+                <span class="stat-k">候选触达</span
+                ><span class="stat-v">{{ summary.candidateTouchedEndpointCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">尝试触达</span><span class="stat-v">{{ summary.attemptedEvidenceCount }}</span>
+                <span class="stat-k">尝试触达</span
+                ><span class="stat-v">{{ summary.attemptedEvidenceCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">未触达</span><span class="stat-v">{{ summary.uncoveredEndpointCount }}</span>
+                <span class="stat-k">未触达</span
+                ><span class="stat-v">{{ summary.uncoveredEndpointCount }}</span>
               </div>
               <div v-if="summary.totalEndpointCount > 0" class="stat-row">
                 <span class="stat-k">触达率</span>
@@ -79,14 +80,15 @@
 
             <!-- Finding 级 -->
             <div class="card">
-              <div class="card-title">
-                发现项关联
-              </div>
+              <div class="card-title">发现项关联</div>
               <div class="stat-row">
-                <span class="stat-k">白盒发现项</span><span class="stat-v">{{ summary.totalFindingCount }}</span>
+                <span class="stat-k">白盒发现项</span
+                ><span class="stat-v">{{ summary.totalFindingCount }}</span>
               </div>
               <div class="stat-row confirmed">
-                <span class="stat-k" title="被黑盒实际触达（confirmed_request_count > 0）的发现项">已确认关联</span>
+                <span class="stat-k" title="被黑盒实际触达（confirmed_request_count > 0）的发现项"
+                  >已确认关联</span
+                >
                 <span class="stat-v">{{ summary.confirmedRelatedFindingCount }}</span>
               </div>
               <div class="stat-row">
@@ -101,20 +103,22 @@
 
             <!-- 采集质量 -->
             <div class="card">
-              <div class="card-title">
-                采集质量
+              <div class="card-title">采集质量</div>
+              <div class="stat-row">
+                <span class="stat-k">跨域过滤</span
+                ><span class="stat-v">{{ summary.crossOriginFilteredCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">跨域过滤</span><span class="stat-v">{{ summary.crossOriginFilteredCount }}</span>
+                <span class="stat-k">资源类型过滤</span
+                ><span class="stat-v">{{ summary.resourceFilteredCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">资源类型过滤</span><span class="stat-v">{{ summary.resourceFilteredCount }}</span>
+                <span class="stat-k">丢弃</span
+                ><span class="stat-v">{{ summary.droppedRequestCount }}</span>
               </div>
               <div class="stat-row">
-                <span class="stat-k">丢弃</span><span class="stat-v">{{ summary.droppedRequestCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">采集失败</span><span class="stat-v">{{ summary.failedCaptureCount }}</span>
+                <span class="stat-k">采集失败</span
+                ><span class="stat-v">{{ summary.failedCaptureCount }}</span>
               </div>
               <div class="stat-row">
                 <span class="stat-k">完整性</span>
@@ -156,9 +160,11 @@
             <el-empty v-if="!summary.uncoveredEndpointCount" description="所有白盒端点均已触达" />
             <template v-else>
               <div class="list-toolbar">
-                <span class="list-count">共 {{ uncoveredTotal ?? summary.uncoveredEndpointCount }} 个端点未触达</span>
+                <span class="list-count"
+                  >共 {{ uncoveredTotal ?? summary.uncoveredEndpointCount }} 个端点未触达</span
+                >
               </div>
-              <el-table :data="uncoveredItems" size="small" stripe style="width:100%">
+              <el-table :data="uncoveredItems" size="small" stripe style="width: 100%">
                 <el-table-column label="方法" width="80">
                   <template #default="{ row }">
                     <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
@@ -185,7 +191,11 @@
                   </template>
                 </el-table-column>
                 <template #append>
-                  <InfiniteScrollLoad :has-more="uncoveredHasMore" :loading="uncoveredLoading" @load-more="loadMoreUncovered" />
+                  <InfiniteScrollLoad
+                    :has-more="uncoveredHasMore"
+                    :loading="uncoveredLoading"
+                    @load-more="loadMoreUncovered"
+                  />
                 </template>
               </el-table>
             </template>
@@ -207,9 +217,7 @@
         <el-tab-pane lazy label="数据质量" name="quality">
           <div v-if="captureQuality" class="quality-section">
             <div class="card">
-              <div class="card-title">
-                采集详细统计
-              </div>
+              <div class="card-title">采集详细统计</div>
               <div class="stat-row">
                 <span class="stat-k">观察总数</span>
                 <span class="stat-v">{{ captureQuality.totalObserved }}</span>
@@ -269,9 +277,11 @@
               <div class="stat-row">
                 <span class="stat-k">截断</span>
                 <el-tag size="small" :type="captureQuality.truncated ? 'danger' : 'success'">
-                  {{ captureQuality.truncated ? '是' : '否' }}
+                  {{ captureQuality.truncated ? "是" : "否" }}
                 </el-tag>
-                <span v-if="captureQuality.truncationReason" class="trunc-reason">{{ captureQuality.truncationReason }}</span>
+                <span v-if="captureQuality.truncationReason" class="trunc-reason">{{
+                  captureQuality.truncationReason
+                }}</span>
               </div>
             </div>
           </div>
@@ -361,7 +371,9 @@ const alignmentLabels: Record<string, string> = {
   MISMATCHED: "不一致",
 };
 
-const alignmentLabel = computed(() => alignmentLabels[sourceAlignment.value] ?? sourceAlignment.value);
+const alignmentLabel = computed(
+  () => alignmentLabels[sourceAlignment.value] ?? sourceAlignment.value,
+);
 
 const coveragePercent = computed(() => {
   if (!summary.value || summary.value.totalEndpointCount === 0) return 0;
@@ -549,12 +561,30 @@ watch(subTab, (tab) => {
   font-size: 13px;
 }
 
-.status-SUCCEEDED { background: #ecfdf5; border: 1px solid #a7f3d0; }
-.status-FAILED    { background: #fef2f2; border: 1px solid #fecaca; }
-.status-RUNNING   { background: #eff6ff; border: 1px solid #bfdbfe; }
-.status-PARTIAL   { background: #fffbeb; border: 1px solid #fde68a; }
-.status-STALE     { background: #f3f4f6; border: 1px solid #d1d5db; }
-.status-READY     { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.status-SUCCEEDED {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+.status-FAILED {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+.status-RUNNING {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.status-PARTIAL {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+.status-STALE {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+}
+.status-READY {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
 
 .status-label {
   font-weight: 700;

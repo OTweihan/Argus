@@ -4,17 +4,26 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">模型列表</span>
-          <el-button size="large" type="primary" @click="openNewModelDialog">
-            新增模型
-          </el-button>
+          <el-button size="large" type="primary" @click="openNewModelDialog"> 新增模型 </el-button>
         </div>
       </template>
       <div class="filter-bar">
-        <el-input v-model="modelSearchQuery" size="large" placeholder="搜索名称、供应商、模型、Base URL" clearable class="search-input">
+        <el-input
+          v-model="modelSearchQuery"
+          size="large"
+          placeholder="搜索名称、供应商、模型、Base URL"
+          clearable
+          class="search-input"
+        >
           <template #prefix>
             <svg
-              viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round" class="search-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="search-icon"
             >
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.35-4.35" />
@@ -47,14 +56,23 @@
 </template>
 
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import { computed, ref } from "vue";
 import ModelTable from "../components/model/ModelTable.vue";
 import ModelFormDialog from "../components/model/ModelFormDialog.vue";
-import {injectConsoleApp} from "../composables/useConsoleApp";
+import { injectConsoleApp } from "../composables/useConsoleApp";
 
 const {
-  models, modelForm, showModelDialog, formErrors, modelLoading,
-  editModel, testModel, deleteModel, setDefaultModel, saveModel, openNewModelDialog,
+  models,
+  modelForm,
+  showModelDialog,
+  formErrors,
+  modelLoading,
+  editModel,
+  testModel,
+  deleteModel,
+  setDefaultModel,
+  saveModel,
+  openNewModelDialog,
 } = injectConsoleApp();
 
 const modelSearchQuery = ref("");
@@ -64,13 +82,9 @@ const filteredModels = computed(() => {
   const list = models.value;
   if (!keyword) return list;
   return list.filter((model) =>
-      [
-        model.name,
-        model.provider,
-        model.model,
-        model.baseUrl,
-        model.modelConfigId,
-      ].some((value) => value.toLowerCase().includes(keyword)),
+    [model.name, model.provider, model.model, model.baseUrl, model.modelConfigId].some((value) =>
+      value.toLowerCase().includes(keyword),
+    ),
   );
 });
 </script>

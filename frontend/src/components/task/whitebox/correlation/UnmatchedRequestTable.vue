@@ -3,7 +3,7 @@
     <div class="list-toolbar">
       <span v-if="total !== null" class="list-count">共 {{ total }} 条未匹配请求</span>
     </div>
-    <el-table :data="items" size="small" stripe style="width:100%">
+    <el-table :data="items" size="small" stripe style="width: 100%">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
@@ -18,7 +18,7 @@
       </el-table-column>
       <el-table-column label="状态码" width="80">
         <template #default="{ row }">
-          <span :class="statusClass(row.responseStatus)">{{ row.responseStatus ?? '-' }}</span>
+          <span :class="statusClass(row.responseStatus)">{{ row.responseStatus ?? "-" }}</span>
         </template>
       </el-table-column>
       <el-table-column label="结果" width="80">
@@ -40,7 +40,11 @@
         </template>
       </el-table-column>
       <template #append>
-        <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+        <InfiniteScrollLoad
+          :has-more="hasMore"
+          :loading="loading"
+          @load-more="$emit('load-more')"
+        />
       </template>
     </el-table>
   </div>
@@ -72,28 +76,40 @@ function statusClass(code: number | null): string {
 
 function outcomeTag(o: string): ElTagType {
   switch (o) {
-    case "COMPLETED": return "success";
-    case "NETWORK_FAILED": return "danger";
-    case "ABANDONED": return "warning";
-    default: return "info";
+    case "COMPLETED":
+      return "success";
+    case "NETWORK_FAILED":
+      return "danger";
+    case "ABANDONED":
+      return "warning";
+    default:
+      return "info";
   }
 }
 
 function outcomeLabel(o: string): string {
   switch (o) {
-    case "COMPLETED": return "已完成";
-    case "NETWORK_FAILED": return "网络失败";
-    case "ABANDONED": return "未完成";
-    default: return o;
+    case "COMPLETED":
+      return "已完成";
+    case "NETWORK_FAILED":
+      return "网络失败";
+    case "ABANDONED":
+      return "未完成";
+    default:
+      return o;
   }
 }
 
 function eligibilityLabel(e: string): string {
   switch (e) {
-    case "CONFIRMED_ELIGIBLE": return "可匹配";
-    case "ATTEMPT_ONLY": return "仅尝试";
-    case "EXCLUDED_SW_CACHE": return "SW缓存";
-    default: return e;
+    case "CONFIRMED_ELIGIBLE":
+      return "可匹配";
+    case "ATTEMPT_ONLY":
+      return "仅尝试";
+    case "EXCLUDED_SW_CACHE":
+      return "SW缓存";
+    default:
+      return e;
   }
 }
 </script>
@@ -115,10 +131,21 @@ function eligibilityLabel(e: string): string {
   color: var(--text-faint);
 }
 
-.status-ok  { color: #059669; font-weight: 600; }
-.status-err { color: #d97706; font-weight: 600; }
-.status-fail { color: #dc2626; font-weight: 600; }
-.status-na  { color: #9ca3af; }
+.status-ok {
+  color: #059669;
+  font-weight: 600;
+}
+.status-err {
+  color: #d97706;
+  font-weight: 600;
+}
+.status-fail {
+  color: #dc2626;
+  font-weight: 600;
+}
+.status-na {
+  color: #9ca3af;
+}
 
 .faint-text {
   font-size: 12px;

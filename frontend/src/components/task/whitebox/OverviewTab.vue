@@ -22,9 +22,7 @@
           <span class="sev-count">{{ count }}</span>
         </div>
       </div>
-      <p v-else class="risk-empty">
-        本次分析没有发现风险项。
-      </p>
+      <p v-else class="risk-empty">本次分析没有发现风险项。</p>
     </section>
   </div>
 </template>
@@ -40,9 +38,7 @@ const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"];
 
 const severityEntries = computed(() => {
   const counts = props.summary.findingSeverityCounts || {};
-  return SEVERITY_ORDER
-    .filter((s) => counts[s])
-    .map((s) => [s, counts[s]] as const);
+  return SEVERITY_ORDER.filter((s) => counts[s]).map((s) => [s, counts[s]] as const);
 });
 </script>
 
@@ -111,22 +107,42 @@ const severityEntries = computed(() => {
   background: currentColor;
 }
 
-.dot-critical { color: #991b1b; }
-.dot-high { color: #c2410c; }
-.dot-medium { color: #b45309; }
-.dot-low { color: #2563eb; }
-.dot-info { color: #6b7280; }
+.dot-critical {
+  color: #991b1b;
+}
+.dot-high {
+  color: #c2410c;
+}
+.dot-medium {
+  color: #b45309;
+}
+.dot-low {
+  color: #2563eb;
+}
+.dot-info {
+  color: #6b7280;
+}
 
 .sev-label {
   font-size: 12px;
   font-weight: 700;
 }
 
-.sev-critical { color: #991b1b; }
-.sev-high { color: #c2410c; }
-.sev-medium { color: #b45309; }
-.sev-low { color: #2563eb; }
-.sev-info { color: #6b7280; }
+.sev-critical {
+  color: #991b1b;
+}
+.sev-high {
+  color: #c2410c;
+}
+.sev-medium {
+  color: #b45309;
+}
+.sev-low {
+  color: #2563eb;
+}
+.sev-info {
+  color: #6b7280;
+}
 
 .sev-count {
   margin-left: auto;

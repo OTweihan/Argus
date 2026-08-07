@@ -42,11 +42,7 @@ export class TaskEventStream {
   connect(taskId?: string): void {
     const suffix = taskId ? `/ws/tasks/${encodeURIComponent(taskId)}` : "/ws/tasks";
     const endpoint = `${wsBaseUrl()}${suffix}`;
-    if (
-      this.socket &&
-      this.endpoint === endpoint &&
-      this.socket.readyState <= WebSocket.OPEN
-    ) {
+    if (this.socket && this.endpoint === endpoint && this.socket.readyState <= WebSocket.OPEN) {
       return;
     }
     this.clearReconnectTimer();

@@ -11,16 +11,17 @@
       </button>
     </div>
     <div class="snippet-body" :class="{ collapsed: isCollapsed && !expanded }">
-      <div v-for="(line, idx) in displayedLines" :key="idx" class="snippet-line" :class="{ highlight: highlightedSet.has(startLine + idx) }">
+      <div
+        v-for="(line, idx) in displayedLines"
+        :key="idx"
+        class="snippet-line"
+        :class="{ highlight: highlightedSet.has(startLine + idx) }"
+      >
         <span class="snippet-ln">{{ startLine + idx }}</span>
         <span class="snippet-text">{{ line }}</span>
       </div>
     </div>
-    <button
-      v-if="needsCollapse"
-      class="snippet-toggle"
-      @click="expanded = !expanded"
-    >
+    <button v-if="needsCollapse" class="snippet-toggle" @click="expanded = !expanded">
       {{ expanded ? "收起" : `展开全部（${totalLines} 行）` }}
     </button>
   </div>
@@ -29,39 +30,43 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
-const props = withDefaults(defineProps<{
-  code: string;
-  filePath?: string | null;
-  startLine?: number;
-  maxLines?: number;
-  highlightLines?: number[];
-}>(), {
-  filePath: null,
-  startLine: 1,
-  maxLines: 30,
-  highlightLines: () => [],
-});
+const props = withDefaults(
+  defineProps<{
+    code: string;
+    filePath?: string | null;
+    startLine?: number;
+    maxLines?: number;
+    highlightLines?: number[];
+  }>(),
+  {
+    filePath: null,
+    startLine: 1,
+    maxLines: 30,
+    highlightLines: () => [],
+  },
+);
 
 const expanded = ref(false);
 
 const lines = computed(() =>
-  props.code.split("\n").map((l) =>
-    l
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;") || " ",
-  ),
+  props.code
+    .split("\n")
+    .map(
+      (l) =>
+        l
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;") || " ",
+    ),
 );
 
 const totalLines = computed(() => lines.value.length);
 const needsCollapse = computed(() => totalLines.value > props.maxLines);
 const isCollapsed = computed(() => needsCollapse.value && !expanded.value);
 const displayedLines = computed(() =>
-  isCollapsed.value
-    ? lines.value.slice(0, props.maxLines)
-    : lines.value,
+  isCollapsed.value ? lines.value.slice(0, props.maxLines) : lines.value,
 );
 const highlightedSet = computed(() => new Set(props.highlightLines));
 

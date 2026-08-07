@@ -8,7 +8,12 @@
       </template>
       <template v-else-if="step.result === 'failed'">
         <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
-          <path d="M5 5l6 6M11 5l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          <path
+            d="M5 5l6 6M11 5l-6 6"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          />
         </svg>
       </template>
       <template v-else>
@@ -29,7 +34,9 @@
       <div class="step-detail-grid">
         <div class="step-detail-item">
           <span class="sdi-label">步骤 ID</span>
-          <span class="sdi-value"><code>{{ step.taskLogId }}</code></span>
+          <span class="sdi-value"
+            ><code>{{ step.taskLogId }}</code></span
+          >
         </div>
         <div class="step-detail-item">
           <span class="sdi-label">时间</span>
@@ -49,14 +56,27 @@
         </div>
         <div v-if="step.errorCode" class="step-detail-item">
           <span class="sdi-label">错误码</span>
-          <span class="sdi-value"><code>{{ step.errorCode }}</code></span>
+          <span class="sdi-value"
+            ><code>{{ step.errorCode }}</code></span
+          >
         </div>
       </div>
 
       <div v-if="step.params && Object.keys(step.params).length" class="step-extras">
         <button class="extras-toggle" @click="paramsOpen = !paramsOpen">
-          <svg :class="['chevron', { open: paramsOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          <svg
+            :class="['chevron', { open: paramsOpen }]"
+            viewBox="0 0 16 16"
+            fill="none"
+            width="12"
+            height="12"
+          >
+            <path
+              d="M6 4l4 4-4 4"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
           </svg>
           步骤参数
         </button>
@@ -67,8 +87,19 @@
 
       <div v-if="step.screenshotPath" class="step-extras">
         <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
-          <svg :class="['chevron', { open: screenshotOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          <svg
+            :class="['chevron', { open: screenshotOpen }]"
+            viewBox="0 0 16 16"
+            fill="none"
+            width="12"
+            height="12"
+          >
+            <path
+              d="M6 4l4 4-4 4"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
           </svg>
           步骤截图
         </button>
@@ -119,13 +150,14 @@ const screenshotOpen = ref(false);
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  transition: box-shadow var(--transition), transform var(--transition);
+  transition:
+    box-shadow var(--transition),
+    transform var(--transition);
 }
 
 .step-failed {
   border-color: #fecdd3;
-  background:
-      linear-gradient(135deg, rgba(255, 241, 242, 0.85) 0%, rgba(255, 255, 255, 0.78) 55%);
+  background: linear-gradient(135deg, rgba(255, 241, 242, 0.85) 0%, rgba(255, 255, 255, 0.78) 55%);
   box-shadow: 0 8px 24px rgba(180, 35, 24, 0.08);
 }
 

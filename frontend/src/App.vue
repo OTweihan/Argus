@@ -16,8 +16,15 @@
             </el-button>
             <el-button size="large" class="refresh-btn" type="primary" plain @click="loadAll">
               <svg
-                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                stroke-linejoin="round" width="16" height="16" class="refresh-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                width="16"
+                height="16"
+                class="refresh-icon"
               >
                 <path d="M21 12a9 9 0 11-3.51-7.13L21 8" />
                 <polyline points="21 3 21 8 16 8" />
@@ -51,9 +58,7 @@
       >
         <span>{{ dialog?.message }}</span>
         <template #footer>
-          <el-button size="large" type="primary" @click="closeDialog">
-            确定
-          </el-button>
+          <el-button size="large" type="primary" @click="closeDialog"> 确定 </el-button>
         </template>
       </el-dialog>
 
@@ -67,9 +72,20 @@
         append-to-body
       >
         <p>服务已启用 API Token，请输入后继续。Token 仅保存在当前标签页会话中。</p>
-        <el-input v-model="tokenInput" type="password" show-password autocomplete="current-password" @keyup.enter="unlockConsole" />
+        <el-input
+          v-model="tokenInput"
+          type="password"
+          show-password
+          autocomplete="current-password"
+          @keyup.enter="unlockConsole"
+        />
         <template #footer>
-          <el-button size="large" type="primary" :disabled="!tokenInput.trim()" @click="unlockConsole">
+          <el-button
+            size="large"
+            type="primary"
+            :disabled="!tokenInput.trim()"
+            @click="unlockConsole"
+          >
             验证
           </el-button>
         </template>
@@ -79,11 +95,11 @@
 </template>
 
 <script setup lang="ts">
-import {computed, defineAsyncComponent, onBeforeMount, ref, shallowRef} from "vue";
-import type {Language} from "element-plus/es/locale";
+import { computed, defineAsyncComponent, onBeforeMount, ref, shallowRef } from "vue";
+import type { Language } from "element-plus/es/locale";
 import SidebarMenu from "./components/layout/SidebarMenu.vue";
-import {useConsoleApp} from "./composables/useConsoleApp";
-import {authRequired, clearApiToken, hasApiToken, setApiToken} from "./auth";
+import { useConsoleApp } from "./composables/useConsoleApp";
+import { authRequired, clearApiToken, hasApiToken, setApiToken } from "./auth";
 
 // 路由级懒加载：四个视图按需加载，减小首屏 JS 体积
 const DashboardView = defineAsyncComponent(() => import("./views/DashboardView.vue"));
@@ -138,12 +154,17 @@ function lockConsole(): void {
 
 const currentView = computed(() => {
   switch (view.value) {
-    case "dashboard": return DashboardView;
-    case "projects": return ProjectsView;
+    case "dashboard":
+      return DashboardView;
+    case "projects":
+      return ProjectsView;
     case "tasks":
-    case "task-detail": return TasksView;
-    case "models": return ModelsView;
-    default: return ModelsView;
+    case "task-detail":
+      return TasksView;
+    case "models":
+      return ModelsView;
+    default:
+      return ModelsView;
   }
 });
 </script>
@@ -186,6 +207,8 @@ const currentView = computed(() => {
 }
 
 @keyframes view-loading-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

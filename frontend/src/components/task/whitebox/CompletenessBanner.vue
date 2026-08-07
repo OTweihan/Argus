@@ -3,20 +3,62 @@
     <div class="banner-icon">
       <svg v-if="status === 'COMPLETE'" viewBox="0 0 20 20" fill="none" width="20" height="20">
         <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.4" />
-        <path d="M6 10l3 3 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        <path
+          d="M6 10l3 3 5-5"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
       <svg v-else-if="status === 'DEGRADED'" viewBox="0 0 20 20" fill="none" width="20" height="20">
-        <path d="M10 2L2 18h16L10 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
-        <line x1="10" y1="9" x2="10" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        <path
+          d="M10 2L2 18h16L10 2z"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linejoin="round"
+        />
+        <line
+          x1="10"
+          y1="9"
+          x2="10"
+          y2="13"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
         <circle cx="10" cy="15.5" r="0.8" fill="currentColor" />
       </svg>
-      <svg v-else-if="status === 'UNAVAILABLE'" viewBox="0 0 20 20" fill="none" width="20" height="20">
+      <svg
+        v-else-if="status === 'UNAVAILABLE'"
+        viewBox="0 0 20 20"
+        fill="none"
+        width="20"
+        height="20"
+      >
         <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.4" />
-        <path d="M7 7l6 6M13 7l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        <path
+          d="M7 7l6 6M13 7l-6 6"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
       </svg>
       <svg v-else viewBox="0 0 20 20" fill="none" width="20" height="20">
-        <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 2" />
-        <path d="M10 6v4M10 12.5v0.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        <circle
+          cx="10"
+          cy="10"
+          r="9"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-dasharray="2 2"
+        />
+        <path
+          d="M10 6v4M10 12.5v0.1"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
       </svg>
     </div>
     <div class="banner-body">
@@ -48,17 +90,19 @@ const STATUS_TITLES: Record<string, string> = {
 const bannerTitle = computed(() => STATUS_TITLES[status.value] || status.value);
 
 const reasons = computed(() =>
-  (props.summary.completeness.issues ?? []).map((i) =>
-    `${i.code}: ${i.message}`,
-  ),
+  (props.summary.completeness.issues ?? []).map((i) => `${i.code}: ${i.message}`),
 );
 
 const bannerClass = computed(() => {
   switch (status.value) {
-    case "COMPLETE": return "banner-ok";
-    case "DEGRADED": return "banner-warn";
-    case "UNAVAILABLE": return "banner-err";
-    default: return "banner-muted";
+    case "COMPLETE":
+      return "banner-ok";
+    case "DEGRADED":
+      return "banner-warn";
+    case "UNAVAILABLE":
+      return "banner-err";
+    default:
+      return "banner-muted";
   }
 });
 </script>

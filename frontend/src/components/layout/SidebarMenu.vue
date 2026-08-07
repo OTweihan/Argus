@@ -7,7 +7,11 @@
     <el-menu :default-active="view" class="nav-menu" @select="onSelect">
       <el-menu-item index="dashboard">
         <svg
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
           stroke-linejoin="round"
         >
           <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -19,7 +23,11 @@
       </el-menu-item>
       <el-menu-item index="projects">
         <svg
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
           stroke-linejoin="round"
         >
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -28,7 +36,11 @@
       </el-menu-item>
       <el-menu-item index="tasks">
         <svg
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
           stroke-linejoin="round"
         >
           <path d="M9 11l3 3L22 4" />
@@ -38,7 +50,11 @@
       </el-menu-item>
       <el-menu-item index="models">
         <svg
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
           stroke-linejoin="round"
         >
           <path d="M12 2L2 7l10 5 10-5-10-5z" />
@@ -52,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import type {ViewKey} from "../../composables/useConsoleApp";
+import type { ViewKey } from "../../composables/useConsoleApp";
 
 defineProps<{ view: ViewKey }>();
 const emit = defineEmits<{ changeView: [index: ViewKey] }>();
@@ -62,7 +78,7 @@ const emit = defineEmits<{ changeView: [index: ViewKey] }>();
 // 这里 cast 即可（vue-tsc 在 inline `$emit('changeView', $event)` 形式下
 // 无法做这层窄化推断，必须拆成 setup 函数）。
 function onSelect(index: string): void {
-    emit("changeView", index as ViewKey);
+  emit("changeView", index as ViewKey);
 }
 </script>
 
@@ -87,7 +103,13 @@ function onSelect(index: string): void {
   bottom: 0;
   right: 0;
   width: 1px;
-  background: linear-gradient(180deg, transparent 0%, var(--line-soft) 16%, var(--line-soft) 84%, transparent 100%);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    var(--line-soft) 16%,
+    var(--line-soft) 84%,
+    transparent 100%
+  );
   pointer-events: none;
 }
 
@@ -113,7 +135,9 @@ function onSelect(index: string): void {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  box-shadow: 0 6px 14px rgba(10, 186, 181, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  box-shadow:
+    0 6px 14px rgba(10, 186, 181, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .brand-name {
@@ -138,7 +162,10 @@ function onSelect(index: string): void {
   line-height: 42px;
   font-size: 14px;
   color: var(--text-muted);
-  transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .nav-menu .el-menu-item svg {
@@ -146,7 +173,9 @@ function onSelect(index: string): void {
   height: 18px;
   margin-right: 10px;
   opacity: 0.6;
-  transition: opacity var(--transition-fast), color var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .nav-menu .el-menu-item:hover {

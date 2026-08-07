@@ -10,11 +10,22 @@
         </div>
       </template>
       <div class="filter-bar">
-        <el-input v-model="searchQuery" size="large" placeholder="搜索名称、基础 URL" clearable class="search-input">
+        <el-input
+          v-model="searchQuery"
+          size="large"
+          placeholder="搜索名称、基础 URL"
+          clearable
+          class="search-input"
+        >
           <template #prefix>
             <svg
-              viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round" class="search-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="search-icon"
             >
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.35-4.35" />
@@ -24,7 +35,10 @@
       </div>
       <div v-loading="projectLoading" class="table-wrap">
         <ProjectTable
-          :projects="filteredProjects" height="100%" @detail="showDetail" @edit="editProject"
+          :projects="filteredProjects"
+          height="100%"
+          @detail="showDetail"
+          @edit="editProject"
           @delete="deleteProject"
         />
       </div>
@@ -37,7 +51,7 @@
       :form-errors="formErrors"
       @save="saveProject"
       @close="showProjectDialog = false"
-      @add-param="projectForm.parameters.push({key:'', value:''})"
+      @add-param="projectForm.parameters.push({ key: '', value: '' })"
       @remove-param="projectForm.parameters.splice($event, 1)"
     />
 
@@ -50,16 +64,23 @@
 </template>
 
 <script setup lang="ts">
-import {computed, ref} from "vue";
-import type {Project} from "../types";
+import { computed, ref } from "vue";
+import type { Project } from "../types";
 import ProjectTable from "../components/project/ProjectTable.vue";
 import ProjectFormDialog from "../components/project/ProjectFormDialog.vue";
 import ProjectDetailDialog from "../components/project/ProjectDetailDialog.vue";
-import {injectConsoleApp} from "../composables/useConsoleApp";
+import { injectConsoleApp } from "../composables/useConsoleApp";
 
 const {
-  projects, projectForm, showProjectDialog, formErrors, projectLoading,
-  editProject, deleteProject, saveProject, openNewProjectDialog,
+  projects,
+  projectForm,
+  showProjectDialog,
+  formErrors,
+  projectLoading,
+  editProject,
+  deleteProject,
+  saveProject,
+  openNewProjectDialog,
 } = injectConsoleApp();
 
 const searchQuery = ref("");
@@ -76,13 +97,13 @@ const filteredProjects = computed(() => {
   const list = projects.value;
   if (!q) return list;
   return list.filter(
-      (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.projectId.toLowerCase().includes(q) ||
-          (p.description ?? "").toLowerCase().includes(q) ||
-          (p.baseUrl ?? "").toLowerCase().includes(q) ||
-          (p.gitUrl ?? "").toLowerCase().includes(q) ||
-          (p.authStateName ?? "").toLowerCase().includes(q),
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.projectId.toLowerCase().includes(q) ||
+      (p.description ?? "").toLowerCase().includes(q) ||
+      (p.baseUrl ?? "").toLowerCase().includes(q) ||
+      (p.gitUrl ?? "").toLowerCase().includes(q) ||
+      (p.authStateName ?? "").toLowerCase().includes(q),
   );
 });
 </script>

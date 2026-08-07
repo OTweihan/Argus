@@ -7,7 +7,9 @@
           <h3 class="finding-title">
             {{ finding.title }}
           </h3>
-          <span :class="['severity-tag', 'sev-tag-' + finding.severity]">{{ finding.severity }}</span>
+          <span :class="['severity-tag', 'sev-tag-' + finding.severity]">{{
+            finding.severity
+          }}</span>
         </div>
         <p class="finding-desc">
           {{ finding.description }}
@@ -16,7 +18,9 @@
       <div class="finding-meta-grid">
         <div class="fm-item">
           <span class="fm-label">问题 ID</span>
-          <span class="fm-value"><code>{{ finding.findingId }}</code></span>
+          <span class="fm-value"
+            ><code>{{ finding.findingId }}</code></span
+          >
         </div>
         <div class="fm-item">
           <span class="fm-label">类型</span>
@@ -37,8 +41,19 @@
       </div>
       <div v-if="finding.screenshotPath" class="finding-extras">
         <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
-          <svg :class="['chevron', { open: screenshotOpen }]" viewBox="0 0 16 16" fill="none" width="12" height="12">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          <svg
+            :class="['chevron', { open: screenshotOpen }]"
+            viewBox="0 0 16 16"
+            fill="none"
+            width="12"
+            height="12"
+          >
+            <path
+              d="M6 4l4 4-4 4"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
           </svg>
           问题截图
         </button>
@@ -88,7 +103,9 @@ const screenshotOpen = ref(false);
   overflow: hidden;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  transition: box-shadow var(--transition), transform var(--transition);
+  transition:
+    box-shadow var(--transition),
+    transform var(--transition);
 }
 
 .finding-card:hover {
@@ -99,8 +116,7 @@ const screenshotOpen = ref(false);
 .sev-critical,
 .sev-high {
   border-color: #fecdd3;
-  background:
-      linear-gradient(135deg, rgba(255, 241, 242, 0.85) 0%, rgba(255, 255, 255, 0.78) 55%);
+  background: linear-gradient(135deg, rgba(255, 241, 242, 0.85) 0%, rgba(255, 255, 255, 0.78) 55%);
   box-shadow: 0 8px 24px rgba(180, 35, 24, 0.08);
 }
 

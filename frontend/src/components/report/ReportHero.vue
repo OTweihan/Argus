@@ -3,9 +3,7 @@
     <div class="hero-bg-grid" />
     <div class="hero-inner">
       <div class="hero-main">
-        <div class="eyebrow">
-          Argus Blackbox Testing
-        </div>
+        <div class="eyebrow">Argus Blackbox Testing</div>
         <h1>{{ taskName }}</h1>
         <p class="hero-desc">
           {{ summary }}
@@ -16,11 +14,27 @@
             {{ statusLabel }}
           </span>
           <span :class="['status-badge', findingCount === 0 ? 'badge-success' : 'badge-danger']">
-            <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" /><path d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" /></svg>
+            <svg viewBox="0 0 16 16" fill="none" width="12" height="12">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" />
+              <path
+                d="M8 5v3.5M8 11v.5"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round"
+              />
+            </svg>
             问题 {{ findingCount }}
           </span>
           <span class="status-badge badge-info">
-            <svg viewBox="0 0 16 16" fill="none" width="12" height="12"><path d="M2 4l6 3 6-3M2 12l6-3 6 3M2 8l6-3 6 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            <svg viewBox="0 0 16 16" fill="none" width="12" height="12">
+              <path
+                d="M2 4l6 3 6-3M2 12l6-3 6 3M2 8l6-3 6 3"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
             步骤 {{ stepCount }} / {{ report.task.maxSteps }}
           </span>
         </div>
@@ -73,8 +87,13 @@ const taskName = computed(() => {
   border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 28px;
   background:
-      linear-gradient(135deg, rgba(14, 43, 47, 0.96), rgba(8, 123, 120, 0.93) 55%, rgba(10, 186, 181, 0.90)),
-      #111827;
+    linear-gradient(
+      135deg,
+      rgba(14, 43, 47, 0.96),
+      rgba(8, 123, 120, 0.93) 55%,
+      rgba(10, 186, 181, 0.9)
+    ),
+    #111827;
   box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
   color: #ffffff;
   overflow: hidden;
@@ -179,12 +198,20 @@ const taskName = computed(() => {
   border-radius: 50%;
 }
 
-.badge-completed .badge-dot { background: #15803d; }
+.badge-completed .badge-dot {
+  background: #15803d;
+}
 .badge-failed .badge-dot,
 .badge-timeout .badge-dot,
-.badge-cancelled .badge-dot { background: #b42318; }
-.badge-running .badge-dot { background: #b54708; }
-.badge-pending .badge-dot { background: #175cd3; }
+.badge-cancelled .badge-dot {
+  background: #b42318;
+}
+.badge-running .badge-dot {
+  background: #b54708;
+}
+.badge-pending .badge-dot {
+  background: #175cd3;
+}
 
 .badge-completed,
 .badge-success {

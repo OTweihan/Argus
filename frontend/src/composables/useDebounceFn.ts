@@ -15,50 +15,50 @@ import { getCurrentScope, onScopeDispose } from "vue";
  *   watch(query, debouncedSearch);
  */
 export interface DebouncedFn<TArgs extends unknown[]> {
-    (...args: TArgs): void;
-    cancel(): void;
-    flush(): void;
+  (...args: TArgs): void;
+  cancel(): void;
+  flush(): void;
 }
 
 export function useDebounceFn<TArgs extends unknown[]>(
-    fn: (...args: TArgs) => void | Promise<void>,
-    delayMs: number,
+  fn: (...args: TArgs) => void | Promise<void>,
+  delayMs: number,
 ): DebouncedFn<TArgs> {
-    let timer: number | null = null;
-    let pendingArgs: TArgs | null = null;
+  let timer: number | null = null;
+  let pendingArgs: TArgs | null = null;
 
-    function cancel(): void {
-        if (timer !== null) {
-            window.clearTimeout(timer);
-            timer = null;
-        }
-        pendingArgs = null;
+  function cancel(): void {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+      timer = null;
     }
+    pendingArgs = null;
+  }
 
-    function run(): void {
-        const args = pendingArgs;
-        timer = null;
-        pendingArgs = null;
-        if (args) void fn(...args);
+  function run(): void {
+    const args = pendingArgs;
+    timer = null;
+    pendingArgs = null;
+    if (args) void fn(...args);
+  }
+
+  function flush(): void {
+    if (timer !== null && pendingArgs !== null) {
+      window.clearTimeout(timer);
+      run();
     }
+  }
 
-    function flush(): void {
-        if (timer !== null && pendingArgs !== null) {
-            window.clearTimeout(timer);
-            run();
-        }
-    }
+  function debounced(...args: TArgs): void {
+    if (timer !== null) window.clearTimeout(timer);
+    pendingArgs = args;
+    timer = window.setTimeout(run, delayMs);
+  }
 
-    function debounced(...args: TArgs): void {
-        if (timer !== null) window.clearTimeout(timer);
-        pendingArgs = args;
-        timer = window.setTimeout(run, delayMs);
-    }
+  // 在 Vue setup / 任意 effect scope 内自动卸载清理；纯函数调用场景需手动 cancel。
+  if (getCurrentScope()) {
+    onScopeDispose(cancel);
+  }
 
-    // 在 Vue setup / 任意 effect scope 内自动卸载清理；纯函数调用场景需手动 cancel。
-    if (getCurrentScope()) {
-        onScopeDispose(cancel);
-    }
-
-    return Object.assign(debounced as DebouncedFn<TArgs>, { cancel, flush });
+  return Object.assign(debounced as DebouncedFn<TArgs>, { cancel, flush });
 }

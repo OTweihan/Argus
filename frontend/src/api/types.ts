@@ -1,5 +1,4 @@
-
-import type {components} from "./openapi.gen";
+import type { components } from "./openapi.gen";
 
 /** @description 创建项目请求 */
 export type ProjectPayload = components["schemas"]["ProjectCreateRequest"];

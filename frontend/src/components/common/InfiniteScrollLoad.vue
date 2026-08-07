@@ -1,9 +1,5 @@
 <template>
-  <div
-    v-if="hasMore || loading"
-    ref="root"
-    class="inf-load"
-  >
+  <div v-if="hasMore || loading" ref="root" class="inf-load">
     <span v-if="loading" class="inf-spinner" />
     <span v-if="loading" class="inf-text">加载中...</span>
     <span v-else class="inf-text">下滑加载更多</span>

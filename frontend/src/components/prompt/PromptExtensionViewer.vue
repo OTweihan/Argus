@@ -6,24 +6,22 @@
       </div>
       <!-- eslint-disable-next-line vue/no-v-html -->
       <div v-if="rendered[role.value]" class="md-body" v-html="rendered[role.value]" />
-      <div v-else class="md-body empty">
-        未配置
-      </div>
+      <div v-else class="md-body empty">未配置</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import {computed} from "vue";
+import { computed } from "vue";
 
-import {renderMarkdown} from "../../composables/useMarkdown";
-import {hasAnyExtension, type PromptExtensions} from "../../promptExtensions";
+import { renderMarkdown } from "../../composables/useMarkdown";
+import { hasAnyExtension, type PromptExtensions } from "../../promptExtensions";
 
 const props = defineProps<{ extensions: PromptExtensions }>();
 
 const ROLES = [
-  {value: "planner" as const, label: "Planner 扩展"},
-  {value: "evaluator" as const, label: "Evaluator 扩展"},
+  { value: "planner" as const, label: "Planner 扩展" },
+  { value: "evaluator" as const, label: "Evaluator 扩展" },
 ];
 
 const hasContent = computed(() => hasAnyExtension(props.extensions));

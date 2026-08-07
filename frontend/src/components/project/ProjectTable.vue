@@ -1,9 +1,9 @@
 <template>
-  <el-table v-if="projects.length" :data="projects" stripe style="width:100%" :height="height">
+  <el-table v-if="projects.length" :data="projects" stripe style="width: 100%" :height="height">
     <el-table-column label="名称" min-width="180">
       <template #default="{ row }">
         <strong>{{ row.name }}</strong>
-        <div style="color:#909399;font-size:12px">
+        <div style="color: #909399; font-size: 12px">
           {{ row.projectId }}
         </div>
       </template>
@@ -25,12 +25,8 @@
     </el-table-column>
     <el-table-column label="操作" width="260" fixed="right">
       <template #default="{ row }">
-        <el-button size="large" @click="$emit('detail', row)">
-          详细
-        </el-button>
-        <el-button size="large" @click="$emit('edit', row)">
-          编辑
-        </el-button>
+        <el-button size="large" @click="$emit('detail', row)"> 详细 </el-button>
+        <el-button size="large" @click="$emit('edit', row)"> 编辑 </el-button>
         <el-button size="large" type="danger" @click="$emit('delete', row.projectId)">
           删除
         </el-button>
@@ -41,9 +37,13 @@
 </template>
 
 <script setup lang="ts">
-import type {Project} from "../../types";
-import {formatDate} from "../../utils";
+import type { Project } from "../../types";
+import { formatDate } from "../../utils";
 
 defineProps<{ projects: Project[]; height?: string | number }>();
-defineEmits<{ detail: [project: Project]; edit: [project: Project]; delete: [projectId: string] }>();
+defineEmits<{
+  detail: [project: Project];
+  edit: [project: Project];
+  delete: [projectId: string];
+}>();
 </script>

@@ -40,10 +40,7 @@ const {
 } = useTraceList({ taskId: () => props.taskId });
 
 async function downloadDebugBundle(): Promise<void> {
-  await openAuthenticatedResource(
-    debugBundlePath(props.taskId),
-    `debug-${props.taskId}.zip`,
-  );
+  await openAuthenticatedResource(debugBundlePath(props.taskId), `debug-${props.taskId}.zip`);
 }
 </script>
 

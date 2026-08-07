@@ -9,11 +9,7 @@
     </div>
     <div v-else class="tl-scroll">
       <div class="tl-list">
-        <div
-          v-for="event in events"
-          :key="event.eventId"
-          class="tl-item"
-        >
+        <div v-for="event in events" :key="event.eventId" class="tl-item">
           <div class="tl-dot" :style="{ background: phaseColor(event.phase) }" />
           <div class="tl-line" />
           <div class="tl-card" :style="{ borderLeftColor: phaseColor(event.phase) }">
@@ -25,13 +21,15 @@
               </div>
               <div class="tl-right">
                 <span v-if="event.stepNumber > 0" class="tl-step">
-                  <svg viewBox="0 0 16 16" fill="none" width="11" height="11"><circle
-                    cx="8" cy="8" r="6"
-                    stroke="currentColor"
-                    stroke-width="1.2"
-                  /><path
-                    d="M8 5v3.5M8 11v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"
-                  /></svg>
+                  <svg viewBox="0 0 16 16" fill="none" width="11" height="11">
+                    <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" />
+                    <path
+                      d="M8 5v3.5M8 11v.5"
+                      stroke="currentColor"
+                      stroke-width="1.2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
                   步骤 {{ event.stepNumber }}
                 </span>
                 <span class="tl-time">{{ formatTime(event.createdAt) }}</span>
@@ -44,10 +42,18 @@
               <div v-if="hasData(event.data)" class="tl-extras">
                 <button class="tl-toggle" @click="toggleEvent(event.eventId)">
                   <svg
-                    :class="['tl-chevron', { open: eventOpen(event.eventId) }]" viewBox="0 0 16 16" fill="none"
-                    width="12" height="12"
+                    :class="['tl-chevron', { open: eventOpen(event.eventId) }]"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    width="12"
+                    height="12"
                   >
-                    <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                    <path
+                      d="M6 4l4 4-4 4"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                    />
                   </svg>
                   查看详情
                 </button>
@@ -64,10 +70,10 @@
 </template>
 
 <script setup lang="ts">
-import {onMounted, onUnmounted, ref} from "vue";
-import {getTaskEvents} from "../../api";
-import type {TaskEvent, TimelineEvent} from "../../types";
-import {errorMessage} from "../../utils";
+import { onMounted, onUnmounted, ref } from "vue";
+import { getTaskEvents } from "../../api";
+import type { TaskEvent, TimelineEvent } from "../../types";
+import { errorMessage } from "../../utils";
 import {
   eventTypeLabel,
   formatTimelineTime as formatTime,
@@ -113,7 +119,7 @@ onMounted(async () => {
       if (wsEvent.taskId !== props.taskId) return;
       const timelineEvent = wsEvent.data as unknown;
       if (!isTimelineEvent(timelineEvent)) return;
-      if (!events.value.some(e => e.eventId === timelineEvent.eventId)) {
+      if (!events.value.some((e) => e.eventId === timelineEvent.eventId)) {
         events.value.push(timelineEvent);
       }
     });
@@ -183,7 +189,9 @@ onUnmounted(() => {
   border-radius: 50%;
   z-index: 2;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7), 0 4px 10px rgba(10, 186, 181, 0.18);
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.7),
+    0 4px 10px rgba(10, 186, 181, 0.18);
 }
 
 /* Line */
@@ -193,7 +201,11 @@ onUnmounted(() => {
   top: 28px;
   bottom: 0;
   width: 2px;
-  background: linear-gradient(180deg, var(--brand-100, #cffaf8) 0%, var(--line-soft, rgba(226, 232, 240, 0.7)) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--brand-100, #cffaf8) 0%,
+    var(--line-soft, rgba(226, 232, 240, 0.7)) 100%
+  );
 }
 
 /* ===== Card ===== */
@@ -205,8 +217,9 @@ onUnmounted(() => {
   overflow: hidden;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  transition: box-shadow var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1)),
-  transform var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1));
+  transition:
+    box-shadow var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1));
   box-shadow: var(--shadow-sm, 0 4px 12px rgba(15, 23, 42, 0.05));
 }
 

@@ -1,9 +1,16 @@
 <template>
-  <el-table v-if="tasks.length" :data="tasks" row-key="taskId" stripe style="width:100%" :height="height">
+  <el-table
+    v-if="tasks.length"
+    :data="tasks"
+    row-key="taskId"
+    stripe
+    style="width: 100%"
+    :height="height"
+  >
     <el-table-column label="任务名称" min-width="240">
       <template #default="{ row }">
         <strong>{{ displayTaskName(row) }}</strong>
-        <div style="color:#909399;font-size:12px">
+        <div style="color: #909399; font-size: 12px">
           {{ row.taskId }}
         </div>
       </template>
@@ -11,7 +18,7 @@
     <el-table-column label="类型" width="100">
       <template #default="{ row }">
         <el-tag :type="row.taskType === 'whitebox' ? 'success' : 'info'" size="small">
-          {{ row.taskType === 'whitebox' ? '白盒' : '黑盒' }}
+          {{ row.taskType === "whitebox" ? "白盒" : "黑盒" }}
         </el-tag>
       </template>
     </el-table-column>
@@ -33,9 +40,7 @@
       </template>
     </el-table-column>
     <el-table-column label="步骤" min-width="100">
-      <template #default="{ row }">
-        {{ row.currentStep }}/{{ row.maxSteps }}
-      </template>
+      <template #default="{ row }"> {{ row.currentStep }}/{{ row.maxSteps }} </template>
     </el-table-column>
     <el-table-column label="创建时间" width="200">
       <template #default="{ row }">
@@ -44,34 +49,57 @@
     </el-table-column>
     <el-table-column v-if="props.compactActions" label="操作" width="240" fixed="right">
       <template #default="{ row }">
-        <el-button size="large" @click="$emit('select', row.taskId)">
-          任务详情
-        </el-button>
-        <el-button v-if="props.showReport" size="large" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">
+        <el-button size="large" @click="$emit('select', row.taskId)"> 任务详情 </el-button>
+        <el-button
+          v-if="props.showReport"
+          size="large"
+          :disabled="!row.reportPath"
+          @click="$emit('report', row.taskId)"
+        >
           报告详情
         </el-button>
       </template>
     </el-table-column>
     <el-table-column v-else label="操作" width="470" fixed="right">
       <template #default="{ row }">
-        <el-button size="large" @click="$emit('select', row.taskId)">
-          任务详情
-        </el-button>
-        <el-button v-if="props.showReport" size="large" :disabled="!row.reportPath" @click="$emit('report', row.taskId)">
+        <el-button size="large" @click="$emit('select', row.taskId)"> 任务详情 </el-button>
+        <el-button
+          v-if="props.showReport"
+          size="large"
+          :disabled="!row.reportPath"
+          @click="$emit('report', row.taskId)"
+        >
           报告详情
         </el-button>
-        <el-button v-if="props.showEdit" size="large" :disabled="!canEditTask(row)" @click="$emit('edit', row)">
+        <el-button
+          v-if="props.showEdit"
+          size="large"
+          :disabled="!canEditTask(row)"
+          @click="$emit('edit', row)"
+        >
           编辑
         </el-button>
-        <el-button v-if="props.showDelete" size="large" type="danger" :disabled="!canDeleteTask(row)" @click="$emit('delete', row)">
+        <el-button
+          v-if="props.showDelete"
+          size="large"
+          type="danger"
+          :disabled="!canDeleteTask(row)"
+          @click="$emit('delete', row)"
+        >
           删除
         </el-button>
-        <el-button v-if="props.showRunActions && canStartTask(row)" size="large" type="primary" @click="$emit('start', row.taskId)">
+        <el-button
+          v-if="props.showRunActions && canStartTask(row)"
+          size="large"
+          type="primary"
+          @click="$emit('start', row.taskId)"
+        >
           启动
         </el-button>
         <el-button
           v-else-if="props.showRunActions && canRestartTask(row)"
-          size="large" type="primary"
+          size="large"
+          type="primary"
           @click="$emit('restart', row.taskId)"
         >
           重试
@@ -83,21 +111,35 @@
 </template>
 
 <script setup lang="ts">
-import type {Project, Task} from "../../types";
-import {canRestartTask, canStartTask, compact, displayTaskName, formatDate, taskDisplayStatus} from "../../utils";
+import type { Project, Task } from "../../types";
+import {
+  canRestartTask,
+  canStartTask,
+  compact,
+  displayTaskName,
+  formatDate,
+  taskDisplayStatus,
+} from "../../utils";
 
 const props = withDefaults(
-    defineProps<{
-      tasks: Task[];
-      projects: Project[];
-      height?: string | number;
-      showEdit?: boolean;
-      showReport?: boolean;
-      showDelete?: boolean;
-      showRunActions?: boolean;
-      compactActions?: boolean;
-    }>(),
-    {height: undefined, showEdit: true, showReport: true, showDelete: true, showRunActions: true, compactActions: false},
+  defineProps<{
+    tasks: Task[];
+    projects: Project[];
+    height?: string | number;
+    showEdit?: boolean;
+    showReport?: boolean;
+    showDelete?: boolean;
+    showRunActions?: boolean;
+    compactActions?: boolean;
+  }>(),
+  {
+    height: undefined,
+    showEdit: true,
+    showReport: true,
+    showDelete: true,
+    showRunActions: true,
+    compactActions: false,
+  },
 );
 defineEmits<{
   select: [taskId: string];

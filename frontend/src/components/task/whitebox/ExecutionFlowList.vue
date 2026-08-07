@@ -1,14 +1,9 @@
 <template>
   <div class="list-wrap">
     <el-collapse v-if="items.length">
-      <el-collapse-item
-        v-for="flow in items" :key="flow.executionFlowId"
-        :title="flow.entryPoint"
-      >
-        <div class="flow-depth">
-          调用深度: {{ flow.callDepth }}
-        </div>
-        <el-table :data="flow.steps" size="small" stripe style="width:100%">
+      <el-collapse-item v-for="flow in items" :key="flow.executionFlowId" :title="flow.entryPoint">
+        <div class="flow-depth">调用深度: {{ flow.callDepth }}</div>
+        <el-table :data="flow.steps" size="small" stripe style="width: 100%">
           <el-table-column label="#" width="40">
             <template #default="{ row }">
               {{ row.stepIndex }}
@@ -21,7 +16,9 @@
           </el-table-column>
           <el-table-column label="方法" min-width="280">
             <template #default="{ row }">
-              <span class="mono">{{ row.className || "-" }}.{{ row.methodName || row.methodKey }}</span>
+              <span class="mono"
+                >{{ row.className || "-" }}.{{ row.methodName || row.methodKey }}</span
+              >
             </template>
           </el-table-column>
         </el-table>

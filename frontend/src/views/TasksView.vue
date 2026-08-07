@@ -5,7 +5,10 @@
         <el-button size="large" class="tb-btn tb-back" @click="goBackToTasks">
           <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
             <path
-              d="M10 4L6 8l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+              d="M10 4L6 8l4 4"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
               stroke-linejoin="round"
             />
           </svg>
@@ -16,7 +19,10 @@
           <el-button size="large" class="tb-btn tb-action" @click="openHtmlReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
               <path
-                d="M2 4l6 4-6 4M8 12h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+                d="M2 4l6 4-6 4M8 12h6"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
                 stroke-linejoin="round"
               />
             </svg>
@@ -25,7 +31,10 @@
           <el-button size="large" class="tb-btn tb-action" @click="downloadHtmlReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
               <path
-                d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+                d="M8 2v8M4 6l4 4 4-4M2 12v2h12v-2"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
                 stroke-linejoin="round"
               />
             </svg>
@@ -34,7 +43,9 @@
           <el-button size="large" class="tb-btn tb-action" @click="downloadJsonReport">
             <svg viewBox="0 0 16 16" fill="none" width="20" height="20">
               <path
-                d="M5 7l-3 3 3 3M11 7l3 3-3 3M8.5 4l-1 8" stroke="currentColor" stroke-width="1.4"
+                d="M5 7l-3 3 3 3M11 7l3 3-3 3M8.5 4l-1 8"
+                stroke="currentColor"
+                stroke-width="1.4"
                 stroke-linecap="round"
               />
             </svg>
@@ -42,9 +53,7 @@
           </el-button>
         </template>
       </div>
-      <div v-if="!selectedTask" class="empty">
-        未选择任务
-      </div>
+      <div v-if="!selectedTask" class="empty">未选择任务</div>
       <template v-else>
         <el-tabs v-model="selectedTaskTab" type="border-card" class="detail-tabs">
           <el-tab-pane lazy :label="isWhitebox ? '分析报告' : '报告'" name="report">
@@ -62,7 +71,11 @@
             />
           </el-tab-pane>
           <el-tab-pane lazy label="执行时间线" name="timeline">
-            <TaskTimeline :key="selectedTask.taskId" :task-id="selectedTask.taskId" :on-task-event="onTaskEvent" />
+            <TaskTimeline
+              :key="selectedTask.taskId"
+              :task-id="selectedTask.taskId"
+              :on-task-event="onTaskEvent"
+            />
           </el-tab-pane>
           <el-tab-pane v-if="!isWhitebox" lazy label="LLM 调试" name="llm-debug">
             <LLMDebugTab :key="selectedTask.taskId" :task-id="selectedTask.taskId" />
@@ -78,36 +91,67 @@
         <template #header>
           <div class="card-header">
             <span class="card-title">任务列表</span>
-            <el-button size="large" type="primary" @click="openNewTaskDialog">
-              新增任务
-            </el-button>
+            <el-button size="large" type="primary" @click="openNewTaskDialog"> 新增任务 </el-button>
           </div>
         </template>
         <div class="filter-bar">
           <el-input
-            v-model="taskSearchQuery" size="large" placeholder="搜索目标、任务 ID、URL" clearable
+            v-model="taskSearchQuery"
+            size="large"
+            placeholder="搜索目标、任务 ID、URL"
+            clearable
             class="search-input"
           >
             <template #prefix>
               <svg
-                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                stroke-linejoin="round" class="search-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="search-icon"
               >
                 <circle cx="11" cy="11" r="8" />
                 <path d="m21 21-4.35-4.35" />
               </svg>
             </template>
           </el-input>
-          <el-select v-model="taskStatusFilter" size="large" placeholder="全部状态" clearable style="width:140px">
-            <el-option v-for="status in taskStatuses" :key="status" :label="status" :value="status" />
-          </el-select>
-          <el-select v-model="taskProjectFilter" size="large" placeholder="全部项目" clearable style="width:160px">
+          <el-select
+            v-model="taskStatusFilter"
+            size="large"
+            placeholder="全部状态"
+            clearable
+            style="width: 140px"
+          >
             <el-option
-              v-for="project in projects" :key="project.projectId" :label="project.name"
+              v-for="status in taskStatuses"
+              :key="status"
+              :label="status"
+              :value="status"
+            />
+          </el-select>
+          <el-select
+            v-model="taskProjectFilter"
+            size="large"
+            placeholder="全部项目"
+            clearable
+            style="width: 160px"
+          >
+            <el-option
+              v-for="project in projects"
+              :key="project.projectId"
+              :label="project.name"
               :value="project.projectId"
             />
           </el-select>
-          <el-select v-model="taskTypeFilter" size="large" placeholder="全部类型" clearable style="width:130px">
+          <el-select
+            v-model="taskTypeFilter"
+            size="large"
+            placeholder="全部类型"
+            clearable
+            style="width: 130px"
+          >
             <el-option label="白盒" value="whitebox" />
             <el-option label="黑盒" value="blackbox" />
           </el-select>
@@ -165,34 +209,71 @@
 </template>
 
 <script setup lang="ts">
-import {computed, defineAsyncComponent, ref, watch} from "vue";
+import { computed, defineAsyncComponent, ref, watch } from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
-import {injectConsoleApp} from "../composables/useConsoleApp";
-import {useTaskViewActions} from "../composables/useTaskViewActions";
-import {listCorrelationRunsByTask} from "../api/correlation";
-import type {Task} from "../types";
+import { injectConsoleApp } from "../composables/useConsoleApp";
+import { useTaskViewActions } from "../composables/useTaskViewActions";
+import { listCorrelationRunsByTask } from "../api/correlation";
+import type { Task } from "../types";
 // 任务详情页大体积 Tab 组件按需加载，避免拖慢任务列表首屏
 const ReportView = defineAsyncComponent(() => import("./ReportView.vue"));
-const WhiteboxReportView = defineAsyncComponent(() => import("../components/task/WhiteboxReportView.vue"));
+const WhiteboxReportView = defineAsyncComponent(
+  () => import("../components/task/WhiteboxReportView.vue"),
+);
 const TaskTimeline = defineAsyncComponent(() => import("../components/task/TaskTimeline.vue"));
 const LLMDebugTab = defineAsyncComponent(() => import("../components/task/LLMDebugTab.vue"));
-const CorrelationTab = defineAsyncComponent(() => import("../components/task/whitebox/CorrelationTab.vue"));
+const CorrelationTab = defineAsyncComponent(
+  () => import("../components/task/whitebox/CorrelationTab.vue"),
+);
 
 const {
-  view, projects, allTasks, taskStatusFilter, taskProjectFilter, taskTypeFilter,
-  taskSearchQuery, taskStatuses, selectedTask, selectedTaskTab, reportData, reportLoading, taskForm,
-  showTaskDialog, formErrors, error, enabledModels,
-  page, pageSize, total, taskLoading,
-  startTask, retryTask, deleteTask, goBackToTasks, saveTask, openNewTaskDialog, openEditTaskDialog,
-  addParam, removeParam, onPageChange, onPageSizeChange, onTaskEvent, selectTask,
+  view,
+  projects,
+  allTasks,
+  taskStatusFilter,
+  taskProjectFilter,
+  taskTypeFilter,
+  taskSearchQuery,
+  taskStatuses,
+  selectedTask,
+  selectedTaskTab,
+  reportData,
+  reportLoading,
+  taskForm,
+  showTaskDialog,
+  formErrors,
+  error,
+  enabledModels,
+  page,
+  pageSize,
+  total,
+  taskLoading,
+  startTask,
+  retryTask,
+  deleteTask,
+  goBackToTasks,
+  saveTask,
+  openNewTaskDialog,
+  openEditTaskDialog,
+  addParam,
+  removeParam,
+  onPageChange,
+  onPageSizeChange,
+  onTaskEvent,
+  selectTask,
 } = injectConsoleApp();
 
 const {
-  detailVisible, detailLoading, detailTask, showTaskDetail,
-  openHtmlReport, downloadHtmlReport, downloadJsonReport,
-} = useTaskViewActions({allTasks, selectedTask, error});
+  detailVisible,
+  detailLoading,
+  detailTask,
+  showTaskDetail,
+  openHtmlReport,
+  downloadHtmlReport,
+  downloadJsonReport,
+} = useTaskViewActions({ allTasks, selectedTask, error });
 
 async function showTaskReport(taskId: string): Promise<void> {
   await selectTask(taskId, "report");
@@ -218,7 +299,6 @@ watch(selectedTask, async (task) => {
     // correlation data is optional — silently ignore lookup failures
   }
 });
-
 </script>
 
 <style scoped>
@@ -410,5 +490,4 @@ watch(selectedTask, async (task) => {
   flex-direction: column;
   overflow: hidden;
 }
-
 </style>

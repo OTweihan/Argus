@@ -43,16 +43,22 @@ const STATUS_LABELS: Record<string, string> = {
   STOPPED_WAITING: "已停止等待",
 };
 
-const statusLabel = computed(() => STATUS_LABELS[props.summary.runStatus] || props.summary.runStatus);
+const statusLabel = computed(
+  () => STATUS_LABELS[props.summary.runStatus] || props.summary.runStatus,
+);
 
 const statusTagType = computed(() => {
   switch (props.summary.runStatus) {
-    case "SUCCEEDED": return "success";
+    case "SUCCEEDED":
+      return "success";
     case "FAILED":
-    case "TIMED_OUT": return "danger";
+    case "TIMED_OUT":
+      return "danger";
     case "RUNNING":
-    case "SUBMITTING": return "warning";
-    default: return "info";
+    case "SUBMITTING":
+      return "warning";
+    default:
+      return "info";
   }
 });
 

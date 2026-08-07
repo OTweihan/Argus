@@ -105,8 +105,7 @@ export function useTaskEvents(
     const data = event.data ?? {};
     const eventSummary = data.task as Record<string, unknown> | undefined;
     const taskId =
-      (eventSummary?.taskId as string | undefined) ??
-      (data.taskId as string | undefined);
+      (eventSummary?.taskId as string | undefined) ?? (data.taskId as string | undefined);
     if (!taskId) {
       // 广播事件（无 taskId），可能是配置变更/批量回放等无法定位变更范围的
       // 情况，唯一安全方式仍是整表对齐。
@@ -149,15 +148,22 @@ export function useTaskEvents(
     const existing = allTasks.value[idx];
     const patch: Partial<Task> = {};
     if (eventSummary.status !== undefined) patch.status = eventSummary.status as Task["status"];
-    if (eventSummary.currentStep !== undefined) patch.currentStep = eventSummary.currentStep as number;
-    if (eventSummary.findingCount !== undefined) patch.findingCount = eventSummary.findingCount as number;
+    if (eventSummary.currentStep !== undefined)
+      patch.currentStep = eventSummary.currentStep as number;
+    if (eventSummary.findingCount !== undefined)
+      patch.findingCount = eventSummary.findingCount as number;
     if (eventSummary.name !== undefined) patch.name = eventSummary.name as string | null;
     if (eventSummary.goal !== undefined) patch.goal = eventSummary.goal as string;
-    if (eventSummary.projectId !== undefined) patch.projectId = eventSummary.projectId as string | null;
-    if (eventSummary.reportPath !== undefined) patch.reportPath = eventSummary.reportPath as string | null;
-    if (eventSummary.resultSummary !== undefined) patch.resultSummary = eventSummary.resultSummary as string | null;
-    if (eventSummary.errorMessage !== undefined) patch.errorMessage = eventSummary.errorMessage as string | null;
-    if (eventSummary.executionAttempt !== undefined) patch.executionAttempt = eventSummary.executionAttempt as number;
+    if (eventSummary.projectId !== undefined)
+      patch.projectId = eventSummary.projectId as string | null;
+    if (eventSummary.reportPath !== undefined)
+      patch.reportPath = eventSummary.reportPath as string | null;
+    if (eventSummary.resultSummary !== undefined)
+      patch.resultSummary = eventSummary.resultSummary as string | null;
+    if (eventSummary.errorMessage !== undefined)
+      patch.errorMessage = eventSummary.errorMessage as string | null;
+    if (eventSummary.executionAttempt !== undefined)
+      patch.executionAttempt = eventSummary.executionAttempt as number;
 
     if (event.eventType === "task.complete") {
       if (data.reportPath) patch.reportPath = data.reportPath as string;

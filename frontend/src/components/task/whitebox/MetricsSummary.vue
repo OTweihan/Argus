@@ -49,19 +49,28 @@
 import { computed } from "vue";
 
 const props = defineProps<{
-  metrics: { eligibleSourceFiles: number; parsedSourceFiles: number; totalCalls: number; resolvedCalls: number };
+  metrics: {
+    eligibleSourceFiles: number;
+    parsedSourceFiles: number;
+    totalCalls: number;
+    resolvedCalls: number;
+  };
   endpointCount: number;
   callGraphNodeCount: number;
   findingCount: number;
 }>();
 
-const parseRate = computed(() => props.metrics.eligibleSourceFiles
-  ? Math.round(props.metrics.parsedSourceFiles / props.metrics.eligibleSourceFiles * 100)
-  : null);
+const parseRate = computed(() =>
+  props.metrics.eligibleSourceFiles
+    ? Math.round((props.metrics.parsedSourceFiles / props.metrics.eligibleSourceFiles) * 100)
+    : null,
+);
 
-const callRate = computed(() => props.metrics.totalCalls
-  ? Math.round(props.metrics.resolvedCalls / props.metrics.totalCalls * 100)
-  : null);
+const callRate = computed(() =>
+  props.metrics.totalCalls
+    ? Math.round((props.metrics.resolvedCalls / props.metrics.totalCalls) * 100)
+    : null,
+);
 
 function formattedNumber(n: number): string {
   if (n >= 10000) return `${(n / 1000).toFixed(1)}k`;
@@ -86,7 +95,10 @@ function formattedNumber(n: number): string {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md, 12px);
   box-shadow: var(--shadow-xs);
-  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    transform var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .metric-card:hover {

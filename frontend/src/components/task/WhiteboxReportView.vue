@@ -7,9 +7,7 @@
       <section class="report-hero" aria-labelledby="whitebox-report-title">
         <div class="hero-copy">
           <span class="hero-kicker">WHITEBOX ANALYSIS</span>
-          <h2 id="whitebox-report-title">
-            白盒分析报告
-          </h2>
+          <h2 id="whitebox-report-title">白盒分析报告</h2>
           <p>查看源码解析质量、调用关系与风险发现，快速判断本次分析结果是否可信。</p>
         </div>
         <AnalysisRunSelector
@@ -237,7 +235,14 @@ async function loadMoreCallNodes(): Promise<void> {
   if (!analysisId.value || !callNodeCursor) return;
   callNodeLoading.value = true;
   try {
-    const page = await listAnalysisCallNodes(props.taskId, analysisId.value, null, null, callNodeCursor, 100);
+    const page = await listAnalysisCallNodes(
+      props.taskId,
+      analysisId.value,
+      null,
+      null,
+      callNodeCursor,
+      100,
+    );
     callNodeItems.value.push(...page.items);
     callNodeHasMore.value = page.hasMore;
     callNodeCursor = page.nextCursor ?? null;
@@ -557,7 +562,9 @@ watch(subTab, (tab) => {
 }
 
 .report-tabs :deep(.el-input__wrapper:focus-within) {
-  box-shadow: 0 0 0 1px var(--brand-500) inset, var(--shadow-ring);
+  box-shadow:
+    0 0 0 1px var(--brand-500) inset,
+    var(--shadow-ring);
 }
 
 @media (max-width: 960px) {

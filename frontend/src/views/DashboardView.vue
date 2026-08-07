@@ -5,7 +5,11 @@
       <el-col :xs="24" :sm="12" :lg="6" class="mb-4">
         <DashboardMetricCard kind="projects" :value="projects.length" label="项目总数">
           <svg
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
             stroke-linejoin="round"
           >
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -17,7 +21,11 @@
       <el-col :xs="24" :sm="12" :lg="6" class="mb-4">
         <DashboardMetricCard kind="tasks" :value="tasksTotal" label="全部任务">
           <svg
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
             stroke-linejoin="round"
           >
             <path d="M9 11l3 3L22 4" />
@@ -30,7 +38,11 @@
       <el-col :xs="24" :sm="12" :lg="6" class="mb-4">
         <DashboardMetricCard kind="running" :value="runningCount" label="运行中">
           <svg
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
             stroke-linejoin="round"
           >
             <circle cx="12" cy="12" r="10" />
@@ -43,10 +55,16 @@
       <el-col :xs="24" :sm="12" :lg="6" class="mb-4">
         <DashboardMetricCard kind="findings" :value="findingCount" label="发现问题">
           <svg
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            <path
+              d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+            />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
@@ -90,8 +108,8 @@
 import TaskTable from "../components/task/TaskTable.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
 import DashboardMetricCard from "../components/dashboard/DashboardMetricCard.vue";
-import {injectConsoleApp} from "../composables/useConsoleApp";
-import {useTaskViewActions} from "../composables/useTaskViewActions";
+import { injectConsoleApp } from "../composables/useConsoleApp";
+import { useTaskViewActions } from "../composables/useTaskViewActions";
 
 const {
   projects,
@@ -107,8 +125,10 @@ const {
   statsLoading,
 } = injectConsoleApp();
 
-const {detailVisible, detailLoading, detailTask, showTaskDetail} = useTaskViewActions({
-  allTasks, selectedTask, error,
+const { detailVisible, detailLoading, detailTask, showTaskDetail } = useTaskViewActions({
+  allTasks,
+  selectedTask,
+  error,
 });
 
 async function showTaskReport(taskId: string): Promise<void> {
@@ -167,7 +187,7 @@ async function showTaskReport(taskId: string): Promise<void> {
 }
 
 .header-title::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   top: 50%;
@@ -176,7 +196,7 @@ async function showTaskReport(taskId: string): Promise<void> {
   height: 18px;
   background-image: var(--brand-gradient-strong);
   border-radius: 2px;
-  box-shadow: 0 4px 10px rgba(10, 186, 181, 0.30);
+  box-shadow: 0 4px 10px rgba(10, 186, 181, 0.3);
 }
 
 .table-wrap {

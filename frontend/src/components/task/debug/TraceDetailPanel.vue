@@ -4,11 +4,33 @@
       <span class="dbg-detail-title">追踪详情</span>
       <div class="dbg-detail-actions">
         <button class="dbg-copy-btn" @click="copyPrompt">
-          <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" /><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" /></svg>
+          <svg viewBox="0 0 16 16" fill="none" width="13" height="13">
+            <rect
+              x="5"
+              y="2"
+              width="10"
+              height="11"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.3"
+            />
+            <path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" />
+          </svg>
           复制 Prompt
         </button>
         <button class="dbg-copy-btn" @click="copyRawResponse">
-          <svg viewBox="0 0 16 16" fill="none" width="13" height="13"><rect x="5" y="2" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" /><path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" /></svg>
+          <svg viewBox="0 0 16 16" fill="none" width="13" height="13">
+            <rect
+              x="5"
+              y="2"
+              width="10"
+              height="11"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.3"
+            />
+            <path d="M2 5v8.5A1.5 1.5 0 003.5 15H11" stroke="currentColor" stroke-width="1.3" />
+          </svg>
           复制 Raw Response
         </button>
       </div>
@@ -26,11 +48,11 @@
         </div>
         <div class="dbg-meta-item">
           <span class="dbg-meta-label">模型</span>
-          <span class="dbg-meta-value mono">{{ trace.model || '-' }}</span>
+          <span class="dbg-meta-value mono">{{ trace.model || "-" }}</span>
         </div>
         <div class="dbg-meta-item">
           <span class="dbg-meta-label">Host</span>
-          <span class="dbg-meta-value mono">{{ trace.baseUrlHost || '-' }}</span>
+          <span class="dbg-meta-value mono">{{ trace.baseUrlHost || "-" }}</span>
         </div>
         <div v-if="trace.latencyMs != null" class="dbg-meta-item">
           <span class="dbg-meta-label">耗时</span>
@@ -51,11 +73,27 @@
       </div>
 
       <div v-if="trace.error" class="dbg-alert dbg-alert-error">
-        <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" /><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+        <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
+          <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" />
+          <path
+            d="M10 6v4.5M10 13v.5"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
         <span>{{ trace.error }}</span>
       </div>
       <div v-if="trace.parseError" class="dbg-alert dbg-alert-warning">
-        <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" /><path d="M10 6v4.5M10 13v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+        <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
+          <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4" />
+          <path
+            d="M10 6v4.5M10 13v.5"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
         <span>解析失败：{{ trace.parseError }}</span>
       </div>
 

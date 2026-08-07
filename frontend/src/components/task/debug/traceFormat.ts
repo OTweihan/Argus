@@ -8,41 +8,41 @@
  */
 
 const EVENT_LABELS: Record<string, string> = {
-    "task.llm.started": "started",
-    "task.llm.succeeded": "succeeded",
-    "task.llm.failed": "failed",
-    "task.llm.parse_failed": "parse_failed",
+  "task.llm.started": "started",
+  "task.llm.succeeded": "succeeded",
+  "task.llm.failed": "failed",
+  "task.llm.parse_failed": "parse_failed",
 };
 
 export type TraceTagType = "success" | "danger" | "warning" | "info";
 
 const EVENT_TAG_TYPES: Record<string, TraceTagType> = {
-    "task.llm.succeeded": "success",
-    "task.llm.failed": "danger",
-    "task.llm.parse_failed": "warning",
+  "task.llm.succeeded": "success",
+  "task.llm.failed": "danger",
+  "task.llm.parse_failed": "warning",
 };
 
 export function eventLabel(event: string): string {
-    return EVENT_LABELS[event] ?? event;
+  return EVENT_LABELS[event] ?? event;
 }
 
 export function eventTagType(event: string): TraceTagType {
-    return EVENT_TAG_TYPES[event] ?? "info";
+  return EVENT_TAG_TYPES[event] ?? "info";
 }
 
 const TIME_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
 });
 
 export function formatTime(iso: string): string {
-    if (!iso) return "-";
-    try {
-        return TIME_FORMATTER.format(new Date(iso));
-    } catch {
-        return iso;
-    }
+  if (!iso) return "-";
+  try {
+    return TIME_FORMATTER.format(new Date(iso));
+  } catch {
+    return iso;
+  }
 }

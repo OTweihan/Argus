@@ -30,27 +30,25 @@ export function useTaskViewActions(options: {
 
   async function openHtmlReport(): Promise<void> {
     if (!options.selectedTask.value) return;
-    await runResource(() => openAuthenticatedResource(
-      reportPath(options.selectedTask.value!.taskId),
-    ));
+    await runResource(() =>
+      openAuthenticatedResource(reportPath(options.selectedTask.value!.taskId)),
+    );
   }
 
   async function downloadHtmlReport(): Promise<void> {
     if (!options.selectedTask.value) return;
     const taskId = options.selectedTask.value.taskId;
-    await runResource(() => openAuthenticatedResource(
-      reportPath(taskId, false, true),
-      `argus-report-${taskId}.html`,
-    ));
+    await runResource(() =>
+      openAuthenticatedResource(reportPath(taskId, false, true), `argus-report-${taskId}.html`),
+    );
   }
 
   async function downloadJsonReport(): Promise<void> {
     if (!options.selectedTask.value) return;
     const taskId = options.selectedTask.value.taskId;
-    await runResource(() => openAuthenticatedResource(
-      reportPath(taskId, true, true),
-      `argus-report-${taskId}.json`,
-    ));
+    await runResource(() =>
+      openAuthenticatedResource(reportPath(taskId, true, true), `argus-report-${taskId}.json`),
+    );
   }
 
   async function runResource(operation: () => Promise<void>): Promise<void> {
