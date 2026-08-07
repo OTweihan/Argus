@@ -17,7 +17,7 @@ export function taskDisplayStatus(task: Task): TaskDisplayStatus {
   return task.status;
 }
 
-type TaskNameDisplaySource = Pick<Task, "name"> & { executionAttempt?: number | null };
+type TaskNameDisplaySource = { name?: string | null; executionAttempt?: number | null };
 
 export function displayTaskName(task: TaskNameDisplaySource): string {
   const base = task.name?.trim() || "";

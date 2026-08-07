@@ -5,7 +5,7 @@ import {
 
 import { ElMessage } from "element-plus";
 import type { ModelConfig, Project, Task } from "../types";
-import { compact, errorMessage } from "../utils";
+import { compact, displayTaskName, errorMessage } from "../utils";
 import { useDashboardStats } from "./useDashboardStats";
 import { useDialog } from "./useDialog";
 import { useModels } from "./useModels";
@@ -89,7 +89,12 @@ export function useConsoleApp() {
 
     const viewTitle = computed(() => {
         if (nav.view.value === "task-detail") {
-            return taskDomain.selectedTask.value ? compact(taskDomain.selectedTask.value.goal, 60) : "任务详情";
+            const task = taskDomain.selectedTask.value;
+            if (!task) return "报告详情";
+            // 顶部标题优先使用任务名（含重试次数），与任务列表口径一致；
+            // 旧任务缺失 name 时回落到目标文案。
+            const name = task.name?.trim();
+            return name ? displayTaskName(task) : compact(task.goal, 60);
         }
         return {
             dashboard: "仪表盘",

@@ -6,7 +6,7 @@
         <div class="eyebrow">
           Argus Blackbox Testing
         </div>
-        <h1>{{ report.title }}</h1>
+        <h1>{{ taskName }}</h1>
         <p class="hero-desc">
           {{ summary }}
         </p>
@@ -44,10 +44,12 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import type { ReportData } from "../../types";
+import { displayTaskName } from "../../utils";
 import { formatDate } from "../task/report/reportUtils";
 
-defineProps<{
+const props = defineProps<{
   report: ReportData;
   summary: string;
   status: string;
@@ -55,6 +57,12 @@ defineProps<{
   findingCount: number;
   stepCount: number;
 }>();
+
+// 顶部大标题优先使用任务名（含重试次数）；旧报告缺失任务名时回落到固定标题。
+const taskName = computed(() => {
+  const { task } = props.report;
+  return task.name?.trim() ? displayTaskName(task) : props.report.title;
+});
 </script>
 
 <style scoped>

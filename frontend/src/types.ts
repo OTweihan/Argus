@@ -167,6 +167,8 @@ export interface ReportTask {
     taskId: string;
     projectId: string | null;
     goal: string;
+    name?: string | null;
+    executionAttempt?: number | null;
     startUrl: string | null;
     taskType: TaskType;
     status: TaskStatus;
