@@ -5,7 +5,7 @@
         共 {{ total }} 条 (已确认 {{ confirmedCount }} / 候选 {{ candidateCount }})
       </span>
     </div>
-    <el-table :data="items" size="small" stripe style="width:100%" max-height="400">
+    <el-table :data="items" size="small" stripe style="width:100%">
       <el-table-column label="缺陷" min-width="220">
         <template #default="{ row }">
           <template v-if="row.findingInfo">

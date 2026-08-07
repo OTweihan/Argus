@@ -168,7 +168,7 @@ function clearError(key: string): void {
 
 .param-add-btn:hover {
   color: #ffffff;
-  background-image: var(--brand-gradient);
+  background-image: var(--brand-gradient-strong);
   border-color: transparent !important;
 }
 

@@ -105,7 +105,7 @@ function onSelect(index: string): void {
   width: 36px;
   height: 36px;
   border-radius: 12px;
-  background-image: var(--brand-gradient);
+  background-image: var(--brand-gradient-strong);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -113,7 +113,7 @@ function onSelect(index: string): void {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  box-shadow: 0 6px 14px rgba(99, 102, 241, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  box-shadow: 0 6px 14px rgba(10, 186, 181, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .brand-name {
@@ -164,7 +164,7 @@ function onSelect(index: string): void {
   background: var(--brand-50) !important;
   color: var(--brand-700) !important;
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.10);
+  box-shadow: inset 0 0 0 1px rgba(10, 186, 181, 0.12);
 }
 
 .nav-menu .el-menu-item.is-active::before {
@@ -177,7 +177,7 @@ function onSelect(index: string): void {
   height: 22px;
   border-radius: 0 3px 3px 0;
   background-image: var(--brand-gradient);
-  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.45);
+  box-shadow: 0 4px 10px rgba(10, 186, 181, 0.38);
 }
 
 .nav-menu .el-menu-item.is-active svg {

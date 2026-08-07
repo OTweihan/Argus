@@ -183,7 +183,7 @@ onUnmounted(() => {
   border-radius: 50%;
   z-index: 2;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7), 0 4px 10px rgba(99, 102, 241, 0.18);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7), 0 4px 10px rgba(10, 186, 181, 0.18);
 }
 
 /* Line */
@@ -193,7 +193,7 @@ onUnmounted(() => {
   top: 28px;
   bottom: 0;
   width: 2px;
-  background: linear-gradient(180deg, var(--brand-100, #e0e7ff) 0%, var(--line-soft, rgba(226, 232, 240, 0.7)) 100%);
+  background: linear-gradient(180deg, var(--brand-100, #cffaf8) 0%, var(--line-soft, rgba(226, 232, 240, 0.7)) 100%);
 }
 
 /* ===== Card ===== */
@@ -267,9 +267,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: var(--brand-600, #4f46e5);
+  color: var(--brand-700, #087b78);
   background: var(--brand-50, #f4f3ff);
-  border: 1px solid var(--brand-100, #e0e7ff);
+  border: 1px solid var(--brand-100, #cffaf8);
   padding: 2px 9px;
   border-radius: var(--radius-pill, 999px);
   white-space: nowrap;
@@ -323,9 +323,9 @@ onUnmounted(() => {
 
 .tl-toggle:hover {
   background: var(--brand-50, #f4f3ff);
-  color: var(--brand-600, #4f46e5);
-  border-color: var(--brand-100, #e0e7ff);
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.12);
+  color: var(--brand-700, #087b78);
+  border-color: var(--brand-100, #cffaf8);
+  box-shadow: 0 2px 6px rgba(10, 186, 181, 0.12);
 }
 
 .tl-chevron {

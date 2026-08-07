@@ -122,7 +122,7 @@ const screenshotOpen = ref(false);
 }
 
 .sev-bar-low {
-  background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(180deg, #0abab5 0%, #14b8a6 100%);
 }
 
 .sev-bar-info {
@@ -195,7 +195,7 @@ const screenshotOpen = ref(false);
 .sev-tag-low {
   background: var(--accent-soft);
   color: var(--accent);
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--brand-200);
 }
 
 .sev-tag-info {
@@ -276,8 +276,8 @@ const screenshotOpen = ref(false);
 .extras-toggle:hover {
   background: var(--accent-soft);
   color: var(--accent);
-  border-color: #c7d2fe;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
+  border-color: var(--brand-200);
+  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.12);
 }
 
 .chevron {

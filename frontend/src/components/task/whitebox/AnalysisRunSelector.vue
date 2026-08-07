@@ -1,9 +1,9 @@
 <template>
   <div class="selector-bar">
-    <span class="selector-label">分析执行</span>
+    <span class="selector-label">选择分析执行</span>
     <el-select
-      :model-value="selectedId" size="large"
-      style="width: 340px" :disabled="loading" @update:model-value="$emit('select', $event as string)"
+      :model-value="selectedId" size="large" class="run-select"
+      :disabled="loading" @update:model-value="$emit('select', $event as string)"
     >
       <el-option
         v-for="run in runs" :key="run.analysisId"
@@ -51,21 +51,48 @@ function formatOption(run: AnalysisRunSummary): string {
 
 <style scoped>
 .selector-bar {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 0 12px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 7px;
+  min-width: min(360px, 100%);
 }
 
 .selector-label {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-faint, #6b7280);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted, #4b5563);
   flex-shrink: 0;
+}
+
+.run-select {
+  width: 360px;
+  max-width: 100%;
+}
+
+.run-select :deep(.el-select__wrapper) {
+  border: 1px solid rgba(10, 186, 181, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-xs);
+}
+
+.run-select :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px var(--brand-500), var(--shadow-ring);
 }
 
 .selector-hint {
   font-size: 12px;
   color: var(--text-faint, #9ca3af);
+}
+
+@media (max-width: 640px) {
+  .selector-bar,
+  .run-select {
+    width: 100%;
+    min-width: 0;
+  }
 }
 </style>

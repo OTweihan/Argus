@@ -111,6 +111,10 @@ describe("WhiteboxReportView", () => {
 
         expect(taskApi.getAnalysisRunSummary).toHaveBeenCalledWith("t-1", "an-1");
         const text = wrapper.text();
+        expect(text).toContain("白盒分析报告");
+        expect(text).toContain("查看源码解析质量、调用关系与风险发现");
+        expect(wrapper.findComponent({ name: "AnalysisSnapshotBar" }).exists()).toBe(true);
+        expect(wrapper.findComponent({ name: "CompletenessBanner" }).exists()).toBe(true);
         for (const label of BASE_TABS) {
             expect(text).toContain(label);
         }

@@ -3,7 +3,7 @@
     <div class="list-toolbar">
       <span v-if="total !== null" class="list-count">共 {{ total }} 条未匹配请求</span>
     </div>
-    <el-table :data="items" size="small" stripe style="width:100%" max-height="400">
+    <el-table :data="items" size="small" stripe style="width:100%">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod)">

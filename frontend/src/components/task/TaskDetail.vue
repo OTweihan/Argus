@@ -228,7 +228,7 @@ function formatParamValue(value: unknown): string {
 .detail-param-key {
   font-weight: 700;
   min-width: 80px;
-  color: var(--brand-700, #4338ca);
+  color: var(--brand-700, #087b78);
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 13px;
 }

@@ -4,17 +4,28 @@
       <el-empty :description="error || '加载失败'" />
     </template>
     <template v-else-if="summary">
-      <AnalysisRunSelector
-        :runs="runs"
-        :selected-id="analysisId"
-        :loading="loading"
-        @select="onSelectRun"
-      />
+      <section class="report-hero" aria-labelledby="whitebox-report-title">
+        <div class="hero-copy">
+          <span class="hero-kicker">WHITEBOX ANALYSIS</span>
+          <h2 id="whitebox-report-title">
+            白盒分析报告
+          </h2>
+          <p>查看源码解析质量、调用关系与风险发现，快速判断本次分析结果是否可信。</p>
+        </div>
+        <AnalysisRunSelector
+          :runs="runs"
+          :selected-id="analysisId"
+          :loading="loading"
+          @select="onSelectRun"
+        />
+      </section>
 
-      <AnalysisSnapshotBar :summary="summary" />
-      <CompletenessBanner :summary="summary" />
+      <div class="report-summary">
+        <AnalysisSnapshotBar :summary="summary" />
+        <CompletenessBanner :summary="summary" />
+      </div>
 
-      <el-tabs v-model="subTab" type="border-card">
+      <el-tabs v-model="subTab" class="report-tabs">
         <el-tab-pane lazy label="概览" name="overview">
           <OverviewTab :summary="summary" />
         </el-tab-pane>
@@ -245,15 +256,21 @@ async function selectCallNode(nodeId: string): Promise<void> {
   if (selectedCallNodeId.value === nodeId) {
     selectedCallNodeId.value = null;
     calleeItems.value = [];
+    calleeLoading.value = false;
     return;
   }
   selectedCallNodeId.value = nodeId;
+  calleeItems.value = [];
   calleeLoading.value = true;
   try {
     const page = await listAnalysisCallEdges(props.taskId, analysisId.value, nodeId, null, 50);
-    calleeItems.value = page.items;
+    if (selectedCallNodeId.value === nodeId) {
+      calleeItems.value = page.items;
+    }
   } finally {
-    calleeLoading.value = false;
+    if (selectedCallNodeId.value === nodeId) {
+      calleeLoading.value = false;
+    }
   }
 }
 
@@ -413,6 +430,174 @@ watch(subTab, (tab) => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 4px;
+  padding: 8px 18px 8px 18px;
+  background:
+    radial-gradient(circle at 0 0, rgba(10, 186, 181, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(248, 250, 252, 0.35));
+}
+
+.report-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+  overflow: hidden;
+  border: 1px solid rgba(10, 186, 181, 0.22);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.96), rgba(236, 254, 253, 0.88)),
+    var(--surface-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.report-hero::after {
+  content: "";
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  right: -88px;
+  top: -132px;
+  border-radius: 50%;
+  background: rgba(10, 186, 181, 0.12);
+  pointer-events: none;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.hero-kicker {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: var(--brand-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.hero-copy h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: clamp(22px, 2.4vw, 30px);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.hero-copy p {
+  margin: 8px 0 0;
+  max-width: 650px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.report-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.8fr);
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.report-tabs {
+  padding: 0 16px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass-strong);
+  box-shadow: var(--shadow-xs);
+}
+
+.report-tabs :deep(.el-tabs__header) {
+  margin: 0 -16px 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(248, 250, 252, 0.78);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.report-tabs :deep(.el-tabs__item) {
+  height: 50px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.report-tabs :deep(.el-tabs__item.is-active) {
+  color: var(--brand-700);
+}
+
+.report-tabs :deep(.el-tabs__active-bar) {
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-gradient);
+}
+
+.report-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+.report-tabs :deep(.el-table) {
+  --el-table-border-color: var(--line-soft);
+  --el-table-header-bg-color: #f3fbfa;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+}
+
+.report-tabs :deep(.el-table th.el-table__cell) {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+/* 嵌入白盒报告时只保留报告本身这一层纵向滚动，避免关联证据形成双滚动区。 */
+.report-tabs :deep(.corr-container) {
+  overflow-y: visible;
+}
+
+.report-tabs :deep(.el-input__wrapper:focus-within) {
+  box-shadow: 0 0 0 1px var(--brand-500) inset, var(--shadow-ring);
+}
+
+@media (max-width: 960px) {
+  .report-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .report-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .wb-report {
+    padding: 10px;
+  }
+
+  .report-hero {
+    padding: 18px;
+    border-radius: var(--radius-md);
+  }
+
+  .report-tabs {
+    padding-inline: 10px;
+  }
+
+  .report-tabs :deep(.el-tabs__header) {
+    margin-inline: -10px;
+    padding-inline: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-report *,
+  .wb-report *::before,
+  .wb-report *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
 </style>

@@ -180,8 +180,8 @@ const currentView = computed(() => {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 2.4px solid rgba(99, 102, 241, 0.18);
-  border-top-color: var(--brand-600, #4f46e5);
+  border: 2.4px solid rgba(10, 186, 181, 0.18);
+  border-top-color: var(--brand-600, #079994);
   animation: view-loading-spin 0.85s linear infinite;
 }
 

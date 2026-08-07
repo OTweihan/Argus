@@ -65,7 +65,7 @@ onBeforeUnmount(() => {
   width: 14px;
   height: 14px;
   border: 2px solid var(--line-strong, #c7d2fe);
-  border-top-color: var(--brand-600, #6366f1);
+  border-top-color: var(--brand-600, #079994);
   border-radius: 50%;
   animation: inf-spin 0.7s linear infinite;
 }

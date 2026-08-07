@@ -3,12 +3,12 @@
     <div class="list-toolbar">
       <el-input
         v-model="filter"
-        size="small" placeholder="过滤路径..." clearable
-        style="width:260px"
+        placeholder="过滤路径" clearable
+        class="filter-input"
       />
       <span v-if="total !== null" class="list-count">共 {{ total }} 个端点</span>
     </div>
-    <el-table :data="filteredItems" size="small" stripe style="width:100%" max-height="400">
+    <el-table :data="filteredItems" size="small" stripe style="width:100%">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
@@ -68,14 +68,20 @@ const filteredItems = computed(() => {
 
 <style scoped>
 .list-wrap {
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .list-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.filter-input {
+  width: 280px;
+  max-width: 100%;
 }
 
 .list-count {
@@ -91,5 +97,16 @@ const filteredItems = computed(() => {
 .mono {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .list-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filter-input {
+    width: 100%;
+  }
 }
 </style>

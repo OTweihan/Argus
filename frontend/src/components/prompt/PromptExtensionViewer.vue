@@ -53,7 +53,7 @@ const rendered = computed(() => ({
   font-size: 12px;
   font-weight: 600;
   color: var(--text-faint, #6b7280);
-  background: rgba(99, 102, 241, 0.05);
+  background: rgba(10, 186, 181, 0.05);
   border-bottom: 1px solid var(--line-soft, #e4e7ed);
 }
 
@@ -82,7 +82,7 @@ const rendered = computed(() => ({
 .md-body :deep(code) {
   padding: 1px 4px;
   border-radius: 4px;
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(10, 186, 181, 0.08);
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
 }

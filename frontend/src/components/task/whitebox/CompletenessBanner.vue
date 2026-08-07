@@ -66,12 +66,14 @@ const bannerClass = computed(() => {
 <style scoped>
 .banner {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
+  align-items: center;
+  gap: 12px;
+  min-height: 100%;
+  padding: 16px 18px;
   border-radius: var(--radius-md, 12px);
-  margin-bottom: 12px;
+  margin-bottom: 0;
   font-size: 13px;
+  box-shadow: var(--shadow-xs);
 }
 
 .banner-ok {
@@ -99,13 +101,18 @@ const bannerClass = computed(() => {
 }
 
 .banner-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
   flex-shrink: 0;
-  margin-top: 1px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .banner-title {
   font-weight: 700;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
 
 .banner-reason {

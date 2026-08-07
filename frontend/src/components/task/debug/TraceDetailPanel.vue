@@ -166,9 +166,9 @@ function copyRawResponse() {
 
 .dbg-copy-btn:hover {
   background: var(--brand-50, #f4f3ff);
-  color: var(--brand-600, #4f46e5);
-  border-color: var(--brand-100, #e0e7ff);
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.12);
+  color: var(--brand-700, #087b78);
+  border-color: var(--brand-100, #cffaf8);
+  box-shadow: 0 2px 6px rgba(10, 186, 181, 0.12);
 }
 
 .dbg-detail-scroll {

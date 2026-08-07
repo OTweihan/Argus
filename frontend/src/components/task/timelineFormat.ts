@@ -2,7 +2,7 @@ import type { TimelineEvent } from "../../types";
 
 const PHASE_COLORS: Record<string, string> = {
   task: "#3b82f6", browser: "#10b981", planner: "#f59e0b",
-  executor: "#6b8a9e", evaluator: "#ef4444", report: "#8b5cf6",
+  executor: "#6b8a9e", evaluator: "#ef4444", report: "#0abab5",
 };
 
 const PHASE_LABELS: Record<string, string> = {

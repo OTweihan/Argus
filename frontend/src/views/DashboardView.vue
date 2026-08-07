@@ -174,9 +174,9 @@ async function showTaskReport(taskId: string): Promise<void> {
   transform: translateY(-50%);
   width: 4px;
   height: 18px;
-  background-image: var(--brand-gradient);
+  background-image: var(--brand-gradient-strong);
   border-radius: 2px;
-  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 10px rgba(10, 186, 181, 0.30);
 }
 
 .table-wrap {

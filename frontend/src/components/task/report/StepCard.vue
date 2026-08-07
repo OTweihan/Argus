@@ -148,11 +148,11 @@ const screenshotOpen = ref(false);
   font-weight: 800;
   z-index: 1;
   border: 3px solid #ffffff;
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.28);
+  box-shadow: 0 8px 20px rgba(10, 186, 181, 0.25);
 }
 
 .node-success {
-  background-image: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background-image: var(--brand-gradient-strong);
   color: #fff;
 }
 
@@ -312,8 +312,8 @@ const screenshotOpen = ref(false);
 .extras-toggle:hover {
   background: var(--accent-soft);
   color: var(--accent);
-  border-color: #c7d2fe;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
+  border-color: var(--brand-200);
+  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.12);
 }
 
 .chevron {

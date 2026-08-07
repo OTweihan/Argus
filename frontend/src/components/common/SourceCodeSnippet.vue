@@ -105,7 +105,7 @@ function copyPath(): void {
   gap: 4px;
   border: none;
   background: transparent;
-  color: var(--brand-600, #6366f1);
+  color: var(--brand-700, #087b78);
   cursor: pointer;
   font-size: 12px;
   padding: 2px 6px;
@@ -114,7 +114,7 @@ function copyPath(): void {
 }
 
 .snippet-copy:hover {
-  background: var(--brand-50, #eef2ff);
+  background: var(--brand-50, #ecfefd);
 }
 
 .snippet-body {
@@ -158,7 +158,7 @@ function copyPath(): void {
   border: none;
   border-top: 1px solid var(--line-soft, #e4e7ed);
   background: #f0f2f5;
-  color: var(--brand-600, #6366f1);
+  color: var(--brand-700, #087b78);
   cursor: pointer;
   font-size: 12px;
   font-family: inherit;

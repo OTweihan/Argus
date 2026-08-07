@@ -50,7 +50,7 @@ defineEmits<{
 
 <style scoped>
 .cluster-list {
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .list-header {
@@ -66,13 +66,14 @@ defineEmits<{
 
 .cluster-item {
   border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-bottom: 10px;
-  background: var(--surface-soft);
-  transition: box-shadow 0.15s;
+  background: var(--surface-glass-strong);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
 
 .cluster-item[open] {
+  border-color: rgba(10, 186, 181, 0.3);
   box-shadow: var(--shadow-sm);
 }
 
@@ -101,9 +102,9 @@ defineEmits<{
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
-  background: var(--info-soft, #e0f2fe);
-  color: #6b7280;
-  border: 1px solid #b2ddff;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  border: 1px solid var(--brand-200);
 }
 
 .member-keys {
@@ -122,10 +123,10 @@ defineEmits<{
 .member-keys code {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
-  background: #f2f4f7;
+  background: #edf8f7;
   padding: 2px 6px;
   border-radius: 4px;
-  color: #344054;
+  color: #245c59;
 }
 
 .skeleton {

@@ -161,10 +161,10 @@ const emit = defineEmits<{
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border: 1px solid var(--brand-100, #e0e7ff);
+  border: 1px solid var(--brand-100, #cffaf8);
   border-radius: var(--radius-sm, 10px);
   background: var(--brand-50, #f4f3ff);
-  color: var(--brand-600, #4f46e5);
+  color: var(--brand-700, #087b78);
   font-size: 14px;
   font-weight: 600;
   font-family: inherit;
@@ -174,9 +174,9 @@ const emit = defineEmits<{
 
 .dbg-dl-btn:hover {
   color: #ffffff;
-  background-image: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background-image: var(--brand-gradient-strong);
   border-color: transparent;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.28);
+  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.24);
   transform: translateY(-1px);
 }
 
@@ -202,7 +202,7 @@ const emit = defineEmits<{
 
 .dbg-item.selected {
   background: var(--brand-50, #f4f3ff);
-  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(10, 186, 181, 0.12);
 }
 
 .dbg-item.selected::before {
@@ -213,7 +213,7 @@ const emit = defineEmits<{
   bottom: 8px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background-image: linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%);
+  background-image: linear-gradient(180deg, #0abab5 0%, #14b8a6 100%);
 }
 
 .dbg-item-indicator {
@@ -283,8 +283,8 @@ const emit = defineEmits<{
   padding: 0 8px;
   border-radius: var(--radius-xs, 6px);
   background: var(--brand-50, #f4f3ff);
-  color: var(--brand-600, #4f46e5);
-  border: 1px solid var(--brand-100, #e0e7ff);
+  color: var(--brand-700, #087b78);
+  border: 1px solid var(--brand-100, #cffaf8);
   font-size: 12px;
   font-weight: 600;
 }

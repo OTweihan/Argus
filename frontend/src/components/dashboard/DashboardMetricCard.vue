@@ -72,7 +72,7 @@ defineProps<{
 }
 
 .metric-card:hover .metric-icon { transform: scale(1.08); }
-.metric-projects .metric-icon { background: linear-gradient(135deg, #eef2ff, #e0e7ff); color: var(--brand-600); }
+.metric-projects .metric-icon { background: linear-gradient(135deg, #ecfefd, #cffaf8); color: var(--brand-700); }
 .metric-tasks .metric-icon { background: linear-gradient(135deg, #ecfdf5, #d1fae5); color: #059669; }
 .metric-running .metric-icon { background: linear-gradient(135deg, #fffbeb, #fef3c7); color: #d97706; }
 .metric-findings .metric-icon { background: linear-gradient(135deg, #fef2f2, #fee2e2); color: #dc2626; }

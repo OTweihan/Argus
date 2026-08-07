@@ -73,7 +73,7 @@ const taskName = computed(() => {
   border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 28px;
   background:
-      linear-gradient(135deg, rgba(23, 32, 51, 0.94), rgba(67, 56, 202, 0.92) 55%, rgba(124, 58, 237, 0.92)),
+      linear-gradient(135deg, rgba(14, 43, 47, 0.96), rgba(8, 123, 120, 0.93) 55%, rgba(10, 186, 181, 0.90)),
       #111827;
   box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
   color: #ffffff;
@@ -116,7 +116,7 @@ const taskName = computed(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  color: #c7d2fe;
+  color: #9af3ef;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -235,7 +235,7 @@ const taskName = computed(() => {
 }
 
 .meta-label {
-  color: #c7d2fe;
+  color: #9af3ef;
   font-size: 12px;
 }
 

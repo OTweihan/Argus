@@ -16,7 +16,7 @@
       </el-select>
       <span v-if="total !== null" class="list-count">共 {{ total }} 条</span>
     </div>
-    <el-table :data="items" size="small" stripe style="width:100%" max-height="400">
+    <el-table :data="items" size="small" stripe style="width:100%">
       <el-table-column label="请求" width="80">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod ?? row.requestPath ?? '')">

@@ -250,7 +250,7 @@ onBeforeUnmount(() => {
 .md-preview :deep(code) {
   padding: 1px 4px;
   border-radius: 4px;
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(10, 186, 181, 0.08);
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
 }

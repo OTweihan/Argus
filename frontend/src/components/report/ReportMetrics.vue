@@ -120,7 +120,7 @@ defineProps<{
   transform: scale(1.08);
 }
 
-.metric-accent-primary::after { background: #eef2ff; }
+.metric-accent-primary::after { background: var(--brand-50); }
 .metric-accent-success::after { background: #ecfdf3; }
 .metric-accent-danger::after { background: #fff1f3; }
 .metric-accent-warning::after { background: #fffaeb; }
@@ -139,7 +139,7 @@ defineProps<{
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
-.mi-primary { background: #eef2ff; color: #4f46e5; }
+.mi-primary { background: var(--brand-50); color: var(--brand-700); }
 .mi-success { background: #ecfdf3; color: #15803d; }
 .mi-danger { background: #fff1f3; color: #b42318; }
 .mi-warning { background: #fffaeb; color: #b54708; }

@@ -8,7 +8,7 @@
         <div class="flow-depth">
           调用深度: {{ flow.callDepth }}
         </div>
-        <el-table :data="flow.steps" size="small" stripe style="width:100%" :max-height="isLarge ? 300 : undefined">
+        <el-table :data="flow.steps" size="small" stripe style="width:100%">
           <el-table-column label="#" width="40">
             <template #default="{ row }">
               {{ row.stepIndex }}
@@ -35,24 +35,44 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import type { ExecutionFlowInfo } from "../../../api/task";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
-const props = defineProps<{
+defineProps<{
   items: ExecutionFlowInfo[];
   hasMore: boolean;
   loading: boolean;
 }>();
 
 defineEmits<{ "load-more": [] }>();
-
-const isLarge = computed(() => props.items.length > 3);
 </script>
 
 <style scoped>
 .list-wrap {
-  padding: 4px 0;
+  padding: 2px 0;
+}
+
+.list-wrap :deep(.el-collapse) {
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+}
+
+.list-wrap :deep(.el-collapse-item__header) {
+  min-height: 50px;
+  padding: 0 16px;
+  color: var(--text-strong);
+  font-weight: 650;
+  background: var(--surface-soft);
+}
+
+.list-wrap :deep(.el-collapse-item__header.is-active) {
+  color: var(--brand-700);
+  background: var(--brand-50);
+}
+
+.list-wrap :deep(.el-collapse-item__content) {
+  padding: 14px 16px 18px;
 }
 
 .flow-depth {

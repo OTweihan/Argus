@@ -75,7 +75,7 @@ defineEmits<{
 
 <style scoped>
 .finding-list {
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .list-header {
@@ -91,16 +91,24 @@ defineEmits<{
 
 .finding-item {
   border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
-  background: var(--surface-soft);
-  transition: box-shadow 0.15s;
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  margin-bottom: 12px;
+  background: var(--surface-glass-strong);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .finding-item:hover {
+  transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
+
+.finding-item.sev-critical { border-left-color: #991b1b; }
+.finding-item.sev-high { border-left-color: #c2410c; }
+.finding-item.sev-medium { border-left-color: #b45309; }
+.finding-item.sev-low { border-left-color: #2563eb; }
+.finding-item.sev-info { border-left-color: #64748b; }
 
 .finding-head {
   margin-bottom: 10px;
@@ -148,9 +156,9 @@ defineEmits<{
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
   border: 1px solid var(--line-soft);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface-soft);
 }
 
 .meta-item {
@@ -185,10 +193,10 @@ defineEmits<{
 code {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
-  background: #f2f4f7;
+  background: #edf8f7;
   padding: 1px 6px;
   border-radius: 4px;
-  color: #344054;
+  color: #245c59;
 }
 
 .snippet {
@@ -206,5 +214,20 @@ code {
 
 .skeleton {
   min-height: 120px;
+}
+
+@media (max-width: 720px) {
+  .finding-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .meta-item.full-width {
+    grid-column: auto;
+  }
+
+  .title-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

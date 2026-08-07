@@ -64,35 +64,44 @@ const formattedTime = computed(() => {
 
 <style scoped>
 .snapshot-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px 20px;
+  min-height: 100%;
+  padding: 16px 18px;
   background: var(--surface-glass-strong);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
-  margin-bottom: 12px;
+  box-shadow: var(--shadow-xs);
 }
 
 .snapshot-row {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .snap-label {
-  font-size: 16px;
+  font-size: 11px;
   color: var(--text-faint);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .snap-value {
-  font-size: 16px;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
   color: var(--text-strong);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .snap-value.mono {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 16px;
+  font-size: 12px;
 }
 </style>

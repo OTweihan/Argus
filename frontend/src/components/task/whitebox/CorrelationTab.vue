@@ -158,7 +158,7 @@
               <div class="list-toolbar">
                 <span class="list-count">共 {{ uncoveredTotal ?? summary.uncoveredEndpointCount }} 个端点未触达</span>
               </div>
-              <el-table :data="uncoveredItems" size="small" stripe style="width:100%" max-height="400">
+              <el-table :data="uncoveredItems" size="small" stripe style="width:100%">
                 <el-table-column label="方法" width="80">
                   <template #default="{ row }">
                     <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
@@ -536,15 +536,15 @@ watch(subTab, (tab) => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 4px;
+  padding: 2px 0;
 }
 
 .status-bar {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 8px 14px;
-  border-radius: 6px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
   margin-bottom: 12px;
   font-size: 13px;
 }
@@ -580,10 +580,11 @@ watch(subTab, (tab) => {
 }
 
 .card {
-  background: var(--surface-soft, #f9fafb);
+  background: var(--surface-glass-strong, #ffffff);
   border: 1px solid var(--line-soft, #e5e7eb);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-xs);
 }
 
 .card-title {
@@ -644,5 +645,17 @@ watch(subTab, (tab) => {
 .mano {
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .status-bar,
+  .list-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .status-version {
+    margin-left: 0;
+  }
 }
 </style>

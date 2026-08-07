@@ -359,7 +359,7 @@ watch(selectedTask, async (task) => {
   background: var(--brand-100);
   color: var(--brand-700);
   border-color: var(--brand-200);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.18);
+  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.18);
   transform: translateY(-1px);
 }
 

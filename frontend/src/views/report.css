@@ -26,8 +26,8 @@
   --shadow-lg: 0 14px 40px rgba(15, 23, 42, 0.08);
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   /* 与全局令牌对齐，保持色板一致 */
-  --accent: var(--brand-600, #4f46e5);
-  --accent-soft: var(--brand-50, #eef2ff);
+  --accent: var(--brand-700, #087b78);
+  --accent-soft: var(--brand-50, #ecfefd);
   --success: #15803d;
   --success-soft: #ecfdf3;
   --danger: #b42318;
@@ -52,7 +52,7 @@
   border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 28px;
   background:
-      linear-gradient(135deg, rgba(23, 32, 51, 0.94), rgba(67, 56, 202, 0.92) 55%, rgba(124, 58, 237, 0.92)),
+      linear-gradient(135deg, rgba(14, 43, 47, 0.96), rgba(8, 123, 120, 0.93) 55%, rgba(10, 186, 181, 0.90)),
       #111827;
   box-shadow: var(--shadow-lg);
   color: #ffffff;
@@ -95,7 +95,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  color: #c7d2fe;
+  color: #9af3ef;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -240,7 +240,7 @@
 }
 
 .meta-label {
-  color: #c7d2fe;
+  color: #9af3ef;
   font-size: 12px;
 }
 
@@ -312,7 +312,7 @@
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 700;
-  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.10);
+  box-shadow: inset 0 0 0 1px rgba(10, 186, 181, 0.12);
 }
 
 .nav-link.active::before {
@@ -324,8 +324,8 @@
   width: 3px;
   height: 18px;
   border-radius: 0 3px 3px 0;
-  background-image: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.45);
+  background-image: var(--brand-gradient-strong);
+  box-shadow: 0 4px 10px rgba(10, 186, 181, 0.38);
 }
 
 .nav-link-text {
@@ -382,11 +382,11 @@
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background-image: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+  background-image: linear-gradient(135deg, #ecfefd 0%, #cffaf8 100%);
   color: var(--accent);
   flex-shrink: 0;
   margin-top: 1px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .section-head h2 {
@@ -614,7 +614,7 @@
   top: 18px;
   bottom: 18px;
   width: 2px;
-  background: linear-gradient(180deg, var(--accent), rgba(79, 70, 229, 0.08));
+  background: linear-gradient(180deg, var(--accent), rgba(10, 186, 181, 0.08));
   border-radius: 1px;
 }
 
@@ -642,8 +642,8 @@
 .extras-toggle:hover {
   background: var(--accent-soft);
   color: var(--accent);
-  border-color: #c7d2fe;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
+  border-color: var(--brand-200);
+  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.12);
 }
 
 .chevron {
@@ -790,7 +790,7 @@
 }
 
 .lightbox-close:hover {
-  background: #eef2ff;
+  background: var(--brand-50);
 }
 
 .lightbox-img {
