@@ -1220,22 +1220,78 @@ class CorrelationRepository:
         return result
 
     def batch_get_flows(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        """按 evidence_id 批量查询调用流关联。"""
+        """按 evidence_id 批量查询调用流关联，返回完整 ExecutionFlowResponse 结构。
+
+        旧实现直接把 endpoint_evidence_flows 的 snapshot 行塞进响应：这些行缺
+        entry_point / call_depth / steps，导致 EndpointEvidenceResponse 嵌套校验
+        失败（API 500），且与前端表格读取的 executionFlowId / entryPoint /
+        callDepth / steps 不匹配，「调用流」列恒为空。
+
+        这里经 execution_flow_id 关联 analysis_execution_flows + analysis_flow_steps
+        组装完整执行流（键与 ExecutionFlowResponse 的 camelCase alias 对齐）；
+        对 analysis 侧已清理的孤儿 flow_id 直接跳过，避免产生残缺条目。
+        """
         if not evidence_ids:
             return {}
         self._check_batch_ids(evidence_ids, "flows")
         with self._pool.ro_conn() as conn:
-            placeholders = ",".join("?" for _ in evidence_ids)
-            rows = conn.execute(
-                f"SELECT * FROM endpoint_evidence_flows "
-                f"WHERE endpoint_evidence_id IN ({placeholders})",
+            ev_placeholders = ",".join("?" for _ in evidence_ids)
+            links = conn.execute(
+                f"SELECT endpoint_evidence_id, execution_flow_id "
+                f"FROM endpoint_evidence_flows "
+                f"WHERE endpoint_evidence_id IN ({ev_placeholders})",
                 evidence_ids,
             ).fetchall()
+            if not links:
+                return {}
+
+            # flow_ids 的数量不受 evidence_ids 上限约束（一条证据可关联多条流），
+            # 分片查询以避免单个 IN 子句超过 SQLite 变量数上限（3.46 为 32766）。
+            flows: dict[str, dict[str, Any]] = {}
+            steps_by_flow: dict[str, list[dict[str, Any]]] = {}
+            flow_ids = sorted({r["execution_flow_id"] for r in links})
+            for start in range(0, len(flow_ids), self._BATCH_QUERY_MAX_IDS):
+                chunk = flow_ids[start : start + self._BATCH_QUERY_MAX_IDS]
+                placeholders = ",".join("?" for _ in chunk)
+                for row in conn.execute(
+                    f"SELECT * FROM analysis_execution_flows "
+                    f"WHERE execution_flow_id IN ({placeholders})",
+                    chunk,
+                ).fetchall():
+                    flows[row["execution_flow_id"]] = dict(row)
+                for row in conn.execute(
+                    f"SELECT * FROM analysis_flow_steps "
+                    f"WHERE execution_flow_id IN ({placeholders}) "
+                    f"ORDER BY execution_flow_id, step_index",
+                    chunk,
+                ).fetchall():
+                    steps_by_flow.setdefault(row["execution_flow_id"], []).append(dict(row))
+
         result: dict[str, list[dict[str, Any]]] = {}
-        for r in rows:
-            d = dict(r)
-            eid = d["endpoint_evidence_id"]
-            result.setdefault(eid, []).append(d)
+        for link in links:
+            eid = link["endpoint_evidence_id"]
+            flow = flows.get(link["execution_flow_id"])
+            if flow is None:
+                continue  # 孤儿引用：analysis 侧执行流已清理，跳过
+            result.setdefault(eid, []).append(
+                {
+                    "executionFlowId": flow["execution_flow_id"],
+                    "entryPoint": flow["entry_point"],
+                    "callDepth": flow["call_depth"],
+                    "steps": [
+                        {
+                            "flowStepId": s["flow_step_id"],
+                            "stepIndex": s["step_index"],
+                            "depth": s["depth"],
+                            "methodKey": s["method_key"],
+                            "className": s["class_name"],
+                            "methodName": s["method_name"],
+                            "callNodeId": s["call_node_id"],
+                        }
+                        for s in steps_by_flow.get(link["execution_flow_id"], [])
+                    ],
+                }
+            )
         return result
 
     def batch_get_endpoint_details(self, endpoint_ids: list[str]) -> dict[str, dict[str, Any]]:

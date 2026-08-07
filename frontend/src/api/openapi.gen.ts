@@ -1559,8 +1559,8 @@ export interface components {
             resourceType?: string | null;
             /** Candidates */
             candidates?: components["schemas"]["EndpointEvidenceCandidateResponse"][];
-            /** Execution Flows */
-            execution_flows?: components["schemas"]["ExecutionFlowResponse"][];
+            /** Executionflows */
+            executionFlows?: components["schemas"]["ExecutionFlowResponse"][];
         };
         /** EndpointPageResponse */
         EndpointPageResponse: {

@@ -145,7 +145,11 @@ class EndpointEvidenceResponse(ApiModel):
     origin: str | None = None
     resource_type: str | None = Field(default=None, alias="resourceType")
     candidates: list[EndpointEvidenceCandidateResponse] = Field(default_factory=list)
-    execution_flows: list[ExecutionFlowResponse] = Field(default_factory=list)
+    # 补 alias 使序列化输出 executionFlows（camelCase），与同结构其它字段一致；
+    # 此前缺失导致前端表格读取 row.executionFlows 恒为空。
+    execution_flows: list[ExecutionFlowResponse] = Field(
+        default_factory=list, alias="executionFlows"
+    )
 
 
 class EndpointEvidencePageResponse(ApiModel):

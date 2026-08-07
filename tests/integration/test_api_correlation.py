@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from argus_py.analysis.models import AnalysisRun
 from argus_py.api.dependencies import (
     get_debug_bundle_builder,
     get_event_bus,
@@ -52,6 +53,7 @@ from argus_py.correlation.models import (
     CaptureQuality,
     CorrelationRun,
     EndpointEvidence,
+    EndpointEvidenceFlow,
 )
 from argus_py.infra.events import EventBus
 from argus_py.infra.worker import TaskWorker
@@ -378,6 +380,80 @@ def test_list_endpoint_evidence_200(api_client: tuple) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] >= 1
+    # 关联执行流必须以 camelCase executionFlows 键序列化（回归：旧版缺失 alias）
+    for item in data["items"]:
+        assert "executionFlows" in item, f"Expected executionFlows key, got: {sorted(item.keys())}"
+        assert "execution_flows" not in item
+
+
+def test_endpoint_evidence_response_includes_execution_flows(tmp_path: Path) -> None:
+    """回归：端点证据 API 必须把关联执行流序列化为完整 ExecutionFlowResponse
+    （executionFlows 键 + entryPoint/callDepth/steps），否则前端「调用流」列恒为空。"""
+    app, stack = _build_correlation_test_app(tmp_path)
+    storage = stack.lifecycle.storage
+    assert isinstance(storage, TaskSQLiteStorage)
+    cr_id, _, _ = _seed_correlation_data(stack)
+
+    # analysis 侧完整执行流 + steps（analysis_id 对应 seed 的 analysis-1）
+    storage.create_analysis_run(
+        AnalysisRun(
+            analysis_id="analysis-1",
+            task_id="t-api-test",
+            source_snapshot_id="src-api",
+            run_status="SUCCEEDED",
+            config_json="{}",
+        )
+    )
+    with storage._analysis._pool.tx() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO analysis_execution_flows (
+                execution_flow_id, analysis_id, execution_flow_fingerprint,
+                entry_point, call_depth
+            ) VALUES (?, ?, ?, ?, ?)""",
+            ("flow-api-1", "analysis-1", "fp:api", "UserController.listUsers", 2),
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO analysis_flow_steps (
+                flow_step_id, execution_flow_id, step_index, depth,
+                method_key, class_name, method_name, call_node_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "fs-api-1",
+                "flow-api-1",
+                0,
+                0,
+                "UserController.listUsers",
+                "UserController",
+                "listUsers",
+                "cn-1",
+            ),
+        )
+
+    # 证据 ↔ 执行流关联
+    storage.insert_flows_batch(
+        [
+            EndpointEvidenceFlow(
+                endpoint_evidence_id="eev-api-1",
+                execution_flow_id="flow-api-1",
+                relation_type="ENTRY_POINT",
+            ),
+        ]
+    )
+
+    client = TestClient(app)
+    resp = client.get(f"{_BASE}/{cr_id}/endpoint-evidence?limit=1")
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    assert items, "expected seeded endpoint evidence"
+    item = next((i for i in items if i["endpointEvidenceId"] == "eev-api-1"), None)
+    assert item is not None, f"expected eev-api-1, got: {[i['endpointEvidenceId'] for i in items]}"
+    flows = item["executionFlows"]
+    assert len(flows) == 1
+    assert flows[0]["executionFlowId"] == "flow-api-1"
+    assert flows[0]["entryPoint"] == "UserController.listUsers"
+    assert flows[0]["callDepth"] == 2
+    assert flows[0]["steps"][0]["methodKey"] == "UserController.listUsers"
+    assert "execution_flows" not in item
 
 
 def test_list_endpoint_evidence_filter_by_status(api_client: tuple) -> None:

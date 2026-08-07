@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from argus_py.analysis.models import AnalysisRun
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.correlation.enums import (
     AttemptDiagnosticCode,
@@ -613,10 +614,81 @@ class TestEndpointEvidence:
         ]
         storage.insert_flows_batch(flows)
 
+        # 预置 analysis 侧完整执行流 + steps（batch_get_flows 组装响应所需）。
+        # analysis_execution_flows.analysis_id 有 FK → analysis_runs，先建分析记录。
+        storage.create_analysis_run(
+            AnalysisRun(
+                analysis_id="analysis_1",
+                task_id="t:ev",
+                source_snapshot_id="src-1",
+                run_status="SUCCEEDED",
+                config_json="{}",
+            )
+        )
+        with storage._analysis._pool.tx() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO analysis_execution_flows (
+                    execution_flow_id, analysis_id, execution_flow_fingerprint,
+                    entry_point, call_depth
+                ) VALUES (?, ?, ?, ?, ?)""",
+                ("flow1", "analysis_1", "fp:flow1", "TestController.listUsers", 2),
+            )
+            conn.execute(
+                """INSERT OR IGNORE INTO analysis_flow_steps (
+                    flow_step_id, execution_flow_id, step_index, depth,
+                    method_key, class_name, method_name, call_node_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "fs:flow1:0",
+                    "flow1",
+                    0,
+                    0,
+                    "TestController.listUsers",
+                    "TestController",
+                    "listUsers",
+                    "cn-1",
+                ),
+            )
+
         batch_map = storage.batch_get_flows(["eev:flow"])
         assert "eev:flow" in batch_map
         assert len(batch_map["eev:flow"]) == 1
-        assert batch_map["eev:flow"][0]["execution_flow_id"] == "flow1"
+        flow = batch_map["eev:flow"][0]
+        # 返回完整 ExecutionFlowResponse 结构（camelCase 键），供 schema/前端直接消费
+        assert flow["executionFlowId"] == "flow1"
+        assert flow["entryPoint"] == "TestController.listUsers"
+        assert flow["callDepth"] == 2
+        assert flow["steps"][0]["methodKey"] == "TestController.listUsers"
+
+    def test_batch_get_flows_skips_orphan_flow_id(
+        self, storage: TaskSQLiteStorage, ev_base: tuple
+    ) -> None:
+        """analysis 侧执行流缺失时跳过孤儿引用，不返回残缺条目（避免嵌套校验 500）。"""
+        cr_id, attempt_id, _ = ev_base
+        ev = EndpointEvidence(
+            endpoint_evidence_id="eev:orphan",
+            correlation_run_id=cr_id,
+            correlation_attempt_id=attempt_id,
+            request_evidence_id="req:ev1",
+            resolution_status=ResolutionStatus.UNIQUE,
+            match_strategy=MatchStrategy.EXACT,
+            confidence=MatchConfidence.HIGH,
+            matched_endpoint_id="ep1",
+            candidate_count=1,
+        )
+        storage.insert_endpoint_evidence_batch([ev])
+        storage.insert_flows_batch(
+            [
+                EndpointEvidenceFlow(
+                    endpoint_evidence_id="eev:orphan",
+                    execution_flow_id="flow-gone",
+                ),
+            ]
+        )
+
+        batch_map = storage.batch_get_flows(["eev:orphan"])
+        # 全孤儿：analysis 侧无对应执行流，跳过不产生条目（避免残缺响应）
+        assert batch_map == {}
 
     def test_unmatched_requests_query(self, storage: TaskSQLiteStorage, ev_base: tuple) -> None:
         """P1 回归：未匹配请求查询按 resolution_status='UNMATCHED' 过滤。"""

@@ -1361,13 +1361,12 @@ def build_correlation_report_data(
         item["returnType"] = ep.get("return_type")
 
     all_evidence_ids = [eid for item in touched.values() for eid in item["evidenceIds"]]
+    # batch_get_flows 已把 endpoint_evidence_flows 快照行关联 analysis 侧执行流，
+    # 返回完整 ExecutionFlowResponse 结构，直接消费即可（与端点证据 API 同源）。
     flows_map = _chunked_batch(storage, storage.batch_get_flows, all_evidence_ids)
-    flow_steps = _group_flow_steps(storage.list_all_analysis_flow_steps(analysis_id))
     for item in touched.values():
         item["flows"] = _dedupe_flows(
-            _to_flow_dict(frow, flow_steps)
-            for eid in item["evidenceIds"]
-            for frow in flows_map.get(eid, [])
+            frow for eid in item["evidenceIds"] for frow in flows_map.get(eid, [])
         )
         item.pop("evidenceIds", None)
 
@@ -1463,40 +1462,6 @@ def _chunked_batch(
     for i in range(0, len(ids), chunk_size):
         result.update(batch_fn(ids[i : i + chunk_size]))
     return result
-
-
-def _group_flow_steps(flow_steps: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """按 flow_id 分组 flow steps（保留 step_index 顺序）。"""
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for step in flow_steps:
-        grouped.setdefault(step["execution_flow_id"], []).append(step)
-    return grouped
-
-
-def _to_flow_dict(
-    flow_row: dict[str, Any],
-    flow_steps: dict[str, list[dict[str, Any]]],
-) -> dict[str, Any]:
-    """将 endpoint_evidence_flows 行 + steps 组装为 ExecutionFlowResponse 形状。"""
-    flow_id = flow_row.get("execution_flow_id", "")
-    steps = flow_steps.get(flow_id, [])
-    return {
-        "executionFlowId": flow_id,
-        "entryPoint": flow_row.get("flow_name_snapshot") or flow_id,
-        "callDepth": max((s.get("depth") or 0 for s in steps), default=0),
-        "steps": [
-            {
-                "flowStepId": s.get("flow_step_id"),
-                "stepIndex": s.get("step_index"),
-                "depth": s.get("depth") or 0,
-                "methodKey": s.get("method_key") or "",
-                "className": s.get("class_name"),
-                "methodName": s.get("method_name"),
-                "callNodeId": s.get("call_node_id"),
-            }
-            for s in steps
-        ],
-    }
 
 
 def _dedupe_flows(flows: Any) -> list[dict[str, Any]]:
