@@ -23,8 +23,15 @@
         <span class="build-log-count">{{ events.length }} 条日志</span>
       </div>
       <div class="build-log-output">
+        <button
+          v-if="hasMoreEvents"
+          class="load-more"
+          @click="expandWindow"
+        >
+          ↑ 加载更早日志（{{ events.length - renderedEvents.length }} 条未显示）
+        </button>
         <div
-          v-for="event in events"
+          v-for="event in renderedEvents"
           :key="event.eventId"
           :class="['build-log-entry', `is-${whiteboxLogLevel(event).toLowerCase()}`]"
         >
@@ -41,7 +48,14 @@
     </div>
     <div v-else class="tl-scroll">
       <div class="tl-list">
-        <div v-for="event in events" :key="event.eventId" class="tl-item">
+        <button
+          v-if="hasMoreEvents"
+          class="load-more"
+          @click="expandWindow"
+        >
+          ↑ 加载更早事件（{{ events.length - renderedEvents.length }} 条未显示）
+        </button>
+        <div v-for="event in renderedEvents" :key="event.eventId" class="tl-item">
           <div class="tl-dot" :style="{ background: phaseColor(event.phase) }" />
           <div class="tl-line" />
           <div class="tl-card" :style="{ borderLeftColor: phaseColor(event.phase) }">
@@ -102,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { getTaskEvents } from "../../api";
 import type { TaskEvent, TimelineEvent } from "../../types";
 import { errorMessage } from "../../utils";
@@ -130,6 +144,17 @@ const events = ref<TimelineEvent[]>([]);
 const loading = ref(true);
 const error = ref("");
 const eventOpenMap = ref<Record<string, boolean>>({});
+
+// 长列表有界渲染：默认只渲染最近 RENDER_WINDOW 条，避免挂载拉全量 + 每个
+// WS 事件追加时整列重渲染。白盒日志/时间线超过窗口时用"加载更早"按钮扩大窗口。
+const RENDER_WINDOW_STEP = 200;
+const renderWindow = ref(RENDER_WINDOW_STEP);
+const renderedEvents = computed(() => events.value.slice(-renderWindow.value));
+const hasMoreEvents = computed(() => events.value.length > renderedEvents.value.length);
+
+function expandWindow(): void {
+  renderWindow.value += RENDER_WINDOW_STEP;
+}
 
 function toggleEvent(id: string): void {
   eventOpenMap.value[id] = !eventOpenMap.value[id];
@@ -284,6 +309,28 @@ onUnmounted(() => {
   min-height: 0;
   padding: 6px 0;
   overflow: auto;
+}
+
+/* "加载更早"按钮：时间线与白盒日志共用 */
+.load-more {
+  display: block;
+  width: 100%;
+  margin: 10px auto 12px;
+  padding: 8px 0;
+  border: 1px dashed var(--line-soft, #e4e7ed);
+  border-radius: var(--radius-xs, 6px);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--text-faint, #6b7280);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.load-more:hover {
+  color: var(--brand-700, #087b78);
+  border-color: var(--brand-100, #cffaf8);
+  background: var(--brand-50, #f4f3ff);
 }
 
 .build-log-entry {

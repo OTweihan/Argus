@@ -215,19 +215,9 @@ export async function openAuthenticatedResource(path: string, filename?: string)
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
-export function reportUrl(taskId: string, json = false, download = false): string {
-  const path = `${API_BASE}/tasks/${encodeURIComponent(taskId)}/${json ? "report.json" : "report"}`;
-  return download ? `${path}?download=true` : path;
-}
-
 export function reportPath(taskId: string, json = false, download = false): string {
   const path = `/tasks/${encodeURIComponent(taskId)}/${json ? "report.json" : "report"}`;
   return download ? `${path}?download=true` : path;
-}
-
-export function screenshotUrl(taskId: string, screenshotPath: string): string {
-  const filename = screenshotPath.replace(/\\/g, "/").split("/").pop() ?? "";
-  return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/screenshots/${encodeURIComponent(filename)}`;
 }
 
 export function screenshotPath(taskId: string, rawPath: string): string {

@@ -9,25 +9,26 @@
  * 从 ReportView.vue 抽出 `REPORT_NAV_ITEMS` / `getStatusLabel` 等，
  * 减少 view 文件体积、便于单元测试。
  */
+const DATE_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
 export function formatDate(value: string | null): string {
   if (!value) return "-";
   try {
-    return new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(new Date(value));
+    return DATE_FORMATTER.format(new Date(value));
   } catch {
     return value;
   }
 }
 
-export function prettyJson(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
+// JSON 格式化与时间线共用（./timeFormat），保持 re-export 以免改动既有调用点。
+export { prettyJson } from "../timeFormat";
 
 /** 报告页左侧导航条目，顺序与 `ReportView.vue` 模板中的 section ID 一一对应。 */
 export interface ReportNavItem {

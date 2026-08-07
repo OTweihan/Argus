@@ -52,7 +52,7 @@
       <el-dialog
         v-model="dialogVisible"
         :title="dialog?.title ?? ''"
-        :width="dialog?.tone === 'error' ? '420px' : '420px'"
+        width="420px"
         :show-close="true"
         append-to-body
       >

@@ -9,7 +9,7 @@
     :close-on-press-escape="false"
     @update:model-value="$emit('close')"
   >
-    <el-form :model="localForm" label-position="top" @submit.prevent="$emit('save')">
+    <el-form :model="localForm" label-position="top" @submit.prevent="onSave">
       <el-form-item label="名称" :error="formErrors.modelName" required>
         <el-input v-model="localForm.name" @input="clearError('modelName')" />
       </el-form-item>
@@ -74,9 +74,9 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button size="large" @click="$emit('test')"> 测试 </el-button>
+      <el-button size="large" @click="onTest"> 测试 </el-button>
       <el-button size="large" @click="$emit('close')"> 取消 </el-button>
-      <el-button size="large" type="primary" @click="$emit('save')">
+      <el-button size="large" type="primary" @click="onSave">
         {{ editing ? "保存" : "创建" }}
       </el-button>
     </template>
@@ -94,7 +94,7 @@ const props = defineProps<{
   formErrors: Record<string, string>;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   close: [];
   save: [];
   test: [];
@@ -102,21 +102,35 @@ defineEmits<{
 
 const localForm = reactive<ModelForm>({ ...props.form });
 
+// 打开时从父表单快照一次，替代原先整表 deep watch 的双向拷贝。
+// 父级（useModels）在置 visible=true 之前已把 form 准备好。
 watch(
-  localForm,
-  () => {
-    Object.assign(props.form, localForm);
+  () => props.visible,
+  (visible) => {
+    if (visible) Object.assign(localForm, props.form);
   },
-  { deep: true },
+  { immediate: true },
 );
 
+// 父级也可能整体替换 form 引用（测试 setProps / 未来改造）：非 deep 监听引用变化。
 watch(
   () => props.form,
   (f) => {
-    Object.assign(localForm, f);
+    if (f) Object.assign(localForm, f);
   },
-  { deep: true },
 );
+
+// 保存时统一把顶层字段写回父表单。
+function onSave(): void {
+  Object.assign(props.form, localForm);
+  emit("save");
+}
+
+// 测试连接前同样先把当前编辑写回父表单，使 testModel 读取的是弹窗内最新值。
+function onTest(): void {
+  Object.assign(props.form, localForm);
+  emit("test");
+}
 
 function clearError(key: string): void {
   delete (props.formErrors as Record<string, string | undefined>)[key];

@@ -9,7 +9,7 @@
     :close-on-press-escape="false"
     @update:model-value="$emit('close')"
   >
-    <el-form label-position="top" @submit.prevent="$emit('save')">
+    <el-form label-position="top" @submit.prevent="onSave">
       <el-form-item label="名称" :error="formErrors.name" required>
         <el-input
           v-model="localForm.name"
@@ -124,7 +124,7 @@
     </el-form>
     <template #footer>
       <el-button size="large" @click="$emit('close')"> 取消 </el-button>
-      <el-button size="large" type="primary" @click="$emit('save')">
+      <el-button size="large" type="primary" @click="onSave">
         {{ editing ? "保存" : "创建" }}
       </el-button>
     </template>
@@ -146,7 +146,7 @@ const props = defineProps<{
   formErrors: Record<string, string>;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   close: [];
   save: [];
   "add-param": [];
@@ -157,21 +157,31 @@ const promptCollapseActive = ref<string[]>([]);
 const localForm = reactive<ProjectForm>({ ...props.form });
 const hasExt = computed(() => hasAnyExtension(localForm.promptExtensions));
 
+// 打开时从父表单快照一次，替代原先整表 deep watch 的双向拷贝。
+// 父级（useProjects）在置 visible=true 之前已把 form 准备好。
+// 嵌套对象（parameters/promptExtensions）按引用共享，弹窗内的就地修改
+// （含 add/remove-param 经 emit 到父级的变更）直接反映到父表单。
 watch(
-  localForm,
-  () => {
-    Object.assign(props.form, localForm);
+  () => props.visible,
+  (visible) => {
+    if (visible) Object.assign(localForm, props.form);
   },
-  { deep: true },
+  { immediate: true },
 );
 
+// 父级也可能整体替换 form 引用（测试 setProps / 未来改造）：非 deep 监听引用变化。
 watch(
   () => props.form,
   (f) => {
-    Object.assign(localForm, f);
+    if (f) Object.assign(localForm, f);
   },
-  { deep: true },
 );
+
+// 保存时统一把顶层标量写回父表单。
+function onSave(): void {
+  Object.assign(props.form, localForm);
+  emit("save");
+}
 
 function clearError(key: string): void {
   delete (props.formErrors as Record<string, string | undefined>)[key];

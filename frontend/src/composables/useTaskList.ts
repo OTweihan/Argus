@@ -1,6 +1,6 @@
 import { ref, watch, type Ref } from "vue";
 import { listTasks as apiListTasks } from "../api";
-import type { Task, TaskType } from "../types";
+import type { Task, TaskDisplayStatus, TaskType } from "../types";
 import { useDebounceFn } from "./useDebounceFn";
 
 export function useTaskList(opts: { allTasks: Ref<Task[]> }) {
@@ -69,12 +69,3 @@ export function useTaskList(opts: { allTasks: Ref<Task[]> }) {
     onPageSizeChange,
   };
 }
-
-type TaskDisplayStatus =
-  | "pending"
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed"
-  | "timeout"
-  | "cancelled";

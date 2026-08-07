@@ -143,9 +143,10 @@ describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
       data: { task: newTaskSummary },
     } as TaskEvent);
 
-    // 不强制转载荷，列表不动（refreshTaskById resolve 后才 upsert）
+    // 不强制转载荷，列表不动（refreshTaskById 防抖 400ms 后才 resolve 并 upsert）
     expect(h.allTasks.value.map((t) => t.taskId)).toEqual(["t1"]);
 
+    await vi.advanceTimersByTimeAsync(400);
     await flushPromises();
     await flushPromises();
     expect(apiGetTaskMock).toHaveBeenCalledTimes(1);
@@ -191,7 +192,8 @@ describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
       data: { taskId: "t1" },
     } as TaskEvent);
 
-    // refreshTaskById 是 async；推进 microtask 让 fetch 完成。
+    // refreshTaskById 是 async；先推进 400ms 防抖，再推进 microtask 让 fetch 完成。
+    await vi.advanceTimersByTimeAsync(400);
     await flushPromises();
     await flushPromises();
 
@@ -220,6 +222,8 @@ describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
     h.events.applyEvent({ eventType: "task.progress", data: { taskId: "t1" } } as TaskEvent);
     h.events.applyEvent({ eventType: "task.progress", data: { taskId: "t1" } } as TaskEvent);
 
+    // 两次调用共享同一 400ms 尾沿防抖窗口，防抖结束后只发一次请求
+    await vi.advanceTimersByTimeAsync(400);
     await flushPromises();
     expect(apiGetTaskMock).toHaveBeenCalledTimes(1);
 

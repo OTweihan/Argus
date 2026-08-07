@@ -104,10 +104,16 @@ const openPreviewPanes = ref<string[]>([]);
 
 let previewRequestId = 0;
 
+// markdown 渲染（markdown-it + DOMPurify）按 200ms 尾沿防抖：
+// 输入过程中预览延迟 ~200ms 几乎无感知，避免每按键同步重渲染高成本 sanitize。
+const debouncedRender = useDebounceFn((role: PromptRole, text: string) => {
+  rendered[role] = renderMarkdown(text);
+}, 200);
+
 function onInput(role: PromptRole, value: string | number | null | undefined): void {
   const text = value === null || value === undefined ? "" : String(value);
   local[role] = text;
-  rendered[role] = renderMarkdown(text);
+  debouncedRender(role, text);
   emit("update:modelValue", { ...local });
 }
 
@@ -181,6 +187,7 @@ watch(
 
 onBeforeUnmount(() => {
   debouncedRefresh.cancel();
+  debouncedRender.cancel();
 });
 </script>
 

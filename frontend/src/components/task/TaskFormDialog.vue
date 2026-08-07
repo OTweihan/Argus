@@ -9,7 +9,7 @@
     :close-on-press-escape="false"
     @update:model-value="$emit('close')"
   >
-    <el-form :model="localForm" label-position="top" @submit.prevent="$emit('save')">
+    <el-form :model="localForm" label-position="top" @submit.prevent="onSave">
       <!-- 任务类型 -->
       <el-form-item label="任务类型" required>
         <el-radio-group v-model="localForm.taskType" :disabled="editing">
@@ -345,7 +345,7 @@
     </el-form>
     <template #footer>
       <el-button size="large" @click="$emit('close')"> 取消 </el-button>
-      <el-button size="large" type="primary" @click="$emit('save')">
+      <el-button size="large" type="primary" @click="onSave">
         {{ editing ? "保存" : "创建" }}
       </el-button>
     </template>
@@ -376,7 +376,7 @@ const props = defineProps<{
   enabledModels: ModelConfig[];
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   close: [];
   save: [];
   "add-param": [];
@@ -438,25 +438,62 @@ const targetModulesText = computed({
   },
 });
 
-// 双向同步 props.form ↔ localForm
+// 打开时从父表单快照一次，替代原先整表 deep watch 的双向拷贝。
+// 父级（useTasks.openNew/EditTaskDialog）总是在置 visible=true 之前把 form
+// 准备好，故快照能取到最新内容；嵌套对象（blackbox/whitebox/promptExtensions）
+// 按引用共享，弹窗内的就地修改直接反映到父表单。
 watch(
-  localForm,
-  () => {
-    Object.assign(props.form, localForm);
+  () => props.visible,
+  (visible) => {
+    if (visible) Object.assign(localForm, props.form);
   },
-  { deep: true },
+  { immediate: true },
 );
 
+// 父级也可能整体替换 form 引用（测试 setProps / 未来改造）：非 deep 监听引用变化，
+// 只在对象被替换时同步一次，不随嵌套字段突变触发。
 watch(
   () => props.form,
   (f) => {
-    Object.assign(localForm, f);
+    if (f) Object.assign(localForm, f);
   },
-  { deep: true },
 );
 
+// 父级 autoFillLimits 需要实时读到 goal / startUrl / taskType 做参数推断：
+// 单独薄同步这几个标量，避免每按键触发整表 deep 遍历 + 两次 Object.assign。
+// props.form 是父级 useTasks 的 reactive taskForm，此处是显式的双向写回
+// （与 onSave 的 Object.assign 同属既定模式），故关闭 vue/no-mutating-props。
+/* eslint-disable vue/no-mutating-props */
+watch(
+  () => localForm.goal,
+  (goal) => {
+    props.form.goal = goal;
+  },
+);
+watch(
+  () => localForm.taskType,
+  (taskType) => {
+    props.form.taskType = taskType;
+  },
+);
+watch(
+  () => (localForm.taskType === "blackbox" ? localForm.blackbox.startUrl : ""),
+  (startUrl) => {
+    props.form.blackbox.startUrl = startUrl;
+  },
+);
+/* eslint-enable vue/no-mutating-props */
+
+// 保存时统一把顶层标量写回父表单（嵌套对象因引用共享已是最新）。
+function onSave(): void {
+  Object.assign(props.form, localForm);
+  emit("save");
+}
+
 const resolvedProjectExtensions = computed<PromptExtensions>(() => {
-  const project = props.projects.find((p) => p.projectId === props.form.projectId);
+  // 读取 localForm.projectId（用户在弹窗内的实际选择）而非 props.form.projectId：
+  // 弹窗同步已改为「打开快照 + 保存写回」，projectId 不再实时写回父表单。
+  const project = props.projects.find((p) => p.projectId === localForm.projectId);
   if (!project) return emptyPromptExtensions();
   return extractPromptExtensions(project.parameters);
 });

@@ -106,24 +106,9 @@ export function hasTimelineData(data: Record<string, unknown>): boolean {
   return data != null && typeof data === "object" && Object.keys(data).length > 0;
 }
 
-export function formatTimelineTime(iso: string): string {
-  if (!iso) return "-";
-  try {
-    return new Intl.DateTimeFormat("zh-CN", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
-
-export function prettyTimelineJson(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
+// 与 LLM trace 共用的时间 / JSON 格式化收敛到 ./timeFormat，这里保留别名
+// 以避免改动既有调用点。
+export { formatTime as formatTimelineTime, prettyJson as prettyTimelineJson } from "./timeFormat";
 
 export function isTimelineEvent(raw: unknown): raw is TimelineEvent {
   if (!raw || typeof raw !== "object") return false;

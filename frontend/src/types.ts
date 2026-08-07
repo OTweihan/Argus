@@ -86,9 +86,6 @@ export type ModelConfigListResponse = components["schemas"]["ModelConfigListResp
 /** @description 模型连接检查响应 */
 export type ModelConnectionTestResponse = components["schemas"]["ModelConnectionTestResponse"];
 
-/** @description 配置摘要 */
-export type ConfigSummary = components["schemas"]["ConfigSummaryResponse"];
-
 /* ----- 以下类型非 OpenAPI schema，保持手写 ----- */
 
 export type SchedulerStatus = "queued" | "running";

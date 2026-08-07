@@ -128,6 +128,7 @@ import {
   listAnalysisRuns,
 } from "../../api/task";
 import { errorMessage } from "../../utils";
+import { usePagedList } from "../../composables/usePagedList";
 import OverviewTab from "./whitebox/OverviewTab.vue";
 import AnalysisRunSelector from "./whitebox/AnalysisRunSelector.vue";
 import AnalysisSnapshotBar from "./whitebox/AnalysisSnapshotBar.vue";
@@ -179,8 +180,8 @@ const showBackTop = computed(() => SCROLLABLE_TABS.has(subTab.value));
 })();
 
 async function onSelectRun(aid: string): Promise<void> {
-  analysisId.value = aid;
   resetSubResources();
+  analysisId.value = aid;
   // 始终调用详情接口获取完整的 completeness/severity/metrics 数据，
   // 列表接口只返回计数和严重级别分布，不含完整性指标与质量问题。
   loading.value = true;
@@ -193,90 +194,106 @@ async function onSelectRun(aid: string): Promise<void> {
   }
 }
 
-// ── 分页子资源 ──
+// ── 分页子资源（usePagedList 统一管理 load/loadMore/cursor/loading） ──
 
-// Endpoints
-const endpointItems = ref<EndpointInfo[]>([]);
-const endpointTotal = ref<number | null>(null);
-const endpointHasMore = ref(false);
-const endpointLoading = ref(false);
-let endpointCursor: string | null = null;
-
-async function loadEndpoints(): Promise<void> {
-  if (!analysisId.value) return;
-  endpointLoading.value = true;
-  try {
-    const page = await listAnalysisEndpoints(props.taskId, analysisId.value, null, 100);
-    endpointItems.value = page.items;
-    endpointTotal.value = page.total ?? null;
-    endpointHasMore.value = page.hasMore;
-    endpointCursor = page.nextCursor ?? null;
-  } finally {
-    endpointLoading.value = false;
-  }
+const endpointsList = usePagedList<EndpointInfo, [string]>(
+  (p, aid) => listAnalysisEndpoints(props.taskId, aid, p.cursor, p.limit),
+  { limit: 100, cursor: true },
+);
+const {
+  items: endpointItems,
+  total: endpointTotal,
+  hasMore: endpointHasMore,
+  loading: endpointLoading,
+} = endpointsList;
+function loadEndpoints(): void {
+  const aid = analysisId.value;
+  if (aid) void endpointsList.load(aid);
+}
+function loadMoreEndpoints(): void {
+  const aid = analysisId.value;
+  if (aid) void endpointsList.loadMore(aid);
 }
 
-async function loadMoreEndpoints(): Promise<void> {
-  if (!analysisId.value || !endpointCursor) return;
-  endpointLoading.value = true;
-  try {
-    const page = await listAnalysisEndpoints(props.taskId, analysisId.value, endpointCursor, 100);
-    endpointItems.value.push(...page.items);
-    endpointHasMore.value = page.hasMore;
-    endpointCursor = page.nextCursor ?? null;
-  } finally {
-    endpointLoading.value = false;
-  }
+const callNodesList = usePagedList<CallNodeInfo, [string]>(
+  (p, aid) => listAnalysisCallNodes(props.taskId, aid, null, null, p.cursor, p.limit),
+  { limit: 100, cursor: true },
+);
+const {
+  items: callNodeItems,
+  total: callNodeTotal,
+  hasMore: callNodeHasMore,
+  loading: callNodeLoading,
+} = callNodesList;
+function loadCallNodes(): void {
+  const aid = analysisId.value;
+  if (aid) void callNodesList.load(aid);
+}
+function loadMoreCallNodes(): void {
+  const aid = analysisId.value;
+  if (aid) void callNodesList.loadMore(aid);
 }
 
-// CallNodes
-const callNodeItems = ref<CallNodeInfo[]>([]);
-const callNodeTotal = ref<number | null>(null);
-const callNodeHasMore = ref(false);
-const callNodeLoading = ref(false);
-let callNodeCursor: string | null = null;
-
-async function loadCallNodes(): Promise<void> {
-  if (!analysisId.value) return;
-  callNodeLoading.value = true;
-  try {
-    const page = await listAnalysisCallNodes(props.taskId, analysisId.value, null, null, null, 100);
-    callNodeItems.value = page.items;
-    callNodeTotal.value = page.total ?? null;
-    callNodeHasMore.value = page.hasMore;
-    callNodeCursor = page.nextCursor ?? null;
-  } finally {
-    callNodeLoading.value = false;
-  }
+const flowsList = usePagedList<ExecutionFlowInfo, [string]>(
+  (p, aid) => listAnalysisExecutionFlows(props.taskId, aid, p.cursor, p.limit),
+  { limit: 50, cursor: true },
+);
+const { items: flowItems, hasMore: flowHasMore, loading: flowLoading } = flowsList;
+function loadFlows(): void {
+  const aid = analysisId.value;
+  if (aid) void flowsList.load(aid);
+}
+function loadMoreFlows(): void {
+  const aid = analysisId.value;
+  if (aid) void flowsList.loadMore(aid);
 }
 
-async function loadMoreCallNodes(): Promise<void> {
-  if (!analysisId.value || !callNodeCursor) return;
-  callNodeLoading.value = true;
-  try {
-    const page = await listAnalysisCallNodes(
-      props.taskId,
-      analysisId.value,
-      null,
-      null,
-      callNodeCursor,
-      100,
-    );
-    callNodeItems.value.push(...page.items);
-    callNodeHasMore.value = page.hasMore;
-    callNodeCursor = page.nextCursor ?? null;
-  } finally {
-    callNodeLoading.value = false;
-  }
+const findingsList = usePagedList<FindingInfo, [string]>(
+  (p, aid) => listAnalysisFindings(props.taskId, aid, p.cursor, p.limit),
+  { limit: 50, cursor: true },
+);
+const {
+  items: findingItems,
+  total: findingTotal,
+  hasMore: findingHasMore,
+  loading: findingLoading,
+} = findingsList;
+function loadFindings(): void {
+  const aid = analysisId.value;
+  if (aid) void findingsList.load(aid);
+}
+function loadMoreFindings(): void {
+  const aid = analysisId.value;
+  if (aid) void findingsList.loadMore(aid);
 }
 
-// Callee edges (per selected node)
+const clustersList = usePagedList<ClusterInfo, [string]>(
+  (p, aid) => listAnalysisClusters(props.taskId, aid, p.cursor, p.limit),
+  { limit: 50, cursor: true },
+);
+const {
+  items: clusterItems,
+  total: clusterTotal,
+  hasMore: clusterHasMore,
+  loading: clusterLoading,
+} = clustersList;
+function loadClusters(): void {
+  const aid = analysisId.value;
+  if (aid) void clustersList.load(aid);
+}
+function loadMoreClusters(): void {
+  const aid = analysisId.value;
+  if (aid) void clustersList.loadMore(aid);
+}
+
+// Callee edges（选中调用节点的下一层，非分页列表，保留手写）
 const selectedCallNodeId = ref<string | null>(null);
 const calleeItems = ref<CallEdgeInfo[]>([]);
 const calleeLoading = ref(false);
 
 async function selectCallNode(nodeId: string): Promise<void> {
-  if (!analysisId.value) return;
+  const aid = analysisId.value;
+  if (!aid) return;
   if (selectedCallNodeId.value === nodeId) {
     selectedCallNodeId.value = null;
     calleeItems.value = [];
@@ -287,7 +304,7 @@ async function selectCallNode(nodeId: string): Promise<void> {
   calleeItems.value = [];
   calleeLoading.value = true;
   try {
-    const page = await listAnalysisCallEdges(props.taskId, analysisId.value, nodeId, null, 50);
+    const page = await listAnalysisCallEdges(props.taskId, aid, nodeId, null, 50);
     if (selectedCallNodeId.value === nodeId) {
       calleeItems.value = page.items;
     }
@@ -298,155 +315,59 @@ async function selectCallNode(nodeId: string): Promise<void> {
   }
 }
 
-// ExecutionFlows
-const flowItems = ref<ExecutionFlowInfo[]>([]);
-const flowHasMore = ref(false);
-const flowLoading = ref(false);
-let flowCursor: string | null = null;
-
-async function loadFlows(): Promise<void> {
-  if (!analysisId.value) return;
-  flowLoading.value = true;
-  try {
-    const page = await listAnalysisExecutionFlows(props.taskId, analysisId.value, null, 50);
-    flowItems.value = page.items;
-    flowHasMore.value = page.hasMore;
-    flowCursor = page.nextCursor ?? null;
-  } finally {
-    flowLoading.value = false;
-  }
-}
-
-async function loadMoreFlows(): Promise<void> {
-  if (!analysisId.value || !flowCursor) return;
-  flowLoading.value = true;
-  try {
-    const page = await listAnalysisExecutionFlows(props.taskId, analysisId.value, flowCursor, 50);
-    flowItems.value.push(...page.items);
-    flowHasMore.value = page.hasMore;
-    flowCursor = page.nextCursor ?? null;
-  } finally {
-    flowLoading.value = false;
-  }
-}
-
-// Diagnostics (loaded on tab switch)
+// Diagnostics（非分页，tab 切换时懒加载一次）
 const diagnostics = ref<DiagnosticsInfo | null>(null);
 let diagLoaded = false;
 
 async function loadDiagnostics(): Promise<void> {
-  if (!analysisId.value || diagLoaded) return;
+  const aid = analysisId.value;
+  if (!aid || diagLoaded) return;
   try {
-    diagnostics.value = await getAnalysisDiagnostics(props.taskId, analysisId.value);
+    diagnostics.value = await getAnalysisDiagnostics(props.taskId, aid);
     diagLoaded = true;
-  } catch {
-    // ignore
+  } catch (caught) {
+    // 诊断为尽力而为展示，失败不阻塞页面，仅记录便于排查。
+    console.warn("[WhiteboxReport] 诊断信息加载失败：", errorMessage(caught));
   }
 }
 
 function resetSubResources(): void {
-  endpointItems.value = [];
-  callNodeItems.value = [];
-  calleeItems.value = [];
-  flowItems.value = [];
-  findingItems.value = [];
-  clusterItems.value = [];
+  endpointsList.reset();
+  callNodesList.reset();
+  flowsList.reset();
+  findingsList.reset();
+  clustersList.reset();
   diagnostics.value = null;
-  selectedCallNodeId.value = null;
   diagLoaded = false;
-  endpointCursor = null;
-  callNodeCursor = null;
-  flowCursor = null;
-  findingCursor = null;
-  clusterCursor = null;
+  selectedCallNodeId.value = null;
+  calleeItems.value = [];
+  calleeLoading.value = false;
 }
 
-// Findings
-const findingItems = ref<FindingInfo[]>([]);
-const findingTotal = ref<number | null>(null);
-const findingHasMore = ref(false);
-const findingLoading = ref(false);
-let findingCursor: string | null = null;
-
-async function loadFindings(): Promise<void> {
+/** 按当前激活的 tab 懒加载对应子资源。
+ *
+ * 以「列表为空才加载」作为门控：既保证 B2（切 run / 首次打开 tab 才拉取），
+ * 又避免切回已加载过的 tab 时重置分页/滚动状态（只对空列表发请求）。
+ * 加载失败时列表保持为空，下次切回会自动重试。
+ */
+function loadCurrentTabResources(): void {
   if (!analysisId.value) return;
-  findingLoading.value = true;
-  try {
-    const page = await listAnalysisFindings(props.taskId, analysisId.value, null, 50);
-    findingItems.value = page.items;
-    findingTotal.value = page.total ?? null;
-    findingHasMore.value = page.hasMore;
-    findingCursor = page.nextCursor ?? null;
-  } finally {
-    findingLoading.value = false;
-  }
-}
-
-async function loadMoreFindings(): Promise<void> {
-  if (!analysisId.value || !findingCursor) return;
-  findingLoading.value = true;
-  try {
-    const page = await listAnalysisFindings(props.taskId, analysisId.value, findingCursor, 50);
-    findingItems.value.push(...page.items);
-    findingHasMore.value = page.hasMore;
-    findingCursor = page.nextCursor ?? null;
-  } finally {
-    findingLoading.value = false;
-  }
-}
-
-// Clusters (lazy load on tab switch)
-const clusterItems = ref<ClusterInfo[]>([]);
-const clusterTotal = ref<number | null>(null);
-const clusterHasMore = ref(false);
-const clusterLoading = ref(false);
-let clusterCursor: string | null = null;
-
-async function loadClusters(): Promise<void> {
-  if (!analysisId.value) return;
-  clusterLoading.value = true;
-  try {
-    const page = await listAnalysisClusters(props.taskId, analysisId.value, null, 50);
-    clusterItems.value = page.items;
-    clusterTotal.value = page.total ?? null;
-    clusterHasMore.value = page.hasMore;
-    clusterCursor = page.nextCursor ?? null;
-  } finally {
-    clusterLoading.value = false;
-  }
-}
-
-async function loadMoreClusters(): Promise<void> {
-  if (!analysisId.value || !clusterCursor) return;
-  clusterLoading.value = true;
-  try {
-    const page = await listAnalysisClusters(props.taskId, analysisId.value, clusterCursor, 50);
-    clusterItems.value.push(...page.items);
-    clusterHasMore.value = page.hasMore;
-    clusterCursor = page.nextCursor ?? null;
-  } finally {
-    clusterLoading.value = false;
-  }
-}
-
-// Watch analysisId → load sub-resources
-watch(analysisId, (aid) => {
-  if (!aid) return;
-  loadEndpoints();
-  loadCallNodes();
-  loadFlows();
-  // 若当前已停留在诊断/发现项/聚类 Tab，切换 run 时同步刷新
+  if (subTab.value === "endpoints" && endpointItems.value.length === 0) loadEndpoints();
+  if (subTab.value === "callgraph" && callNodeItems.value.length === 0) loadCallNodes();
+  if (subTab.value === "flows" && flowItems.value.length === 0) loadFlows();
   if (subTab.value === "diagnostics") loadDiagnostics();
-  if (subTab.value === "findings") loadFindings();
-  if (subTab.value === "clusters") loadClusters();
+  if (subTab.value === "findings" && findingItems.value.length === 0) loadFindings();
+  if (subTab.value === "clusters" && clusterItems.value.length === 0) loadClusters();
+}
+
+// analysisId 变化（含初始化与切 run）→ 加载当前 tab 资源
+watch(analysisId, (aid) => {
+  if (aid) loadCurrentTabResources();
 });
 
-// Watch subTab → lazy load diagnostics / findings / clusters
-watch(subTab, (tab) => {
-  if (tab === "diagnostics") loadDiagnostics();
-  if (tab === "findings") loadFindings();
-  if (tab === "clusters") loadClusters();
-});
+// subTab 变化 → 懒加载该 tab 资源
+watch(subTab, () => loadCurrentTabResources());
+
 </script>
 
 <style scoped>

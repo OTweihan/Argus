@@ -5,10 +5,8 @@ export {
   loadObjectUrl,
   openAuthenticatedResource,
   reportPath,
-  reportUrl,
   requestBlob,
   screenshotPath,
-  screenshotUrl,
 } from "./client";
 export type {
   ProjectPayload,
@@ -41,5 +39,4 @@ export {
   getAnalysisDiagnostics,
 } from "./task";
 export { listModels, createModel, updateModel, deleteModel, testModel } from "./model";
-export { summary } from "./config";
 export { previewPrompt } from "./prompt";

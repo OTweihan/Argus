@@ -1,100 +1,16 @@
 import { request } from "../client";
-import type { EndpointInfo, ExecutionFlowInfo, FindingInfo } from "../task";
+import type { components } from "../openapi.gen";
 
 // ── 关联运行 ──
 
-export interface CorrelationRunInfo {
-  correlationRunId: string;
-  projectId: string;
-  blackboxRunId: string;
-  desiredSourceSnapshotId: string;
-  desiredAnalysisConfigDigest: string;
-  requiredAnalyzerVersion: string;
-  allowPartialAnalysis: boolean;
-  analysisId: string | null;
-  boundSourceSnapshotId: string | null;
-  analysisProjectionVersion: number | null;
-  correlationConfigDigest: string;
-  matcherVersion: string;
-  normalizationVersion: string;
-  supersedesCorrelationRunId: string | null;
-  sourceAlignmentStatus: string;
-  status: string;
-  activeAttemptId: string | null;
-  sourceMismatchOverridden: boolean;
-  sourceMismatchOverrideBy: string | null;
-  sourceMismatchOverrideAt: string | null;
-  sourceMismatchOverrideReason: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  createdAt: string;
-}
+// 关联运行/尝试/汇总/证据等类型统一取自 OpenAPI 生成 schema，
+// 避免手写接口与后端契约漂移（此前 sourceLocation: unknown 等字段即为漂移迹象）。
 
-export function getCorrelationRun(id: string): Promise<CorrelationRunInfo> {
-  return request<CorrelationRunInfo>(`/correlation-runs/${encodeURIComponent(id)}`);
-}
-
-// ── 尝试 ──
-
-export interface CorrelationAttemptInfo {
-  correlationAttemptId: string;
-  correlationRunId: string;
-  attemptNumber: number;
-  status: string;
-  evidenceCompleteness: string;
-  leaseOwner: string | null;
-  startedAt: string;
-  completedAt: string | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  createdAt: string;
-}
-
-export function listAttempts(
-  runId: string,
-): Promise<{ items: CorrelationAttemptInfo[]; total: number }> {
-  return request<{ items: CorrelationAttemptInfo[]; total: number }>(
-    `/correlation-runs/${encodeURIComponent(runId)}/attempts`,
-  );
-}
-
-export function getAttempt(runId: string, attemptId: string): Promise<CorrelationAttemptInfo> {
-  return request<CorrelationAttemptInfo>(
-    `/correlation-runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(attemptId)}`,
-  );
-}
+export type CorrelationRunInfo = components["schemas"]["CorrelationRunResponse"];
 
 // ── 汇总 ──
 
-export interface CorrelationSummaryInfo {
-  correlationRunId: string;
-  status: string;
-  sourceAlignmentStatus: string;
-  capturedRequestCount: number;
-  correlatableRequestCount: number;
-  confirmedMatchedRequestCount: number;
-  ambiguousRequestCount: number;
-  methodMismatchCandidateCount: number;
-  unmatchedRequestCount: number;
-  totalEndpointCount: number;
-  confirmedTouchedEndpointCount: number;
-  candidateTouchedEndpointCount: number;
-  uncoveredEndpointCount: number;
-  attemptedEvidenceCount: number;
-  totalFindingCount: number;
-  confirmedRelatedFindingCount: number;
-  candidateRelatedFindingCount: number;
-  unrelatedFindingCount: number;
-  crossOriginFilteredCount: number;
-  resourceFilteredCount: number;
-  droppedRequestCount: number;
-  failedCaptureCount: number;
-  evidenceCompleteness: string;
-  matcherVersion: string;
-  normalizationVersion: string;
-}
+export type CorrelationSummaryInfo = components["schemas"]["CorrelationSummaryResponse"];
 
 export function getCorrelationSummary(runId: string): Promise<CorrelationSummaryInfo> {
   return request<CorrelationSummaryInfo>(`/correlation-runs/${encodeURIComponent(runId)}/summary`);
@@ -102,38 +18,11 @@ export function getCorrelationSummary(runId: string): Promise<CorrelationSummary
 
 // ── 端点证据 ──
 
-export interface EndpointEvidenceCandidateInfo {
-  endpointId: string;
-  candidateRank: number;
-  matchStrategy: string;
-  confidence: string;
-  selected: boolean;
-}
+export type EndpointEvidenceCandidateInfo = components["schemas"]["EndpointEvidenceCandidateResponse"];
 
-export interface EndpointEvidenceInfo {
-  endpointEvidenceId: string;
-  correlationAttemptId: string;
-  requestEvidenceId: string;
-  resolutionStatus: string;
-  matchStrategy: string;
-  confidence: string;
-  matchedEndpointId: string | null;
-  matchedEndpointInfo: EndpointInfo | null;
-  candidateCount: number;
-  httpMethod: string | null;
-  requestPath: string | null;
-  displayPath: string | null;
-  origin: string | null;
-  resourceType: string | null;
-  candidates: EndpointEvidenceCandidateInfo[];
-  executionFlows: ExecutionFlowInfo[];
-}
+export type EndpointEvidenceInfo = components["schemas"]["EndpointEvidenceResponse"];
 
-export interface EndpointEvidencePage {
-  items: EndpointEvidenceInfo[];
-  total: number | null;
-  hasMore: boolean;
-}
+export type EndpointEvidencePage = components["schemas"]["EndpointEvidencePageResponse"];
 
 export function listEndpointEvidence(
   runId: string,
@@ -157,32 +46,9 @@ export function listEndpointEvidence(
 
 // ── HTTP 请求证据 ──
 
-export interface HttpRequestEvidenceInfo {
-  requestEvidenceId: string;
-  blackboxRunId: string;
-  taskId: string;
-  stepExecutionId: string | null;
-  stepAttempt: number;
-  requestSequence: number;
-  httpMethod: string;
-  displayPath: string;
-  origin: string;
-  resourceType: string;
-  endpointMatchEligibility: string;
-  responseStatus: number | null;
-  outcome: string;
-  requestOwner: string;
-  responseFromServiceWorker: boolean;
-  pageSequence: number;
-  capturedAt: string;
-  finishedAt: string | null;
-}
+export type HttpRequestEvidenceInfo = components["schemas"]["HttpRequestEvidenceResponse"];
 
-export interface HttpRequestEvidencePage {
-  items: HttpRequestEvidenceInfo[];
-  total: number | null;
-  hasMore: boolean;
-}
+export type HttpRequestEvidencePage = components["schemas"]["HttpRequestEvidencePageResponse"];
 
 export function listUnmatchedRequests(
   runId: string,
@@ -196,22 +62,9 @@ export function listUnmatchedRequests(
 
 // ── Finding 关联 ──
 
-export interface FindingEvidenceInfo {
-  findingEvidenceId: string;
-  correlationAttemptId: string;
-  findingId: string;
-  findingInfo: FindingInfo | null;
-  bestRelationType: string;
-  minimumCallDistance: number | null;
-  confirmedRequestCount: number;
-  candidateRequestCount: number;
-}
+export type FindingEvidenceInfo = components["schemas"]["FindingEvidenceResponse"];
 
-export interface FindingEvidencePage {
-  items: FindingEvidenceInfo[];
-  total: number | null;
-  hasMore: boolean;
-}
+export type FindingEvidencePage = components["schemas"]["FindingEvidencePageResponse"];
 
 export function listFindingEvidence(
   runId: string,
@@ -224,24 +77,9 @@ export function listFindingEvidence(
 }
 
 // ── 未触达端点 ──
+// 未触达端点列表返回的即白盒 EndpointResponse 结构，直接复用生成类型。
 
-export interface UncoveredEndpointInfo {
-  endpointId: string;
-  endpointFingerprint: string;
-  analysisId: string;
-  sourceSnapshotId: string | null;
-  httpMethod: string;
-  normalizedPath: string;
-  normalizedPathTemplate: string;
-  isTemplated: boolean;
-  pathSegmentCount: number;
-  controllerClass: string | null;
-  controllerMethod: string | null;
-  parameters: string[];
-  returnType: string | null;
-  sourceLocation: unknown | null;
-  entryCallNodeId: string | null;
-}
+export type UncoveredEndpointInfo = components["schemas"]["EndpointResponse"];
 
 export function listUncoveredEndpoints(
   runId: string,
@@ -255,50 +93,12 @@ export function listUncoveredEndpoints(
 
 // ── 采集质量 ──
 
-export interface CaptureQualityInfo {
-  blackboxRunId: string;
-  totalObserved: number;
-  acceptedStarted: number;
-  persistedCount: number;
-  filteredByResourceType: number;
-  filteredCrossOrigin: number;
-  filteredByMethod: number;
-  filteredWebsocketCount: number;
-  filteredPathTooLong: number;
-  droppedPendingLimit: number;
-  droppedRunLimit: number;
-  droppedWriterQueueLimit: number;
-  writerRetryCount: number;
-  writerFailedBatchCount: number;
-  persistenceFailed: number;
-  truncated: boolean;
-  truncationReason: string | null;
-}
+export type CaptureQualityInfo = components["schemas"]["CaptureQualityResponse"];
 
 export function getCaptureQuality(runId: string): Promise<CaptureQualityInfo> {
   return request<CaptureQualityInfo>(
     `/correlation-runs/${encodeURIComponent(runId)}/capture-quality`,
   );
-}
-
-// ── 操作 ──
-
-export function bindAnalysis(
-  runId: string,
-  analysisId: string,
-  expectedProjectionVersion?: number,
-  sourceMismatchOverride = false,
-  sourceMismatchOverrideReason?: string,
-): Promise<void> {
-  return request<void>(`/correlation-runs/${encodeURIComponent(runId)}/bind-analysis`, {
-    method: "POST",
-    body: JSON.stringify({
-      analysisId,
-      expectedProjectionVersion: expectedProjectionVersion ?? null,
-      sourceMismatchOverride,
-      sourceMismatchOverrideReason: sourceMismatchOverrideReason ?? null,
-    }),
-  });
 }
 
 // ── 任务级查询 ──

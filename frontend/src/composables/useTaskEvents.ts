@@ -64,9 +64,16 @@ export function useTaskEvents(
     }
   }
 
-  /** 单条任务拉取并 upsert；同 taskId 并发去重。 */
+  /** 单条任务拉取并 upsert；同 taskId 并发去重 + 尾沿防抖。 */
   const inflightTaskIds = new Set<string>();
-  async function refreshTaskById(taskId: string): Promise<void> {
+  // 高频 step/progress 事件（无 task summary）会连续触发 refreshTaskById：
+  // 仅做 in-flight 去重会让每个事件各发一次 GET /tasks/:id。改为按 taskId
+  // 尾沿防抖（400ms），把同一窗口内的多次事件合并成一次请求。
+  // Map 随会话内出现的不同 taskId 缓慢增长，可接受（单任务页场景基本只有 1 项）。
+  const REFRESH_TASK_DEBOUNCE_MS = 400;
+  const refreshDebouncers = new Map<string, ReturnType<typeof useDebounceFn>>();
+
+  async function doRefreshTaskById(taskId: string): Promise<void> {
     if (inflightTaskIds.has(taskId)) return;
     inflightTaskIds.add(taskId);
     try {
@@ -77,6 +84,16 @@ export function useTaskEvents(
     } finally {
       inflightTaskIds.delete(taskId);
     }
+  }
+
+  function refreshTaskById(taskId: string): void {
+    if (inflightTaskIds.has(taskId)) return;
+    let debounced = refreshDebouncers.get(taskId);
+    if (!debounced) {
+      debounced = useDebounceFn(() => void doRefreshTaskById(taskId), REFRESH_TASK_DEBOUNCE_MS);
+      refreshDebouncers.set(taskId, debounced);
+    }
+    debounced();
   }
 
   // 整表 refetch 延长到 1000 ms 防抖：fallback 走整表的场景已经被收紧到

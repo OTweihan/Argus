@@ -30,19 +30,5 @@ export function eventTagType(event: string): TraceTagType {
   return EVENT_TAG_TYPES[event] ?? "info";
 }
 
-const TIME_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-});
-
-export function formatTime(iso: string): string {
-  if (!iso) return "-";
-  try {
-    return TIME_FORMATTER.format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
+// 时间格式化收敛到 ../timeFormat，与时间线共用；保持 re-export 以免改动既有调用点。
+export { formatTime } from "../timeFormat";

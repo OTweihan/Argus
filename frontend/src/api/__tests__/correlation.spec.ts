@@ -3,12 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  bindAnalysis,
-  getAttempt,
   getCaptureQuality,
-  getCorrelationRun,
   getCorrelationSummary,
-  listAttempts,
   listCorrelationRunsByTask,
   listEndpointEvidence,
   listFindingEvidence,
@@ -31,36 +27,6 @@ describe("correlation API wrapper", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  // ── CorrelationRun ──────────────────────────────────────────
-
-  it("getCorrelationRun 构建正确的 URL", async () => {
-    await getCorrelationRun("cr-1");
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("/correlation-runs/cr-1");
-  });
-
-  it("getCorrelationRun 对含特殊字符的 ID 进行编码", async () => {
-    await getCorrelationRun("cr/a+b c");
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("cr%2Fa%2Bb%20c");
-    expect(url).not.toContain("cr/a+b c");
-  });
-
-  // ── Attempts ────────────────────────────────────────────────
-
-  it("listAttempts 构建正确的 URL", async () => {
-    await listAttempts("cr-1");
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("/correlation-runs/cr-1/attempts");
-  });
-
-  it("getAttempt 同时编码 runId 和 attemptId", async () => {
-    await getAttempt("run/x", "att/y");
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("/correlation-runs/run%2Fx/attempts/att%2Fy");
   });
 
   // ── Summary ─────────────────────────────────────────────────
@@ -136,29 +102,6 @@ describe("correlation API wrapper", () => {
     await getCaptureQuality("cr-1");
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain("/correlation-runs/cr-1/capture-quality");
-  });
-
-  // ── BindAnalysis ────────────────────────────────────────────
-
-  it("bindAnalysis 发送 POST 请求含 JSON body", async () => {
-    await bindAnalysis("cr-1", "analysis-42", 3, true, "version mismatch");
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const url = fetchMock.mock.calls[0][0] as string;
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(url).toContain("/correlation-runs/cr-1/bind-analysis");
-    expect(init.method).toBe("POST");
-    const body = JSON.parse(init.body as string);
-    expect(body.analysisId).toBe("analysis-42");
-    expect(body.expectedProjectionVersion).toBe(3);
-    expect(body.sourceMismatchOverride).toBe(true);
-    expect(body.sourceMismatchOverrideReason).toBe("version mismatch");
-  });
-
-  it("bindAnalysis 不传 override 时默认使用 false/null", async () => {
-    await bindAnalysis("cr-1", "analysis-1");
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.sourceMismatchOverride).toBe(false);
-    expect(body.sourceMismatchOverrideReason).toBeNull();
   });
 
   // ── 任务级查询 ──────────────────────────────────────────────

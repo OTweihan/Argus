@@ -91,15 +91,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, defineAsyncComponent } from "vue";
 import type { ModelConfig, Project, Task } from "../../types";
 import {
   hasAnyExtension,
   PROMPT_EXTENSIONS_KEY,
   splitParametersFromPromptExtensions,
 } from "../../promptExtensions";
-import PromptExtensionViewer from "../prompt/PromptExtensionViewer.vue";
 import { displayTaskName } from "../../utils";
+import "../../styles/detail-grid.css";
+
+// 懒加载：markdown-it + dompurify 依赖随该组件异步加载，
+// 避免 Dashboard 首屏（TaskDetailDialog 链）就拉取 vendor-markdown chunk。
+const PromptExtensionViewer = defineAsyncComponent(
+  () => import("../prompt/PromptExtensionViewer.vue"),
+);
 
 const props = defineProps<{ task: Task; projects: Project[]; enabledModels: ModelConfig[] }>();
 
@@ -165,79 +171,3 @@ function formatParamValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 </script>
-
-<style scoped>
-.detail-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px 0;
-  border: 1px solid var(--line-soft, #e4e7ed);
-  border-radius: var(--radius-md, 14px);
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  overflow: hidden;
-}
-
-.detail-row {
-  display: flex;
-  align-items: flex-start;
-  padding: 10px 16px;
-  gap: 12px;
-}
-
-.detail-row:not(:last-child) {
-  border-bottom: 1px solid var(--line-soft, #e4e7ed);
-}
-
-.detail-label {
-  flex: 0 0 110px;
-  color: var(--text-faint, #6b7280);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.7;
-}
-
-.detail-value {
-  flex: 1;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text-strong, #11181c);
-  word-break: break-all;
-}
-
-.detail-value.mono {
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 13px;
-  color: var(--text-base, #182125);
-}
-
-.detail-param {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 6px;
-  padding: 6px 10px;
-  border-radius: var(--radius-xs, 6px);
-  background: rgba(244, 243, 255, 0.4);
-}
-
-.detail-param:last-child {
-  margin-bottom: 0;
-}
-
-.detail-param-key {
-  font-weight: 700;
-  min-width: 80px;
-  color: var(--brand-700, #087b78);
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 13px;
-}
-
-.detail-param-val {
-  color: var(--text-base, #182125);
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 13px;
-  word-break: break-all;
-}
-</style>

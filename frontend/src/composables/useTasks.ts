@@ -9,7 +9,7 @@ import {
   updateTask as apiUpdateTask,
 } from "../api";
 import type { TaskPayload } from "../api";
-import type { ModelConfig, Project, Task } from "../types";
+import type { ModelConfig, Project, Task, TaskDisplayStatus } from "../types";
 import {
   clearFormErrors,
   errorMessage,
@@ -524,12 +524,3 @@ export function useTasks(opts: {
     resetTaskForm,
   };
 }
-
-type TaskDisplayStatus =
-  | "pending"
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed"
-  | "timeout"
-  | "cancelled";

@@ -311,6 +311,7 @@ import {
   type UncoveredEndpointInfo,
 } from "../../../api/correlation";
 import { errorMessage, httpMethodTag } from "../../../utils";
+import { usePagedList } from "../../../composables/usePagedList";
 import EndpointEvidenceTable from "./correlation/EndpointEvidenceTable.vue";
 import FindingEvidenceTable from "./correlation/FindingEvidenceTable.vue";
 import UnmatchedRequestTable from "./correlation/UnmatchedRequestTable.vue";
@@ -388,159 +389,81 @@ const completenessTag = computed(() => {
 
 // ── 端点证据分页 ──
 
-const evidenceItems = ref<EndpointEvidenceInfo[]>([]);
-const evidenceTotal = ref<number | null>(null);
-const evidenceHasMore = ref(false);
-const evidenceLoading = ref(false);
 const evidenceFilter = ref("");
 
-async function loadEvidence(): Promise<void> {
-  evidenceLoading.value = true;
-  try {
-    const page = await listEndpointEvidence(props.correlationRunId, {
+const evidenceList = usePagedList<EndpointEvidenceInfo, []>(
+  (p) =>
+    listEndpointEvidence(props.correlationRunId, {
       resolutionStatus: evidenceFilter.value || undefined,
-      offset: 0,
-      limit: 100,
-    });
-    evidenceItems.value = page.items;
-    evidenceTotal.value = page.total;
-    evidenceHasMore.value = page.hasMore;
-  } finally {
-    evidenceLoading.value = false;
-  }
-}
-
-async function loadMoreEvidence(): Promise<void> {
-  evidenceLoading.value = true;
-  try {
-    const page = await listEndpointEvidence(props.correlationRunId, {
-      resolutionStatus: evidenceFilter.value || undefined,
-      offset: evidenceItems.value.length,
-      limit: 100,
-    });
-    evidenceItems.value.push(...page.items);
-    evidenceHasMore.value = page.hasMore;
-  } finally {
-    evidenceLoading.value = false;
-  }
-}
+      offset: p.offset,
+      limit: p.limit,
+    }),
+  { limit: 100 },
+);
+const {
+  items: evidenceItems,
+  total: evidenceTotal,
+  hasMore: evidenceHasMore,
+  loading: evidenceLoading,
+} = evidenceList;
+const loadMoreEvidence = (): void => void evidenceList.loadMore();
 
 function onEvidenceFilterChange(status: string): void {
   evidenceFilter.value = status;
-  loadEvidence();
+  void evidenceList.load();
 }
 
 // ── Finding 证据分页 ──
 
-const findingEvItems = ref<FindingEvidenceInfo[]>([]);
-const findingEvTotal = ref<number | null>(null);
-const findingEvHasMore = ref(false);
-const findingEvLoading = ref(false);
-
-async function loadFindingEvidence(): Promise<void> {
-  findingEvLoading.value = true;
-  try {
-    const page = await listFindingEvidence(props.correlationRunId, 0, 100);
-    findingEvItems.value = page.items;
-    findingEvTotal.value = page.total;
-    findingEvHasMore.value = page.hasMore;
-  } finally {
-    findingEvLoading.value = false;
-  }
-}
-
-async function loadMoreFindingEvidence(): Promise<void> {
-  findingEvLoading.value = true;
-  try {
-    const page = await listFindingEvidence(
-      props.correlationRunId,
-      findingEvItems.value.length,
-      100,
-    );
-    findingEvItems.value.push(...page.items);
-    findingEvHasMore.value = page.hasMore;
-  } finally {
-    findingEvLoading.value = false;
-  }
-}
+const findingEvList = usePagedList<FindingEvidenceInfo, []>(
+  (p) => listFindingEvidence(props.correlationRunId, p.offset, p.limit),
+  { limit: 100 },
+);
+const {
+  items: findingEvItems,
+  total: findingEvTotal,
+  hasMore: findingEvHasMore,
+  loading: findingEvLoading,
+} = findingEvList;
+const loadMoreFindingEvidence = (): void => void findingEvList.loadMore();
 
 // ── 未匹配请求分页 ──
 
-const unmatchedItems = ref<HttpRequestEvidenceInfo[]>([]);
-const unmatchedTotal = ref<number | null>(null);
-const unmatchedHasMore = ref(false);
-const unmatchedLoading = ref(false);
-
-async function loadUnmatched(): Promise<void> {
-  unmatchedLoading.value = true;
-  try {
-    const page = await listUnmatchedRequests(props.correlationRunId, 0, 100);
-    unmatchedItems.value = page.items;
-    unmatchedTotal.value = page.total;
-    unmatchedHasMore.value = page.hasMore;
-  } finally {
-    unmatchedLoading.value = false;
-  }
-}
-
-async function loadMoreUnmatched(): Promise<void> {
-  unmatchedLoading.value = true;
-  try {
-    const page = await listUnmatchedRequests(
-      props.correlationRunId,
-      unmatchedItems.value.length,
-      100,
-    );
-    unmatchedItems.value.push(...page.items);
-    unmatchedHasMore.value = page.hasMore;
-  } finally {
-    unmatchedLoading.value = false;
-  }
-}
+const unmatchedList = usePagedList<HttpRequestEvidenceInfo, []>(
+  (p) => listUnmatchedRequests(props.correlationRunId, p.offset, p.limit),
+  { limit: 100 },
+);
+const {
+  items: unmatchedItems,
+  total: unmatchedTotal,
+  hasMore: unmatchedHasMore,
+  loading: unmatchedLoading,
+} = unmatchedList;
+const loadMoreUnmatched = (): void => void unmatchedList.loadMore();
 
 // ── 未触达端点分页 ──
 
-const uncoveredItems = ref<UncoveredEndpointInfo[]>([]);
-const uncoveredTotal = ref<number | null>(null);
-const uncoveredHasMore = ref(false);
-const uncoveredLoading = ref(false);
-
-async function loadUncovered(): Promise<void> {
-  if (uncoveredItems.value.length > 0) return; // 懒加载一次
-  uncoveredLoading.value = true;
-  try {
-    const page = await listUncoveredEndpoints(props.correlationRunId, 0, 100);
-    uncoveredItems.value = page.items;
-    uncoveredTotal.value = page.total;
-    uncoveredHasMore.value = page.hasMore;
-  } finally {
-    uncoveredLoading.value = false;
-  }
-}
-
-async function loadMoreUncovered(): Promise<void> {
-  uncoveredLoading.value = true;
-  try {
-    const page = await listUncoveredEndpoints(
-      props.correlationRunId,
-      uncoveredItems.value.length,
-      100,
-    );
-    uncoveredItems.value.push(...page.items);
-    uncoveredHasMore.value = page.hasMore;
-  } finally {
-    uncoveredLoading.value = false;
-  }
-}
+const uncoveredList = usePagedList<UncoveredEndpointInfo, []>(
+  (p) => listUncoveredEndpoints(props.correlationRunId, p.offset, p.limit),
+  { limit: 100, lazyOnce: true },
+);
+const {
+  items: uncoveredItems,
+  total: uncoveredTotal,
+  hasMore: uncoveredHasMore,
+  loading: uncoveredLoading,
+} = uncoveredList;
+const loadMoreUncovered = (): void => void uncoveredList.loadMore();
 
 // ── Tab 懒加载 ──
 
 watch(subTab, (tab) => {
-  if (tab === "endpoints") loadEvidence();
-  if (tab === "findings") loadFindingEvidence();
-  if (tab === "unmatched") loadUnmatched();
-  if (tab === "uncovered") loadUncovered();
+  if (tab === "endpoints") void evidenceList.load();
+  if (tab === "findings") void findingEvList.load();
+  if (tab === "unmatched") void unmatchedList.load();
+  if (tab === "uncovered") void uncoveredList.load();
 });
+
 </script>
 
 <style scoped>
