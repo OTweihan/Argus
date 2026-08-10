@@ -44,21 +44,16 @@ public class AnalysisController {
 
     @PostMapping("/analyze/validate-source")
     public Map<String, Boolean> validateSource(@Valid @RequestBody ValidateSourceRequest request) {
-        Path path = Path.of(request.sourcePath());
-        boolean exists = Files.exists(path);
-        boolean readable = exists && Files.isReadable(path);
-        // 与 analyze 统一复用 real-path 边界校验器：allowed-source-roots +
-        // 符号链接逃逸均在此判定，探测接口不抛异常，由调用方决定是否阻断。
-        boolean allowed = false;
-        if (exists && readable) {
-            try {
-                sourceLocator.resolveForAnalysis(request.sourcePath());
-                allowed = true;
-            } catch (IllegalArgumentException error) {
-                allowed = false;
-            }
+        // 先执行与 analyze 相同的 real-path/allowed-roots 校验，再暴露存在性与
+        // 可读性。根目录外、符号链接逃逸和不存在路径统一返回全 false，避免该
+        // 内部诊断端点在端口误开放时沦为任意路径存在性探针。
+        try {
+            Path path = sourceLocator.resolveForAnalysis(request.sourcePath());
+            boolean readable = Files.isReadable(path);
+            return Map.of("exists", true, "readable", readable, "allowed", readable);
+        } catch (IllegalArgumentException error) {
+            return Map.of("exists", false, "readable", false, "allowed", false);
         }
-        return Map.of("exists", exists, "readable", readable, "allowed", allowed);
     }
 
     @PostMapping("/analyze/jobs")

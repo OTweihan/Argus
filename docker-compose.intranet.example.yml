@@ -15,7 +15,7 @@
 # 安全要求（违反任一即退回默认 fail-closed 配置）：
 # - 必须为 argus 服务设置强随机 ARGUS_API_TOKEN（至少 32 字节）：
 #     openssl rand -hex 32
-#   非回环监听且无 Token 时 argus serve 会打印显式告警。
+#   非回环监听且 Token 缺失、少于 32 字符或仍为占位值时 argus serve 会拒绝启动。
 # - Java Analyzer 只在确需直接调试时用 !override 映射 8081；正常情况下应保持
 #   仅 expose，由 Python 作为唯一入口代理。不要把 Java Analyzer 当作可信公网接口。
 # - 建议再套一层反代（SSO / IP 白名单 / mTLS），token 鉴权只是最小防线。
@@ -28,10 +28,10 @@ services:
     ports: !override
       - "8000:8000"
     environment:
-      # 必须替换：开放到非回环接口前必须配置 Token
-      ARGUS_API_TOKEN: "CHANGE_ME_请替换为32字节以上随机串"
+      # 必须由宿主环境提供；未设置时 Compose 在启动前直接报错。
+      ARGUS_API_TOKEN: "${ARGUS_API_TOKEN:?请设置至少32字符的强随机ARGUS_API_TOKEN}"
       # 清空基线 compose 的 ARGUS_BIND_LOOPBACK_ONLY 标记：现在宿主端口真实暴露，
-      # 若上面的 Token 仍为占位符/为空，argus serve 启动时会打印显式告警。
+      # Token 为空时 Compose 先拒绝；过短或占位值由 argus serve 再次拒绝。
       ARGUS_BIND_LOOPBACK_ONLY: ""
 
   java-analyzer:

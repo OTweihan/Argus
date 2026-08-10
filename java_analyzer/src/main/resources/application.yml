@@ -30,8 +30,12 @@ argus:
       threads: 0
       queue-capacity: 64
     # 源码路径边界（fail-closed）：
-    # 逗号分隔的允许根目录，空值 = 宽松模式（兼容旧行为，启动时 SourceLocator 告警）。
+    # 逗号分隔的允许根目录。裸机默认只允许 Python 默认快照目录
+    # ${java.io.tmpdir}/argus_sources；确需其它目录时必须显式配置环境变量。
     # 分析入口（analyze / validate-source）统一经过 real-path 校验：符号链接逃逸、
     # 允许根目录外的路径一律拒绝。容器部署必须显式配置；Dockerfile ENTRYPOINT
-    # 已强制 /tmp/sources，Compose 也可通过 SPRING_APPLICATION_JSON 覆盖。
-    allowed-source-roots: ${ARGUS_ANALYSIS_ALLOWED_SOURCE_ROOTS:}
+    # 已强制 /tmp/sources（与 ${java.io.tmpdir} 无关），Compose 也可通过
+    # SPRING_APPLICATION_JSON 覆盖。注意 Spring 只对 ${var} 占位符做缺省替换，
+    # /tmp/sources 不是 Linux 的 ${java.io.tmpdir}，因此裸机默认根目录实际是
+    # /tmp/argus_sources 而非 /tmp/sources——两者只在容器内被 ENTRYPOINT 覆盖统一。
+    allowed-source-roots: ${ARGUS_ANALYSIS_ALLOWED_SOURCE_ROOTS:${java.io.tmpdir}/argus_sources}

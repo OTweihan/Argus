@@ -59,22 +59,26 @@ The bundled `docker-compose.yml` is tightened by default:
 - **Java Analyzer** is only `expose`d to the Compose network (Python reaches it at
   `http://java-analyzer:8081`) and does **not** publish a host port. The Analyzer is
   not a trusted public interface and should only be called by the Python control plane.
-- Both sides enforce `allowed-source-roots=/tmp/sources`; source paths outside the
-  shared directory are rejected by Java (real-path validation + symlink-escape refusal).
+- Both sides enforce `allowed-source-roots=/tmp/sources` (Python via
+  `ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS`, Java via the Dockerfile system property);
+  source paths outside the shared directory are rejected by Java (real-path
+  validation + symlink-escape refusal). On bare metal the Java default root is
+  `${java.io.tmpdir}/argus_sources` (Linux: `/tmp/argus_sources`); the container
+  Dockerfile overrides it to `/tmp/sources` to match the shared volume.
 
 To expose the Console to other machines on your intranet, copy
 `docker-compose.intranet.example.yml` and set a strong random `ARGUS_API_TOKEN`:
 
 ```bash
 cp docker-compose.intranet.example.yml docker-compose.intranet.yml
-# edit docker-compose.intranet.yml: set ARGUS_API_TOKEN (openssl rand -hex 32)
+$env:ARGUS_API_TOKEN = (openssl rand -hex 32)
 docker compose --profile java -f docker-compose.yml -f docker-compose.intranet.yml up -d
 ```
 
-When binding to a non-loopback address without `ARGUS_API_TOKEN`, `argus serve`
-prints an explicit warning. The intranet override clears the base compose
-`ARGUS_BIND_LOOPBACK_ONLY` marker, so a still-placeholder/empty Token triggers the
-warning at startup. `docker-compose.intranet.yml` is in `.gitignore` to prevent
+The intranet override clears the base compose `ARGUS_BIND_LOOPBACK_ONLY` marker.
+Compose refuses to start when `ARGUS_API_TOKEN` is unset, and `argus serve` rejects
+tokens shorter than 32 characters or known placeholder values. Non-loopback deployment
+is therefore fail-closed. `docker-compose.intranet.yml` is in `.gitignore` to prevent
 committing a real Token.
 
 ---
@@ -205,8 +209,9 @@ When enabled:
 The long-lived Token is never placed in a WebSocket URL: the browser first calls
 `POST /argus/api/ws/token` (Bearer header) to obtain an HMAC-signed, short-lived
 (default 30s), single-use ticket, then opens the WebSocket with `?token=<ticket>`.
-This keeps the long-lived Token out of proxy/access logs. Legacy clients that send
-the long-lived Token directly remain compatible for one release window.
+This keeps the long-lived Token out of proxy/access logs. Long-lived Tokens are
+rejected in WebSocket query strings; CLI/server-to-server clients must use an
+`Authorization: Bearer` header to carry the long-lived Token.
 
 After the first 401, the web console prompts for the Token and keeps it only in the current
 tab's `sessionStorage`; closing the tab clears it. Screenshots, reports, and debug bundles are

@@ -17,4 +17,6 @@ COPY --from=build /build/target/java-analyzer-*.jar app.jar
 EXPOSE 8081
 # fail-closed：容器内固定只允许分析共享源码目录 /tmp/sources，
 # 防止把 Analyzer 当任意目录读取/分析接口使用（allowed-source-roots + symlink 逃逸拒绝）。
+# 系统属性优先级高于 application.yml 中的 ${ARGUS_ANALYSIS_ALLOWED_SOURCE_ROOTS:...} 占位符，
+# 因此容器内 /tmp/sources 恒为最终边界，与 Python 侧共享卷路径一致。
 ENTRYPOINT ["java", "-Dargus.analysis.allowed-source-roots=/tmp/sources", "-jar", "app.jar"]

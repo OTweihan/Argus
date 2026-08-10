@@ -41,8 +41,8 @@
 
 | ID | 优先级 | 优化项 | 主要收益 |
 |---|---|---|---|
-| O-01 | P0 | 默认部署入口与源码路径边界改为 fail-closed | 降低未鉴权访问、路径探测和任意可见目录分析风险 |
-| O-02 | P0 | 强制单 Python 实例，并修正 readiness/Worker 存活语义 | 防止多进程状态分裂，避免探针把失效实例判为可用 |
+| O-01 | P0 | 默认部署入口与源码路径边界改为 fail-closed | 降低未鉴权访问、路径探测和任意可见目录分析风险（✅ 已完成） |
+| O-02 | P0 | 强制单 Python 实例，并修正 readiness/Worker 存活语义 | 防止多进程状态分裂，避免探针把失效实例判为可用（✅ 已完成） |
 | O-03 | P0 | 为任务提交增加有界、非阻塞的准入控制 | 防止任务无限堆积和 HTTP 请求长时间挂起（✅ 已完成） |
 | O-04 | P1 | 实现 Java 作业协作取消与服务端 deadline | 取消/超时后及时释放线程、Maven 进程与源码快照 |
 | O-05 | P1 | 显式处理 EventBus 回放缺口和服务重启 epoch | 避免断线后任务终态长期停留在旧值 |
@@ -56,6 +56,12 @@
 ## 4. 详细优化建议
 
 ### O-01 默认部署入口与源码路径边界改为 fail-closed（P0）
+
+> ✅ **已完成并补强（2026-08-10）**。默认 Compose 仅回环暴露 Python、Java 仅
+> expose；非回环 CLI 启动要求至少 32 字符且非占位值的 Token，内网 Compose 覆盖
+> 使用必填环境变量。Java 容器固定 `/tmp/sources`，裸机默认临时快照根目录；
+> `validate-source` 对 allowed-root 外、逃逸及不存在路径统一返回全 false，避免路径探测。
+> 浏览器使用短时单次 WS ticket，长期 Token query 已移除，仅允许 Bearer 头。
 
 **现状证据**
 
@@ -84,8 +90,8 @@
 **兼容与迁移风险**
 
 - 默认端口可见性变化会影响直接访问 `:8081` 的本地脚本，应先提供 dev override 和迁移说明。
-- allowed roots 初期可使用“未配置则告警、生产配置强制”的过渡期，最终在容器模式 fail-closed。
-- WebSocket ticket 会新增一个小型认证契约，旧 query token 可保留一个版本窗口后移除。
+- Python 本地源码输入未配置 roots 时仍保留兼容告警；Java 和容器分析边界已 fail-closed。
+- 旧客户端若通过 WS query 传长期 Token 将被拒绝，必须切换到 ticket 或 Bearer 头。
 
 **验收标准**
 
@@ -94,6 +100,9 @@
 - 代理访问日志、应用访问日志和浏览器地址记录中不出现长期 Token。
 
 ### O-02 强制单 Python 实例，并修正 readiness/Worker 存活语义（P0）
+
+> ✅ **已完成（2026-08-10）**。单实例 OS 文件锁、多 worker 拒启、lifespan 容器状态、
+> Worker loop 健康快照和 readiness 503 已落地并由定向测试覆盖。
 
 **现状证据**
 

@@ -21,7 +21,12 @@ public class SourceLocator {
 
     private final List<Path> allowedSourceRoots;
 
-    /** 无参构造（宽松模式）：测试与未配置时使用，不限制源码根目录。 */
+    /**
+     * 无参构造（宽松模式）：测试专用。注意 Spring 启动总走下方 @Autowired 构造；
+     * application.yml 默认把 allowed-source-roots 解析为 `${java.io.tmpdir}/argus_sources`
+     * （裸机 fail-closed 默认根目录），不会落到空列表。空列表仅意味着"Java 不限制
+     * 根目录"，此时仍执行 real-path 校验，但对外暴露任意可见目录。
+     */
     public SourceLocator() {
         this(List.of());
     }

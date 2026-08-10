@@ -7,7 +7,7 @@
 O-01/O-02 的 fail-closed 护栏：
 - ``_raise_if_multi_worker``：lifespan 兜底，检测到多 worker env 直接抛
   RuntimeError 拒启（不只是告警）。
-- ``_warn_exposed_without_auth``：非回环监听且未配置 API Token 时告警
+- ``_raise_if_exposed_without_auth``：非回环监听且未配置强 API Token 时拒启
   （标准 Compose 容器由回环宿主端口绑定收敛，用 ARGUS_BIND_LOOPBACK_ONLY 标记跳过）。
 - ``_warn_loose_source_roots``：未配置白盒 allowed roots 时告警。
 - 单实例锁：两个进程指向同一 outputs 时，第二个 lifespan 直接拒绝启动。
@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from argus_py.api.app import _raise_if_multi_worker, _warn_loose_source_roots
-from argus_py.cli.commands.serve import _detect_multi_worker_env, _warn_exposed_without_auth
+from argus_py.cli.commands.serve import _detect_multi_worker_env, _raise_if_exposed_without_auth
 from argus_py.config.server_settings import ServerSettings, load_server_settings
 
 # argus_py.api.__init__.py 把 app 对象名占用了，直接 from import 会拿到 FastAPI
@@ -215,8 +215,8 @@ class TestLifespanSingletonLock:
         lock.release.assert_called_once()
 
 
-class TestWarnExposedWithoutAuth:
-    """非回环监听且未配置 API Token 时应显式告警（O-01 fail-closed 兜底）。"""
+class TestRejectExposedWithoutAuth:
+    """非回环监听必须配置强 API Token（O-01 fail-closed 兜底）。"""
 
     @pytest.fixture(autouse=True)
     def _clear(self, monkeypatch) -> None:
@@ -224,58 +224,51 @@ class TestWarnExposedWithoutAuth:
         monkeypatch.delenv("ARGUS_WHITEBOX_SOURCE_WORK_DIR", raising=False)
         monkeypatch.delenv("ARGUS_BIND_LOOPBACK_ONLY", raising=False)
 
-    @staticmethod
-    def _capture_warns(monkeypatch) -> list[str]:
-        calls: list[str] = []
-        serve_module = importlib.import_module("argus_py.cli.commands.serve")
+    def test_loopback_is_allowed(self) -> None:
+        _raise_if_exposed_without_auth("127.0.0.1")
 
-        def _record(message: str, **kwargs: object) -> None:
-            calls.append(message)
+    def test_localhost_is_allowed(self) -> None:
+        _raise_if_exposed_without_auth("localhost")
 
-        monkeypatch.setattr(serve_module, "cli_warn", _record)
-        return calls
+    def test_non_loopback_without_token_is_rejected(self) -> None:
+        with pytest.raises(RuntimeError, match="ARGUS_API_TOKEN"):
+            _raise_if_exposed_without_auth("0.0.0.0")
 
-    def test_loopback_is_silent(self, monkeypatch) -> None:
-        calls = self._capture_warns(monkeypatch)
-        _warn_exposed_without_auth("127.0.0.1")
-        assert calls == []
+    def test_non_loopback_with_strong_token_is_allowed(self, monkeypatch) -> None:
+        monkeypatch.setenv("ARGUS_API_TOKEN", "a" * 32)
+        _raise_if_exposed_without_auth("0.0.0.0")
 
-    def test_localhost_is_silent(self, monkeypatch) -> None:
-        calls = self._capture_warns(monkeypatch)
-        _warn_exposed_without_auth("localhost")
-        assert calls == []
-
-    def test_non_loopback_without_token_warns(self, monkeypatch) -> None:
-        calls = self._capture_warns(monkeypatch)
-        _warn_exposed_without_auth("0.0.0.0")
-        assert any("非回环" in c and "ARGUS_API_TOKEN" in c for c in calls)
-
-    def test_non_loopback_with_token_is_silent(self, monkeypatch) -> None:
+    def test_non_loopback_with_short_token_is_rejected(self, monkeypatch) -> None:
         monkeypatch.setenv("ARGUS_API_TOKEN", "secret")
-        calls = self._capture_warns(monkeypatch)
-        _warn_exposed_without_auth("0.0.0.0")
-        assert calls == []
+        with pytest.raises(RuntimeError, match="至少 32 字符"):
+            _raise_if_exposed_without_auth("0.0.0.0")
+
+    def test_non_loopback_with_placeholder_is_rejected(self, monkeypatch) -> None:
+        monkeypatch.setenv("ARGUS_API_TOKEN", "CHANGE_ME_" + "x" * 32)
+        with pytest.raises(RuntimeError, match="占位值"):
+            _raise_if_exposed_without_auth("0.0.0.0")
 
     def test_compose_container_binding_is_silent(self, monkeypatch) -> None:
         """标准 Compose 容器内 uvicorn 必须监听 0.0.0.0；宿主端口可见性由 compose
-        的 127.0.0.1 绑定控制，因此带 ARGUS_BIND_LOOPBACK_ONLY 标记时不告警。"""
+        的 127.0.0.1 绑定控制，因此带 ARGUS_BIND_LOOPBACK_ONLY 标记时允许。"""
         monkeypatch.setenv("ARGUS_BIND_LOOPBACK_ONLY", "1")
-        calls = self._capture_warns(monkeypatch)
-        _warn_exposed_without_auth("0.0.0.0")
-        assert calls == []
+        _raise_if_exposed_without_auth("0.0.0.0")
 
-    def test_intranet_override_without_marker_warns(self, monkeypatch) -> None:
-        """内网开放覆盖文件清空回环标记后，非回环监听且无 Token 必须告警。"""
-        calls = self._capture_warns(monkeypatch)
-        _warn_exposed_without_auth("0.0.0.0")
-        assert any("非回环" in c and "ARGUS_API_TOKEN" in c for c in calls)
+    def test_false_loopback_marker_does_not_bypass_guard(self, monkeypatch) -> None:
+        monkeypatch.setenv("ARGUS_BIND_LOOPBACK_ONLY", "false")
+        with pytest.raises(RuntimeError, match="ARGUS_API_TOKEN"):
+            _raise_if_exposed_without_auth("0.0.0.0")
 
-    def test_bare_metal_source_work_dir_still_warns(self, monkeypatch) -> None:
-        """裸机用户即使设置了 source work dir，只要没回环标记/Token 仍应告警。"""
+    def test_intranet_override_without_marker_is_rejected(self) -> None:
+        """内网覆盖清空回环标记后，非回环监听且无 Token 必须拒绝。"""
+        with pytest.raises(RuntimeError, match="ARGUS_API_TOKEN"):
+            _raise_if_exposed_without_auth("0.0.0.0")
+
+    def test_bare_metal_source_work_dir_still_rejected(self, monkeypatch) -> None:
+        """裸机即使设置 source work dir，只要没回环标记/Token 仍应拒绝。"""
         monkeypatch.setenv("ARGUS_WHITEBOX_SOURCE_WORK_DIR", "/tmp/sources")
-        calls = self._capture_warns(monkeypatch)
-        _warn_exposed_without_auth("0.0.0.0")
-        assert any("非回环" in c and "ARGUS_API_TOKEN" in c for c in calls)
+        with pytest.raises(RuntimeError, match="ARGUS_API_TOKEN"):
+            _raise_if_exposed_without_auth("0.0.0.0")
 
 
 class TestWarnLooseSourceRoots:

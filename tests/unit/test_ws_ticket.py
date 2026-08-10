@@ -132,10 +132,19 @@ class TestTicketHttpFlow:
             with client.websocket_connect(f"/argus/api/ws/tasks?token={ticket}"):
                 pass
 
-    def test_long_token_still_works_for_ws(self) -> None:
-        """CLI / 服务器到服务器调用仍可用长期 Token（不需要 ticket）。"""
+    def test_long_token_query_is_rejected(self) -> None:
+        """长期 Token 不再允许出现在 query，避免进入反代/接入日志。"""
         client = TestClient(_make_ticket_app())
-        with client.websocket_connect(f"/argus/api/ws/tasks?token={TOKEN}") as ws:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(f"/argus/api/ws/tasks?token={TOKEN}"):
+                pass
+
+    def test_long_token_bearer_header_still_works(self) -> None:
+        """CLI / 服务器到服务器调用可通过 Authorization 头使用长期 Token。"""
+        client = TestClient(_make_ticket_app())
+        with client.websocket_connect(
+            "/argus/api/ws/tasks", headers={"Authorization": f"Bearer {TOKEN}"}
+        ) as ws:
             assert ws.receive_text() == "ok"
 
     def test_missing_token_rejected(self) -> None:

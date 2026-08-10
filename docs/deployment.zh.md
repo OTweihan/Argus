@@ -69,12 +69,13 @@ docker compose up -d
 
 ```bash
 cp docker-compose.intranet.example.yml docker-compose.intranet.yml
-# 编辑 docker-compose.intranet.yml：设置 ARGUS_API_TOKEN（openssl rand -hex 32）
+$env:ARGUS_API_TOKEN = (openssl rand -hex 32)
 docker compose --profile java -f docker-compose.yml -f docker-compose.intranet.yml up -d
 ```
 
-覆盖文件会清空基线 compose 的 `ARGUS_BIND_LOOPBACK_ONLY` 标记；因此若
-Token 仍是占位符/为空，`argus serve` 启动时会打印显式告警（非回环监听 + 无 Token）。
+覆盖文件会清空基线 compose 的 `ARGUS_BIND_LOOPBACK_ONLY` 标记；Token 未设置时
+Compose 直接拒绝解析，少于 32 字符或使用 `CHANGE_ME`/`REPLACE_ME` 占位值时
+`argus serve` 拒绝启动。非回环部署不再只有告警。
 `docker-compose.intranet.yml` 已加入 `.gitignore`，防止把真实 Token 提交进仓库。
 
 ---
@@ -132,11 +133,13 @@ whitebox:
     - /srv/projects
 ```
 
-> **allowed-source-roots 过渡期**：未配置时 Python（`serve`）与 Java（`SourceLocator`）
-> 都会打印宽松模式告警——允许 Java 进程可见的任意目录，保持旧行为兼容；容器/生产
-> 部署必须显式配置并最终 fail-closed。对应环境变量：
+> **allowed-source-roots 边界**：Python 未配置时仍为本地输入兼容模式并告警，可读取后
+> 复制 Python 进程可见的目录；Java 裸机默认只接受 `${java.io.tmpdir}/argus_sources`
+> （Linux 上即 `/tmp/argus_sources`），不再默认分析任意 Java 可见目录。容器固定为
+> `/tmp/sources`（Dockerfile `-Dargus.analysis.allowed-source-roots=/tmp/sources`，
+> 与 Python 共享卷路径一致）。对应环境变量：
 > `ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS`（Python，逗号分隔）、
-> `ARGUS_ANALYSIS_ALLOWED_SOURCE_ROOTS`（Java，逗号分隔）。
+> `ARGUS_ANALYSIS_ALLOWED_SOURCE_ROOTS`（Java，逗号分隔；容器内被系统属性覆盖）。
 
 快照在远端作业确认结束后按任务清理。Python 取消、超时或断网时无法确认 Java
 是否仍在读取，因此保留快照，由 24 小时 TTL 清理回收。
@@ -241,8 +244,9 @@ ARGUS_API_TOKEN=请生成一个32字节以上的随机串
 
 **WebSocket 不携带长期 Token**：浏览器先 `POST /argus/api/ws/token`（Bearer 头）
 换取一个 HMAC 签名的**短时（默认 30 秒）、单次** ticket，再带 `?token=<ticket>`
-建立 WebSocket。长期 Token 因此不会出现在 WS URL 中，也就不会进入反代访问日志
-或接入侧日志。旧版前端/CLI 直接带长期 Token 仍兼容（保留一个版本窗口）。
+建立 WebSocket。长期 Token 不允许通过 WS query 传递（会被拒绝），因此不会进入
+反代访问日志或接入侧日志；CLI/服务器到服务器调用必须通过
+`Authorization: Bearer` 头携带长期 Token 连接。
 
 Web 控制台第一次收到 401 时会显示 Token 输入框，Token 只保存在当前标签页的
 `sessionStorage`；关闭标签页即清除。截图、报告和调试包均通过带 Bearer 头的请求加载，
@@ -387,5 +391,5 @@ middleware 自动注入：
 - [ ] WEB_CONCURRENCY 没被 K8s / Helm chart 设成 > 1
 - [ ] 若启用 `ARGUS_API_TOKEN`：确认控制台会话输入可用，定时 rotate 流程已就绪
 - [ ] 若启用 `rate_limit.enabled` 且部署在反代后：`trust_forwarded: true` 已开
-- [ ] `scheduler.queue_max_size` 已按「并发 × 平均任务时长 ÷ 允许等待时间」显式配置（不要留 0 无界），并在满载时验证 `503 + Retry-After`
+- [ ] `scheduler.queue_max_size` 已按「并发 × 允许等待时间 ÷ 平均任务时长」显式配置（不要留 0 无界），并在满载时验证 `503 + Retry-After`
 - [ ] 若启用 `events.max_subscribers`：值不低于预期并发用户数的 5 倍

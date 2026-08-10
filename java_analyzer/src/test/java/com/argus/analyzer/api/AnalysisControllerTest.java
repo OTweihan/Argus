@@ -88,8 +88,9 @@ class AnalysisControllerTest {
 
         var result = controller.validateSource(new ValidateSourceRequest(sourceDir.toString()));
 
-        assertThat(result).containsEntry("exists", true)
-                .containsEntry("readable", true)
+        // allowed root 外路径不泄露存在性或可读性。
+        assertThat(result).containsEntry("exists", false)
+                .containsEntry("readable", false)
                 .containsEntry("allowed", false);
     }
 }

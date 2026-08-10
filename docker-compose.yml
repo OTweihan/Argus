@@ -19,7 +19,7 @@
 #   Java Analyzer 只 expose 给 Compose 内部网络、不映射宿主端口。
 #   确需内网开放时使用单独覆盖文件（见 docs/deployment.zh.md）：
 #     docker compose --profile java -f docker-compose.yml -f docker-compose.intranet.example.yml up -d
-#   并务必设置 ARGUS_API_TOKEN（非回环监听 + 无 Token 时 serve 会告警）。
+#   并务必设置强 ARGUS_API_TOKEN（非回环监听 + 弱/无 Token 时 serve 会拒启）。
 # - config/ 通过 bind mount 让运维直接修改 server.yaml；
 #   .fernet_key 也写在这里（首次启动自动生成），切勿误删。
 # - outputs 用 named volume，避免 host 权限错乱。
@@ -43,12 +43,14 @@ services:
       # 显式 1：与 CLI guard 一致，K8s 注入 WEB_CONCURRENCY > 1 会被拒启
       WEB_CONCURRENCY: "1"
       # 标准 Compose：宿主端口由下方 127.0.0.1 绑定收敛，容器内 0.0.0.0 不触发
-      # serve 的"非回环无鉴权"告警；内网开放覆盖文件会清空此标记并强制 Token。
+      # serve 的"非回环无鉴权"拒启；内网开放覆盖文件会清空此标记并强制 Token。
       ARGUS_BIND_LOOPBACK_ONLY: "1"
       # Python clone/copy 的源码快照与 Java 使用相同绝对路径
       ARGUS_WHITEBOX_SOURCE_WORK_DIR: "/tmp/sources"
       # fail-closed：本地路径分析输入必须位于共享源码目录内（未配置时 serve 告警）
       ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS: "/tmp/sources"
+      # 与 Java 侧 ENTRYPOINT 的 -Dargus.analysis.allowed-source-roots=/tmp/sources
+      # 保持一致，无需单独设置 ARGUS_ANALYSIS_ALLOWED_SOURCE_ROOTS。
       ARGUS_JAVA_ANALYZER_URL: "http://java-analyzer:8081"
       # 若内部 LLM 用域名访问 SSO，可在此追加：
       # ARGUS_PROJECT_ROOT: "/app"

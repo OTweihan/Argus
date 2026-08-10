@@ -77,17 +77,18 @@ def _raise_if_multi_worker() -> None:
 
 
 def _warn_loose_source_roots(settings: ServerSettings) -> None:
-    """未配置白盒 allowed source roots 时给出宽松模式告警。
+    """Python 未配置本地源码输入 allowed roots 时给出宽松模式告警。
 
     allowed-source-roots 是对"本地路径分析输入"的边界约束。未配置时按宽松
-    模式处理（允许任意本地目录），这是与旧行为兼容的过渡期；容器部署必须显式
-    配置（compose 已通过环境变量强制 /tmp/sources），最终 fail-closed。
+    模式处理（Python 可读取并复制进程可见的任意本地目录），这是与旧行为兼容的
+    过渡期；容器部署必须显式配置（compose 已强制 /tmp/sources）。Java 裸机默认
+    仍只接受其临时快照目录，不会因 Python 侧宽松而直接分析任意 Java 可见目录。
     """
     if settings.whitebox_allowed_source_roots:
         return
     logger.warning(
-        "whitebox.allowed_source_roots 未配置，本地路径分析处于宽松模式"
-        "（允许 Java 进程可见的任意目录）。容器/生产部署请设置"
+        "whitebox.allowed_source_roots 未配置，Python 本地源码输入处于宽松模式"
+        "（可读取并复制 Python 进程可见的任意目录）。容器/生产部署请设置"
         " ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS 收紧到共享源码目录。"
     )
 

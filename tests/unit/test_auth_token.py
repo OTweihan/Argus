@@ -103,15 +103,17 @@ class TestHttpProtection:
 
 
 class TestWebSocketProtection:
-    def test_ws_query_token_allowed(self) -> None:
+    def test_ws_long_lived_query_token_rejected(self) -> None:
         client = TestClient(_make_app("ws-secret"))
-        with client.websocket_connect("/ws/tasks?token=ws-secret") as ws:
-            assert ws.receive_text() == "pong"
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/ws/tasks?token=ws-secret"):
+                pass
 
-    def test_ws_url_encoded_token_allowed(self) -> None:
+    def test_ws_url_encoded_long_lived_token_rejected(self) -> None:
         client = TestClient(_make_app("ws sec+ret"))
-        with client.websocket_connect("/ws/tasks?token=ws+sec%2Bret") as ws:
-            assert ws.receive_text() == "pong"
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/ws/tasks?token=ws+sec%2Bret"):
+                pass
 
     def test_ws_missing_token_rejected(self) -> None:
         client = TestClient(_make_app("ws-secret"))

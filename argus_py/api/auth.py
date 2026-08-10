@@ -6,8 +6,8 @@
 - 默认禁用（``ARGUS_API_TOKEN`` 未设置时不挂载，零行为变化）；
 - 启用后只保护 ``/argus/api/*`` 与 ``/ws/*``，不保护 ``/health`` 和静态资源，
   因为后者要么由反代/Compose 直接探测，要么是浏览器加载首页 HTML 无法带 header；
-- HTTP 走 ``Authorization: Bearer <token>``，WebSocket 走 query ``?token=<token>``
-  （浏览器原生 WebSocket 不支持自定义 header）；
+- HTTP 走 ``Authorization: Bearer <token>``；WebSocket 的长期 Token 只接受
+  ``Authorization`` 头，浏览器 query 只接受短时单次 ticket；
 - 使用 ``hmac.compare_digest`` 防止时序侧信道。
 
 WebSocket 长期 Token 放进 query string 会进入反代/接入日志。因此启用鉴权时，
@@ -172,73 +172,62 @@ class AuthTokenMiddleware:
             await self._app(scope, receive, send)
             return
 
-        provided = self._extract_token(scope)
-        if provided is None:
-            await self._reject(scope, receive, send)
-            return
-
         if scope_type == "http":
             # HTTP 只接受长期 Token（Bearer 头）。
+            provided = self._extract_bearer_token(scope)
+            if provided is None:
+                await self._reject(scope, receive, send)
+                return
             if not hmac.compare_digest(provided, self._token):
                 await self._reject(scope, receive, send)
                 return
         else:
-            # WebSocket 同时接受长期 Token（CLI / 服务器到服务器 / 旧前端）与
-            # 短时单次 ticket（浏览器流程，见 issue_ws_ticket / consume_ws_ticket）。
-            # 这里只做非消费式放行，并把凭据类型记入 scope.state；真正的单次扣减
-            # 在 ws.py 路由 accept 前调用 consume。
-            if hmac.compare_digest(provided, self._token):
+            # 长期 Token 仅允许经 Authorization 头传递，避免 query string 进入
+            # 反代/接入日志；浏览器 query 只接受短时单次 ticket。
+            bearer = self._extract_bearer_token(scope)
+            ticket = None if bearer is not None else self._extract_ws_query_token(scope)
+            if bearer is not None and hmac.compare_digest(bearer, self._token):
                 scope.setdefault("state", {})["argus_ws_auth"] = "token"
-            elif self._ticket_issuer.is_valid(provided):
+            elif ticket is not None and self._ticket_issuer.is_valid(ticket):
                 scope.setdefault("state", {})["argus_ws_auth"] = "ticket"
-                scope.setdefault("state", {})["argus_ws_ticket"] = provided
+                scope.setdefault("state", {})["argus_ws_ticket"] = ticket
             else:
                 await self._reject(scope, receive, send)
                 return
 
         await self._app(scope, receive, send)
 
-    def _extract_token(self, scope: Scope) -> str | None:
-        """从 HTTP Authorization 头或 WebSocket query 字符串读取 token。"""
-        scope_type = scope.get("type")
-        if scope_type == "http":
-            headers = dict(scope.get("headers") or [])
-            raw = headers.get(b"authorization")
-            if not raw:
-                return None
-            try:
-                decoded = raw.decode("latin-1")
-            except UnicodeDecodeError:
-                return None
-            prefix = "Bearer "
-            if not decoded.startswith(prefix):
-                return None
-            token = decoded[len(prefix) :].strip()
-            return token or None
-        if scope_type == "websocket":
-            # Authorization 头优先：CLI / 服务器到服务器调用可用
-            headers = dict(scope.get("headers") or [])
-            raw = headers.get(b"authorization")
-            if raw:
-                try:
-                    decoded = raw.decode("latin-1")
-                    if decoded.startswith("Bearer "):
-                        return decoded[7:].strip() or None
-                except UnicodeDecodeError:
-                    pass
-            # 浏览器 WS 无法带 header → 退回 query string
-            qs: bytes = scope.get("query_string", b"") or b""
-            try:
-                params = qs.decode("latin-1").split("&")
-            except UnicodeDecodeError:
-                return None
-            for kv in params:
-                if not kv:
-                    continue
-                key, _, value = kv.partition("=")
-                if key == "token":
-                    return _url_unquote(value) or None
+    @staticmethod
+    def _extract_bearer_token(scope: Scope) -> str | None:
+        """从 Authorization 头读取长期 Token。"""
+        headers = dict(scope.get("headers") or [])
+        raw = headers.get(b"authorization")
+        if not raw:
             return None
+        try:
+            decoded = raw.decode("latin-1")
+        except UnicodeDecodeError:
+            return None
+        prefix = "Bearer "
+        if not decoded.startswith(prefix):
+            return None
+        token = decoded[len(prefix) :].strip()
+        return token or None
+
+    @staticmethod
+    def _extract_ws_query_token(scope: Scope) -> str | None:
+        """从 WebSocket query 读取短时 ticket；不承载长期 Token。"""
+        qs: bytes = scope.get("query_string", b"") or b""
+        try:
+            params = qs.decode("latin-1").split("&")
+        except UnicodeDecodeError:
+            return None
+        for kv in params:
+            if not kv:
+                continue
+            key, _, value = kv.partition("=")
+            if key == "token":
+                return _url_unquote(value) or None
         return None
 
     async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
