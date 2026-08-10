@@ -33,6 +33,9 @@ from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.task.strategy import resolve_execution_limits
 from argus_py.utils.casing import camel_keys
 
+# 任务队列满载时建议客户端等待后重试的秒数，作为 HTTP ``Retry-After`` 头返回。
+QUEUE_FULL_RETRY_AFTER_SECONDS = 5
+
 
 class TaskAppError(TaskError):
     """应用层业务规则错误，携带 HTTP 状态码和结构化详情以便路由层转换。"""
@@ -244,7 +247,9 @@ class TaskApplicationService:
                 f"只有 pending 任务可以启动，当前状态：{task.status.value}。",
                 details={"task_id": task.task_id, "status": task.status.value},
             )
-        result = await self._queue.enqueue(task.task_id)
+        result = await self._queue.try_enqueue(task.task_id)
+        if result.rejected:
+            raise await self._queue_full_error(task.task_id)
         if result.already_known:
             raise TaskAppError(
                 "TASK_ALREADY_SCHEDULED",
@@ -252,6 +257,21 @@ class TaskApplicationService:
                 details={"task_id": task.task_id, "scheduler_status": result.scheduler_status},
             )
         return task, result.scheduler_status
+
+    async def _queue_full_error(self, task_id: str) -> TaskAppError:
+        """构造队列满载错误（503 + Retry-After），附带容量/排队诊断。"""
+        qm = await self._queue.metrics()
+        return TaskAppError(
+            "TASK_QUEUE_FULL",
+            "任务队列已满，请稍后重试。",
+            http_status=503,
+            details={
+                "task_id": task_id,
+                "retry_after_seconds": QUEUE_FULL_RETRY_AFTER_SECONDS,
+                "capacity": qm["capacity"],
+                "queued": qm["queued"],
+            },
+        )
 
     # ── 重试 ──
 
@@ -307,12 +327,18 @@ class TaskApplicationService:
         # 锁已释放、子任务已持久化后才入队；入队失败回滚删除子任务，
         # 父任务随之重新获得重试资格（删除语义规则 B）。
         try:
-            result = await self._queue.enqueue(new_task.task_id)
+            result = await self._queue.try_enqueue(new_task.task_id)
         except (Exception, asyncio.CancelledError):
-            # enqueue 内部 await self._queue.put() 不会抛 QueueFull，但可能因
-            # 协程取消或其它异常终止。无论哪种异常，new_task 已写入 DB，必须回滚。
+            # try_enqueue 内部 put_nowait 不会抛 QueueFull（满载走 rejected），
+            # 但可能因协程取消或其它异常终止。无论哪种异常，new_task 已写入
+            # DB，必须回滚。
             await run_in_thread(self._lifecycle.delete_pending_task, new_task)
             raise
+        if result.rejected:
+            # 队列满载：回滚刚创建的 retry 子任务，父任务恢复重试资格，
+            # 客户端可稍后重试 restart。
+            await run_in_thread(self._lifecycle.delete_pending_task, new_task)
+            raise await self._queue_full_error(task_id)
         if result.already_known:
             await run_in_thread(self._lifecycle.delete_pending_task, new_task)
             raise TaskAppError(

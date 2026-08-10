@@ -1973,6 +1973,26 @@ export interface components {
              * @default -1
              */
             worker_last_consume_stale_seconds: number;
+            /**
+             * Queue Capacity
+             * @default 0
+             */
+            queue_capacity: number;
+            /**
+             * Queue Utilization
+             * @default 0
+             */
+            queue_utilization: number;
+            /**
+             * Queue Oldest Queued Age Seconds
+             * @default -1
+             */
+            queue_oldest_queued_age_seconds: number;
+            /**
+             * Queue Rejected Total
+             * @default 0
+             */
+            queue_rejected_total: number;
         };
         /**
          * ModelConfigCreateRequest

@@ -46,6 +46,18 @@ export function errorMessage(error: unknown): string {
   return "未知错误。";
 }
 
+/** 过载类错误（队列满载 / 限流）返回带"稍后重试"的明确提示，而非一般失败。 */
+export function overloadMessage(error: unknown): string {
+  const apiError = error instanceof ApiError ? error : undefined;
+  const overloaded =
+    apiError !== undefined &&
+    (apiError.status === 429 ||
+      apiError.status === 503 ||
+      apiError.code === "TASK_QUEUE_FULL" ||
+      apiError.code === "RATE_LIMITED");
+  return overloaded ? "系统繁忙：任务队列已满，请稍后重试。" : errorMessage(error);
+}
+
 export function nullableBoolean(value: "" | "true" | "false"): boolean | null {
   if (!value) return null;
   return value === "true";

@@ -53,13 +53,14 @@ async def _noop_lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-def _build_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
+def _build_test_app(tmp_path: Path, queue_max_size: int = 0) -> tuple[FastAPI, AppStack]:
     """构建带测试服务栈的 FastAPI 应用。
 
     Route 注册与 ``create_app()`` 保持一致，但跳过 lifespan；
-    全部路由依赖被 override 为测试实例。
+    全部路由依赖被 override 为测试实例。``queue_max_size`` 用于构造有界队列，
+    供队列满载（TASK_QUEUE_FULL / Retry-After）的全链路契约测试。
     """
-    stack = make_app_stack(tmp_path)
+    stack = make_app_stack(tmp_path, queue_max_size=queue_max_size)
     model_cfg_service = ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db"))
     worker = TaskWorker(
         queue=stack.queue,
@@ -242,6 +243,11 @@ class TestHealthEndpoint:
         assert "worker_alive_loops" in body
         assert "worker_crashed_loops" in body
         assert body["worker_last_consume_stale_seconds"] == -1
+        # O-03：metrics 暴露队列容量与压力指标。
+        assert body["queue_capacity"] == 0
+        assert body["queue_utilization"] == 0.0
+        assert body["queue_oldest_queued_age_seconds"] == -1.0
+        assert body["queue_rejected_total"] == 0
 
 
 # ── Projects ───────────────────────────────────────────────────────────────────
@@ -385,6 +391,38 @@ class TestTaskContract:
         resp = client.post(f"{API_PREFIX}/tasks/{tid}/start")
         assert resp.status_code == 200
         assert resp.json()["schedulerStatus"] == "queued"
+
+    def test_start_task_queue_full_returns_503_with_retry_after(self, tmp_path: Path) -> None:
+        """全链路：队列满载时 POST /start 返回 503 + Retry-After + TASK_QUEUE_FULL。
+
+        覆盖 route → application → TaskQueue.try_enqueue → HTTPException →
+        middleware 异常 handler 透传 headers 的完整链路（O-03）。占用队列同样
+        走 HTTP（先 start 占满唯一空位），避免测试线程直接操作异步队列带来的
+        event loop 绑定问题。
+        """
+        app, _stack = _build_test_app(tmp_path, queue_max_size=1)
+        client = TestClient(app)
+        pid = self._create_project(client)
+        occupier = client.post(
+            f"{API_PREFIX}/tasks",
+            json={"projectId": pid, "goal": "占满队列", "startUrl": "https://example.com"},
+        ).json()["taskId"]
+        occupied = client.post(f"{API_PREFIX}/tasks/{occupier}/start")
+        assert occupied.status_code == 200
+        assert occupied.json()["schedulerStatus"] == "queued"
+
+        blocked = client.post(
+            f"{API_PREFIX}/tasks",
+            json={"projectId": pid, "goal": "排队失败", "startUrl": "https://example.com"},
+        ).json()["taskId"]
+
+        resp = client.post(f"{API_PREFIX}/tasks/{blocked}/start")
+        assert resp.status_code == 503
+        assert resp.headers["retry-after"] == "5"
+        err = resp.json()["error"]
+        assert err["code"] == "TASK_QUEUE_FULL"
+        assert err["details"]["retryAfterSeconds"] == 5
+        assert err["details"]["capacity"] == 1
 
     def test_restart_fails_on_pending(self, client: TestClient) -> None:
         """pending 任务不允许 restart → 409。"""

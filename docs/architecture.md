@@ -278,6 +278,9 @@ HTTP adapter ──→ application ──→ domain
 - SQLite schema 只能通过 `argus_py/infra/migrations/sql/` 的连续版本迁移演进。
 - 已发布迁移不得修改、重排或复用版本号；破坏性变更必须有备份、双读/双写或数据转换方案。
 - 所有缓存和内存作业表必须有容量上限、TTL/淘汰策略及并发安全定义。
+- 进程内任务队列默认有界（`scheduler.queue_max_size`）；满载时新提交快速失败
+  （`TASK_QUEUE_FULL` / HTTP 503 + `Retry-After`），API 请求不等待空位。容量按
+  平均任务时长与允许等待时间估算；0（无界）仅作开发调试选项。
 - 缓存键必须覆盖影响结果的输入；源码分析缓存必须包含内容指纹，不能只依赖路径。
 - 运行时产物统一位于 `outputs/`，路径解析必须防止目录穿越，不把运行时数据提交到仓库。
 - Java 异步 JobStore 和结果缓存当前也在 JVM 内存中；使用异步 Job API 时 Java Analyzer

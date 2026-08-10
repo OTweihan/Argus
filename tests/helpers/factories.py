@@ -40,12 +40,14 @@ def make_app_stack(
     tmp_path: Path,
     *,
     event_publisher: Callable | None = None,
+    queue_max_size: int = 0,
 ) -> AppStack:
     """构建完整的服务栈，供单测和 e2e 测试复用。
 
     Args:
         tmp_path: pytest 提供的临时目录，各测试隔离（SQLite 数据库建在此目录下）。
         event_publisher: 可选的事件发布回调，e2e 测试传入 EventBus.publish。
+        queue_max_size: 任务队列容量上限；0 = 无界（默认，向后兼容）。
     """
     storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=event_publisher)
@@ -58,7 +60,7 @@ def make_app_stack(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
         task_read_service=reader,
     )
-    queue = TaskQueue()
+    queue = TaskQueue(max_size=queue_max_size)
     app = TaskApplicationService(
         lifecycle=lifecycle,
         task_read=reader,

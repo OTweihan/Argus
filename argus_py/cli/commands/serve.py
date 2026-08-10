@@ -109,6 +109,12 @@ def run(args: argparse.Namespace) -> int:
     reload_enabled = args.reload if args.reload is not None else settings.reload
 
     _warn_exposed_without_auth(host)
+    if settings.scheduler_queue_max_size <= 0:
+        cli_warn(
+            "scheduler.queue_max_size=0：任务队列无界，任务可无限堆积、请求可被排队拖住。"
+            "0 仅作为开发调试选项；生产请按负载配置有界容量（如 32），满载时 API 会"
+            "返回 503 + Retry-After（错误码 TASK_QUEUE_FULL）而不是无限等待。"
+        )
     cli_info(f"启动 Web 服务：http://{host}:{port}")
     cli_info("OpenAPI 文档：/docs")
     try:

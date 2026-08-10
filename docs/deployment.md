@@ -122,6 +122,37 @@ scheduler:
   concurrency: 4                 # Concurrent tasks per process (not replica count)
 ```
 
+### Scheduler Queue Capacity
+
+```yaml
+scheduler:
+  queue_max_size: 32   # Max queued tasks (excluding running); 0 = unbounded (dev only)
+```
+
+With a bounded queue, `POST /argus/api/tasks/{id}/start` and `/restart` **fail fast**
+when the queue is full: HTTP **503** + `Retry-After` header, error code
+`TASK_QUEUE_FULL`, instead of waiting indefinitely for a free slot. The frontend
+shows this as "system busy, retry later"; the task stays `pending` and can be
+started again later. `restart` on a full queue rolls back the just-created retry
+child (no orphan), so the parent regains retry eligibility.
+
+Capacity should be derived from average task duration and acceptable wait time,
+not guessed:
+
+```text
+queue_max_size ≈ concurrency × acceptable wait ÷ avg task duration
+```
+
+Rationale: each task takes ~T; with concurrency C the system drains N queued tasks
+in N×T/C; to keep the last queued task's wait ≤ W, N ≤ C×W/T. E.g. concurrency 1,
+~2-minute tasks, ~1 hour acceptable wait → 1×60÷2 = 30 ≈ 32 (default).
+Heavier tasks / lower wait tolerance → smaller capacity. Watch
+`queue_utilization`, `queue_oldest_queued_age_seconds` and `queue_rejected_total`
+on `GET /argus/api/metrics` to tune.
+
+`queue_max_size: 0` restores unbounded mode (dev/debug only); `argus serve`
+warns at startup.
+
 ### WebSocket Subscriber Limit
 
 ```yaml

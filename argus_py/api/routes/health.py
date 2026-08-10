@@ -93,9 +93,21 @@ async def metrics(
     eb = get_event_bus()
     reader = get_task_read_service()
 
-    counts = await worker.queue.counts() if worker.queue else {"queued": 0, "active": 0}
-    running_tasks = counts["active"]
-    queued_tasks = counts["queued"]
+    qm = await worker.queue.metrics() if worker.queue else None
+    if qm is None:
+        running_tasks = 0
+        queued_tasks = 0
+        queue_capacity = 0
+        queue_utilization = 0.0
+        queue_oldest_age = -1.0
+        queue_rejected = 0
+    else:
+        running_tasks = qm["active"]
+        queued_tasks = qm["queued"]
+        queue_capacity = qm["capacity"]
+        queue_utilization = qm["utilization"]
+        queue_oldest_age = qm["oldest_queued_age_seconds"]
+        queue_rejected = qm["rejected_total"]
 
     io_stats = io_executor_stats()
     snapshot = worker.health_snapshot()
@@ -114,6 +126,10 @@ async def metrics(
         worker_exited_loops=snapshot.exited_loops,
         worker_crashed_loops=snapshot.crashed_loops,
         worker_last_consume_stale_seconds=last_consume_stale,
+        queue_capacity=queue_capacity,
+        queue_utilization=queue_utilization,
+        queue_oldest_queued_age_seconds=queue_oldest_age,
+        queue_rejected_total=queue_rejected,
     )
 
 

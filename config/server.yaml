@@ -18,7 +18,13 @@ cors:
 
 scheduler:
   concurrency: 1
-  queue_max_size: 0
+  # 任务队列容量上限（排队任务数，不含运行中；运行中数量 = concurrency）。
+  # 满载时 POST /tasks/*/start 与 /restart 快速返回 503 + Retry-After
+  # （错误码 TASK_QUEUE_FULL），请求不会无限等待空位。
+  # 容量估算：queue_max_size ≈ concurrency × 允许等待时间 ÷ 平均任务时长；
+  # 默认 32 对应单并发、平均 2 分钟任务、允许等待约 1 小时（1×60÷2=30）。
+  # 0 = 无界，仅开发调试用（serve 启动会告警）。
+  queue_max_size: 32
   shutdown_timeout_seconds: 5
 
 request:

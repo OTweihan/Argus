@@ -6,7 +6,7 @@ from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import ProjectCreateRequest, TaskCreateRequest
 from argus_py.api.schemas.config import ModelConfigUpdateRequest
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
-from argus_py.config.server_settings import load_server_settings
+from argus_py.config.server_settings import DEFAULT_QUEUE_MAX_SIZE, load_server_settings
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.infra.queue import TaskQueue
@@ -86,7 +86,7 @@ whitebox:
     assert settings.cors_allow_credentials is False
     assert settings.cors_allow_methods == ["*"]
     assert settings.scheduler_concurrency == 2
-    assert settings.scheduler_queue_max_size == 0
+    assert settings.scheduler_queue_max_size == DEFAULT_QUEUE_MAX_SIZE
     assert settings.events_history_limit == 0
     assert settings.events_subscriber_queue_size == 1
     assert settings.whitebox_source_work_dir == "D:/shared/sources"

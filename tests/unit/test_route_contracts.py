@@ -185,6 +185,26 @@ async def test_start_task_409_when_already_running(tmp_path: Path) -> None:
     assert _detail(exc_info.value)["details"]["status"] == "running"
 
 
+async def test_start_task_queue_full_503_with_retry_after(tmp_path: Path) -> None:
+    """队列满载时 start 返回 503 + Retry-After + TASK_QUEUE_FULL（O-03）。"""
+    stack = make_app_stack(tmp_path, queue_max_size=1)
+    project_id = await _create_project(stack.project_service)
+    occupier = await _create_pending_task(stack.app, project_id, goal="占满队列")
+    await stack.queue.try_enqueue(occupier.task_id)
+    blocked = await _create_pending_task(stack.app, project_id, goal="排队失败")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await task_routes.start_task(blocked.task_id, app=stack.app)
+
+    assert exc_info.value.status_code == 503
+    detail = _detail(exc_info.value)
+    assert detail["code"] == "TASK_QUEUE_FULL"
+    assert detail["details"]["retryAfterSeconds"] == 5
+    headers = exc_info.value.headers
+    assert headers is not None
+    assert headers["Retry-After"] == "5"
+
+
 async def test_pause_task_409_when_not_running(tmp_path: Path) -> None:
     """pending 状态不允许暂停。"""
     stack = make_app_stack(tmp_path)

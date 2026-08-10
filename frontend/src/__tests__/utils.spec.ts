@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ApiError } from "../api";
 import {
   canRestartTask,
   canStartTask,
@@ -10,6 +11,7 @@ import {
   httpMethodTag,
   nullableBoolean,
   nullableText,
+  overloadMessage,
   sortBy,
   taskDisplayStatus,
   upsertById,
@@ -87,6 +89,22 @@ describe("utils.errorMessage", () => {
   it("普通 Error 走 message，未知 error 返回兜底文案", () => {
     expect(errorMessage(new Error("oops"))).toBe("oops");
     expect(errorMessage("nothing")).toBe("未知错误。");
+  });
+});
+
+describe("utils.overloadMessage", () => {
+  it("TASK_QUEUE_FULL / RATE_LIMITED / 429 / 503 显示稍后重试提示", () => {
+    const retry = "系统繁忙：任务队列已满，请稍后重试。";
+    expect(overloadMessage(new ApiError("x", 503, "TASK_QUEUE_FULL"))).toBe(retry);
+    expect(overloadMessage(new ApiError("x", 429, "RATE_LIMITED"))).toBe(retry);
+    expect(overloadMessage(new ApiError("x", 503))).toBe(retry);
+    expect(overloadMessage(new ApiError("x", 429))).toBe(retry);
+  });
+
+  it("非过载错误回退到 errorMessage", () => {
+    expect(overloadMessage(new ApiError("普通业务错误", 400, "TASK_ERROR"))).toBe("普通业务错误");
+    expect(overloadMessage(new Error("oops"))).toBe("oops");
+    expect(overloadMessage("nothing")).toBe("未知错误。");
   });
 });
 

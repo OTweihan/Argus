@@ -49,6 +49,19 @@ from argus_py.task.strategy import infer_execution_limits
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
+def _to_http_exception(e: TaskAppError) -> HTTPException:
+    """TaskAppError → HTTPException，满载类错误透传 Retry-After 头。"""
+    headers: dict[str, str] = {}
+    retry_after = e.details.get("retry_after_seconds")
+    if isinstance(retry_after, (int, float)) and retry_after > 0:
+        headers["Retry-After"] = str(int(retry_after))
+    return HTTPException(
+        status_code=e.http_status,
+        detail=e.to_http_detail(),
+        headers=headers or None,
+    )
+
+
 async def _acall_sync(
     fn: Any,
     *args: Any,
@@ -66,10 +79,7 @@ async def _acall_sync(
     try:
         return await run_in_thread(fn, *args, **kwargs)
     except TaskAppError as e:
-        raise HTTPException(
-            status_code=e.http_status,
-            detail=e.to_http_detail(),
-        )
+        raise _to_http_exception(e)
 
 
 async def _acall(
@@ -83,10 +93,7 @@ async def _acall(
     try:
         return await fn(*args, **kwargs)
     except TaskAppError as e:
-        raise HTTPException(
-            status_code=e.http_status,
-            detail=e.to_http_detail(),
-        )
+        raise _to_http_exception(e)
 
 
 @router.post("", response_model=TaskResponse, status_code=201)

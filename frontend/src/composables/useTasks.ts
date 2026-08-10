@@ -15,6 +15,7 @@ import {
   errorMessage,
   nullableBoolean,
   nullableText,
+  overloadMessage,
   SENTINEL_DEFAULT,
   upsertById,
 } from "../utils";
@@ -304,7 +305,7 @@ export function useTasks(opts: {
       message.value = `任务已入队：${result.schedulerStatus}`;
       error.value = "";
     } catch (caught) {
-      error.value = errorMessage(caught);
+      error.value = overloadMessage(caught);
       message.value = "";
     }
   }
@@ -316,7 +317,7 @@ export function useTasks(opts: {
       message.value = "任务已重新入队。";
       error.value = "";
     } catch (caught) {
-      error.value = errorMessage(caught);
+      error.value = overloadMessage(caught);
       message.value = "";
     }
   }

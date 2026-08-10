@@ -18,7 +18,7 @@ from argus_py.core.exceptions import (
     TaskError,
     TaskNotFoundError,
 )
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 
@@ -50,6 +50,19 @@ def _make_app(settings: ServerSettings) -> FastAPI:
     @app.get("/raise/model-other")
     def _model_400() -> None:
         raise ModelConfigError("模型连接测试失败。")
+
+    @app.get("/raise/http-retry")
+    def _http_retry() -> None:
+        # 模拟队列满载业务异常（O-03）：503 + Retry-After 必须透传到响应头。
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TASK_QUEUE_FULL",
+                "message": "任务队列已满，请稍后重试。",
+                "details": {},
+            },
+            headers={"Retry-After": "5"},
+        )
 
     @app.post("/echo")
     async def _echo(payload: dict) -> dict:
@@ -112,6 +125,17 @@ class TestExceptionHandlerMapping:
         # 此 case 已被上面 test_task_other_error_returns_400 覆盖；这里复述意图。
         resp = client.get("/raise/task-other")
         assert resp.status_code == 400
+
+    def test_http_exception_retry_after_header_propagates(self, client: TestClient) -> None:
+        """HTTPException 携带的 Retry-After 必须透传到实际响应（O-03）。
+
+        自定义 ``handle_http_error`` 若忘记合并 ``exc.headers``，队列满载的
+        Retry-After 会被静默丢弃，客户端就无法按提示退避重试。
+        """
+        resp = client.get("/raise/http-retry")
+        assert resp.status_code == 503
+        assert resp.headers["retry-after"] == "5"
+        assert resp.json()["error"]["code"] == "TASK_QUEUE_FULL"
 
 
 # ── SecurityHeadersMiddleware ─────────────────────────────────────

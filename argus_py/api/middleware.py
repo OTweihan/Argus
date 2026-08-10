@@ -189,7 +189,15 @@ def configure_middleware(app: FastAPI, settings: ServerSettings) -> None:
             code = "HTTP_ERROR"
             message = str(detail)
             details = {}
-        return _error_response(code, message, exc.status_code, details)
+        # 透传业务异常携带的响应头（如队列满载的 Retry-After），否则自定义
+        # handler 会丢弃 HTTPException.headers。
+        return _error_response(
+            code,
+            message,
+            exc.status_code,
+            details,
+            headers=dict(exc.headers or {}),
+        )
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
@@ -211,8 +219,9 @@ def _error_response(
     message: str,
     http_status: int,
     details: dict | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     """生成统一错误响应。"""
     from argus_py.api.errors import error_response
 
-    return error_response(code, message, http_status, details)
+    return error_response(code, message, http_status, details, headers=headers)

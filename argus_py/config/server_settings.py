@@ -14,6 +14,10 @@ from argus_py.utils.parse import parse_bool as _as_bool
 
 DEFAULT_SERVER_CONFIG = "config/server.yaml"
 SERVER_CONFIG_ENV = "ARGUS_SERVER_CONFIG"
+# 调度队列默认容量（排队任务数上限，不含运行中）。任务为长耗时执行，容量应
+# 结合平均任务时长与允许等待时间估算（见 docs/deployment.zh.md）；0 表示无界，
+# 仅作为显式开发选项（serve 启动会告警）。
+DEFAULT_QUEUE_MAX_SIZE = 32
 WHITEBOX_SOURCE_WORK_DIR_ENV = "ARGUS_WHITEBOX_SOURCE_WORK_DIR"
 WHITEBOX_ALLOWED_SOURCE_ROOTS_ENV = "ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS"
 JAVA_ANALYZER_URL_ENV = "ARGUS_JAVA_ANALYZER_URL"
@@ -31,7 +35,7 @@ class ServerSettings:
     cors_allow_methods: list[str] = field(default_factory=lambda: ["*"])
     cors_allow_headers: list[str] = field(default_factory=lambda: ["*"])
     scheduler_concurrency: int = 1
-    scheduler_queue_max_size: int = 0
+    scheduler_queue_max_size: int = DEFAULT_QUEUE_MAX_SIZE
     scheduler_shutdown_timeout_seconds: float = 5.0
     db_pool_max_size: int = 8
     events_history_limit: int = 200
@@ -108,7 +112,11 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         cors_allow_methods=_as_str_list(cors.get("allow_methods"), ["*"]),
         cors_allow_headers=_as_str_list(cors.get("allow_headers"), ["*"]),
         scheduler_concurrency=_as_int(scheduler.get("concurrency"), 1, minimum=1),
-        scheduler_queue_max_size=_as_int(scheduler.get("queue_max_size"), 0, minimum=0),
+        scheduler_queue_max_size=_as_int(
+            scheduler.get("queue_max_size"),
+            DEFAULT_QUEUE_MAX_SIZE,
+            minimum=0,
+        ),
         scheduler_shutdown_timeout_seconds=_as_float(
             scheduler.get("shutdown_timeout_seconds"),
             5.0,

@@ -161,6 +161,35 @@ scheduler:
   concurrency: 4                 # 单进程内的并发任务数；不是副本数
 ```
 
+### 调度队列容量
+
+```yaml
+scheduler:
+  queue_max_size: 32   # 排队任务数上限（不含运行中）；0 = 无界（仅开发调试）
+```
+
+队列有界后，`POST /argus/api/tasks/{id}/start` 与 `/restart` 在队列满载时
+**快速失败**：返回 HTTP **503** + `Retry-After` 头、错误码 `TASK_QUEUE_FULL`，
+不会让请求无限等待空位。前端会把该错误提示为"系统繁忙，请稍后重试"，任务保持
+`pending` 状态可稍后再次启动；`restart` 满载时不会留下孤儿子任务（已创建的 retry
+子任务会回滚删除，父任务恢复重试资格）。
+
+容量不是凭经验拍脑袋定的，应结合平均任务时长与允许等待时间估算：
+
+```text
+queue_max_size ≈ concurrency × 允许等待时间 ÷ 平均任务时长
+```
+
+推导：单并发下每个任务耗时约 T，队列里排在我前面的 N 个任务最坏要等 N×T；
+允许等待 W 秒则 N ≤ W/T；并发为 C 时整体吞吐为 C 倍，故 N ≤ C×W/T。
+例如单进程并发 1、平均任务 2 分钟、允许等待约 1 小时 → 1×60÷2 = 30 ≈ 32
+（默认值）。任务越重、等待容忍越低，容量应越小；有突发批量提交的团队应结合
+批大小上调，并配合 `rate_limit`（见下）防止无限堆积。可通过
+`GET /argus/api/metrics` 的 `queue_utilization` / `queue_oldest_queued_age_seconds`
+/ `queue_rejected_total` 观察队列压力并据此调整。
+
+`queue_max_size: 0` 恢复为无界（仅开发调试），`argus serve` 启动时会打印告警。
+
 ### WebSocket 并发上限
 
 ```yaml
@@ -358,4 +387,5 @@ middleware 自动注入：
 - [ ] WEB_CONCURRENCY 没被 K8s / Helm chart 设成 > 1
 - [ ] 若启用 `ARGUS_API_TOKEN`：确认控制台会话输入可用，定时 rotate 流程已就绪
 - [ ] 若启用 `rate_limit.enabled` 且部署在反代后：`trust_forwarded: true` 已开
+- [ ] `scheduler.queue_max_size` 已按「并发 × 平均任务时长 ÷ 允许等待时间」显式配置（不要留 0 无界），并在满载时验证 `503 + Retry-After`
 - [ ] 若启用 `events.max_subscribers`：值不低于预期并发用户数的 5 倍
