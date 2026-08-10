@@ -7,6 +7,7 @@ HTTP 503 / Retry-After / restart 子任务回滚）。
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,21 @@ from tests.helpers.factories import make_app_stack
 
 
 class TestTryEnqueue:
+    @pytest.mark.asyncio
+    async def test_concurrent_admission_never_exceeds_capacity(self) -> None:
+        """并发提交超过容量时只接收 capacity 个，其余立即拒绝。"""
+        queue = TaskQueue(max_size=3)
+        results = await asyncio.gather(*(queue.try_enqueue(f"t{i}") for i in range(20)))
+
+        accepted = [result for result in results if not result.rejected]
+        rejected = [result for result in results if result.rejected]
+        assert len(accepted) == 3
+        assert len(rejected) == 17
+        assert await queue.counts() == {"queued": 3, "active": 0}
+        metrics = await queue.metrics()
+        assert metrics["utilization"] == 1.0
+        assert metrics["rejected_total"] == 17
+
     @pytest.mark.asyncio
     async def test_rejects_when_full_without_residue(self) -> None:
         """满载时拒绝且不在 _queued_ids 残留，队列状态与指标一致。"""
@@ -85,6 +101,37 @@ class TestTryEnqueue:
         assert m["capacity"] == 0
         assert m["queued"] == 50
         assert m["utilization"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_cancelled_full_slot_is_drained_before_next_admission(self) -> None:
+        """取消项采用 tombstone：Worker 跳过后容量可再次准入，状态不残留。"""
+        queue = TaskQueue(max_size=1)
+        await queue.try_enqueue("cancelled")
+        assert await queue.cancel("cancelled") is True
+        assert await queue.counts() == {"queued": 0, "active": 0}
+
+        # 物理槽位仍由 tombstone 占用，因此消费前的新请求快速失败而不是阻塞。
+        assert (await queue.try_enqueue("too-early")).rejected is True
+        pending_get = asyncio.create_task(queue.get())
+        await asyncio.sleep(0)
+        assert (await queue.try_enqueue("next")).rejected is False
+        assert await asyncio.wait_for(pending_get, 1) == "next"
+        await queue.complete("next")
+
+    @pytest.mark.asyncio
+    async def test_shutdown_signal_waits_for_full_queue_then_completes(self) -> None:
+        """满载停机不会丢哨兵：排空一个槽位后 shutdown 信号可完成投递。"""
+        queue = TaskQueue(max_size=1)
+        await queue.try_enqueue("queued")
+        stop = asyncio.create_task(queue.request_stop(1))
+        await asyncio.sleep(0)
+        assert stop.done() is False
+
+        assert await queue.get() == "queued"
+        await queue.complete("queued")
+        await asyncio.wait_for(stop, 1)
+        assert await queue.get() is None
+        await queue.complete(None)
 
 
 # ── 应用层：start/restart 队列满载语义 ───────────────────────────────────────
