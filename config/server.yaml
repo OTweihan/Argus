@@ -89,6 +89,15 @@ llm:
   # planner + evaluator 共用此配额。0 = 不限。
   max_inflight: 8
 
+# 白盒源码分析（源码路径边界，fail-closed）。
+# 未配置时 serve 启动会打印宽松模式告警（允许 Java 进程可见的任意本地目录，
+# 兼容旧行为）；容器/生产部署必须显式收紧。环境变量：
+#   ARGUS_WHITEBOX_SOURCE_WORK_DIR    （快照工作目录，compose 固定 /tmp/sources）
+#   ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS（允许的源码根目录，逗号分隔）
+whitebox:
+  source_work_dir: null
+  allowed_source_roots: []
+
 observability:
   request_logging: true
   operation_logging: true

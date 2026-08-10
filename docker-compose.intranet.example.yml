@@ -1,0 +1,44 @@
+# 内网开放部署覆盖文件（示例，勿直接用于生产）
+#
+# 说明：本文件使用 Compose 规范的 `!override` 标签（合并 ports 序列时整体替换，
+# 避免与基线 127.0.0.1 绑定追加冲突）；因此从 .pre-commit-config.yaml 的
+# check-yaml 中排除（PyYAML 无法解析该标签）。
+# 默认 docker-compose.yml 是 fail-closed：Python 只绑定宿主机 127.0.0.1，
+# Java Analyzer 不映射宿主端口。当确实需要把 Argus 暴露到内网其他机器访问时，
+# 复制本文件（如 docker-compose.intranet.yml）并按需修改。
+#
+# 用法：
+#   cp docker-compose.intranet.example.yml docker-compose.intranet.yml
+#   # 编辑 docker-compose.intranet.yml 里的 ARGUS_API_TOKEN（必须设置）
+#   docker compose --profile java -f docker-compose.yml -f docker-compose.intranet.yml up -d
+#
+# 安全要求（违反任一即退回默认 fail-closed 配置）：
+# - 必须为 argus 服务设置强随机 ARGUS_API_TOKEN（至少 32 字节）：
+#     openssl rand -hex 32
+#   非回环监听且无 Token 时 argus serve 会打印显式告警。
+# - Java Analyzer 只在确需直接调试时用 !override 映射 8081；正常情况下应保持
+#   仅 expose，由 Python 作为唯一入口代理。不要把 Java Analyzer 当作可信公网接口。
+# - 建议再套一层反代（SSO / IP 白名单 / mTLS），token 鉴权只是最小防线。
+#
+# 说明：compose 合并时 environment 按 key 逐项合并（本文件只需写增量），
+# 而 ports 属于序列会追加，必须用 !override 整体替换掉基线的 127.0.0.1 绑定。
+
+services:
+  argus:
+    ports: !override
+      - "8000:8000"
+    environment:
+      # 必须替换：开放到非回环接口前必须配置 Token
+      ARGUS_API_TOKEN: "CHANGE_ME_请替换为32字节以上随机串"
+      # 清空基线 compose 的 ARGUS_BIND_LOOPBACK_ONLY 标记：现在宿主端口真实暴露，
+      # 若上面的 Token 仍为占位符/为空，argus serve 启动时会打印显式告警。
+      ARGUS_BIND_LOOPBACK_ONLY: ""
+
+  java-analyzer:
+    # 仅当你需要从宿主机直接调试 Java Analyzer 时才取消注释；否则保持 expose-only。
+    # ports: !override
+    #   - "127.0.0.1:8081:8081"
+    environment:
+      # 保持与容器默认一致的源码根目录收紧（基线已在 Dockerfile/主 compose 设置，
+      # 这里只是防御性重申，避免误改后放开）。
+      SPRING_APPLICATION_JSON: '{"argus":{"analysis":{"allowed-source-roots":"/tmp/sources"}}}'

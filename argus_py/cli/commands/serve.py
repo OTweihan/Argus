@@ -6,7 +6,7 @@ import argparse
 import os
 from typing import TYPE_CHECKING
 
-from argus_py.cli.io import cli_cancelled, cli_error, cli_info
+from argus_py.cli.io import cli_cancelled, cli_error, cli_info, cli_warn
 from argus_py.config.server_settings import SERVER_CONFIG_ENV, load_server_settings
 from argus_py.core.paths import resolve_project_path
 
@@ -14,6 +14,34 @@ if TYPE_CHECKING:
     from argus_py.cli._types import SubParserAdder
 
 _MULTI_WORKER_ENV_VARS = ("WEB_CONCURRENCY", "UVICORN_WORKERS")
+
+
+def _is_loopback(host: str) -> bool:
+    """判断监听地址是否仅在回环接口可达。"""
+    return host in ("127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1")
+
+
+def _warn_exposed_without_auth(host: str) -> None:
+    """非回环监听且未配置 API Token 时给出显式告警。
+
+    Compose 默认把 Python 宿主端口绑定到 127.0.0.1（fail-closed）；容器内
+    uvicorn 监听 0.0.0.0 是必须的（否则宿主端口映射无法到达）。因此标准
+    Compose 容器用 ``ARGUS_BIND_LOOPBACK_ONLY=1`` 标记，跳过本告警；
+    docker-compose.intranet.example.yml 覆盖文件会把该标记清空，内网开放
+    场景必须配置 ``ARGUS_API_TOKEN``，否则这里会告警。
+    """
+    if _is_loopback(host):
+        return
+    if os.getenv("ARGUS_API_TOKEN"):
+        return
+    if os.getenv("ARGUS_BIND_LOOPBACK_ONLY"):
+        # 标准 Compose 容器：宿主端口可见性由 compose 的 127.0.0.1 绑定控制。
+        return
+    cli_warn(
+        f"正在非回环地址 {host} 上监听且未设置 ARGUS_API_TOKEN。"
+        "请确认该实例只在受控内网可达；若暴露到非可信网络，请设置 "
+        "ARGUS_API_TOKEN 或置于认证反向代理之后。"
+    )
 
 
 def _detect_multi_worker_env() -> tuple[str, int] | None:
@@ -80,6 +108,7 @@ def run(args: argparse.Namespace) -> int:
     port = args.port or settings.port
     reload_enabled = args.reload if args.reload is not None else settings.reload
 
+    _warn_exposed_without_auth(host)
     cli_info(f"启动 Web 服务：http://{host}:{port}")
     cli_info("OpenAPI 文档：/docs")
     try:

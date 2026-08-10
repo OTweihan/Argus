@@ -411,6 +411,11 @@ class WhiteboxRunner:
                 f"Java 无法读取源码路径: {resolved_path}。"
                 f"容器部署请确保 Python 与 Java 使用共享卷挂载同一路径。"
             )
+        if visibility.allowed is False:
+            raise WhiteboxVisibilityError(
+                f"Java 拒绝分析该路径（不在允许的源码根目录内）: {resolved_path}。"
+                f"请将源码放入共享源码目录（如 /tmp/sources）。"
+            )
         # 校验成功
         await self._safe_emit(
             "whitebox_source_validated",

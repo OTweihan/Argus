@@ -25,7 +25,7 @@ from argus_py.api.routes import (
     tasks,
     ws,
 )
-from argus_py.config.server_settings import load_server_settings
+from argus_py.config.server_settings import ServerSettings, load_server_settings
 from argus_py.config.settings import load_settings
 from argus_py.core.constants import PROJECT_NAME, PROJECT_TAGLINE, PROJECT_VERSION
 from argus_py.core.crypto import ensure_fernet_key
@@ -77,6 +77,22 @@ def _warn_if_multi_worker() -> None:
             return
 
 
+def _warn_loose_source_roots(settings: ServerSettings) -> None:
+    """未配置白盒 allowed source roots 时给出宽松模式告警。
+
+    allowed-source-roots 是对"本地路径分析输入"的边界约束。未配置时按宽松
+    模式处理（允许任意本地目录），这是与旧行为兼容的过渡期；容器部署必须显式
+    配置（compose 已通过环境变量强制 /tmp/sources），最终 fail-closed。
+    """
+    if settings.whitebox_allowed_source_roots:
+        return
+    logger.warning(
+        "whitebox.allowed_source_roots 未配置，本地路径分析处于宽松模式"
+        "（允许 Java 进程可见的任意目录）。容器/生产部署请设置"
+        " ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS 收紧到共享源码目录。"
+    )
+
+
 def create_app() -> FastAPI:
     """创建 FastAPI 应用并注册路由。"""
     setup_logging()
@@ -84,9 +100,15 @@ def create_app() -> FastAPI:
     load_settings().ensure_output_dirs()
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        """管理后台任务 Worker 与 LLM trace writer 生命周期。"""
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """管理后台任务 Worker 与 LLM trace writer 生命周期。
+
+        ``app.state.lifespan_ready`` 标记进程是否完成初始化：在 yield 前为
+        False，``/ready`` 探针因此返回 503，避免把未就绪实例判为可用。
+        """
+        app.state.lifespan_ready = False
         _warn_if_multi_worker()
+        _warn_loose_source_roots(settings)
         ensure_fernet_key(_DefaultDBProbe(DEFAULT_DB_PATH))
         try:
             c = create_container()
@@ -120,8 +142,10 @@ def create_app() -> FastAPI:
         worker = get_task_worker()
         try:
             await worker.start()
+            app.state.lifespan_ready = True
             yield
         finally:
+            app.state.lifespan_ready = False
             try:
                 await worker.stop(settings.scheduler_shutdown_timeout_seconds)
             finally:

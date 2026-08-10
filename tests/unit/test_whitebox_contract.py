@@ -152,13 +152,20 @@ def test_degraded_result_deserialization() -> None:
 
 
 def test_validate_source_deserialization() -> None:
-    """Java validate-source 响应只包含 exists/readable 布尔字段；
-    VisibilityStatus 由客户端根据 HTTP 状态和字段类型推导，不直接从 JSON 解析。"""
+    """Java validate-source 响应包含 exists/readable/allowed 布尔字段；
+    VisibilityStatus 由客户端根据 HTTP 状态和字段类型推导，不直接从 JSON 解析。
+
+    allowed 字段是 O-01 新增：Java 用 real-path 边界校验器判定路径是否在
+    allowed-source-roots 内（含符号链接逃逸拒绝）。旧版 Java 不返回该字段时
+    客户端应容忍（allowed=None），新版必须返回布尔值。
+    """
     data = _load("validate-source-response.json")
     assert isinstance(data["exists"], bool)
     assert data["exists"] is True
     assert isinstance(data["readable"], bool)
     assert data["readable"] is True
+    assert isinstance(data["allowed"], bool)
+    assert data["allowed"] is True
 
 
 # ── Error ───────────────────────────────────────────────────────

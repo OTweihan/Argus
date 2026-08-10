@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
 from argus_py.api.dependencies import get_event_bus, get_task_read_service, get_task_worker
 from argus_py.api.schemas import HealthResponse, MetricsResponse, ReadinessResponse
@@ -28,20 +29,45 @@ async def health_check() -> HealthResponse:
 
 
 @router.get("/ready", response_model=ReadinessResponse)
-async def readiness_check(worker: TaskWorker = Depends(get_task_worker)) -> ReadinessResponse:
-    """就绪探针：依次检查 DB、事件总线、Worker。"""
+async def readiness_check(
+    request: Request,
+    worker: TaskWorker = Depends(get_task_worker),
+) -> JSONResponse:
+    """就绪探针：依次检查 DB、事件总线、Worker。
+
+    标准探针（K8s / Compose healthcheck）只依据 HTTP 状态码，因此未就绪时
+    必须返回 **503** 而不是 200——否则探针会继续把未就绪实例判为可用并导流。
+    进程尚未完成 lifespan 初始化（或已关闭）时同样返回 503；``/health``
+    继续只表示进程存活，不做昂贵依赖检查。
+    """
+    if not getattr(request.app.state, "lifespan_ready", False):
+        return _readiness_body(
+            503,
+            ReadinessResponse(
+                status="not_ready", db="not_ready", worker="not_ready", event_bus="not_ready"
+            ),
+        )
+
     db_status = await _check_db_cached()
     worker_status = "ready" if worker.is_started else "not_ready"
     eb = get_event_bus()
     event_bus_status = "ready" if eb is not None else "not_ready"
 
     is_ready = db_status == "ready" and worker_status == "ready" and event_bus_status == "ready"
-    return ReadinessResponse(
-        status="ready" if is_ready else "not_ready",
-        db=db_status,
-        worker=worker_status,
-        event_bus=event_bus_status,
+    return _readiness_body(
+        200 if is_ready else 503,
+        ReadinessResponse(
+            status="ready" if is_ready else "not_ready",
+            db=db_status,
+            worker=worker_status,
+            event_bus=event_bus_status,
+        ),
     )
+
+
+def _readiness_body(http_status: int, response: ReadinessResponse) -> JSONResponse:
+    """构造 readiness 响应：未就绪时以 503 返回，便于探针识别。"""
+    return JSONResponse(status_code=http_status, content=response.model_dump())
 
 
 @router.get("/metrics", response_model=MetricsResponse)

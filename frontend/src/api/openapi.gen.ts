@@ -34,6 +34,11 @@ export interface paths {
         /**
          * Readiness Check
          * @description 就绪探针：依次检查 DB、事件总线、Worker。
+         *
+         *     标准探针（K8s / Compose healthcheck）只依据 HTTP 状态码，因此未就绪时
+         *     必须返回 **503** 而不是 200——否则探针会继续把未就绪实例判为可用并导流。
+         *     进程尚未完成 lifespan 初始化（或已关闭）时同样返回 503；``/health``
+         *     继续只表示进程存活，不做昂贵依赖检查。
          */
         get: operations["readiness_check_ready_get"];
         put?: never;

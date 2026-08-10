@@ -15,4 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 WORKDIR /app
 COPY --from=build /build/target/java-analyzer-*.jar app.jar
 EXPOSE 8081
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# fail-closed：容器内固定只允许分析共享源码目录 /tmp/sources，
+# 防止把 Analyzer 当任意目录读取/分析接口使用（allowed-source-roots + symlink 逃逸拒绝）。
+ENTRYPOINT ["java", "-Dargus.analysis.allowed-source-roots=/tmp/sources", "-jar", "app.jar"]

@@ -68,7 +68,8 @@ public class ProjectAnalyzerService {
     }
 
     public AnalyzeResponse analyze(AnalyzeRequest request, AnalysisProgressListener progress) {
-        Path sourcePath = sourceLocator.resolve(request.sourcePath());
+        // fail-closed：统一走 real-path 边界校验（allowed-source-roots + 符号链接逃逸）。
+        Path sourcePath = sourceLocator.resolveForAnalysis(request.sourcePath());
         String scope = request.scope() != null ? request.scope() : "all";
         MavenConfig mavenConfig = request.maven() != null ? request.maven() : new MavenConfig();
         var cacheKey = indexCache.createKey(sourcePath, scope, request.targetModules(), mavenConfig);

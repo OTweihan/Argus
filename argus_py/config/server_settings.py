@@ -15,6 +15,7 @@ from argus_py.utils.parse import parse_bool as _as_bool
 DEFAULT_SERVER_CONFIG = "config/server.yaml"
 SERVER_CONFIG_ENV = "ARGUS_SERVER_CONFIG"
 WHITEBOX_SOURCE_WORK_DIR_ENV = "ARGUS_WHITEBOX_SOURCE_WORK_DIR"
+WHITEBOX_ALLOWED_SOURCE_ROOTS_ENV = "ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS"
 JAVA_ANALYZER_URL_ENV = "ARGUS_JAVA_ANALYZER_URL"
 
 
@@ -156,7 +157,10 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         java_analyzer_request_timeout=_as_float(
             whitebox.get("java_analyzer_request_timeout"), 30.0, minimum=1.0
         ),
-        whitebox_allowed_source_roots=_as_str_list(whitebox.get("allowed_source_roots"), []),
+        whitebox_allowed_source_roots=_as_str_list(
+            os.getenv(WHITEBOX_ALLOWED_SOURCE_ROOTS_ENV) or whitebox.get("allowed_source_roots"),
+            [],
+        ),
         whitebox_source_work_dir=(
             os.getenv(WHITEBOX_SOURCE_WORK_DIR_ENV)
             or _as_optional_str(whitebox.get("source_work_dir"))

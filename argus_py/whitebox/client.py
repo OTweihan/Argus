@@ -71,6 +71,9 @@ class SourceVisibilityResult:
     status: VisibilityStatus
     exists: bool | None = None
     readable: bool | None = None
+    # allowed：Java 是否允许分析该路径（real-path 边界校验）。
+    # None 表示旧版本 Java 未返回该字段（兼容窗口）。
+    allowed: bool | None = None
     reason: str | None = None
 
 
@@ -355,16 +358,23 @@ class WhiteboxClient:
 
         exists = data.get("exists")
         readable = data.get("readable")
+        allowed = data.get("allowed")
         if not isinstance(exists, bool) or not isinstance(readable, bool):
             return SourceVisibilityResult(
                 status=VisibilityStatus.INVALID_RESPONSE,
                 reason="响应字段格式非预期",
+            )
+        if allowed is not None and not isinstance(allowed, bool):
+            return SourceVisibilityResult(
+                status=VisibilityStatus.INVALID_RESPONSE,
+                reason="响应 allowed 字段格式非预期",
             )
 
         return SourceVisibilityResult(
             status=VisibilityStatus.VALIDATED,
             exists=exists,
             readable=readable,
+            allowed=allowed,
         )
 
     # ── 健康检查 ──────────────────────────────────────────────────────────

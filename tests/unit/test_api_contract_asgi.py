@@ -154,15 +154,44 @@ class TestHealthEndpoint:
         assert isinstance(body["version"], str)
         assert isinstance(body["project"], str)
 
-    def test_ready_returns_not_ready(self, client: TestClient) -> None:
-        """Worker 未启动时 status 应为 not_ready。"""
+    def test_ready_returns_503_when_not_initialized(self, client: TestClient) -> None:
+        """lifespan 未初始化（或依赖未就绪）时应返回 503 而非 200。
+
+        标准探针只依据 HTTP 状态码；未就绪时返回 200 会继续把未就绪实例判为
+        可用并导流。此用例的 test app 使用 noop lifespan，不会设置
+        ``lifespan_ready``，因此必须得到 503。
+        """
         resp = client.get("/ready")
-        assert resp.status_code == 200
+        assert resp.status_code == 503
         body = resp.json()
         assert body["status"] == "not_ready"
         assert "db" in body
         assert "worker" in body
         assert "event_bus" in body
+
+    def test_ready_returns_200_when_lifespan_initialized(
+        self,
+        client: TestClient,
+        monkeypatch,
+    ) -> None:
+        """lifespan 完成初始化且 DB / Worker / EventBus 均就绪时返回 200。"""
+
+        async def _db_ready() -> str:
+            return "ready"
+
+        app = client.app
+        # TestClient.app 在类型上是 ASGIApp；本测试 app 是 FastAPI 实例。
+        assert isinstance(app, FastAPI)
+        app.state.lifespan_ready = True
+        # 依赖被 override 为测试 worker；直接从 overrides 取该实例并标记已启动。
+        worker = app.dependency_overrides[get_task_worker]()
+        worker._started = True
+        monkeypatch.setattr(health, "_check_db_cached", _db_ready)
+        resp = client.get("/ready")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ready"
+        assert body["worker"] == "ready"
 
     def test_metrics_returns_200(self, client: TestClient) -> None:
         resp = client.get("/metrics")

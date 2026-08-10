@@ -31,6 +31,11 @@ config/llm.local.env
 config/.fernet_key
 config/browser-states/*.json
 
+# 内网开放覆盖文件（用户从 docker-compose.intranet.example.yml 复制，含真实 Token；
+# 示例文件 docker-compose.intranet.example.yml 应正常入库）
+docker-compose.intranet.yml
+docker-compose.override.yml
+
 # =============================================================================
 # Runtime outputs（由 Dockerfile / 应用自动创建，不入库）
 # =============================================================================
