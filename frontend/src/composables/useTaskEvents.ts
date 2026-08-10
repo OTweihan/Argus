@@ -36,8 +36,15 @@ export function useTaskEvents(
 ) {
   /* ── 兜底刷新（事件合并失败时 fallback） ── */
 
+  /** 权威刷新代次：每次 refreshRuntimeData 递增；响应返回时代次落后说明已有更新的
+   * 刷新发起，丢弃本次结果，避免陈旧快照覆盖较新状态（与实时 patch 的乱序防护）。
+   * 列表部分由 ``loadTasks`` 原子替换 ``allTasks``，天然以最新为准；这里主要保护
+   * 随后的 selected-task 单条 upsert 不被过期响应覆盖。 */
+  let refreshGeneration = 0;
+
   /** 全量兜底：拉分页列表 + summary + dashboard。代价最高。 */
   async function refreshRuntimeData(): Promise<void> {
+    const gen = ++refreshGeneration;
     try {
       // 仪表盘指标走独立 stats 接口，避免与分页 allTasks 共算。stats 刷新失败
       // 不应阻断列表更新，所以容错落到 onError 而非 throw。
@@ -45,8 +52,12 @@ export function useTaskEvents(
         loadTasks(),
         refreshDashboardStats ? refreshDashboardStats() : Promise.resolve(),
       ]);
+      if (gen !== refreshGeneration) return; // 已有更新的刷新，放弃 selected 段
       if (selectedTaskId.value) {
         const snapshot = await apiGetTask(selectedTaskId.value);
+        // 二次校验：fetch 期间若有更新的刷新发起，丢弃本次 upsert，
+        // 避免过期快照覆盖较新状态。
+        if (gen !== refreshGeneration) return;
         if (snapshot) allTasks.value = upsertById(allTasks.value, snapshot, "taskId");
       }
     } catch (caught) {
@@ -203,8 +214,8 @@ export function useTaskEvents(
 
   return {
     applyEvent,
-    // 暴露便于上层手动触发兜底（如 WebSocket 重连恢复后补单）；
-    // 当前 useConsoleApp 未使用，保留作为扩展点。
+    // 暴露便于上层手动触发兜底（如 WebSocket 重连恢复后补单）。
+    refreshRuntimeData,
     scheduleRefresh,
     scheduleStatsRefresh,
     refreshTaskById,

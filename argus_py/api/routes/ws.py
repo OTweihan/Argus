@@ -20,6 +20,8 @@ from argus_py.infra.events import (
     EventBus,
     EventBusSubscriberLimitError,
     EventSubscription,
+    EventSubscriptionResult,
+    ReplayWindow,
     TaskEvent,
 )
 from argus_py.observability.context import run_in_thread
@@ -29,6 +31,14 @@ logger = logging.getLogger(__name__)
 
 # 服务端发心跳的间隔（秒）。前端 ws.ts 以 2.5× 此值判定断连，调整时同步更新前端。
 WS_KEEPALIVE_SECONDS = 30.0
+
+# 回放事件直发批次大小：回放经 subscribe_with_replay 收集为有界列表后分批推送，
+# 避免先塞进比 history 更小的订阅队列导致 drop-oldest。
+REPLAY_BATCH_SIZE = 100
+
+# 断连轮询间隔（秒）：主循环用 wait_for 以该间隔醒来检查 disconnected 标记。
+# 与 WS_KEEPALIVE_SECONDS 解耦——断连释放订阅队列要快，心跳节律要保持 30s。
+_DISCONNECT_POLL_SECONDS = 1.0
 
 # CORS allow list 模块级缓存：避免每次 WS 连接都读磁盘 parse YAML。
 # 生产容器中 server.yaml 在部署后不会变更，一次性加载即可；开发环境
@@ -67,6 +77,16 @@ def _parse_since_seq(websocket: WebSocket) -> int | None:
         return int(raw)
     except (ValueError, TypeError):
         return None
+
+
+def _parse_stream_epoch(websocket: WebSocket) -> str | None:
+    """从 WebSocket 查询参数中提取 ``epoch``（客户端上次连接的 streamEpoch）。
+
+    客户端重连时带上旧纪元；服务端比对不一致即判定"服务重启后 sequence 空间
+    不连续"，发送 ``system.replay_gap`` 并回放完整 history。
+    """
+    raw = websocket.query_params.get("epoch")
+    return raw.strip() if raw else None
 
 
 def _consume_ws_ticket(websocket: WebSocket) -> bool:
@@ -131,6 +151,7 @@ async def task_events(
         return
     await websocket.accept()
     since_seq = _parse_since_seq(websocket)
+    client_epoch = _parse_stream_epoch(websocket)
     # SQLite 读阻塞事件循环时 WebSocket 心跳会被拖慢，挪去线程池。
     if not await run_in_thread(reader.task_exists, task_id):
         await websocket.send_json(
@@ -140,16 +161,23 @@ async def task_events(
         return
 
     try:
-        subscription = await event_bus.subscribe(task_id=task_id, replay=True, since_seq=since_seq)
+        result, gap_reason = await _subscribe_with_gap_detection(
+            event_bus, task_id=task_id, since_seq=since_seq, client_epoch=client_epoch
+        )
     except EventBusSubscriberLimitError as exc:
         await websocket.send_json(_system_event("system.error", task_id=task_id, message=str(exc)))
         # 1013 service overload：让前端区分"系统忙，可重试"与 1008 业务拒绝。
         await websocket.close(code=1013)
         return
-    await websocket.send_json(
-        _system_event("system.ready", task_id=task_id, message="任务事件订阅已建立。")
+    await _send_ready_with_replay(
+        websocket,
+        result=result,
+        task_id=task_id,
+        client_epoch=client_epoch,
+        requested_since_seq=since_seq,
+        gap_reason=gap_reason,
     )
-    await _stream_events(websocket, subscription)
+    await _stream_events(websocket, result.subscription)
 
 
 @router.websocket("/tasks")
@@ -163,31 +191,148 @@ async def all_task_events(
         return
     await websocket.accept()
     since_seq = _parse_since_seq(websocket)
+    client_epoch = _parse_stream_epoch(websocket)
     try:
-        subscription = await event_bus.subscribe(task_id=None, replay=True, since_seq=since_seq)
+        result, gap_reason = await _subscribe_with_gap_detection(
+            event_bus, task_id=None, since_seq=since_seq, client_epoch=client_epoch
+        )
     except EventBusSubscriberLimitError as exc:
         await websocket.send_json(_system_event("system.error", message=str(exc)))
         await websocket.close(code=1013)
         return
-    await websocket.send_json(_system_event("system.ready", message="全局任务事件订阅已建立。"))
-    await _stream_events(websocket, subscription)
+    await _send_ready_with_replay(
+        websocket,
+        result=result,
+        task_id=None,
+        client_epoch=client_epoch,
+        requested_since_seq=since_seq,
+        gap_reason=gap_reason,
+    )
+    await _stream_events(websocket, result.subscription)
+
+
+async def _subscribe_with_gap_detection(
+    event_bus: EventBus,
+    *,
+    task_id: str | None,
+    since_seq: int | None,
+    client_epoch: str | None,
+) -> tuple[EventSubscriptionResult, str | None]:
+    """订阅并检测回放缺口，返回 (订阅结果, 缺口原因或 None)。
+
+    在订阅前基于客户端纪元决定有效 sinceSeq，只订阅一次，避免"关闭旧订阅后
+    重新订阅"两步之间的窗口丢事件，也避免二次订阅撞 ``max_subscribers``：
+
+    - ``epoch_changed``：客户端带旧纪元（服务重启后 sequence 空间不连续），
+      旧 sinceSeq 无意义，丢弃后回放完整 history；
+    - ``since_seq_out_of_window``：sinceSeq 早于可回放窗口，保留订阅并回放
+      窗口内全部可回放事件。
+    """
+    gap_reason: str | None = None
+    if client_epoch is not None and client_epoch != event_bus.stream_epoch:
+        gap_reason = "epoch_changed"
+        since_seq = None
+    result = await event_bus.subscribe_with_replay(task_id=task_id, since_seq=since_seq)
+    if gap_reason is None and since_seq is not None and since_seq < result.window.oldest_sequence:
+        gap_reason = "since_seq_out_of_window"
+    return result, gap_reason
+
+
+async def _send_ready_with_replay(
+    websocket: WebSocket,
+    *,
+    result: EventSubscriptionResult,
+    task_id: str | None,
+    client_epoch: str | None,
+    requested_since_seq: int | None,
+    gap_reason: str | None,
+) -> None:
+    """下发 ``system.ready`` 及有界回放批次。
+
+    顺序固定：先 ``system.replay_gap``（如有缺口），再 ``system.ready``（携带
+    ``streamEpoch`` / ``oldestSequence`` / ``currentSequence`` /
+    ``replayComplete``），最后分批直发回放事件。客户端据此检测服务重启后的
+    epoch 变化，在缺口时丢弃旧 cursor 并从 SQLite 权威刷新，WebSocket 只保留
+    低延迟通知职责。
+    """
+    window = result.window
+
+    if gap_reason is not None:
+        await websocket.send_json(
+            _replay_gap_event(
+                reason=gap_reason,
+                task_id=task_id,
+                client_epoch=client_epoch,
+                window=window,
+                requested_since_seq=requested_since_seq,
+            )
+        )
+
+    await websocket.send_json(
+        _ready_event(
+            task_id=task_id,
+            window=window,
+            replay_complete=result.replay_complete,
+        )
+    )
+    await _send_replay(websocket, result.replay_events)
+
+
+async def _send_replay(websocket: WebSocket, replay_events: list[TaskEvent]) -> None:
+    """分批直发回放事件，避免把大于订阅队列容量的回放塞进队列被 drop-oldest。"""
+    for start in range(0, len(replay_events), REPLAY_BATCH_SIZE):
+        chunk = replay_events[start : start + REPLAY_BATCH_SIZE]
+        for evt in chunk:
+            await websocket.send_json(evt.to_dict())
 
 
 async def _stream_events(websocket: WebSocket, subscription: EventSubscription) -> None:
-    """持续推送事件到 WebSocket（含 tick 级 coalesce）。
+    """持续推送事件到 WebSocket（含 tick 级 coalesce + 主动断连检测）。
 
     每次从队列获取事件后，尝试不阻塞地排空额外堆积事件，按 type 合并后
     批量发送，减少 WS 帧数。
+
+    并发 watcher 监听客户端断连并置位 ``disconnected``；主循环以较短间隔
+    （``_DISCONNECT_POLL_SECONDS``）的 ``wait_for`` 轮询该标记，客户端关闭/网络
+    中断时及时释放订阅队列，避免 socket 未优雅关闭时订阅占位过久（慢消费者 /
+    max_subscribers 场景）。心跳仍按 ``WS_KEEPALIVE_SECONDS`` 发送，前端以其
+    2.5 倍时长判定静默断连。
+
+    不用 ``asyncio.wait`` 多路竞争：TestClient / anyio portal 下 ``asyncio.wait``
+    在取消传播时会把 concurrent.futures.CancelledError 泄漏到 ``portal.call``，
+    表现为 flaky 失败；``wait_for`` 自管内部任务取消，取消传播干净。
     """
+    disconnected = asyncio.Event()
+
+    async def _watch_disconnect() -> None:
+        """持续接收并忽略非断连消息；收到断连时置位事件。"""
+        try:
+            while True:
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
+                    disconnected.set()
+                    return
+        except Exception:
+            # 发送侧异常（如已断开）同样视为断连，避免 watcher 静默悬挂。
+            disconnected.set()
+
+    watcher = asyncio.create_task(_watch_disconnect())
+    loop = asyncio.get_running_loop()
+    last_keepalive = loop.time()
     try:
         while True:
             try:
                 event = await asyncio.wait_for(
                     subscription.queue.get(),
-                    timeout=WS_KEEPALIVE_SECONDS,
+                    timeout=_DISCONNECT_POLL_SECONDS,
                 )
-            except TimeoutError:
-                await websocket.send_json(_system_event("system.keepalive"))
+            except asyncio.TimeoutError:
+                if disconnected.is_set():
+                    raise WebSocketDisconnect()
+                now = loop.time()
+                if now - last_keepalive >= WS_KEEPALIVE_SECONDS:
+                    await websocket.send_json(_system_event("system.keepalive"))
+                    last_keepalive = now
                 continue
 
             batch: list[TaskEvent] = [event]
@@ -206,6 +351,7 @@ async def _stream_events(websocket: WebSocket, subscription: EventSubscription) 
     except WebSocketDisconnect:
         return
     finally:
+        watcher.cancel()
         await subscription.close()
 
 
@@ -244,3 +390,57 @@ def _system_event(
     if message:
         event["data"]["message"] = message
     return event
+
+
+def _ready_event(
+    task_id: str | None,
+    window: ReplayWindow,
+    replay_complete: bool,
+) -> dict[str, Any]:
+    """生成 ``system.ready``：携带可回放窗口与回放完成标记。
+
+    - ``streamEpoch``：本次进程的事件流纪元，重启即变化；
+    - ``oldestSequence`` / ``currentSequence``：可回放窗口边界；
+    - ``replayComplete``：本次回放是否无缺口地送达到客户端。
+    """
+    event = _system_event(
+        "system.ready",
+        task_id=task_id,
+        message="事件订阅已建立。",
+    )
+    event["data"].update(
+        {
+            "streamEpoch": window.stream_epoch,
+            "oldestSequence": window.oldest_sequence,
+            "currentSequence": window.current_sequence,
+            "replayComplete": replay_complete,
+        }
+    )
+    return event
+
+
+def _replay_gap_event(
+    reason: str,
+    task_id: str | None,
+    client_epoch: str | None,
+    window: ReplayWindow,
+    requested_since_seq: int | None,
+) -> dict[str, Any]:
+    """生成 ``system.replay_gap``：显式告知客户端存在回放缺口，不要静默丢失。
+
+    ``reason`` 取值：
+    - ``epoch_changed``：服务重启后 sequence 空间不连续（客户端带旧 epoch）；
+    - ``since_seq_out_of_window``：客户端请求的 sinceSeq 早于可回放窗口。
+    """
+    data: dict[str, Any] = {
+        "reason": reason,
+        "streamEpoch": window.stream_epoch,
+        "oldestSequence": window.oldest_sequence,
+        "currentSequence": window.current_sequence,
+        "message": "事件流存在缺口，客户端应丢弃旧游标并从权威接口重新同步。",
+    }
+    if requested_since_seq is not None:
+        data["requestedSinceSeq"] = requested_since_seq
+    if client_epoch is not None:
+        data["previousEpoch"] = client_epoch
+    return {"eventType": "system.replay_gap", "taskId": task_id, "data": data}

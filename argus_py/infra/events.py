@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from argus_py.core.ids import generate_id
 from argus_py.utils.jsonx import to_jsonable
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,38 @@ class EventBusSubscriberLimitError(RuntimeError):
     """
 
 
+@dataclass(frozen=True)
+class ReplayWindow:
+    """一次进程生命周期内的可回放事件窗口快照。
+
+    Attributes:
+        stream_epoch: 进程级事件流纪元（EventBus 构造时生成，重启即变化）。
+            WebSocket 客户端用它识别"服务重启后 sequence 空间不连续"。
+        oldest_sequence: history 中可回放的最早 sequence；history 为空时为
+            ``current_sequence + 1``（表示无任何可回放事件）。
+        current_sequence: 当前最新已发布 sequence。
+    """
+
+    stream_epoch: str
+    oldest_sequence: int
+    current_sequence: int
+
+
+@dataclass(frozen=True)
+class EventSubscriptionResult:
+    """``subscribe_with_replay`` 的返回：订阅 + 有界回放批次 + 回放窗口。
+
+    回放事件以普通列表返回（不经过 ``subscriber_queue_size`` 的订阅队列），
+    由调用方（WebSocket 路由）分批直发，避免 history 容量大于订阅队列时
+    回放被 drop-oldest 静默丢弃。
+    """
+
+    subscription: EventSubscription
+    replay_events: list[TaskEvent]
+    replay_complete: bool
+    window: ReplayWindow
+
+
 class EventBus:
     """内存事件总线，支持任务级和全局订阅。
 
@@ -84,7 +117,14 @@ class EventBus:
     drop-oldest 的代价是：**订阅端会看到 sequence 跳号**。订阅端必须容忍这种
     跳号；强一致场景应在重连时通过 ``subscribe(replay=True)`` 从 history
     回放补齐——history 容量由 ``history_limit``（默认 200）独立控制，比单个
-    订阅队列大。
+    订阅队列大。**注意**：``subscribe`` 的回放仍经订阅队列，history 大于队列
+    容量时会被 drop-oldest；WebSocket 等需要无丢失回放的调用方使用
+    ``subscribe_with_replay`` 获取有界回放批次直发。
+
+    sequence 在进程内单调递增、重启归零。``stream_epoch`` 在构造时生成并随
+    进程重启变化，客户端据此识别"sequence 空间不连续"，避免用重启前的高
+    sequence 跳过新进程已积累的历史（见 ``system.ready`` / ``system.replay_gap``
+    协议）。
 
     丢弃次数累加到 ``dropped_overflow_count`` 暴露给 ``metrics()``；连续高位
     报警意味着消费端不稳定或队列容量需要调大，可通过 ``server.yaml`` 的
@@ -102,6 +142,11 @@ class EventBus:
         # max_subscribers=0 表示不限制（向后兼容）；>0 时作为全局并发订阅上限，
         # 防止恶意/异常前端反复重连耗尽 asyncio.Queue 内存（每订阅独占一队列）。
         self.max_subscribers = max(0, max_subscribers)
+        # 进程级事件流纪元：服务重启后变化。sequence 从 0 重新计数，客户端若用
+        # 重启前的高 sequence 请求回放会跳过新进程已积累的历史；WebSocket 路由
+        # 在 ``system.ready`` 中下发本纪元，客户端重连时带上旧纪元，服务端比对
+        # 不一致则判定 epoch 变化，通知客户端丢弃旧 cursor 并从权威接口重建。
+        self.stream_epoch = generate_id("ev")
         self._sequence = 0
         self._global_subscribers: set[asyncio.Queue[TaskEvent]] = set()
         self._task_subscribers: dict[str, set[asyncio.Queue[TaskEvent]]] = defaultdict(set)
@@ -281,32 +326,92 @@ class EventBus:
             EventBusSubscriberLimitError: 当 ``max_subscribers>0`` 且当前订阅总数
                 已达上限。WebSocket 路由应捕获该异常并回 1013（service overload）
                 而不是 1008，让前端区分"限流可重试"和"业务规则拒绝"。
+
+        注意：回放经 ``_offer`` 进入订阅队列，history 容量大于
+        ``subscriber_queue_size`` 时回放会被 drop-oldest。需要无丢失回放的
+        调用方应使用 ``subscribe_with_replay``。
         """
-        queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=self.subscriber_queue_size)
         async with self._lock:
-            if self.max_subscribers > 0:
-                current_total = len(self._global_subscribers) + sum(
-                    len(s) for s in self._task_subscribers.values()
-                )
-                if current_total >= self.max_subscribers:
-                    self.rejected_subscriber_count += 1
-                    logger.warning(
-                        "事件总线订阅已达上限，拒绝新订阅：current=%d max=%d rejected_total=%d",
-                        current_total,
-                        self.max_subscribers,
-                        self.rejected_subscriber_count,
-                    )
-                    raise EventBusSubscriberLimitError(f"事件订阅已达上限 {self.max_subscribers}")
-            if task_id is None:
-                self._global_subscribers.add(queue)
-            else:
-                self._task_subscribers[task_id].add(queue)
+            queue = self._register_subscriber_locked(task_id)
             if replay:
                 for event in self._history:
                     if task_id is None or event.task_id == task_id:
                         if since_seq is None or event.sequence > since_seq:
                             self._offer(queue, event)
         return EventSubscription(self, queue, task_id)
+
+    async def subscribe_with_replay(
+        self,
+        task_id: str | None = None,
+        since_seq: int | None = None,
+    ) -> EventSubscriptionResult:
+        """订阅并返回有界回放批次，供 WebSocket 直发（O-05）。
+
+        与 ``subscribe`` 的差异：回放事件收集为普通列表返回（最多
+        ``history_limit`` 条），而不是先塞进 ``subscriber_queue_size`` 的队列
+        ——避免 history 容量大于订阅队列时回放被 drop-oldest 静默丢弃。注册订阅
+        与收集回放同在 ``self._lock`` 内完成，保证"回放批次 + 之后的实时事件"
+        无缝衔接、无重复无遗漏。
+
+        返回的 ``ReplayWindow`` 携带 ``stream_epoch`` / ``oldest_sequence`` /
+        ``current_sequence``，供路由在 ``system.ready`` 下发、客户端检测服务
+        重启后的 epoch 变化。
+        """
+        replay_events: list[TaskEvent] = []
+        async with self._lock:
+            queue = self._register_subscriber_locked(task_id)
+            for event in self._history:
+                if task_id is None or event.task_id == task_id:
+                    if since_seq is None or event.sequence > since_seq:
+                        replay_events.append(event)
+            window = self._replay_window_locked()
+        return EventSubscriptionResult(
+            subscription=EventSubscription(self, queue, task_id),
+            replay_events=replay_events,
+            # 有界列表收集无溢出，恒为 True；预留字段兼容未来分页回放实现。
+            replay_complete=True,
+            window=window,
+        )
+
+    def _register_subscriber_locked(self, task_id: str | None) -> asyncio.Queue[TaskEvent]:
+        """在持有 ``self._lock`` 时创建并注册订阅队列。
+
+        超过 ``max_subscribers`` 上限时抛 ``EventBusSubscriberLimitError`` 并
+        累加 ``rejected_subscriber_count``。供 ``subscribe`` 与
+        ``subscribe_with_replay`` 复用。
+        """
+        queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=self.subscriber_queue_size)
+        if self.max_subscribers > 0:
+            current_total = len(self._global_subscribers) + sum(
+                len(s) for s in self._task_subscribers.values()
+            )
+            if current_total >= self.max_subscribers:
+                self.rejected_subscriber_count += 1
+                logger.warning(
+                    "事件总线订阅已达上限，拒绝新订阅：current=%d max=%d rejected_total=%d",
+                    current_total,
+                    self.max_subscribers,
+                    self.rejected_subscriber_count,
+                )
+                raise EventBusSubscriberLimitError(f"事件订阅已达上限 {self.max_subscribers}")
+        if task_id is None:
+            self._global_subscribers.add(queue)
+        else:
+            self._task_subscribers[task_id].add(queue)
+        return queue
+
+    async def replay_window(self) -> ReplayWindow:
+        """返回当前可回放事件窗口快照（不创建订阅）。"""
+        async with self._lock:
+            return self._replay_window_locked()
+
+    def _replay_window_locked(self) -> ReplayWindow:
+        """在持有 ``self._lock`` 时计算回放窗口。"""
+        return ReplayWindow(
+            stream_epoch=self.stream_epoch,
+            oldest_sequence=self._history[0].sequence if self._history else self._sequence + 1,
+            current_sequence=self._sequence,
+        )
 
     async def unsubscribe(self, subscription: EventSubscription) -> None:
         """取消事件订阅。"""

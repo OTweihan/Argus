@@ -1,7 +1,9 @@
 """验证 ws.py 内部工具函数：
 - _parse_since_seq 的查询参数解析
+- _parse_stream_epoch 的纪元参数解析
 - _is_origin_allowed 的 CORS 校验
 - _coalesce_events 白名单式合并正确性
+- _ready_event / _replay_gap_event 系统事件负载（O-05）
 """
 
 from __future__ import annotations
@@ -11,8 +13,15 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from argus_py.api.routes.ws import _coalesce_events, _is_origin_allowed, _parse_since_seq
-from argus_py.infra.events import TaskEvent
+from argus_py.api.routes.ws import (
+    _coalesce_events,
+    _is_origin_allowed,
+    _parse_since_seq,
+    _parse_stream_epoch,
+    _ready_event,
+    _replay_gap_event,
+)
+from argus_py.infra.events import ReplayWindow, TaskEvent
 
 
 def _fake_ws(
@@ -68,6 +77,24 @@ class TestParseSinceSeq:
     def test_parses_zero(self) -> None:
         ws = _fake_ws({"sinceSeq": "0"})
         assert _parse_since_seq(ws) == 0
+
+
+class TestParseStreamEpoch:
+    def test_parses_epoch(self) -> None:
+        ws = _fake_ws({"epoch": "ev-20260810-abcdef12"})
+        assert _parse_stream_epoch(ws) == "ev-20260810-abcdef12"
+
+    def test_returns_none_when_missing(self) -> None:
+        ws = _fake_ws({})
+        assert _parse_stream_epoch(ws) is None
+
+    def test_trims_whitespace(self) -> None:
+        ws = _fake_ws({"epoch": "  ev-abc  "})
+        assert _parse_stream_epoch(ws) == "ev-abc"
+
+    def test_empty_string_returns_none(self) -> None:
+        ws = _fake_ws({"epoch": ""})
+        assert _parse_stream_epoch(ws) is None
 
 
 class TestIsOriginAllowed:
@@ -197,3 +224,82 @@ class TestCoalesceEvents:
     def test_empty_input_returns_empty(self) -> None:
         """空列表返回空。"""
         assert _coalesce_events([]) == []
+
+
+def _window(
+    epoch: str = "ev-20260810-abc",
+    oldest: int = 1,
+    current: int = 5,
+) -> ReplayWindow:
+    """构造测试用 ReplayWindow。"""
+    return ReplayWindow(
+        stream_epoch=epoch,
+        oldest_sequence=oldest,
+        current_sequence=current,
+    )
+
+
+class TestReadyEvent:
+    """system.ready 负载（O-05）：携带回放窗口与回放完成标记。"""
+
+    def test_global_ready_payload(self) -> None:
+        event = _ready_event(task_id=None, window=_window(), replay_complete=True)
+        assert event["eventType"] == "system.ready"
+        assert event["taskId"] is None
+        data = event["data"]
+        assert data["streamEpoch"] == "ev-20260810-abc"
+        assert data["oldestSequence"] == 1
+        assert data["currentSequence"] == 5
+        assert data["replayComplete"] is True
+        assert data["message"]
+
+    def test_task_scoped_ready_payload(self) -> None:
+        event = _ready_event(task_id="tk-1", window=_window(current=9), replay_complete=False)
+        assert event["taskId"] == "tk-1"
+        assert event["data"]["currentSequence"] == 9
+        assert event["data"]["replayComplete"] is False
+
+
+class TestReplayGapEvent:
+    """system.replay_gap 负载（O-05）：显式告知回放缺口，不静默丢失。"""
+
+    def test_epoch_changed_includes_previous_epoch(self) -> None:
+        event = _replay_gap_event(
+            reason="epoch_changed",
+            task_id=None,
+            client_epoch="ev-stale",
+            window=_window(),
+            requested_since_seq=999,
+        )
+        assert event["eventType"] == "system.replay_gap"
+        data = event["data"]
+        assert data["reason"] == "epoch_changed"
+        assert data["previousEpoch"] == "ev-stale"
+        assert data["requestedSinceSeq"] == 999
+        assert data["streamEpoch"] == "ev-20260810-abc"
+        assert data["oldestSequence"] == 1
+        assert data["currentSequence"] == 5
+
+    def test_since_seq_out_of_window_omits_previous_epoch(self) -> None:
+        event = _replay_gap_event(
+            reason="since_seq_out_of_window",
+            task_id="tk-1",
+            client_epoch=None,
+            window=_window(),
+            requested_since_seq=0,
+        )
+        data = event["data"]
+        assert data["reason"] == "since_seq_out_of_window"
+        assert "previousEpoch" not in data
+        assert data["requestedSinceSeq"] == 0
+        assert event["taskId"] == "tk-1"
+
+    def test_no_requested_seq_when_none(self) -> None:
+        event = _replay_gap_event(
+            reason="epoch_changed",
+            task_id=None,
+            client_epoch="ev-stale",
+            window=_window(),
+            requested_since_seq=None,
+        )
+        assert "requestedSinceSeq" not in event["data"]

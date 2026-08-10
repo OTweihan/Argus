@@ -34,6 +34,9 @@ export function useConsoleApp() {
   const projects = ref<Project[]>([]);
   const allTasks = ref<Task[]>([]);
   const models = ref<ModelConfig[]>([]);
+  // 时间线/日志重拉信号：回放缺口时自增，TaskTimeline 监听后从 SQLite 权威重拉，
+  // 补齐断线期间遗漏的持久化时间线事件。
+  const timelineReloadTick = ref(0);
 
   // dashboard 相关 ref / loader / computed 抽到 useDashboardStats。
   const dashboard = useDashboardStats({ error });
@@ -69,6 +72,14 @@ export function useConsoleApp() {
   );
   events.onTaskEvent((event) => taskEvents.applyEvent(event));
   events.onReconnect(() => taskEvents.scheduleStatsRefresh());
+  // 回放缺口（sinceSeq 超窗 / 服务重启 epoch 变化）：WebSocket 游标已失效，改由
+  // SQLite 权威刷新可见列表、当前任务与 dashboard；时间线组件监听 reloadTick
+  // 变化重拉持久化时间线。实时 patch 继续走 onTaskEvent，二者以服务端快照为准，
+  // 不会相互覆盖（见 useTaskEvents 的权威刷新代次）。
+  events.onReplayGap(() => {
+    void taskEvents.refreshRuntimeData();
+    timelineReloadTick.value += 1;
+  });
 
   /* ── 视图与 WebSocket 编排 ──
    *
@@ -245,6 +256,7 @@ export function useConsoleApp() {
     taskStatusFilter: taskDomain.taskStatusFilter,
     taskTypeFilter: taskDomain.taskTypeFilter,
     testModel: modelDomain.testModel,
+    timelineReloadTick,
     total: taskDomain.total,
     view: nav.view,
     viewTitle,

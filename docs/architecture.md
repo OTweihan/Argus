@@ -258,6 +258,12 @@ HTTP adapter ──→ application ──→ domain
   异常退出路径必须主动 flush，不能把未落盘缓冲当作可靠事实。
 - 事件必须携带稳定事件类型、任务标识、时间和必要上下文；新增字段保持向后兼容。
 - 前端断线重连后通过查询接口恢复状态，不能要求 EventBus 无限保留历史。
+- **回放缺口显式化（O-05）**：`system.ready` 携带 `streamEpoch` / `oldestSequence` /
+  `currentSequence` / `replayComplete`；`subscribe` 回放经订阅队列、history 大于队列
+  容量时会被 drop-oldest，WebSocket 使用 `subscribe_with_replay` 有界直发避免静默丢失。
+  `streamEpoch` 随进程重启变化，客户端重连带旧纪元，服务端比对不一致或 `sinceSeq` 早于
+  可回放窗口时下发 `system.replay_gap`（不静默丢事件），前端丢弃旧游标并从 SQLite
+  权威刷新列表、当前任务与持久化时间线；WebSocket 只保留低延迟通知职责。
 
 ## 6. 状态、并发与扩展边界
 

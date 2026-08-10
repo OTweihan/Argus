@@ -1,7 +1,7 @@
 import { computed, onUnmounted, ref, type Ref } from "vue";
 
 import type { TaskEvent } from "../types";
-import { TaskEventStream } from "../ws";
+import { TaskEventStream, type ReplayGapInfo } from "../ws";
 import type { ViewKey } from "./useNavigation";
 
 type EventStatus = "connected" | "disconnected" | "error" | "reconnecting" | "reconnected";
@@ -42,6 +42,24 @@ export function useRuntimeEvents() {
     }
   });
 
+  /* ── 回放缺口同步 ── */
+
+  const replayGapCallbacks: ((info: ReplayGapInfo) => void)[] = [];
+
+  /** 服务端判定回放存在缺口（sinceSeq 超窗 / 服务重启 epoch 变化）时触发，
+   * 上层应丢弃旧游标并从权威接口重建列表、当前任务与时间线。 */
+  function onReplayGap(callback: (info: ReplayGapInfo) => void): () => void {
+    replayGapCallbacks.push(callback);
+    return () => {
+      const idx = replayGapCallbacks.indexOf(callback);
+      if (idx !== -1) replayGapCallbacks.splice(idx, 1);
+    };
+  }
+
+  eventStream.onReplayGap((info) => {
+    for (const cb of replayGapCallbacks) cb(info);
+  });
+
   /* ── 事件分发 ── */
 
   const taskEventCallbacks: ((event: TaskEvent) => void)[] = [];
@@ -71,5 +89,12 @@ export function useRuntimeEvents() {
     eventStream.close();
   });
 
-  return { eventStatus, eventStatusText, onTaskEvent, onReconnect, connectEventStream };
+  return {
+    eventStatus,
+    eventStatusText,
+    onTaskEvent,
+    onReconnect,
+    onReplayGap,
+    connectEventStream,
+  };
 }

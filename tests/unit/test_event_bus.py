@@ -6,6 +6,8 @@
 - 限频 warning 在首次和每 100 次触发
 - async 路径行为不受影响（与原有行为兼容）
 - subscribe(since_seq=...) 部分回放
+- subscribe_with_replay 有界回放批次：history > 队列容量不丢事件（O-05）
+- stream_epoch 随 EventBus 实例（进程）变化，回放窗口边界正确（O-05）
 """
 
 from __future__ import annotations
@@ -40,11 +42,14 @@ class TestPublishWithoutLoop:
         assert [ev.sequence for ev in bus._history] == [1, 2, 3, 4, 5]
 
     def test_sync_publish_warns_first_and_periodically(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """首次 warn 一次，之后每 100 次 warn 一次。"""
         bus = EventBus(history_limit=200)
         caplog.set_level(logging.WARNING, logger="argus_py.infra.events")
+        # 根日志配置中 argus_py logger 的 propagate=false 阻止记录传播到 caplog，
+        # 需临时开启（与 test_prompt_composition.py 同款约定）。
+        monkeypatch.setattr(logging.getLogger("argus_py"), "propagate", True)
 
         # 触发 101 次，预期 warn 出现在 count=1 和 count=100
         for _ in range(101):
@@ -113,12 +118,14 @@ class TestSubscriberQueueOverflow:
 
     @pytest.mark.asyncio
     async def test_overflow_warns_first_and_periodically(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """drop-oldest 限频 warn：首次 + 每 100 次。"""
         bus = EventBus(history_limit=500, subscriber_queue_size=1)
         await bus.subscribe(replay=False)
         caplog.set_level(logging.WARNING, logger="argus_py.infra.events")
+        # 同 test_sync_publish_warns_first_and_periodically：临时开启 propagate。
+        monkeypatch.setattr(logging.getLogger("argus_py"), "propagate", True)
 
         # 触发：第 1 条入队不丢弃，第 2 条开始每条都丢一次最旧。
         # 发 102 条 → 丢弃 101 次（count 1..101），预期 warn 在 count=1 和 100
@@ -297,6 +304,128 @@ class TestSubscribeSinceSeq:
         sub = await bus.subscribe(task_id="tk-1", since_seq=1)
         events = _drain(sub.queue)
         assert [e.sequence for e in events] == [2]  # tk-1 的 seq=2
+
+
+class TestSubscribeWithReplay:
+    """subscribe_with_replay 有界回放批次（O-05）：history > 队列容量不丢事件。"""
+
+    @pytest.mark.asyncio
+    async def test_history_larger_than_queue_replays_all(self) -> None:
+        """history_limit=200 > subscriber_queue_size=10：150 条全部进入回放批次。"""
+        bus = EventBus(history_limit=200, subscriber_queue_size=10)
+        for i in range(1, 151):
+            await bus.publish_async("task.step", "tk-1", {"i": i})
+
+        result = await bus.subscribe_with_replay(task_id="tk-1")
+        try:
+            assert len(result.replay_events) == 150
+            assert [e.sequence for e in result.replay_events] == list(range(1, 151))
+            # 回放不经过订阅队列：实时队列此时为空
+            assert result.subscription.queue.empty()
+            assert result.replay_complete is True
+        finally:
+            await result.subscription.close()
+
+    @pytest.mark.asyncio
+    async def test_since_seq_filters_replay(self) -> None:
+        bus = EventBus(history_limit=20, subscriber_queue_size=2)
+        for i in range(1, 6):
+            await bus.publish_async("task.step", "tk-1", {"i": i})
+
+        result = await bus.subscribe_with_replay(task_id="tk-1", since_seq=3)
+        try:
+            assert [e.sequence for e in result.replay_events] == [4, 5]
+        finally:
+            await result.subscription.close()
+
+    @pytest.mark.asyncio
+    async def test_live_events_after_replay_still_delivered(self) -> None:
+        """订阅注册后发布的事件进入实时队列，与回放批次无重复无遗漏。"""
+        bus = EventBus(history_limit=20, subscriber_queue_size=5)
+        await bus.publish_async("task.step", "tk-1", {"i": 1})
+
+        result = await bus.subscribe_with_replay(task_id="tk-1")
+        try:
+            assert [e.sequence for e in result.replay_events] == [1]
+            await bus.publish_async("task.step", "tk-1", {"i": 2})
+            live = _drain(result.subscription.queue)
+            assert [e.sequence for e in live] == [2]
+        finally:
+            await result.subscription.close()
+
+    @pytest.mark.asyncio
+    async def test_task_filter_applied(self) -> None:
+        """任务级订阅只回放该任务的事件。"""
+        bus = EventBus(history_limit=20, subscriber_queue_size=5)
+        await bus.publish_async("task.step", "tk-1", {"i": 1})
+        await bus.publish_async("task.step", "tk-2", {"i": 2})
+
+        result = await bus.subscribe_with_replay(task_id="tk-1")
+        try:
+            assert [e.task_id for e in result.replay_events] == ["tk-1"]
+            assert result.window.current_sequence == 2
+        finally:
+            await result.subscription.close()
+
+    @pytest.mark.asyncio
+    async def test_max_subscribers_still_enforced(self) -> None:
+        """subscribe_with_replay 同样受 max_subscribers 上限约束。"""
+        from argus_py.infra.events import EventBusSubscriberLimitError
+
+        bus = EventBus(history_limit=10, max_subscribers=1)
+        result = await bus.subscribe_with_replay(task_id="tk-1")
+        try:
+            with pytest.raises(EventBusSubscriberLimitError):
+                await bus.subscribe_with_replay(task_id="tk-2")
+        finally:
+            await result.subscription.close()
+
+
+class TestStreamEpoch:
+    """stream_epoch：进程级纪元，随 EventBus 实例（进程）变化。"""
+
+    @pytest.mark.asyncio
+    async def test_epoch_present_in_window(self) -> None:
+        bus = EventBus(history_limit=10)
+        window = await bus.replay_window()
+        assert window.stream_epoch
+        assert window.current_sequence == 0
+        # 空 history：oldest = current + 1，表示无可回放事件
+        assert window.oldest_sequence == 1
+
+    @pytest.mark.asyncio
+    async def test_epoch_differs_across_instances(self) -> None:
+        """不同 EventBus 实例（模拟服务重启）纪元不同，sequence 归零。"""
+        bus_a = EventBus(history_limit=10)
+        await bus_a.publish_async("task.step", "tk-1", {"i": 1})
+        window_a = await bus_a.replay_window()
+
+        bus_b = EventBus(history_limit=10)
+        window_b = await bus_b.replay_window()
+
+        assert window_a.stream_epoch != window_b.stream_epoch
+        assert window_a.current_sequence == 1
+        assert window_b.current_sequence == 0
+
+    @pytest.mark.asyncio
+    async def test_oldest_is_first_history_sequence(self) -> None:
+        bus = EventBus(history_limit=5)
+        for i in range(1, 4):
+            await bus.publish_async("task.step", "tk-1", {"i": i})
+        window = await bus.replay_window()
+        assert window.oldest_sequence == 1
+        assert window.current_sequence == 3
+
+    @pytest.mark.asyncio
+    async def test_oldest_advances_after_history_evicts(self) -> None:
+        """history 溢出淘汰后 oldest 前移（可回放窗口收窄）。"""
+        bus = EventBus(history_limit=3)
+        for i in range(1, 6):
+            await bus.publish_async("task.step", "tk-1", {"i": i})
+        window = await bus.replay_window()
+        # 只保留 seq 3,4,5
+        assert window.oldest_sequence == 3
+        assert window.current_sequence == 5
 
 
 class TestTickCoalescing:

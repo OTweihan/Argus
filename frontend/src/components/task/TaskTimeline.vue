@@ -116,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getTaskEvents } from "../../api";
 import type { TaskEvent, TimelineEvent } from "../../types";
 import { errorMessage } from "../../utils";
@@ -136,6 +136,8 @@ const props = defineProps<{
   taskId: string;
   onTaskEvent?: (cb: (event: TaskEvent) => void) => () => void;
   variant?: "timeline" | "whitebox-log";
+  /** 回放缺口/服务重启信号：值变化时从 SQLite 权威重拉时间线，补齐断线遗漏。 */
+  reloadTick?: number;
 }>();
 
 const variant = props.variant ?? "timeline";
@@ -165,15 +167,7 @@ function eventOpen(id: string): boolean {
 }
 
 onMounted(async () => {
-  loading.value = true;
-  error.value = "";
-  try {
-    events.value = await getTaskEvents(props.taskId);
-  } catch (caught) {
-    error.value = errorMessage(caught);
-  } finally {
-    loading.value = false;
-  }
+  await loadEvents();
 
   if (props.onTaskEvent) {
     unregisterWs = props.onTaskEvent((wsEvent: TaskEvent) => {
@@ -189,6 +183,27 @@ onMounted(async () => {
 });
 
 let unregisterWs: (() => void) | null = null;
+
+/** reloadTick 变化 → 权威重拉：清空后以 SQLite 为准重建，保留真实顺序。 */
+watch(
+  () => props.reloadTick,
+  () => {
+    if (props.reloadTick === undefined) return;
+    void loadEvents();
+  },
+);
+
+async function loadEvents(): Promise<void> {
+  loading.value = true;
+  error.value = "";
+  try {
+    events.value = await getTaskEvents(props.taskId);
+  } catch (caught) {
+    error.value = errorMessage(caught);
+  } finally {
+    loading.value = false;
+  }
+}
 
 onUnmounted(() => {
   unregisterWs?.();

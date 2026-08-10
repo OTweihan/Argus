@@ -92,17 +92,23 @@ describe("API session token", () => {
     const stream = new TaskEventStream();
     const internal = stream as unknown as {
       endpoint: string;
-      openSocket: (endpoint: string, sinceSeq?: number) => Promise<void>;
+      openSocket: (
+        endpoint: string,
+        sinceSeq?: number,
+        epoch?: string,
+      ) => Promise<void>;
     };
     // 复刻 connect() 的准备工作：openSocket 前先登记当前 endpoint，
     // 避免 ticket 换取期间被 stale-guard 判定为"已切换端点"而中止。
     const endpoint = "ws://localhost/argus/api/ws/tasks/task%2Fwith%20space";
     internal.endpoint = endpoint;
-    await internal.openSocket(endpoint, 42);
+    await internal.openSocket(endpoint, 42, "ev-20260810-abcdef12");
 
     const created = new URL(MockWebSocket.instances[0].url);
     expect(created.pathname).toContain("/ws/tasks/task%2Fwith%20space");
     expect(created.searchParams.get("sinceSeq")).toBe("42");
+    // 重连时携带上次连接的纪元，服务端据此识别服务重启后的 sequence 空间不连续。
+    expect(created.searchParams.get("epoch")).toBe("ev-20260810-abcdef12");
     // 长期 Token 不进入 WebSocket query：换成了短时、单次 ticket。
     expect(created.searchParams.get("token")).toBe("short-lived-ticket");
     expect(created.searchParams.get("token")).not.toBe("token +/?&中文");

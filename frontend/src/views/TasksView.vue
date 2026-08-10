@@ -75,6 +75,7 @@
               :key="selectedTask.taskId"
               :task-id="selectedTask.taskId"
               :on-task-event="onTaskEvent"
+              :reload-tick="timelineReloadTick"
               :variant="isWhitebox ? 'whitebox-log' : 'timeline'"
             />
           </el-tab-pane>
@@ -264,6 +265,7 @@ const {
   onPageSizeChange,
   onTaskEvent,
   selectTask,
+  timelineReloadTick,
 } = injectConsoleApp();
 
 const {

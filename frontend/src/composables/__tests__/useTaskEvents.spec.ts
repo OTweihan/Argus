@@ -326,4 +326,52 @@ describe("useTaskEvents.applyEvent — fallback 路径收紧", () => {
 
     h.dispose();
   });
+
+  it("refreshRuntimeData 被更新的刷新取代时，丢弃迟到的 selected-task upsert", async () => {
+    const h = setupHarness([makeTask({ taskId: "t1", status: "running" })]);
+    h.selectedTaskId.value = "t1";
+
+    // 第一次刷新：selected fetch 挂起
+    let resolveFirst: (value: Task) => void = () => {};
+    apiGetTaskMock.mockImplementationOnce(
+      () =>
+        new Promise<Task>((res) => {
+          resolveFirst = res;
+        }),
+    );
+    const p1 = h.events.refreshRuntimeData();
+    await flushPromises();
+
+    // 第二次刷新先完成，selected 快照较新（completed）
+    apiGetTaskMock.mockResolvedValue(makeTask({ taskId: "t1", status: "completed" }));
+    await h.events.refreshRuntimeData();
+    await flushPromises();
+    expect(h.allTasks.value[0]?.status).toBe("completed");
+
+    // 第一次刷新的 selected fetch 迟到返回旧状态（failed）：代次已落后，应被丢弃
+    resolveFirst(makeTask({ taskId: "t1", status: "failed" }));
+    await p1;
+    await flushPromises();
+    expect(h.allTasks.value[0]?.status).toBe("completed");
+
+    h.dispose();
+  });
+
+  it("refreshRuntimeData 权威刷新：列表 + stats + 当前任务一次对齐", async () => {
+    const h = setupHarness([makeTask({ taskId: "t1", status: "running" })]);
+    h.selectedTaskId.value = "t1";
+    apiGetTaskMock.mockResolvedValue(
+      makeTask({ taskId: "t1", status: "completed", findingCount: 2 }),
+    );
+
+    await h.events.refreshRuntimeData();
+
+    expect(h.loadTasks).toHaveBeenCalledTimes(1);
+    expect(h.refreshStats).toHaveBeenCalledTimes(1);
+    expect(apiGetTaskMock).toHaveBeenCalledWith("t1");
+    expect(h.allTasks.value[0]?.status).toBe("completed");
+    expect(h.allTasks.value[0]?.findingCount).toBe(2);
+
+    h.dispose();
+  });
 });
