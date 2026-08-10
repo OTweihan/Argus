@@ -252,7 +252,14 @@ HTTP adapter ──→ application ──→ domain
 
 - Uvicorn worker 必须为 1，Python 服务副本必须为 1。
 - 业务并发只通过 `scheduler.concurrency`、有界线程池和有界外部调用并发调整。
-- 不得删除现有多 worker 防护或通过其他启动命令绕过。
+- 强制机制（fail-closed，O-02）：
+  1. CLI `argus serve` 与 lifespan 均检测 `WEB_CONCURRENCY`/`UVICORN_WORKERS > 1`，
+     直接拒绝启动（不只是告警）；
+  2. lifespan 启动时获取 outputs 目录跨进程独占 OS 文件锁（Windows `msvcrt.locking` /
+     POSIX `fcntl.flock`，进程退出自动释放）；两个进程指向同一 DB/outputs 时，
+     后启动者拿不到锁同样拒启。
+- `/ready` 依据 Worker 健康快照（`alive_loops`/`crashed_loops`）返回真实就绪状态：
+  loop 全部异常退出时 503，仅进程存活时 `/health` 仍为 200。
 
 只有同时完成以下改造，才允许多 worker/多副本：
 

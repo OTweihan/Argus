@@ -33,12 +33,16 @@ export interface paths {
         };
         /**
          * Readiness Check
-         * @description 就绪探针：依次检查 DB、事件总线、Worker。
+         * @description 就绪探针：依据 lifespan 已初始化的容器状态依次检查 DB、事件总线、Worker。
          *
          *     标准探针（K8s / Compose healthcheck）只依据 HTTP 状态码，因此未就绪时
          *     必须返回 **503** 而不是 200——否则探针会继续把未就绪实例判为可用并导流。
          *     进程尚未完成 lifespan 初始化（或已关闭）时同样返回 503；``/health``
          *     继续只表示进程存活，不做昂贵依赖检查。
+         *
+         *     O-02：这里读取 ``app.state.container``（lifespan 启动时显式保存的容器），
+         *     不通过 ``get_event_bus()`` / ``get_task_worker()`` 隐式创建依赖——容器没
+         *     初始化成功时探针必须判未就绪，而不是"自愈式"地现场组装一份。
          */
         get: operations["readiness_check_ready_get"];
         put?: never;
@@ -58,7 +62,7 @@ export interface paths {
         };
         /**
          * Metrics
-         * @description 返回运行指标（EventBus、队列、Worker）。
+         * @description 返回运行指标（EventBus、队列、Worker 真实健康）。
          */
         get: operations["metrics_metrics_get"];
         put?: never;
@@ -1944,6 +1948,31 @@ export interface components {
              * @default -1
              */
             io_executor_queued: number;
+            /**
+             * Worker Total Loops
+             * @default 0
+             */
+            worker_total_loops: number;
+            /**
+             * Worker Alive Loops
+             * @default 0
+             */
+            worker_alive_loops: number;
+            /**
+             * Worker Exited Loops
+             * @default 0
+             */
+            worker_exited_loops: number;
+            /**
+             * Worker Crashed Loops
+             * @default 0
+             */
+            worker_crashed_loops: number;
+            /**
+             * Worker Last Consume Stale Seconds
+             * @default -1
+             */
+            worker_last_consume_stale_seconds: number;
         };
         /**
          * ModelConfigCreateRequest

@@ -42,6 +42,10 @@ async def test_lifespan_can_restart_without_reusing_runtime_resources(
     monkeypatch.setattr(app_module, "get_task_worker", lambda: workers.pop(0))
     monkeypatch.setattr(app_module, "shutdown_container", shutdown)
     monkeypatch.setattr(app_module, "reset_all_dependencies", reset)
+    # O-02：单实例锁 —— 打桩为"获取成功"，避免测试触碰真实 outputs 锁文件。
+    lock = Mock()
+    lock.acquire.return_value = True
+    monkeypatch.setattr(app_module, "SingleInstanceLock", Mock(return_value=lock))
 
     application = app_module.create_app()
     first, second = workers
@@ -54,4 +58,6 @@ async def test_lifespan_can_restart_without_reusing_runtime_resources(
     second.stop.assert_awaited_once_with(settings.scheduler_shutdown_timeout_seconds)
     assert shutdown.await_count == 2
     assert reset.call_count == 2
+    assert lock.acquire.call_count == 2
+    assert lock.release.call_count == 2
     assert io_executor_stats() == {"queued": -1}

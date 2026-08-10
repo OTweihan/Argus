@@ -32,6 +32,7 @@ from argus_py.core.crypto import ensure_fernet_key
 from argus_py.core.paths import API_STATIC_DIR, OUTPUT_DIR
 from argus_py.infra.db import DEFAULT_DB_PATH, _DefaultDBProbe
 from argus_py.infra.recovery import recover_interrupted_tasks
+from argus_py.infra.singleton_lock import SingleInstanceLock
 from argus_py.infra.temp_cleanup import cleanup_stale_debug_bundles
 from argus_py.observability import (
     cleanup_old_traces,
@@ -51,12 +52,13 @@ API_PREFIX = "/argus/api"
 AUTH_TOKEN_ENV = "ARGUS_API_TOKEN"
 
 
-def _warn_if_multi_worker() -> None:
-    """如果检测到多 worker env，打 ERROR 日志（无法阻止多进程启动，但会被运维注意到）。
+def _raise_if_multi_worker() -> None:
+    """检测到多 worker env 时直接抛启动错误（fail-closed）。
 
-    CLI ``argus serve`` 会在更早一步拒启；这里是兜底，防止有人直接
+    CLI ``argus serve`` 会在更早一步拒启；这里兜底防止有人直接
     ``uvicorn argus_py.api.app:app --workers N`` 绕过 CLI。多 worker 下
-    每个进程都会执行一次本日志，运维一定能从启动日志里发现。
+    进程内任务队列与 EventBus 不跨进程共享，会出现任务双发和 WS 事件丢失，
+    因此不只是告警——直接拒绝启动。
     """
     for env_name in ("WEB_CONCURRENCY", "UVICORN_WORKERS"):
         raw = os.getenv(env_name)
@@ -67,14 +69,11 @@ def _warn_if_multi_worker() -> None:
         except ValueError:
             continue
         if count > 1:
-            logger.error(
-                "检测到 %s=%s，Argus 不支持多 worker 部署："
+            raise RuntimeError(
+                f"检测到 {env_name}={count}，Argus 不支持多 worker 部署："
                 "进程内任务队列与 EventBus 不跨进程共享，会出现任务双发和 WS 事件丢失。"
-                "请改用单 worker，通过 config/server.yaml 的 scheduler.concurrency 调大并发。",
-                env_name,
-                count,
+                "请改用单 worker，通过 config/server.yaml 的 scheduler.concurrency 调大并发。"
             )
-            return
 
 
 def _warn_loose_source_roots(settings: ServerSettings) -> None:
@@ -105,16 +104,31 @@ def create_app() -> FastAPI:
 
         ``app.state.lifespan_ready`` 标记进程是否完成初始化：在 yield 前为
         False，``/ready`` 探针因此返回 503，避免把未就绪实例判为可用。
+
+        单实例约束（O-02）：
+        - 可识别的多 worker env（WEB_CONCURRENCY/UVICORN_WORKERS > 1）直接抛启动错误；
+        - 启动时在 outputs 目录获取跨进程独占锁，拿不到说明已有实例指向同一份
+          DB/outputs，同样拒绝启动。OS 文件锁随进程退出自动释放。
         """
         app.state.lifespan_ready = False
-        _warn_if_multi_worker()
+        _raise_if_multi_worker()
         _warn_loose_source_roots(settings)
         ensure_fernet_key(_DefaultDBProbe(DEFAULT_DB_PATH))
+        lock = SingleInstanceLock(OUTPUT_DIR / ".argus-singleton.lock")
+        if not lock.acquire(owner=f"pid={os.getpid()}; app={PROJECT_NAME}"):
+            raise RuntimeError(
+                "检测到已有 Argus 进程正在使用同一 outputs 目录，拒绝启动："
+                f"{lock.lock_path}。Argus 强制单实例（进程内任务队列与 EventBus），"
+                "请先停止旧进程或指定独立的 outputs 目录。"
+            )
         try:
             c = create_container()
+            app.state.container = c
             recover_interrupted_tasks(lifecycle=c.lifecycle_service, reader=c.task_read_service)
         except Exception:
             log_event(logger, "lifespan.recover_tasks", status=STATUS_ERROR, exc_info=True)
+            lock.release()
+            raise
         try:
             cleanup_stale_debug_bundles()
         except Exception:
@@ -159,6 +173,7 @@ def create_app() -> FastAPI:
                         reset_all_dependencies()
                         set_io_executor(None)
                         executor.shutdown(wait=True, cancel_futures=True)
+                        lock.release()
 
     application = FastAPI(
         title=f"{PROJECT_NAME} API",

@@ -361,6 +361,19 @@ class EventBus:
                 self.subscriber_queue_size,
             )
 
+    def is_dispatchable(self) -> bool:
+        """readiness 用轻量检查：事件总线能否向订阅者派发事件。
+
+        无 running loop 时 ``publish`` 降级为只写 history、不通知订阅者
+        （WebSocket 事件会丢失），此时不应判定为就绪。只做只读检查，不发布
+        探针事件，避免高频就绪轮询污染 history。
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        return True
+
     def metrics(self) -> dict[str, int]:
         """返回 EventBus 关键运行指标，供 healthz / 监控接口聚合。
 

@@ -31,3 +31,11 @@ class MetricsResponse(ApiModel):
     queued_tasks: int
     worker_alive: bool
     io_executor_queued: int = -1
+    # O-02：Worker 真实健康（loop 级）。worker_alive 仅表示"是否在消费"，
+    # 无法体现部分 loop 异常退出；以下字段给出完整快照，供监控定位。
+    worker_total_loops: int = 0
+    worker_alive_loops: int = 0
+    worker_exited_loops: int = 0
+    worker_crashed_loops: int = 0
+    # 距最近一次实际消费任务经过的秒数；-1 表示启动后从未消费过任务。
+    worker_last_consume_stale_seconds: int = -1

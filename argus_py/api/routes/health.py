@@ -29,16 +29,17 @@ async def health_check() -> HealthResponse:
 
 
 @router.get("/ready", response_model=ReadinessResponse)
-async def readiness_check(
-    request: Request,
-    worker: TaskWorker = Depends(get_task_worker),
-) -> JSONResponse:
-    """就绪探针：依次检查 DB、事件总线、Worker。
+async def readiness_check(request: Request) -> JSONResponse:
+    """就绪探针：依据 lifespan 已初始化的容器状态依次检查 DB、事件总线、Worker。
 
     标准探针（K8s / Compose healthcheck）只依据 HTTP 状态码，因此未就绪时
     必须返回 **503** 而不是 200——否则探针会继续把未就绪实例判为可用并导流。
     进程尚未完成 lifespan 初始化（或已关闭）时同样返回 503；``/health``
     继续只表示进程存活，不做昂贵依赖检查。
+
+    O-02：这里读取 ``app.state.container``（lifespan 启动时显式保存的容器），
+    不通过 ``get_event_bus()`` / ``get_task_worker()`` 隐式创建依赖——容器没
+    初始化成功时探针必须判未就绪，而不是"自愈式"地现场组装一份。
     """
     if not getattr(request.app.state, "lifespan_ready", False):
         return _readiness_body(
@@ -48,10 +49,24 @@ async def readiness_check(
             ),
         )
 
+    container = getattr(request.app.state, "container", None)
+    if container is None:
+        # lifespan 未成功保存容器状态（非标准启动路径 / 异常初始化），不能就绪。
+        return _readiness_body(
+            503,
+            ReadinessResponse(
+                status="not_ready", db="not_ready", worker="not_ready", event_bus="not_ready"
+            ),
+        )
+
     db_status = await _check_db_cached()
-    worker_status = "ready" if worker.is_started else "not_ready"
-    eb = get_event_bus()
-    event_bus_status = "ready" if eb is not None else "not_ready"
+    snapshot = container.task_worker.health_snapshot()
+    worker_status = "ready" if (snapshot.is_started and snapshot.alive_loops > 0) else "not_ready"
+    event_bus_status = (
+        "ready"
+        if container.event_bus is not None and container.event_bus.is_dispatchable()
+        else "not_ready"
+    )
 
     is_ready = db_status == "ready" and worker_status == "ready" and event_bus_status == "ready"
     return _readiness_body(
@@ -74,7 +89,7 @@ def _readiness_body(http_status: int, response: ReadinessResponse) -> JSONRespon
 async def metrics(
     worker: TaskWorker = Depends(get_task_worker),
 ) -> MetricsResponse:
-    """返回运行指标（EventBus、队列、Worker）。"""
+    """返回运行指标（EventBus、队列、Worker 真实健康）。"""
     eb = get_event_bus()
     reader = get_task_read_service()
 
@@ -83,13 +98,22 @@ async def metrics(
     queued_tasks = counts["queued"]
 
     io_stats = io_executor_stats()
+    snapshot = worker.health_snapshot()
+    last_consume_stale = (
+        -1 if snapshot.last_consume_at is None else int(time.monotonic() - snapshot.last_consume_at)
+    )
     return MetricsResponse(
         event_bus=eb.metrics() if eb else {},
         total_tasks=await run_in_thread(reader.count_tasks),
         running_tasks=running_tasks,
         queued_tasks=queued_tasks,
-        worker_alive=worker.is_started,
+        worker_alive=snapshot.is_started and snapshot.alive_loops > 0,
         io_executor_queued=io_stats["queued"],
+        worker_total_loops=snapshot.total_loops,
+        worker_alive_loops=snapshot.alive_loops,
+        worker_exited_loops=snapshot.exited_loops,
+        worker_crashed_loops=snapshot.crashed_loops,
+        worker_last_consume_stale_seconds=last_consume_stale,
     )
 
 

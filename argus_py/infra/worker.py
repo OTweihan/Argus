@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from typing import Any
 
 from argus_py.config.service import ModelConfigService
@@ -25,6 +29,27 @@ _HANDLER_TYPE = dict[
     TaskType,
     Callable[..., Any],
 ]
+
+# 最多保留最近几次 Worker loop 未处理异常，供 readiness/诊断查询。
+_MAX_CRASH_RECORDS = 3
+
+
+@dataclass(frozen=True)
+class WorkerHealthSnapshot:
+    """Worker 真实健康快照，供 ``/ready`` 与 ``/metrics`` 读取。
+
+    ``is_started`` 只是"已调用过 start()"，不能证明 loop 仍在运行——
+    loop 可能已异常退出。因此快照额外给出存活 loop 数、异常结束数和最近一次
+    消费时间，探针据此判断 Worker 是否真的在消费任务。
+    """
+
+    is_started: bool
+    total_loops: int  # 累计创建的 Worker loop task 数
+    alive_loops: int  # 当前仍在运行的 loop 数
+    exited_loops: int  # 正常/被取消退出的 loop 数
+    crashed_loops: int  # 未处理异常退出的 loop 数
+    last_consume_at: float | None  # monotonic() 时间戳，None 表示从未消费
+    recent_crashes: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
 class TaskWorker:
@@ -52,11 +77,35 @@ class TaskWorker:
         self._tasks: list[asyncio.Task[None]] = []
         self._started = False
         self._stopped = False
+        # ── 健康快照（见 WorkerHealthSnapshot）──
+        self._loop_total = 0
+        self._loop_alive = 0
+        self._loop_exited = 0
+        self._loop_crashed = 0
+        self._last_consume_at: float | None = None
+        self._recent_crashes: deque[dict[str, Any]] = deque(maxlen=_MAX_CRASH_RECORDS)
 
     @property
     def is_started(self) -> bool:
         """Worker 是否已启动。"""
         return self._started
+
+    def health_snapshot(self) -> WorkerHealthSnapshot:
+        """返回 Worker 真实健康快照。
+
+        与 ``is_started`` 布尔标志的区别：loop 异常退出后 ``_started`` 仍为
+        True，但 ``alive_loops`` 会归零、``crashed_loops`` 增加。readiness 应
+        依据快照判断，而不是只看 ``is_started``。
+        """
+        return WorkerHealthSnapshot(
+            is_started=self._started,
+            total_loops=self._loop_total,
+            alive_loops=self._loop_alive,
+            exited_loops=self._loop_exited,
+            crashed_loops=self._loop_crashed,
+            last_consume_at=self._last_consume_at,
+            recent_crashes=tuple(self._recent_crashes),
+        )
 
     async def start(self) -> None:
         """启动后台 Worker（含 reconciliation）。"""
@@ -67,13 +116,45 @@ class TaskWorker:
         # 扫描并处理 stale WHITEBOX+RUNNING 任务
         await self._reconcile_stale_tasks()
 
-        self._tasks = [
-            asyncio.create_task(self._run_loop(index), name=f"argus-worker-{index}")
-            for index in range(self.concurrency)
-        ]
+        self._loop_total += self.concurrency
+        self._loop_alive += self.concurrency
+        self._tasks = []
+        for index in range(self.concurrency):
+            task = asyncio.create_task(self._run_loop(index), name=f"argus-worker-{index}")
+            # done callback 统计异常退出，供 readiness/探针判断真实存活。
+            task.add_done_callback(partial(self._on_loop_done, index=index))
+            self._tasks.append(task)
+
+    def _on_loop_done(self, task: asyncio.Task[None], index: int) -> None:
+        """Worker loop 结束回调：维护存活/退出/异常计数。
+
+        被取消（shutdown 时 ``stop()`` 的 cancel）视为正常退出；只有带着未处理
+        异常结束才计入 ``crashed`` 并记录诊断信息。
+        """
+        self._loop_alive = max(0, self._loop_alive - 1)
+        if task.cancelled():
+            self._loop_exited += 1
+            return
+        exc = task.exception()
+        if exc is None:
+            self._loop_exited += 1
+            return
+        self._loop_crashed += 1
+        self._recent_crashes.append(
+            {
+                "loop_index": index,
+                "exc_type": type(exc).__name__,
+                "message": str(exc),
+            }
+        )
+        logger.error("Worker loop 异常退出: index=%d type=%s %s", index, type(exc).__name__, exc)
 
     async def stop(self, timeout_seconds: float = 5.0) -> None:
-        """停止后台 Worker。"""
+        """停止后台 Worker。
+
+        幂等且健壮：即使 ``start()`` 在 reconciliation 阶段失败（未创建任何
+        loop task）也应能干净关闭——``asyncio.wait`` 不接受空集合。
+        """
         self._stopped = True
         if not self._started:
             return
@@ -86,15 +167,16 @@ class TaskWorker:
             )
         except TimeoutError:
             logger.warning("Worker 停止信号投递超时，将取消剩余任务")
-        done, pending = await asyncio.wait(
-            self._tasks,
-            timeout=max(0.0, deadline - loop.time()),
-        )
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-        await asyncio.gather(*done, return_exceptions=True)
+        if self._tasks:
+            done, pending = await asyncio.wait(
+                self._tasks,
+                timeout=max(0.0, deadline - loop.time()),
+            )
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            await asyncio.gather(*done, return_exceptions=True)
         self._tasks = []
         self._started = False
 
@@ -102,9 +184,11 @@ class TaskWorker:
         """Worker 主循环。"""
         while True:
             task_id = await self.queue.get()
+            if task_id is None:
+                return
+            # 记录最近一次实际消费任务的时间（monotonic），供探针判断存活。
+            self._last_consume_at = time.monotonic()
             try:
-                if task_id is None:
-                    return
                 await self._run_task(task_id)
             finally:
                 await self.queue.complete(task_id)

@@ -226,6 +226,21 @@ Web 控制台第一次收到 401 时会显示 Token 输入框，Token 只保存�
 供 K8s / Compose / 反代按状态码停止导流；`/health` 只表示进程存活，不做昂贵
 依赖检查。依赖恢复后 `/ready` 回到 200。
 
+就绪判定读取 **lifespan 成功初始化的容器状态**（`app.state.container`），而不是
+通过依赖 getter 现场组装：
+
+| 依赖 | 就绪条件 |
+|------|---------|
+| DB | SQLite 连通（带 5s TTL 缓存，避免高频探针竞争锁） |
+| Worker | `health_snapshot()`：已启动 **且** 存活 loop 数 > 0。loop 全部异常退出（`crashed_loops` 累积、`alive_loops` 归零）时返回 503 |
+| EventBus | 已初始化 **且** 当前有事件循环可派发（无 loop 时 publish 只写 history、无法推送 WebSocket，判未就绪） |
+
+`/metrics` 额外暴露 `worker_total_loops` / `worker_alive_loops` /
+`worker_crashed_loops` / `worker_last_consume_stale_seconds`，供监控区分
+"Worker 在跑"与"Worker 已异常退出但进程未死"。
+
+> 依赖 `/ready` 的脚本请以 HTTP 状态码为准；503 表示未就绪/需停流，200 才可导流。
+
 ---
 
 ## 4. 敏感文件
@@ -287,9 +302,14 @@ Argus 当前使用 **进程内 asyncio.Queue + 进程内 EventBus**，多 worker
 防御措施：
 
 1. `argus serve` 启动时检测 `WEB_CONCURRENCY` / `UVICORN_WORKERS` env，若 > 1 直接拒启
-2. lifespan 兜底告警（防止有人绕过 CLI 用 `uvicorn ... --workers N`）
-3. `docker-compose.yml` 显式 `deploy.replicas: 1` 与 env `WEB_CONCURRENCY=1`
-4. K8s Deployment 必须 `replicas: 1`，HPA 关闭
+2. lifespan 兜底拒启：绕过 CLI 用 `uvicorn ... --workers N` 时抛 `RuntimeError`（不是告警）
+3. **outputs 目录跨进程独占锁**（OS 文件锁，进程退出自动释放）：两个进程指向同一
+   DB/outputs 时，后启动者拿不到锁，直接拒绝启动——这是无法识别启动方式时的最终防线
+4. `docker-compose.yml` 显式 `deploy.replicas: 1` 与 env `WEB_CONCURRENCY=1`
+5. K8s Deployment 必须 `replicas: 1`，HPA 关闭
+
+> 锁文件为 `outputs/.argus-singleton.lock`（持锁者信息写入同名 `.owner` sidecar）。
+> 若残留该文件但进程已退出，无需手动删除——OS 锁已随进程释放，下次启动会自动重写。
 
 > 如未来需要横向扩展，第一步是把 queue / EventBus 切外置（Redis Streams、NATS 等），再放开副本数。
 

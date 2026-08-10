@@ -189,6 +189,19 @@ For stronger access control, use a reverse proxy with SSO.
 initialization has not completed, so K8s / Compose / reverse proxies stop routing by status
 code; `/health` only indicates process liveness and runs no expensive dependency checks.
 
+Readiness reads the **container state initialized by lifespan** (`app.state.container`)
+rather than assembling dependencies on demand through getters:
+
+| Dependency | Ready condition |
+|------------|-----------------|
+| DB | SQLite reachable (5s TTL cache to avoid probe lock contention) |
+| Worker | `health_snapshot()`: started **and** `alive_loops > 0`. If all loops exited abnormally (`crashed_loops` accumulates, `alive_loops` reaches 0) → 503 |
+| EventBus | initialized **and** an event loop is present to dispatch (without a loop, `publish` only writes history and cannot push to WebSocket subscribers → not ready) |
+
+`/metrics` additionally exposes `worker_total_loops` / `worker_alive_loops` /
+`worker_crashed_loops` / `worker_last_consume_stale_seconds` so monitoring can tell
+"worker is running" from "worker loops all exited abnormally while the process is alive".
+
 ---
 
 ## 4. Sensitive Files
@@ -250,9 +263,13 @@ Argus currently uses **in-process asyncio.Queue + in-process EventBus**. Multipl
 Defense measures:
 
 1. `argus serve` checks `WEB_CONCURRENCY` / `UVICORN_WORKERS` env on startup — refuses to start if > 1
-2. Lifespan fallback warning (prevents `uvicorn ... --workers N` workarounds)
-3. `docker-compose.yml` explicitly sets `deploy.replicas: 1` and env `WEB_CONCURRENCY=1`
-4. K8s Deployment must use `replicas: 1`, HPA disabled
+2. Lifespan fallback rejection: bypassing the CLI with `uvicorn ... --workers N` raises `RuntimeError` (not a warning)
+3. **Cross-process exclusive lock on the outputs directory** (OS file lock, auto-released on process exit): when two processes point at the same DB/outputs, the later one cannot acquire the lock and refuses to start — the last line of defense for unrecognized launch methods
+4. `docker-compose.yml` explicitly sets `deploy.replicas: 1` and env `WEB_CONCURRENCY=1`
+5. K8s Deployment must use `replicas: 1`, HPA disabled
+
+> Lock file: `outputs/.argus-singleton.lock` (owner info written to a `.owner` sidecar).
+> If the file is left behind after the process exits, no manual cleanup is needed — the OS lock was already released with the process, and the next startup rewrites it.
 
 > For horizontal scaling, the queue and EventBus must first be externalized (Redis Streams, NATS, etc.), then replica count can be increased.
 

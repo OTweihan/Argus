@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -174,7 +175,11 @@ class TestHealthEndpoint:
         client: TestClient,
         monkeypatch,
     ) -> None:
-        """lifespan 完成初始化且 DB / Worker / EventBus 均就绪时返回 200。"""
+        """lifespan 完成初始化且 DB / Worker / EventBus 均就绪时返回 200。
+
+        readiness 读取 lifespan 写入的 ``app.state.container``（不是通过 getter
+        隐式创建依赖），因此用例显式构造容器状态。
+        """
 
         async def _db_ready() -> str:
             return "ready"
@@ -183,15 +188,47 @@ class TestHealthEndpoint:
         # TestClient.app 在类型上是 ASGIApp；本测试 app 是 FastAPI 实例。
         assert isinstance(app, FastAPI)
         app.state.lifespan_ready = True
-        # 依赖被 override 为测试 worker；直接从 overrides 取该实例并标记已启动。
+        # 依赖被 override 为测试 worker；标记已启动并模拟 1 个存活 loop。
         worker = app.dependency_overrides[get_task_worker]()
         worker._started = True
+        worker._loop_alive = 1
+        event_bus = app.dependency_overrides[get_event_bus]()
+        app.state.container = SimpleNamespace(task_worker=worker, event_bus=event_bus)
         monkeypatch.setattr(health, "_check_db_cached", _db_ready)
         resp = client.get("/ready")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ready"
         assert body["worker"] == "ready"
+
+    def test_ready_returns_503_when_worker_loops_crashed(
+        self,
+        client: TestClient,
+        monkeypatch,
+    ) -> None:
+        """Worker loop 全部异常结束后 ``/ready`` 返回 503，即便 ``is_started`` 仍为 True。
+
+        布尔标志不能反映 loop 异常退出；readiness 依据 Worker 健康快照判断真实存活。
+        """
+
+        async def _db_ready() -> str:
+            return "ready"
+
+        app = client.app
+        assert isinstance(app, FastAPI)
+        app.state.lifespan_ready = True
+        worker = app.dependency_overrides[get_task_worker]()
+        worker._started = True
+        worker._loop_alive = 0
+        worker._loop_crashed = 1
+        event_bus = app.dependency_overrides[get_event_bus]()
+        app.state.container = SimpleNamespace(task_worker=worker, event_bus=event_bus)
+        monkeypatch.setattr(health, "_check_db_cached", _db_ready)
+        resp = client.get("/ready")
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["status"] == "not_ready"
+        assert body["worker"] == "not_ready"
 
     def test_metrics_returns_200(self, client: TestClient) -> None:
         resp = client.get("/metrics")
@@ -200,6 +237,11 @@ class TestHealthEndpoint:
         assert "total_tasks" in body
         assert "running_tasks" in body
         assert isinstance(body["total_tasks"], int)
+        # O-02：metrics 暴露 Worker loop 级健康快照。
+        assert "worker_total_loops" in body
+        assert "worker_alive_loops" in body
+        assert "worker_crashed_loops" in body
+        assert body["worker_last_consume_stale_seconds"] == -1
 
 
 # ── Projects ───────────────────────────────────────────────────────────────────
