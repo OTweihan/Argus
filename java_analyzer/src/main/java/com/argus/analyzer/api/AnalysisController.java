@@ -9,6 +9,7 @@ import com.argus.analyzer.service.ProjectAnalyzerService;
 import com.argus.analyzer.support.SourceLocator;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -69,6 +70,18 @@ public class AnalysisController {
     public AnalysisJobStatusResponse getJob(@PathVariable String jobId) {
         try {
             return jobService.getStatus(jobId);
+        } catch (NoSuchElementException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 幂等协作取消（O-04）：PENDING/RUNNING 作业请求取消，已终态则返回当前状态。
+     */
+    @DeleteMapping("/analyze/jobs/{jobId}")
+    public AnalysisJobStatusResponse cancelJob(@PathVariable String jobId) {
+        try {
+            return jobService.cancel(jobId);
         } catch (NoSuchElementException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
         }

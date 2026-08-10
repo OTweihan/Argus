@@ -83,6 +83,7 @@ class WhiteboxRunner:
         lifecycle: TaskLifecycleService,
         poll_interval: float = 5.0,
         max_poll_interval: float = 10.0,
+        cancel_confirmation_timeout: float = 5.0,
         on_analysis_succeeded: Callable[[str, str], Any] | None = None,
     ) -> None:
         self._client = client
@@ -91,6 +92,9 @@ class WhiteboxRunner:
         self._lifecycle = lifecycle
         self._poll_interval = poll_interval
         self._max_poll_interval = max_poll_interval
+        # 本地取消后等待 Java 确认落 CANCELLED 的最大时长（O-04）；超窗视为
+        # “未确认”，保留 STOPPED_WAITING 语义。
+        self._cancel_confirmation_timeout = max(0.0, cancel_confirmation_timeout)
         self._on_analysis_succeeded = on_analysis_succeeded
 
     # ── 主入口 ────────────────────────────────────────────────────────────────
@@ -115,8 +119,10 @@ class WhiteboxRunner:
             else config.to_persisted().source_repo_url
         )
 
-        # 0.5 预分配 analysis_id（创建 AnalysisRun 在源码解析后完成）
-        analysis_id = uuid4().hex
+        # 0.5 分配/复用 analysis_id（O-04 启动恢复后重新接管同一 run，
+        # 非终态 run 的 analysis_id 复用，终态则新建）
+        reused_run_id = self._reusable_analysis_id(task.task_id)
+        analysis_id = reused_run_id or uuid4().hex
 
         # 1. 统一 deadline
         deadline = time.monotonic() + task.timeout_seconds
@@ -141,20 +147,25 @@ class WhiteboxRunner:
                 },
             )
 
-            # 2.5 创建 AnalysisRun（源码快照已就绪）
-            await run_in_thread(
-                self._lifecycle.create_analysis_run,
-                analysis_id=analysis_id,
-                task_id=task.task_id,
-                # 快照标识语义统一：local 源优先内容哈希（能捕获脏工作区），
-                # git 源使用克隆 HEAD commit SHA（跨运行稳定），两者皆无时以 analysis_id 兜底。
-                source_snapshot_id=(
-                    resolved.content_sha256 or resolved.resolved_commit_sha or analysis_id
-                ),
-                resolved_commit_sha=resolved.resolved_commit_sha,
-                result_schema_version=1,
-                config_json=task.whitebox_config_json or "{}",
-            )
+            # 2.5 创建/复位 AnalysisRun（源码快照已就绪）
+            # 复用非终态 run（启动恢复重新接管）时复位而非重复插入；
+            # 全新执行才创建。
+            if reused_run_id is not None:
+                await run_in_thread(self._lifecycle.reset_analysis_run, analysis_id)
+            else:
+                await run_in_thread(
+                    self._lifecycle.create_analysis_run,
+                    analysis_id=analysis_id,
+                    task_id=task.task_id,
+                    # 快照标识语义统一：local 源优先内容哈希（能捕获脏工作区），
+                    # git 源使用克隆 HEAD commit SHA（跨运行稳定），两者皆无时以 analysis_id 兜底。
+                    source_snapshot_id=(
+                        resolved.content_sha256 or resolved.resolved_commit_sha or analysis_id
+                    ),
+                    resolved_commit_sha=resolved.resolved_commit_sha,
+                    result_schema_version=1,
+                    config_json=task.whitebox_config_json or "{}",
+                )
 
             # 3. 可见性校验
             await self._check_visibility(
@@ -178,45 +189,26 @@ class WhiteboxRunner:
                 analysis_id,
             )
 
-            # 5. 轮询
-            await self._poll(task, job_id, deadline)
+            # 5. 轮询（Worker shutdown 触发 asyncio.CancelledError 时 best-effort 通知远端）
+            try:
+                await self._poll(task, job_id, deadline)
+            except asyncio.CancelledError:
+                await asyncio.shield(self._best_effort_cancel(task, job_id))
+                raise
             remote_may_be_running = False
 
             # 6. 获取结果（含 409 重试）
             result = await self._get_result_with_retry(job_id, deadline)
-            task.findings = _map_findings(
-                result.findings,
-                source_root=resolved.resolved_path,
-                analysis_id=analysis_id,
-            )
-            diag_summary = _build_diag_summary(result.diagnostics)
-            endpoint_count = len(result.endpoints)
-            finding_count = len(result.findings)
-            task.result_summary = (
-                f"白盒分析完成。发现 {endpoint_count} 个端点、"
-                f"{finding_count} 个代码缺陷/坏味道。"
-                f"{diag_summary}"
-            )
-            task.result_json = json.dumps(
-                _serialize_whitebox_result(
-                    result,
-                    endpoint_count,
-                    finding_count,
-                    exec_config.scope,
-                ),
-                ensure_ascii=False,
-            )
-            task.result_schema_version = 1
-            task.result_size_bytes = len(task.result_json)
-
-            # 6.5 持久化 findings 到 DB + 结构化投影 + 标记 SUCCEEDED
-            await run_in_thread(self._lifecycle.save_task_findings, task)
-            await _persist_analysis_result(
+            await _persist_success_result(
                 self._lifecycle,
-                analysis_id,
+                task,
                 result,
+                analysis_id=analysis_id,
+                source_root=resolved.resolved_path,
                 scope=exec_config.scope,
             )
+            endpoint_count = len(result.endpoints)
+            finding_count = len(result.findings)
 
             # ── 关联唤醒：通知等待中的 CorrelationRun ──
             if self._on_analysis_succeeded is not None:
@@ -425,6 +417,14 @@ class WhiteboxRunner:
 
     # ── 提交作业 ──────────────────────────────────────────────────────────────
 
+    def _reusable_analysis_id(self, task_id: str) -> str | None:
+        """返回任务最近的非终态 analysis_run 的 analysis_id（O-04 重新接管）。
+
+        RUNNING 的 worker 崩溃重启后，恢复路径把任务重置为 PENDING 重新入队，
+        这里复用原 run 的 analysis_id，让同一分析记录继续完成而非重复插入。
+        """
+        return _find_reusable_analysis_id(self._lifecycle.storage, task_id)
+
     async def _submit_job(
         self,
         task: Task,
@@ -440,6 +440,7 @@ class WhiteboxRunner:
             else None,
             target_modules=config.target_modules or None,
             client_request_id=f"{task.task_id}:{task.execution_attempt}",
+            timeout_seconds=max(1, int(task.timeout_seconds)),
         )
         job_id = job_status.job_id
         task.external_job_id = job_id
@@ -457,29 +458,47 @@ class WhiteboxRunner:
         job_id: str,
         baseline_deadline: float,
     ) -> None:
-        """轮询 Java 作业状态直到终态。"""
+        """轮询 Java 作业状态直到终态。
+
+        O-04：本地取消先 best-effort 请求远端协作取消；Java 确认落 CANCELLED
+        才以 origin="remote" 结束（analysis_runs 落 CANCELLED），无法确认时保留
+        origin="local"（STOPPED_WAITING）。超时同样先通知远端再抛超时。
+        """
         last_sequence = -1
         seen_event_ids: set[str] = set()
         consecutive_errors = 0
+        cancel_handled = False
 
         while True:
             # 取消检查
             token = self._lifecycle.get_cancellation_token(task.task_id)
-            if token.is_cancelled:
-                # 阶段一：只停止轮询，不尝试取消远端作业
-                # Java 没有可协作取消机制，调用 DELETE 只会设置状态而不会中断分析线程
-                logger.warning(
-                    "任务 %s 已取消，停止轮询远端作业 %s（远端作业可能仍在运行）",
-                    task.task_id,
-                    job_id,
-                )
-                raise WhiteboxTaskCancelled(
-                    job_id=job_id,
-                    origin="local",
-                )
+            if token.is_cancelled and not cancel_handled:
+                cancel_handled = True
+                outcome = await self._cancel_remote_with_confirmation(task, job_id)
+                if outcome == "confirmed":
+                    task.external_job_status = "CANCELLED"
+                    logger.info("任务 %s 取消已获远端确认: job=%s", task.task_id, job_id)
+                    raise WhiteboxTaskCancelled(job_id=job_id, origin="remote")
+                if outcome == "unreachable":
+                    logger.warning(
+                        "任务 %s 已取消，但无法联系远端取消作业 %s（远端作业可能仍在运行）",
+                        task.task_id,
+                        job_id,
+                    )
+                    raise WhiteboxTaskCancelled(job_id=job_id, origin="local")
+                if outcome in ("requested", "unknown"):
+                    logger.warning(
+                        "任务 %s 已取消，远端未在确认窗口内确认取消 job=%s（保留 STOPPED_WAITING）",
+                        task.task_id,
+                        job_id,
+                    )
+                    raise WhiteboxTaskCancelled(job_id=job_id, origin="local")
+                # outcome == "terminal"：远端已被我们或并发置为终态，
+                # 落入下方常规状态映射统一处理（SUCCEEDED→成功 / TIMED_OUT→超时等）。
 
             remaining = baseline_deadline - time.monotonic()
             if remaining <= 0:
+                await self._best_effort_cancel(task, job_id)
                 raise WhiteboxTaskTimeout(
                     job_id=job_id,
                     deadline=task.timeout_seconds,
@@ -580,6 +599,88 @@ class WhiteboxRunner:
                 continue
             # 未知状态 → 协议失败
             raise WhiteboxTaskError(f"未知作业状态: {status}")
+
+    # ── 远端取消（O-04）──────────────────────────────────────────────────────
+
+    async def _best_effort_cancel(self, task: Task, job_id: str) -> None:
+        """best-effort 请求远端取消；失败仅告警，不覆盖业务异常。
+
+        返回终态时同步 task.external_job_status，供 finally 快照清理决策。
+        """
+        if not job_id:
+            return
+        try:
+            status = await self._client.cancel_analyze_job(job_id)
+            if status is not None and status.status in {
+                "SUCCEEDED",
+                "FAILED",
+                "CANCELLED",
+                "TIMED_OUT",
+                "EXPIRED",
+            }:
+                task.external_job_status = status.status
+        except Exception:
+            logger.warning(
+                "best-effort 取消远端作业失败: task=%s job=%s",
+                task.task_id,
+                job_id,
+                exc_info=True,
+            )
+
+    async def _cancel_remote_with_confirmation(
+        self,
+        task: Task,
+        job_id: str,
+    ) -> str:
+        """请求远端取消并在确认窗口内等待 Java 落 CANCELLED。
+
+        Returns
+        -------
+        str
+            - ``"confirmed"``：Java 已确认落 CANCELLED
+            - ``"terminal"``：作业已是 SUCCEEDED/FAILED/TIMED_OUT/EXPIRED（交轮询处理）
+            - ``"requested"``：取消已请求但窗口内未确认（→ STOPPED_WAITING）
+            - ``"unknown"``：作业不存在/旧版 Java 无端点（404）
+            - ``"unreachable"``：无法联系远端
+        """
+        try:
+            status = await self._client.cancel_analyze_job(job_id)
+        except Exception:
+            logger.warning("请求远端取消失败: task=%s job=%s", task.task_id, job_id, exc_info=True)
+            return "unreachable"
+
+        if status is None:
+            # 404：作业已过期或旧版 Java 无此端点——不能据此判定已取消
+            return "unknown"
+        if status.status == "CANCELLED":
+            return "confirmed"
+        if status.status in {"SUCCEEDED", "FAILED", "TIMED_OUT", "EXPIRED"}:
+            # 取消与完成并发：远端已先置终态，交由常规状态映射处理
+            return "terminal"
+
+        # RUNNING/PENDING：在确认窗口内轮询 GET，等 Java 工作线程自省落 CANCELLED
+        window_deadline = time.monotonic() + self._cancel_confirmation_timeout
+        while time.monotonic() < window_deadline:
+            remaining = window_deadline - time.monotonic()
+            try:
+                polled = await self._client.get_analyze_job(
+                    job_id,
+                    timeout=min(self._client.request_timeout, max(remaining, 0.5)),
+                )
+            except Exception:
+                logger.warning(
+                    "取消确认窗口内查询远端作业失败: task=%s job=%s",
+                    task.task_id,
+                    job_id,
+                    exc_info=True,
+                )
+                return "requested"
+            if polled.status == "CANCELLED":
+                return "confirmed"
+            if polled.status in {"SUCCEEDED", "FAILED", "TIMED_OUT", "EXPIRED"}:
+                return "terminal"
+            await asyncio.sleep(min(0.5, max(remaining, 0)))
+        return "requested"
 
     # ── 获取结果 ──────────────────────────────────────────────────────────────
 
@@ -1050,6 +1151,69 @@ async def _persist_analysis_result(
         result_digest=result_digest,
         projection_data=projection_data,
     )
+
+
+async def _persist_success_result(
+    lifecycle: TaskLifecycleService,
+    task: Task,
+    result: WhiteboxResult,
+    *,
+    analysis_id: str,
+    source_root: str | None = None,
+    scope: str = "",
+) -> None:
+    """把成功结果落盘到 task 与投影表。
+
+    O-04 抽取为可复用函数：正常执行（WhiteboxRunner.run）与启动恢复
+    （重新接管已完成结果）共用。时间线事件 / correlation 唤醒不属于本函数，
+    由调用方决定。
+    """
+    task.findings = _map_findings(
+        result.findings,
+        source_root=source_root,
+        analysis_id=analysis_id,
+    )
+    diag_summary = _build_diag_summary(result.diagnostics)
+    endpoint_count = len(result.endpoints)
+    finding_count = len(result.findings)
+    task.result_summary = (
+        f"白盒分析完成。发现 {endpoint_count} 个端点、"
+        f"{finding_count} 个代码缺陷/坏味道。"
+        f"{diag_summary}"
+    )
+    task.result_json = json.dumps(
+        _serialize_whitebox_result(result, endpoint_count, finding_count, scope),
+        ensure_ascii=False,
+    )
+    task.result_schema_version = 1
+    task.result_size_bytes = len(task.result_json)
+    task.external_job_status = "SUCCEEDED"
+
+    await run_in_thread(lifecycle.save_task_findings, task)
+    await _persist_analysis_result(lifecycle, analysis_id, result, scope=scope)
+
+
+def _find_reusable_analysis_id(storage: TaskSQLiteStorage | object, task_id: str) -> str | None:
+    """返回任务最近的非终态 analysis_run 的 analysis_id（O-04 重新接管）。
+
+    恢复路径与 WhiteboxRunner.run 共用：worker 崩溃后重新接管同一 run。
+    """
+    if not isinstance(storage, TaskSQLiteStorage):
+        return None
+    try:
+        runs, _ = storage.list_analysis_runs(task_id)
+    except Exception:
+        logger.exception("读取 analysis_run 失败: task_id=%s", task_id)
+        return None
+    for run in runs:
+        if run.run_status in {
+            AnalysisRunStatus.QUEUED.value,
+            AnalysisRunStatus.SUBMITTING.value,
+            AnalysisRunStatus.RUNNING.value,
+            AnalysisRunStatus.STOPPED_WAITING.value,
+        }:
+            return run.analysis_id
+    return None
 
 
 # ── 诊断摘要 ─────────────────────────────────────────────────────────────────

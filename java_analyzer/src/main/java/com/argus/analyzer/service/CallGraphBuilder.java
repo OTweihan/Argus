@@ -34,7 +34,15 @@ public class CallGraphBuilder {
     }
 
     public BuildResult build(Path sourcePath, List<Path> classpathJars) {
-        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars);
+        return build(sourcePath, classpathJars, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 构建调用图，支持协作取消（O-04）：扫描与逐文件处理的安全边界检查
+     * {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
+     */
+    public BuildResult build(Path sourcePath, List<Path> classpathJars, AnalysisProgressListener progress) {
+        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars, progress);
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
 
         int totalCalls = 0;
@@ -43,6 +51,9 @@ public class CallGraphBuilder {
         int unresolved = 0;
 
         for (var entry : scanResult.parsedFiles()) {
+            if (progress.isCancelled()) {
+                throw new JobCancelledException("Call graph build cancelled");
+            }
             Path javaFile = entry.getKey();
             CompilationUnit cu = entry.getValue();
             String sourceRelative = SourceFileScanner.relativize(sourcePath, javaFile);

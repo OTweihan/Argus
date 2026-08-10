@@ -18,11 +18,23 @@ public class ExecutionFlowTracer {
     private static final int MAX_DEPTH = 20;
 
     public List<ExecutionFlow> trace(Map<String, CallGraphNode> callGraph, List<EndpointInfo> endpoints) {
+        return trace(callGraph, endpoints, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 追踪执行流，支持协作取消（O-04）：逐端点与 DFS 每层检查
+     * {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
+     */
+    public List<ExecutionFlow> trace(Map<String, CallGraphNode> callGraph, List<EndpointInfo> endpoints,
+                                     AnalysisProgressListener progress) {
         List<ExecutionFlow> flows = new ArrayList<>();
 
         Set<String> allKeys = callGraph.keySet();
 
         for (EndpointInfo ep : endpoints) {
+            if (progress.isCancelled()) {
+                throw new JobCancelledException("Execution flow tracing cancelled");
+            }
             String entryKey = ep.controllerClass() + "#" + ep.controllerMethod();
             if (!allKeys.contains(entryKey)) {
                 continue;
@@ -31,7 +43,7 @@ public class ExecutionFlowTracer {
             List<FlowStep> steps = new ArrayList<>();
             Set<String> visited = new HashSet<>();
             Set<String> pathNodes = new HashSet<>();
-            dfs(callGraph, entryKey, 0, visited, pathNodes, steps);
+            dfs(callGraph, entryKey, 0, visited, pathNodes, steps, progress);
 
             int maxDepth = steps.stream().mapToInt(FlowStep::depth).max().orElse(0);
             flows.add(new ExecutionFlow(entryKey, steps, maxDepth));
@@ -42,6 +54,15 @@ public class ExecutionFlowTracer {
 
     private void dfs(Map<String, CallGraphNode> callGraph, String currentKey,
                      int depth, Set<String> visited, Set<String> pathNodes, List<FlowStep> steps) {
+        dfs(callGraph, currentKey, depth, visited, pathNodes, steps, AnalysisProgressListener.NOOP);
+    }
+
+    private void dfs(Map<String, CallGraphNode> callGraph, String currentKey,
+                     int depth, Set<String> visited, Set<String> pathNodes, List<FlowStep> steps,
+                     AnalysisProgressListener progress) {
+        if (progress.isCancelled()) {
+            throw new JobCancelledException("Execution flow tracing cancelled");
+        }
         if (depth > MAX_DEPTH || pathNodes.contains(currentKey)) {
             return;
         }
@@ -63,7 +84,7 @@ public class ExecutionFlowTracer {
             for (CallEdge callee : node.calleeDetails()) {
                 String calleeKey = callee.to();
                 if (callGraph.containsKey(calleeKey)) {
-                    dfs(callGraph, calleeKey, depth + 1, visited, pathNodes, steps);
+                    dfs(callGraph, calleeKey, depth + 1, visited, pathNodes, steps, progress);
                 } else {
                     // External / unresolved call — record as leaf at next depth
                     String[] parts = calleeKey.split("#", 2);

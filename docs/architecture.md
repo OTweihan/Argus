@@ -236,6 +236,17 @@ HTTP adapter ──→ application ──→ domain
   的路径和符号链接逃逸；`validate-source` 对边界外路径统一返回不可见，不能用作路径探针。
   Java 裸机默认根目录为 `${java.io.tmpdir}/argus_sources`，容器固定 `/tmp/sources`；
   Python 本地输入未配置 allowed roots 时仍保留兼容告警，生产必须显式收紧。
+- 异步作业协作取消（O-04）：`DELETE /argus/api/analyze/jobs/{jobId}` 幂等取消，
+  重复取消返回同一终态；提交时可选携带 `timeoutSeconds`（服务端 clamp 到上限），
+  Java 侧 deadline 兜底——Python 断联后作业在约定时间内释放工作线程并终止 Maven
+  进程树，不再静默遗留孤儿作业。分析线程采用协作取消（扫描/分析/聚类安全边界轮询
+  取消令牌，JavaParser 不能任意位置强杀）；Maven 外部进程按作业登记并强制终止整个
+  进程树。取消与完成并发时以单向 CAS 状态机定序，取消成功后不得再发布成功结果。
+- Python 在用户取消、任务超时与 Worker shutdown 时 best-effort 调用远端取消：
+  仅当 Java 确认落 `CANCELLED` 才以远端取消终态处理，无法确认时保留
+  `STOPPED_WAITING` 语义；旧版 Java 无取消端点时按 404 处理，不误判已取消。
+  启动恢复扫描租约过期的孤儿作业：SUCCEEDED 拉结果落 COMPLETED、RUNNING/PENDING
+  重置 PENDING 重新入队（幂等 clientRequestId 复用 job）、终态/不可达落对应终态。
 - 两个服务不得共享或直接修改对方数据库；跨服务一致性通过任务状态和幂等 API 管理。
 
 ### 5.3 实时事件
@@ -288,7 +299,9 @@ HTTP adapter ──→ application ──→ domain
 - 缓存键必须覆盖影响结果的输入；源码分析缓存必须包含内容指纹，不能只依赖路径。
 - 运行时产物统一位于 `outputs/`，路径解析必须防止目录穿越，不把运行时数据提交到仓库。
 - Java 异步 JobStore 和结果缓存当前也在 JVM 内存中；使用异步 Job API 时 Java Analyzer
-  保持单实例。只有 JobStore/队列共享化并具备幂等协调后才允许横向扩展。
+  保持单实例。JobStore 的作业具备取消令牌与服务端 deadline（O-04）：取消/超时协作终止
+  工作线程并强制终结 Maven 进程树，终态由单向 CAS 状态机定序。只有 JobStore/队列共享化
+  并具备幂等协调后才允许横向扩展。
 
 ## 7. 配置、安全与隐私
 

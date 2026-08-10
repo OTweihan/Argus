@@ -1,5 +1,6 @@
 package com.argus.analyzer.api;
 
+import com.argus.analyzer.api.dto.AnalysisJobStatusResponse;
 import com.argus.analyzer.api.dto.AnalyzeRequest;
 import com.argus.analyzer.api.dto.ValidateSourceRequest;
 import com.argus.analyzer.service.AnalysisJobService;
@@ -12,6 +13,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.RejectedExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +65,31 @@ class AnalysisControllerTest {
         assertThatThrownBy(() -> controller.submitJob(request))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    @Test
+    void shouldCancelJob() {
+        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
+        AnalysisJobService jobs = mock(AnalysisJobService.class);
+        AnalysisJobStatusResponse cancelled = new AnalysisJobStatusResponse(
+                "job-1", "CANCELLED", "cancelled",
+                Instant.now(), Instant.now(), Instant.now(), null, List.of());
+        when(jobs.cancel("job-1")).thenReturn(cancelled);
+        AnalysisController controller = controllerWith(analyzer, jobs);
+
+        assertThat(controller.cancelJob("job-1")).isEqualTo(cancelled);
+    }
+
+    @Test
+    void shouldMapCancelMissingToNotFound() {
+        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
+        AnalysisJobService jobs = mock(AnalysisJobService.class);
+        when(jobs.cancel("gone")).thenThrow(new NoSuchElementException("not found"));
+        AnalysisController controller = controllerWith(analyzer, jobs);
+
+        assertThatThrownBy(() -> controller.cancelJob("gone"))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     @Test

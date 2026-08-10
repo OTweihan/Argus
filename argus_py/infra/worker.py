@@ -22,6 +22,11 @@ from argus_py.observability.context import run_in_thread
 from argus_py.report.generator import ReportGenerator
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.read import TaskReadService
+from argus_py.whitebox.client import WhiteboxClient
+from argus_py.whitebox.recovery import (
+    find_stale_whitebox_tasks,
+    reconcile_orphan_whitebox_jobs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +70,7 @@ class TaskWorker:
         model_config_service: ModelConfigService | None = None,
         report_generator: ReportGenerator | None = None,
         worker_id: str = "",
+        whitebox_client: WhiteboxClient | None = None,
     ) -> None:
         self.queue = queue
         self._lifecycle = lifecycle
@@ -73,6 +79,8 @@ class TaskWorker:
         self._model_config_service = model_config_service
         self._report_generator = report_generator
         self._worker_id = worker_id
+        # O-04 启动恢复：非空时接管孤儿白盒作业；为空回退原 FAILED 语义。
+        self._whitebox_client = whitebox_client
         self.concurrency = max(1, concurrency)
         self._tasks: list[asyncio.Task[None]] = []
         self._started = False
@@ -225,15 +233,17 @@ class TaskWorker:
     # ── Reconciliation ────────────────────────────────────────────────────
 
     async def _reconcile_stale_tasks(self) -> None:
-        """扫描 stale WHITEBOX+RUNNING 任务并标记为 FAILED。
+        """扫描 stale WHITEBOX+RUNNING 任务并重新接管（O-04）或标记 FAILED。
 
         安全条件：
         1. status=RUNNING / task_type=WHITEBOX / external_job_id IS NOT NULL
         2. worker_lease_expires_at < now（租约已过期）
         3. CAS 更新防止竞态
-        """
-        now_iso = datetime.now(timezone.utc).isoformat()
 
+        配置了 whitebox_client 时走「完整接管」：查询远端作业状态后重新接管
+        （SUCCEEDED 拉结果落 COMPLETED / RUNNING 重置 PENDING 重入队 / 终态落对应
+        终态），不再静默遗留孤儿作业。未配置（测试/最小配置）回退原 FAILED 语义。
+        """
         # 使用 lifecycle 关联的 storage 获取 pool
         from argus_py.task.storage import TaskSQLiteStorage
 
@@ -241,22 +251,18 @@ class TaskWorker:
         if not isinstance(storage, TaskSQLiteStorage):
             return
 
-        pool = storage._tasks._pool
+        if self._whitebox_client is not None:
+            await reconcile_orphan_whitebox_jobs(
+                storage=storage,
+                lifecycle=self._lifecycle,
+                queue=self.queue,
+                client=self._whitebox_client,
+            )
+            return
 
-        with pool.ro_conn() as conn:
-            rows = conn.execute(
-                "SELECT task_id, external_job_id, external_job_status, "
-                "worker_id AS w_id, worker_lease_expires_at AS lease "
-                "FROM tasks WHERE status = ? AND task_type = ? "
-                "AND external_job_id IS NOT NULL "
-                "AND worker_lease_expires_at IS NOT NULL "
-                "AND worker_lease_expires_at < ?",
-                (
-                    TaskStatus.RUNNING.value,
-                    TaskType.WHITEBOX.value,
-                    now_iso,
-                ),
-            ).fetchall()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        pool = storage._tasks._pool
+        rows = find_stale_whitebox_tasks(storage)
 
         for row in rows:
             task_id = row["task_id"]

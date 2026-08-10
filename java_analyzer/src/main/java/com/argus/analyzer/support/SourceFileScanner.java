@@ -2,6 +2,8 @@ package com.argus.analyzer.support;
 
 import com.argus.analyzer.api.dto.ParseFailureDetail;
 import com.argus.analyzer.env.MavenModuleIndex;
+import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.service.JobCancelledException;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Problem;
@@ -62,6 +64,21 @@ public class SourceFileScanner {
      * @return ScanResult 包含解析成功/失败的文件列表
      */
     public ScanResult scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel, List<Path> classpathJars) {
+        return scan(sourcePath, languageLevel, classpathJars, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 扫描源码目录，支持 classpath JAR 与协作取消（O-04）。
+     *
+     * @param sourcePath      源码根目录
+     * @param languageLevel   可选的语言级别，为 null 时自动检测
+     * @param classpathJars   外部依赖 JAR 路径列表
+     * @param progress        进度/取消通道；取消时在文件循环安全边界抛
+     *                        {@link JobCancelledException}
+     * @return ScanResult 包含解析成功/失败的文件列表
+     */
+    public ScanResult scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel,
+                           List<Path> classpathJars, AnalysisProgressListener progress) {
         List<Map.Entry<Path, CompilationUnit>> parsedFiles = new ArrayList<>();
         List<ParseFailureDetail> failures = new ArrayList<>();
 
@@ -88,6 +105,9 @@ public class SourceFileScanner {
         }
 
         for (Path javaFile : javaFiles) {
+            if (progress.isCancelled()) {
+                throw new JobCancelledException("Source scan cancelled");
+            }
             try {
                 var parseResult = parser.parse(javaFile);
                 if (parseResult.isSuccessful() && parseResult.getResult().isPresent()) {

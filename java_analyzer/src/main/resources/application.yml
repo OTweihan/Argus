@@ -25,6 +25,12 @@ argus:
       max-entries: 1000
       retention-seconds: 1800
       cleanup-interval-ms: 60000
+      # O-04 服务端 deadline：请求未携带 timeoutSeconds 时使用默认值；
+      # 请求携带的上限不得超过 max-timeout-seconds。Python 断联后由
+      # deadline-check 定时任务把超时作业置 TIMED_OUT 并终止 Maven 进程树。
+      default-timeout-seconds: 1800
+      max-timeout-seconds: 3600
+      deadline-check-ms: 5000
     workers:
       # 0 = min(8, max(2, available processors))
       threads: 0

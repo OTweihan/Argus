@@ -391,6 +391,25 @@ class TaskLifecycleService(_StorageEventBase):
                 analysis_id, "RUNNING", started_at=utc_now().isoformat()
             )
 
+    def reset_analysis_run(self, analysis_id: str) -> None:
+        """重新接管时复位非终态 analysis_run 供再次执行（O-04 启动恢复）。
+
+        复用同一 analysis_id（避免 UNIQUE 冲突重复插入），清空上次运行的
+        失败/完成痕迹，回到 QUEUED 由新一次执行驱动。
+        """
+        if isinstance(self.storage, TaskSQLiteStorage):
+            self.storage.update_analysis_run_status(
+                analysis_id,
+                "QUEUED",
+                completeness_status="NOT_EVALUATED",
+                failure_code=None,
+                failure_message=None,
+                stop_reason=None,
+                started_at=None,
+                completed_at=None,
+                projection_completed_at=None,
+            )
+
     def save_analysis_raw_result(self, analysis_id: str, raw_json: str, digest: str) -> None:
         """事务 1：独立保存 Java 原始响应（审计留存）。"""
         if isinstance(self.storage, TaskSQLiteStorage):

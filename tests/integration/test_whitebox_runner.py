@@ -310,6 +310,8 @@ async def test_whitebox_runner_preserves_snapshot_when_remote_may_still_run(
     mock_client.submit_analyze_job.return_value = WhiteboxJobStatus(
         job_id="still-running", status="PENDING"
     )
+    # O-04：远端取消端点不可用（模拟旧版 Java / 作业已过期）→ 无法确认 → 保留 STOPPED_WAITING
+    mock_client.cancel_analyze_job.return_value = None
     resolver = MagicMock(spec=SourceResolver)
     resolver.resolve_path.return_value = ResolvedSource(
         source_type="local",
@@ -335,6 +337,7 @@ async def test_whitebox_runner_preserves_snapshot_when_remote_may_still_run(
             timeline_service=app_stack.timeline,
             lifecycle=app_stack.lifecycle,
             poll_interval=0,
+            cancel_confirmation_timeout=0.0,
         ).run(task)
 
     resolver.release.assert_not_called()
@@ -417,6 +420,8 @@ async def test_cancel_emits_timeline_event(app_stack, tmp_path) -> None:
     mock_client.submit_analyze_job.return_value = WhiteboxJobStatus(
         job_id="timeline-job", status="PENDING"
     )
+    # O-04：远端取消端点不可用 → 无法确认 → origin 保持 local（STOPPED_WAITING）
+    mock_client.cancel_analyze_job.return_value = None
 
     resolver = MagicMock(spec=SourceResolver)
     resolver.resolve_path.return_value = ResolvedSource(
@@ -445,6 +450,7 @@ async def test_cancel_emits_timeline_event(app_stack, tmp_path) -> None:
             timeline_service=app_stack.timeline,
             lifecycle=app_stack.lifecycle,
             poll_interval=0,
+            cancel_confirmation_timeout=0.0,
         ).run(task)
 
     # 验证时间线事件已发出

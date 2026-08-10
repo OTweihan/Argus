@@ -7,6 +7,8 @@ import com.argus.analyzer.env.MavenExecutionException;
 import com.argus.analyzer.env.MavenTimeoutException;
 import com.argus.analyzer.env.classpath.parser.ClasspathFileReader;
 import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.service.JobCancelledException;
+import com.argus.analyzer.service.MavenProcessRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -27,20 +29,24 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Maven process execution abstraction.
- * Handles {@link ProcessBuilder} management, timeout control,
- * stdout/stderr consumption, and classpath file generation.
+ * Handles {@link ProcessBuilder} management, timeout + cooperative cancellation
+ * (O-04) control, stdout/stderr consumption, and classpath file generation.
  */
 @Component
 public class MavenExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(MavenExecutor.class);
     private static final int MAVEN_OUTPUT_TAIL_CHARS = 4000;
+    private static final long PROCESS_POLL_MILLIS = 250;
 
     private final ClasspathFileReader fileReader = new ClasspathFileReader();
     private final ExecutorService streamExecutor;
+    private final MavenProcessRegistry processRegistry;
 
-    public MavenExecutor(@Qualifier("mavenStreamExecutor") ExecutorService streamExecutor) {
+    public MavenExecutor(@Qualifier("mavenStreamExecutor") ExecutorService streamExecutor,
+                         MavenProcessRegistry processRegistry) {
         this.streamExecutor = streamExecutor;
+        this.processRegistry = processRegistry;
     }
 
     /**
@@ -105,6 +111,8 @@ public class MavenExecutor {
 
     /**
      * Runs {@code mvn install -DskipTests -q -o} to prepare reactor artifacts.
+     * Cancellation (O-04) kills the process tree and propagates
+     * {@link JobCancelledException} instead of degrading silently.
      */
     public boolean runMvnInstall(Path workDir, String mvnExec, long timeoutSeconds,
                                   AnalysisProgressListener progress) {
@@ -123,6 +131,7 @@ public class MavenExecutor {
             pb.directory(workDir.toFile());
             pb.redirectErrorStream(true);
             Process process = pb.start();
+            processRegistry.register(progress, process);
 
             StringBuilder outputCapture = new StringBuilder();
             Thread outputReader = new Thread(() -> {
@@ -141,9 +150,11 @@ public class MavenExecutor {
             outputReader.setDaemon(true);
             outputReader.start();
 
-            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
+            ProcessOutcome outcome = waitForProcess(process, timeoutSeconds, progress);
+            if (outcome == ProcessOutcome.CANCELLED) {
+                throw new JobCancelledException("Maven reactor install cancelled");
+            }
+            if (outcome == ProcessOutcome.TIMED_OUT) {
                 outputReader.interrupt();
                 log.warn("[CLASSPATH] Reactor install timed out after {}s", timeoutSeconds);
                 return false;
@@ -187,15 +198,20 @@ public class MavenExecutor {
             pb.redirectErrorStream(false);
 
             Process process = pb.start();
+            processRegistry.register(progress, process);
             CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(
                     () -> readStream(process.getInputStream(), "stdout", progress), streamExecutor);
             CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(
                     () -> readStream(process.getErrorStream(), "stderr", progress), streamExecutor);
-            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+
+            ProcessOutcome outcome = waitForProcess(process, timeoutSeconds, progress);
             durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 
-            if (!finished) {
-                process.destroyForcibly();
+            if (outcome == ProcessOutcome.CANCELLED) {
+                // 协作取消：不收集输出，直接向上传播取消信号，由 runJob 落 CANCELLED
+                throw new JobCancelledException("Maven classpath generation cancelled");
+            }
+            if (outcome == ProcessOutcome.TIMED_OUT) {
                 String stdout = awaitOutput(stdoutFuture);
                 String stderr = awaitOutput(stderrFuture);
                 progress.onEvent("classpath", "ERROR", "Maven classpath generation timed out after "
@@ -239,8 +255,50 @@ public class MavenExecutor {
             throw new ClasspathGenerationException("Maven execution failed: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            // 协作取消走 waitForProcess 的 isCancelled() 路径（JobCancelledException），
+            // 此处 interrupt 保持既有失败语义（ClasspathGenerationException）。
             throw new ClasspathGenerationException("Maven execution interrupted", e);
         }
+    }
+
+    /**
+     * 在进程存活期间轮询：协作取消 / 进程退出 / 整体 deadline 超时。
+     * 超时与取消都会强制终止整个进程树（含后代）。
+     *
+     * <p>先检查取消标志再检查进程退出：``cancel()/enforceDeadlines()`` 会先置
+     * 取消令牌、再由 {@link MavenProcessRegistry} 强制销毁进程——若先查
+     * ``process.waitFor``，被强杀后的非零退出码会被误判为 FINISHED→MavenExecutionException
+     * →FAILED，而取消应落 CANCELLED。
+     */
+    private static ProcessOutcome waitForProcess(Process process, long timeoutSeconds,
+                                                 AnalysisProgressListener progress) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(Math.max(1, timeoutSeconds));
+        while (true) {
+            if (progress.isCancelled()) {
+                killProcessTree(process);
+                return ProcessOutcome.CANCELLED;
+            }
+            if (process.waitFor(PROCESS_POLL_MILLIS, TimeUnit.MILLISECONDS)) {
+                return ProcessOutcome.FINISHED;
+            }
+            if (System.nanoTime() >= deadline) {
+                killProcessTree(process);
+                return ProcessOutcome.TIMED_OUT;
+            }
+        }
+    }
+
+    private static void killProcessTree(Process process) {
+        try {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+        } catch (UnsupportedOperationException | SecurityException e) {
+            log.debug("ProcessHandle descendants unavailable: {}", e.getMessage());
+        }
+        process.destroyForcibly();
+    }
+
+    private enum ProcessOutcome {
+        FINISHED, TIMED_OUT, CANCELLED
     }
 
     private String readStream(InputStream stream) {

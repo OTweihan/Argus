@@ -1,5 +1,7 @@
 package com.argus.analyzer.env;
 
+import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.service.JobCancelledException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -49,8 +51,19 @@ public class ModuleClassifier {
      * 已标记 AGGREGATOR 的模块跳过扫描。
      */
     public void classifyAll(MavenModuleIndex index) {
+        classifyAll(index, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 对索引中所有模块执行分类，支持协作取消（O-04）：逐模块/逐文件的安全边界
+     * 检查 {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
+     */
+    public void classifyAll(MavenModuleIndex index, AnalysisProgressListener progress) {
         _signalsCache.clear();
         for (MavenModule module : index.getModules()) {
+            if (progress.isCancelled()) {
+                throw new JobCancelledException("Module classification cancelled");
+            }
             if (module.getModuleType() == ModuleType.AGGREGATOR) {
                 // 扫描阶段已标记，检查是否应转为 BOM
                 if (isBomModule(module)) {
@@ -59,7 +72,7 @@ public class ModuleClassifier {
                 continue;
             }
             // 先 scanSignals，结果缓存供后续 scoreModule() 复用
-            Signals signals = scanSignals(module);
+            Signals signals = scanSignals(module, progress);
             _signalsCache.put(module, signals);
             ModuleType type = classifySingle(module, signals);
             module.setModuleType(type);
@@ -79,11 +92,19 @@ public class ModuleClassifier {
      * 必须先调用 {@link #classifyAll(MavenModuleIndex)}。
      */
     public List<MavenModule> selectTargets(MavenModuleIndex index) {
+        return selectTargets(index, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 返回应作为目标分析模块的列表，支持协作取消（O-04）：评分阶段读取源文件时
+     * 检查 {@code progress.isCancelled()}。
+     */
+    public List<MavenModule> selectTargets(MavenModuleIndex index, AnalysisProgressListener progress) {
         List<MavenModule> targets = index.getModules().stream()
                 .filter(m -> m.getModuleType() != null && m.getModuleType().isTarget())
                 .sorted(Comparator.<MavenModule, Integer>comparing(
                                 m -> m.getModuleType() == ModuleType.APPLICATION ? 0 : 1)
-                        .thenComparingInt(m -> -scoreModule(m)))
+                        .thenComparingInt(m -> -scoreModule(m, progress)))
                 .toList();
 
         if (targets.isEmpty()) {
@@ -152,6 +173,10 @@ public class ModuleClassifier {
     // ====== 信号扫描 ======
 
     Signals scanSignals(MavenModule module) {
+        return scanSignals(module, AnalysisProgressListener.NOOP);
+    }
+
+    Signals scanSignals(MavenModule module, AnalysisProgressListener progress) {
         Signals signals = new Signals();
         for (Path srcDir : module.getSourceRoots()) {
             if (!Files.isDirectory(srcDir)) continue;
@@ -161,6 +186,9 @@ public class ModuleClassifier {
                         .toList();
 
                 for (Path javaFile : javaFiles) {
+                    if (progress.isCancelled()) {
+                        throw new JobCancelledException("Module signal scan cancelled");
+                    }
                     try {
                         String content = Files.readString(javaFile);
 
@@ -204,12 +232,16 @@ public class ModuleClassifier {
     // ====== 评分（用于排序） ======
 
     int scoreModule(MavenModule module) {
+        return scoreModule(module, AnalysisProgressListener.NOOP);
+    }
+
+    int scoreModule(MavenModule module, AnalysisProgressListener progress) {
         if (module.getModuleType() == ModuleType.APPLICATION) {
             return 50; // 应用模块默认高分
         }
         if (module.getModuleType() == ModuleType.BUSINESS) {
             // 优先复用 classifyAll 阶段的扫描缓存，避免重复 I/O
-            Signals s = _signalsCache.getOrDefault(module, scanSignals(module));
+            Signals s = _signalsCache.getOrDefault(module, scanSignals(module, progress));
             return s.businessScore();
         }
         return 0;

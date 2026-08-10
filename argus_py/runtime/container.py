@@ -670,6 +670,8 @@ def create_container() -> RuntimeContainer:
         model_config_service=model_config_service,
         report_generator=report_generator,
         worker_id=worker_id,
+        # O-04 启动恢复：启动时接管孤儿白盒作业（SUCCEEDED 拉结果 / RUNNING 重入队）
+        whitebox_client=whitebox_client,
     )
 
     llm_semaphore = (

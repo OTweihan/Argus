@@ -17,6 +17,15 @@ public class CommunityClusterer {
     private static final int MAX_ITERATIONS = 50;
 
     public List<ClusterInfo> cluster(Map<String, CallGraphNode> callGraph) {
+        return cluster(callGraph, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 社区聚类，支持协作取消（O-04）：迭代传播的安全边界检查
+     * {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
+     */
+    public List<ClusterInfo> cluster(Map<String, CallGraphNode> callGraph,
+                                     AnalysisProgressListener progress) {
         if (callGraph == null || callGraph.isEmpty()) {
             return List.of();
         }
@@ -45,6 +54,9 @@ public class CommunityClusterer {
         boolean changed = true;
         int iterations = 0;
         while (changed && iterations < MAX_ITERATIONS) {
+            if (progress.isCancelled()) {
+                throw new JobCancelledException("Community clustering cancelled");
+            }
             changed = false;
             iterations++;
 

@@ -37,9 +37,22 @@ public class FindingDetector {
     }
 
     public List<FindingItem> detect(Path sourcePath, List<Path> classpathJars) {
+        return detect(sourcePath, classpathJars, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 检测缺陷，支持协作取消（O-04）：扫描与逐文件处理的安全边界检查
+     * {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
+     */
+    public List<FindingItem> detect(Path sourcePath, List<Path> classpathJars,
+                                    AnalysisProgressListener progress) {
         List<FindingItem> findings = new ArrayList<>();
 
-        for (var entry : sourceFileScanner.scan(sourcePath, null, classpathJars).parsedFiles()) {
+        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars, progress);
+        for (var entry : scanResult.parsedFiles()) {
+            if (progress.isCancelled()) {
+                throw new JobCancelledException("Finding detection cancelled");
+            }
             Path javaFile = entry.getKey();
             CompilationUnit cu = entry.getValue();
             String relativePath = SourceFileScanner.relativize(sourcePath, javaFile);

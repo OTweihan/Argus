@@ -223,6 +223,7 @@ class WhiteboxClient:
         maven: dict | None = None,
         target_modules: list[str] | None = None,
         client_request_id: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> WhiteboxJobStatus:
         """提交异步 Java 分析作业。
 
@@ -230,6 +231,9 @@ class WhiteboxClient:
         ----------
         client_request_id : str | None
             幂等键。相同 client_request_id 返回已有作业。
+        timeout_seconds : int | None
+            服务端 deadline（秒，受 Java 端上限约束）。Python 断联后由
+            Java 侧 deadline 兜底终止作业，防止永久占用资源。
         """
         payload: dict[str, object] = {"sourcePath": source_path, "scope": scope}
         if maven:
@@ -238,6 +242,8 @@ class WhiteboxClient:
             payload["targetModules"] = target_modules
         if client_request_id:
             payload["clientRequestId"] = client_request_id
+        if timeout_seconds is not None and timeout_seconds > 0:
+            payload["timeoutSeconds"] = timeout_seconds
 
         try:
             response = await self._request(
@@ -304,6 +310,39 @@ class WhiteboxClient:
             raise WhiteboxResultNotReadyError(f"结果尚未就绪: job_id={job_id}")
 
         return _parse_response(response, "Java 分析作业结果获取", WhiteboxResult.from_dict)
+
+    async def cancel_analyze_job(
+        self,
+        job_id: str,
+        timeout: float | None = None,
+    ) -> WhiteboxJobStatus | None:
+        """请求取消异步 Java 分析作业（O-04）。
+
+        Java 端幂等：PENDING/RUNNING 作业请求协作取消，已终态则返回当前状态，
+        重复取消返回同一终态。
+
+        Parameters
+        ----------
+        job_id : str
+            待取消的作业 ID。
+        timeout : float | None
+            单次请求超时，为 None 时使用默认值。
+
+        Returns
+        -------
+        WhiteboxJobStatus | None
+            作业状态。作业不存在或旧版 Java 无此端点时（HTTP 404）返回 None，
+            由调用方解释语义（不能据此判定远端已取消）。
+        """
+        response = await self._request(
+            "DELETE",
+            f"/argus/api/analyze/jobs/{job_id}",
+            timeout=timeout,
+            allowed_statuses=frozenset({404}),
+        )
+        if response.status_code == 404:
+            return None
+        return _parse_response(response, "Java 分析作业取消", WhiteboxJobStatus.from_dict)
 
     # ── 可见性校验 ────────────────────────────────────────────────────────
 

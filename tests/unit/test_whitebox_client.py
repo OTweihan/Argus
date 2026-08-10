@@ -306,3 +306,44 @@ async def test_submit_and_query_analyze_job(client: WhiteboxClient) -> None:
     assert submitted.job_id == "job-1"
     assert submitted.events[0].stage == "classpath"
     assert status.status == "SUCCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_cancel_analyze_job_parses_status(client: WhiteboxClient) -> None:
+    """验证取消接口（DELETE）请求与状态解析（O-04）。"""
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.request.return_value = _mock_response(
+            200,
+            {
+                "jobId": "job-1",
+                "status": "CANCELLED",
+                "stage": "cancelled",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "events": [],
+            },
+        )
+        mock_get_client.return_value = mock_http
+
+        status = await client.cancel_analyze_job("job-1")
+
+    assert status is not None
+    assert status.job_id == "job-1"
+    assert status.status == "CANCELLED"
+    mock_http.request.assert_called_once()
+    # DELETE /argus/api/analyze/jobs/{jobId}
+    assert mock_http.request.call_args.args[0] == "DELETE"
+    assert mock_http.request.call_args.args[1] == "/argus/api/analyze/jobs/job-1"
+
+
+@pytest.mark.asyncio
+async def test_cancel_analyze_job_returns_none_on_404(client: WhiteboxClient) -> None:
+    """404（作业已过期 / 旧版 Java 无此端点）→ None，由调用方判定语义。"""
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.request.return_value = _mock_response(404, {})
+        mock_get_client.return_value = mock_http
+
+        status = await client.cancel_analyze_job("gone")
+
+    assert status is None

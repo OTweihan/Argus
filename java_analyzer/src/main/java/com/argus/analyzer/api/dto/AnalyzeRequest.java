@@ -10,17 +10,23 @@ public record AnalyzeRequest(
     String scope,
     List<String> targetModules,
     MavenConfig maven,
-    String clientRequestId
+    String clientRequestId,
+    Long timeoutSeconds
 ) {
     public AnalyzeRequest {
         if (scope == null) scope = "all";
     }
 
     public AnalyzeRequest(String sourcePath, String scope) {
-        this(sourcePath, scope, null, null, null);
+        this(sourcePath, scope, null, null, null, null);
     }
 
     public AnalyzeRequest(String sourcePath, String scope, List<String> targetModules, MavenConfig maven) {
-        this(sourcePath, scope, targetModules, maven, null);
+        this(sourcePath, scope, targetModules, maven, null, null);
+    }
+
+    public AnalyzeRequest(String sourcePath, String scope, List<String> targetModules, MavenConfig maven,
+                          String clientRequestId) {
+        this(sourcePath, scope, targetModules, maven, clientRequestId, null);
     }
 }

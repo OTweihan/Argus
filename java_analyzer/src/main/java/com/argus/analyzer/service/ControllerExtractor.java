@@ -38,10 +38,22 @@ public class ControllerExtractor {
     }
 
     public List<EndpointInfo> extract(Path sourcePath, List<Path> classpathJars) {
+        return extract(sourcePath, classpathJars, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 提取 Controller 端点，支持协作取消（O-04）：扫描与逐文件处理的安全边界
+     * 检查 {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
+     */
+    public List<EndpointInfo> extract(Path sourcePath, List<Path> classpathJars,
+                                      AnalysisProgressListener progress) {
         List<EndpointInfo> endpoints = new ArrayList<>();
 
-        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars);
+        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars, progress);
         for (var entry : scanResult.parsedFiles()) {
+            if (progress.isCancelled()) {
+                throw new JobCancelledException("Endpoint extraction cancelled");
+            }
             Path javaFile = entry.getKey();
             CompilationUnit cu = entry.getValue();
 

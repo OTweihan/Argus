@@ -89,13 +89,13 @@ public class ProjectAnalyzerService {
         ModuleContext ctx = resolveModuleContext(sourcePath, scope, mavenConfig, requestedTargets,
                 progress);
 
-        // Step 1: 无依赖的独立分析并行执行
+        // Step 1: 无依赖的独立分析并行执行（协作取消经 progress.isCancelled() 下钻）
         CompletableFuture<List<EndpointInfo>> endpointsFuture = launchEndpointExtraction(
-                sourcePath, ctx.classpathJars(), scope);
+                sourcePath, ctx.classpathJars(), scope, progress);
         CompletableFuture<CallGraphBuilder.BuildResult> callGraphFuture = launchCallGraphBuild(
-                sourcePath, ctx.classpathJars(), scope);
+                sourcePath, ctx.classpathJars(), scope, progress);
         CompletableFuture<List<FindingItem>> findingsFuture = launchFindingDetection(
-                sourcePath, ctx.classpathJars(), scope);
+                sourcePath, ctx.classpathJars(), scope, progress);
 
         // Step 2: 依赖 callgraph 的衍生分析
         var graph = callGraphFuture.thenApplyAsync(
@@ -105,12 +105,12 @@ public class ProjectAnalyzerService {
         var flowsFuture = endpointsFuture.thenCombineAsync(graph, (eps, g) -> {
             if (!isScope(scope, "flows", "all") || eps.isEmpty() || g.isEmpty())
                 return List.<ExecutionFlow>of();
-            return executionFlowTracer.trace(g, eps);
+            return executionFlowTracer.trace(g, eps, progress);
         }, analysisWorkerExecutor);
         var clustersFuture = graph.thenApplyAsync(g -> {
             if (!isScope(scope, "clusters", "all") || g.isEmpty())
                 return List.<ClusterInfo>of();
-            return communityClusterer.cluster(g);
+            return communityClusterer.cluster(g, progress);
         }, analysisWorkerExecutor);
 
         // Step 3: 收集结果
@@ -147,7 +147,7 @@ public class ProjectAnalyzerService {
             log.info("[POM] No Maven module index (non-Maven project or scan failed)");
         }
 
-        List<String> targetModules = resolveTargetModules(explicitTargets, moduleIndex);
+        List<String> targetModules = resolveTargetModules(explicitTargets, moduleIndex, progress);
 
         ClasspathResult cpResult = moduleIndex != null && targetModules != null && !targetModules.isEmpty()
                 ? classpathResolver.resolve(moduleIndex, targetModules, mavenConfig, progress)
@@ -163,12 +163,13 @@ public class ProjectAnalyzerService {
         return new ModuleContext(moduleIndex, targetModules, classpathJars, cpResult);
     }
 
-    private List<String> resolveTargetModules(List<String> explicitTargets, MavenModuleIndex moduleIndex) {
+    private List<String> resolveTargetModules(List<String> explicitTargets, MavenModuleIndex moduleIndex,
+                                              AnalysisProgressListener progress) {
         if (explicitTargets != null && !explicitTargets.isEmpty()) return explicitTargets;
         if (moduleIndex == null) return null;
         log.info("[AUTO_DETECT] No target modules specified, running classification...");
-        moduleClassifier.classifyAll(moduleIndex);
-        var targets = moduleClassifier.selectTargets(moduleIndex);
+        moduleClassifier.classifyAll(moduleIndex, progress);
+        var targets = moduleClassifier.selectTargets(moduleIndex, progress);
         var result = targets.stream().map(MavenModule::getDisplayName).toList();
         log.info("[AUTO_DETECT] Selected {} target modules: {}", result.size(), result);
         return result;
@@ -177,25 +178,25 @@ public class ProjectAnalyzerService {
     // ====== 并行分析启动 ======
 
     private CompletableFuture<List<EndpointInfo>> launchEndpointExtraction(
-            Path sourcePath, List<Path> cp, String scope) {
+            Path sourcePath, List<Path> cp, String scope, AnalysisProgressListener progress) {
         if (!isScope(scope, "endpoints", "all", "flows")) return CompletableFuture.completedFuture(List.of());
         return CompletableFuture.supplyAsync(
-                () -> controllerExtractor.extract(sourcePath, cp), analysisWorkerExecutor);
+                () -> controllerExtractor.extract(sourcePath, cp, progress), analysisWorkerExecutor);
     }
 
     private CompletableFuture<CallGraphBuilder.BuildResult> launchCallGraphBuild(
-            Path sourcePath, List<Path> cp, String scope) {
+            Path sourcePath, List<Path> cp, String scope, AnalysisProgressListener progress) {
         if (!isScope(scope, "callgraph", "all", "flows", "clusters"))
             return CompletableFuture.completedFuture(null);
         return CompletableFuture.supplyAsync(
-                () -> callGraphBuilder.build(sourcePath, cp), analysisWorkerExecutor);
+                () -> callGraphBuilder.build(sourcePath, cp, progress), analysisWorkerExecutor);
     }
 
     private CompletableFuture<List<FindingItem>> launchFindingDetection(
-            Path sourcePath, List<Path> cp, String scope) {
+            Path sourcePath, List<Path> cp, String scope, AnalysisProgressListener progress) {
         if (!isScope(scope, "all")) return CompletableFuture.completedFuture(List.of());
         return CompletableFuture.supplyAsync(
-                () -> findingDetector.detect(sourcePath, cp), analysisWorkerExecutor);
+                () -> findingDetector.detect(sourcePath, cp, progress), analysisWorkerExecutor);
     }
 
     // ====== Diagnostics 组装 ======
