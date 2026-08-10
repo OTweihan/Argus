@@ -10,6 +10,9 @@ repos:
       - id: detect-private-key
       - id: check-json
       - id: check-yaml
+        # docker-compose.intranet.example.yml 使用 Compose 规范的 `!override` 标签
+        # （合并时整体替换 ports 序列），PyYAML 无法解析该标签，故从普通 YAML 检查排除。
+        exclude: '^docker-compose\.intranet\.example\.yml$'
       - id: trailing-whitespace
       - id: end-of-file-fixer
         exclude: '\.md$'

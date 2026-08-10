@@ -742,6 +742,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/ws/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue Ws Token
+         * @description 浏览器用 Bearer API Token 换取短时单次 WebSocket ticket。
+         *
+         *     长期 Token 不应出现在 WebSocket URL 的 query 中（会进入反代/接入日志），
+         *     因此浏览器先调用本端点换取一个短时、单次、HMAC 签名的 ticket，再带
+         *     ``?token=<ticket>`` 建立 WebSocket。ticket 由 AuthTokenMiddleware 校验，
+         *     默认 30 秒内有效、每个 ticket 只能使用一次。
+         */
+        post: operations["issue_ws_token_argus_api_ws_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/argus/api/correlation-runs/{correlation_run_id}": {
         parameters: {
             query?: never;
@@ -4023,6 +4048,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    issue_ws_token_argus_api_ws_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

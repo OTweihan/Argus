@@ -6,8 +6,14 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
+from argus_py.api.auth import (
+    WS_TICKET_TTL_SECONDS,
+    WebSocketTicketError,
+    consume_ws_ticket,
+    issue_ws_ticket,
+)
 from argus_py.api.dependencies import get_event_bus, get_task_read_service
 from argus_py.config.server_settings import load_server_settings
 from argus_py.infra.events import (
@@ -32,6 +38,26 @@ _cors_origins_cache: list[str] | None = None
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
 
+@router.post("/token")
+async def issue_ws_token(request: Request) -> dict[str, Any]:
+    """浏览器用 Bearer API Token 换取短时单次 WebSocket ticket。
+
+    长期 Token 不应出现在 WebSocket URL 的 query 中（会进入反代/接入日志），
+    因此浏览器先调用本端点换取一个短时、单次、HMAC 签名的 ticket，再带
+    ``?token=<ticket>`` 建立 WebSocket。ticket 由 AuthTokenMiddleware 校验，
+    默认 30 秒内有效、每个 ticket 只能使用一次。
+    """
+    try:
+        ticket = issue_ws_ticket(request.app)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {
+        "token": ticket,
+        "expiresIn": WS_TICKET_TTL_SECONDS,
+        "singleUse": True,
+    }
+
+
 def _parse_since_seq(websocket: WebSocket) -> int | None:
     """从 WebSocket 查询参数中提取 ``sinceSeq``（客户端重连时传入）。"""
     raw = websocket.query_params.get("sinceSeq")
@@ -41,6 +67,23 @@ def _parse_since_seq(websocket: WebSocket) -> int | None:
         return int(raw)
     except (ValueError, TypeError):
         return None
+
+
+def _consume_ws_ticket(websocket: WebSocket) -> bool:
+    """消费中间件已放行的 WebSocket ticket（单次使用扣减）。
+
+    中间件只做非消费式放行；这里在连接被接受前真正消耗 ticket。长期 Token
+    连接（CLI / 服务器到服务器）或未启用鉴权时不需要消费，直接放行。
+    """
+    state = websocket.scope.get("state") or {}
+    if state.get("argus_ws_auth") != "ticket":
+        return True
+    ticket = state.get("argus_ws_ticket")
+    try:
+        consume_ws_ticket(websocket.app, ticket or "")
+    except (WebSocketTicketError, ValueError):
+        return False
+    return True
 
 
 def _is_origin_allowed(websocket: WebSocket) -> bool:
@@ -83,7 +126,7 @@ async def task_events(
     reader: TaskReadService = Depends(get_task_read_service),
 ) -> None:
     """订阅单个任务的实时事件。"""
-    if not _is_origin_allowed(websocket):
+    if not _is_origin_allowed(websocket) or not _consume_ws_ticket(websocket):
         await websocket.close(code=1008)
         return
     await websocket.accept()
@@ -115,7 +158,7 @@ async def all_task_events(
     event_bus: EventBus = Depends(get_event_bus),
 ) -> None:
     """订阅所有任务的实时事件。"""
-    if not _is_origin_allowed(websocket):
+    if not _is_origin_allowed(websocket) or not _consume_ws_ticket(websocket):
         await websocket.close(code=1008)
         return
     await websocket.accept()

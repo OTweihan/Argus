@@ -1,4 +1,5 @@
 import type { TaskEvent } from "./types";
+import { request } from "./api/client";
 import { getApiToken } from "./auth";
 
 type EventHandler = (event: TaskEvent) => void;
@@ -26,6 +27,8 @@ export class TaskEventStream {
   private reconnectAttempt = 0;
   private manuallyClosed = false;
   private lastSequence: number | undefined = undefined;
+  private wsTicketPromise: Promise<string | null> | null = null;
+  private socketGeneration = 0;
   private readonly handlers = new Set<EventHandler>();
   private readonly statusHandlers = new Set<StatusHandler>();
 
@@ -49,7 +52,7 @@ export class TaskEventStream {
     this.manuallyClosed = false;
     this.closeSocket();
     this.endpoint = endpoint;
-    this.openSocket(endpoint, this.lastSequence);
+    void this.openSocket(endpoint, this.lastSequence);
   }
 
   close(): void {
@@ -60,11 +63,27 @@ export class TaskEventStream {
     this.closeSocket();
   }
 
-  private openSocket(endpoint: string, sinceSeq?: number): void {
+  private async openSocket(endpoint: string, sinceSeq?: number): Promise<void> {
+    const generation = ++this.socketGeneration;
     const url = new URL(endpoint);
     if (sinceSeq !== undefined) url.searchParams.set("sinceSeq", String(sinceSeq));
     const token = getApiToken();
-    if (token) url.searchParams.set("token", token);
+    if (token) {
+      // 不把长期 Token 放进 WebSocket query（会进入反代/接入日志）：先用 Bearer
+      // 换取短时、单次 ticket，再用 ticket 建立连接。拿不到 ticket（服务端未启用
+      // 鉴权/已下线）时回退为不带凭据连接，由后端决定放行或 1008 拒绝。
+      const ticket = await this.requestWsToken();
+      // ticket 换取期间可能已 close() 或切到别的端点：用 generation + endpoint
+      // 双重守卫防止创建陈旧的 socket。
+      if (
+        this.manuallyClosed ||
+        this.endpoint !== endpoint ||
+        generation !== this.socketGeneration
+      ) {
+        return;
+      }
+      if (ticket) url.searchParams.set("token", ticket);
+    }
     const socket = new WebSocket(url.toString());
     this.socket = socket;
     this.lastMessageTime = Date.now();
@@ -119,6 +138,19 @@ export class TaskEventStream {
     this.socket = null;
   }
 
+  /** 用 Bearer Token 换取短时单次 WebSocket ticket；失败返回 null。 */
+  private async requestWsToken(): Promise<string | null> {
+    if (!this.wsTicketPromise) {
+      this.wsTicketPromise = request<{ token?: string }>("/ws/token", { method: "POST" })
+        .then((body) => body?.token ?? null)
+        .catch(() => null)
+        .finally(() => {
+          this.wsTicketPromise = null;
+        });
+    }
+    return this.wsTicketPromise;
+  }
+
   private emitStatus(
     status: "connected" | "disconnected" | "error" | "reconnecting" | "reconnected",
   ): void {
@@ -133,7 +165,7 @@ export class TaskEventStream {
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       if (this.manuallyClosed || this.endpoint !== endpoint) return;
-      this.openSocket(endpoint, this.lastSequence);
+      void this.openSocket(endpoint, this.lastSequence);
     }, delayMs);
   }
 

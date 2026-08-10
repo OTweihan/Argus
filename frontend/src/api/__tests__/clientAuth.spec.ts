@@ -78,18 +78,34 @@ describe("API session token", () => {
     expect(authRequired.value).toBe(true);
   });
 
-  it("encodes token and sequence independently in WebSocket URLs", () => {
+  it("uses a short-lived ticket (not the long token) in WebSocket URLs", async () => {
     setApiToken("token +/?&中文");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ token: "short-lived-ticket", expiresIn: 30, singleUse: true }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
     const stream = new TaskEventStream();
     const internal = stream as unknown as {
-      openSocket: (endpoint: string, sinceSeq?: number) => void;
+      endpoint: string;
+      openSocket: (endpoint: string, sinceSeq?: number) => Promise<void>;
     };
-    internal.openSocket("ws://localhost/argus/api/ws/tasks/task%2Fwith%20space", 42);
+    // 复刻 connect() 的准备工作：openSocket 前先登记当前 endpoint，
+    // 避免 ticket 换取期间被 stale-guard 判定为"已切换端点"而中止。
+    const endpoint = "ws://localhost/argus/api/ws/tasks/task%2Fwith%20space";
+    internal.endpoint = endpoint;
+    await internal.openSocket(endpoint, 42);
 
     const created = new URL(MockWebSocket.instances[0].url);
     expect(created.pathname).toContain("/ws/tasks/task%2Fwith%20space");
     expect(created.searchParams.get("sinceSeq")).toBe("42");
-    expect(created.searchParams.get("token")).toBe("token +/?&中文");
+    // 长期 Token 不进入 WebSocket query：换成了短时、单次 ticket。
+    expect(created.searchParams.get("token")).toBe("short-lived-ticket");
+    expect(created.searchParams.get("token")).not.toBe("token +/?&中文");
     stream.close();
   });
 
