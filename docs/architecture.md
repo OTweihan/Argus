@@ -212,6 +212,9 @@ HTTP adapter ──→ application ──→ domain
   面向用户。
 - API 变更必须同步 Pydantic schema、前端生成类型/API adapter 和契约测试。
 - Blob、报告、截图等受保护资源必须继续经过认证请求，不把 Token 写入长期 URL。
+- 启用 Token 鉴权时，浏览器 WebSocket 使用**短时、单次 ticket**（HTTP 换取，
+  HMAC 签名）而非长期 Token，避免长期 Token 进入反代/接入日志；长期 Token
+  直连方式保留一个版本窗口后移除。
 
 ### 5.2 Python 与 Java Analyzer
 
@@ -226,6 +229,9 @@ HTTP adapter ──→ application ──→ domain
   使用服务 DNS，不得把部署拓扑硬编码进领域代码。
 - `sourcePath` 必须在 Java 进程可见并指向同一内容。容器模式必须使用显式共享卷或由 Java
   自己获取源码，不能假设宿主机路径自动可见。
+- 源码路径边界由 `allowed-source-roots`（Java）与 `whitebox.allowed_source_roots`（Python）
+  约束：`analyze` 与 `validate-source` 统一经过 real-path 校验器，拒绝允许根目录之外
+  的路径和符号链接逃逸。未配置时按宽松模式兼容旧行为，但必须告警；容器/生产 fail-closed。
 - 两个服务不得共享或直接修改对方数据库；跨服务一致性通过任务状态和幂等 API 管理。
 
 ### 5.3 实时事件

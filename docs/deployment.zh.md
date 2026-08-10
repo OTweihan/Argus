@@ -37,6 +37,9 @@
 # 首次构建并启动
 docker compose up -d --build
 
+# 含 Java 源码分析（附加 java-analyzer）
+docker compose --profile java up -d --build
+
 # 查看运行状态
 docker compose ps
 docker compose logs -f argus
@@ -48,6 +51,31 @@ docker compose up -d
 ```
 
 启动后访问 `http://<host>:8000/` 打开 Console，`/docs` 是 OpenAPI / Swagger。
+
+### 默认网络边界（fail-closed）
+
+仓库自带的 `docker-compose.yml` 默认是**收紧**的：
+
+- **Python** 宿主端口只绑定 `127.0.0.1`（`127.0.0.1:8000:8000`），不会暴露到局域网；
+  容器内 uvicorn 仍监听 `0.0.0.0`，由 compose 的回环绑定收敛宿主侧可见性。
+- **Java Analyzer** 只 `expose` 给 Compose 内部网络（Python 通过
+  `http://java-analyzer:8081` 访问），**不映射宿主端口**。Java Analyzer 不是
+  可信公网接口，只应被 Python 控制面调用。
+- 容器内强制 `allowed-source-roots=/tmp/sources`（Python 与 Java 双侧），
+  非共享目录的源码路径会被 Java 拒绝（real-path 校验 + 符号链接逃逸拒绝）。
+
+**确需把 Console 暴露到内网其他机器**时，复制 `docker-compose.intranet.example.yml`
+并设置强随机 `ARGUS_API_TOKEN`：
+
+```bash
+cp docker-compose.intranet.example.yml docker-compose.intranet.yml
+# 编辑 docker-compose.intranet.yml：设置 ARGUS_API_TOKEN（openssl rand -hex 32）
+docker compose --profile java -f docker-compose.yml -f docker-compose.intranet.yml up -d
+```
+
+覆盖文件会清空基线 compose 的 `ARGUS_BIND_LOOPBACK_ONLY` 标记；因此若
+Token 仍是占位符/为空，`argus serve` 启动时会打印显式告警（非回环监听 + 无 Token）。
+`docker-compose.intranet.yml` 已加入 `.gitignore`，防止把真实 Token 提交进仓库。
 
 ---
 
@@ -88,8 +116,12 @@ Python 会先将 Git 或本地源码物化为任务独立快照，Java Analyzer 
 
 ```text
 ARGUS_WHITEBOX_SOURCE_WORK_DIR=/tmp/sources
+ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS=/tmp/sources
 ARGUS_JAVA_ANALYZER_URL=http://java-analyzer:8081
 ```
+
+Java 侧通过 `argus.analysis.allowed-source-roots` 做 real-path 边界校验（越界与
+符号链接逃逸一律拒绝）；容器由 Dockerfile/Compose 固定为 `/tmp/sources`。
 
 非容器部署可在 `config/server.yaml` 中配置：
 
@@ -99,6 +131,12 @@ whitebox:
   allowed_source_roots:
     - /srv/projects
 ```
+
+> **allowed-source-roots 过渡期**：未配置时 Python（`serve`）与 Java（`SourceLocator`）
+> 都会打印宽松模式告警——允许 Java 进程可见的任意目录，保持旧行为兼容；容器/生产
+> 部署必须显式配置并最终 fail-closed。对应环境变量：
+> `ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS`（Python，逗号分隔）、
+> `ARGUS_ANALYSIS_ALLOWED_SOURCE_ROOTS`（Java，逗号分隔）。
 
 快照在远端作业确认结束后按任务清理。Python 取消、超时或断网时无法确认 Java
 是否仍在读取，因此保留快照，由 24 小时 TTL 清理回收。
@@ -170,12 +208,23 @@ ARGUS_API_TOKEN=请生成一个32字节以上的随机串
 | `/health` | 否（反代/容器健康检查匿名探测） |
 | `/`、`/assets/...` SPA 静态 | 否（浏览器加载 HTML 无法带 header） |
 | `/argus/api/*` | **是**（`Authorization: Bearer <token>`） |
-| `/argus/api/ws/*` | **是**（浏览器走 `?token=<token>`，CLI 可走 Bearer 头） |
+| `/argus/api/ws/*` | **是**（浏览器走短时单次 `?token=<ticket>`，CLI 可走 Bearer 头） |
+
+**WebSocket 不携带长期 Token**：浏览器先 `POST /argus/api/ws/token`（Bearer 头）
+换取一个 HMAC 签名的**短时（默认 30 秒）、单次** ticket，再带 `?token=<ticket>`
+建立 WebSocket。长期 Token 因此不会出现在 WS URL 中，也就不会进入反代访问日志
+或接入侧日志。旧版前端/CLI 直接带长期 Token 仍兼容（保留一个版本窗口）。
 
 Web 控制台第一次收到 401 时会显示 Token 输入框，Token 只保存在当前标签页的
 `sessionStorage`；关闭标签页即清除。截图、报告和调试包均通过带 Bearer 头的请求加载，
 不会把 Token 放进普通 HTTP URL 或前端构建产物。校验使用 `hmac.compare_digest`
 防时序侧信道。**不要把 token 写进 git**。更强的访问控制请走反代 + SSO。
+
+### 就绪探针
+
+`/ready` 在依赖未就绪或 lifespan 尚未完成初始化时返回 **HTTP 503**（而非 200），
+供 K8s / Compose / 反代按状态码停止导流；`/health` 只表示进程存活，不做昂贵
+依赖检查。依赖恢复后 `/ready` 回到 200。
 
 ---
 

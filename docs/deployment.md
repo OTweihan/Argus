@@ -49,6 +49,34 @@ docker compose up -d
 
 After starting, visit `http://<host>:8000/` for the Console, or `/docs` for the OpenAPI / Swagger UI.
 
+### Default network boundary (fail-closed)
+
+The bundled `docker-compose.yml` is tightened by default:
+
+- **Python** publishes its host port only on `127.0.0.1` (`127.0.0.1:8000:8000`),
+  so it is not reachable from the LAN. Inside the container uvicorn still binds
+  `0.0.0.0`; the compose loopback binding is what limits host-side visibility.
+- **Java Analyzer** is only `expose`d to the Compose network (Python reaches it at
+  `http://java-analyzer:8081`) and does **not** publish a host port. The Analyzer is
+  not a trusted public interface and should only be called by the Python control plane.
+- Both sides enforce `allowed-source-roots=/tmp/sources`; source paths outside the
+  shared directory are rejected by Java (real-path validation + symlink-escape refusal).
+
+To expose the Console to other machines on your intranet, copy
+`docker-compose.intranet.example.yml` and set a strong random `ARGUS_API_TOKEN`:
+
+```bash
+cp docker-compose.intranet.example.yml docker-compose.intranet.yml
+# edit docker-compose.intranet.yml: set ARGUS_API_TOKEN (openssl rand -hex 32)
+docker compose --profile java -f docker-compose.yml -f docker-compose.intranet.yml up -d
+```
+
+When binding to a non-loopback address without `ARGUS_API_TOKEN`, `argus serve`
+prints an explicit warning. The intranet override clears the base compose
+`ARGUS_BIND_LOOPBACK_ONLY` marker, so a still-placeholder/empty Token triggers the
+warning at startup. `docker-compose.intranet.yml` is in `.gitignore` to prevent
+committing a real Token.
+
 ---
 
 ## 3. Configuration Baseline (`config/server.yaml`)
@@ -141,13 +169,25 @@ When enabled:
 | `/health` | No (for reverse proxy / container health checks) |
 | `/`, `/assets/...` (SPA static) | No (browser loads HTML without headers) |
 | `/argus/api/*` | **Yes** (`Authorization: Bearer <token>`) |
-| `/argus/api/ws/*` | **Yes** (browser uses `?token=<token>`, CLI can use Bearer header) |
+| `/argus/api/ws/*` | **Yes** (browser uses a short-lived single-use `?token=<ticket>`, CLI can use Bearer header) |
+
+The long-lived Token is never placed in a WebSocket URL: the browser first calls
+`POST /argus/api/ws/token` (Bearer header) to obtain an HMAC-signed, short-lived
+(default 30s), single-use ticket, then opens the WebSocket with `?token=<ticket>`.
+This keeps the long-lived Token out of proxy/access logs. Legacy clients that send
+the long-lived Token directly remain compatible for one release window.
 
 After the first 401, the web console prompts for the Token and keeps it only in the current
 tab's `sessionStorage`; closing the tab clears it. Screenshots, reports, and debug bundles are
 loaded through authenticated requests, so the Token is not embedded in normal HTTP URLs or
 frontend build artifacts. Validation uses `hmac.compare_digest`. **Do not commit the token to git.**
 For stronger access control, use a reverse proxy with SSO.
+
+### Readiness probe
+
+`/ready` returns **HTTP 503** (not 200) while dependencies are not ready or the lifespan
+initialization has not completed, so K8s / Compose / reverse proxies stop routing by status
+code; `/health` only indicates process liveness and runs no expensive dependency checks.
 
 ---
 
