@@ -46,7 +46,7 @@
 | O-03 | P0 | 为任务提交增加有界、非阻塞的准入控制 | 防止任务无限堆积和 HTTP 请求长时间挂起（✅ 已完成） |
 | O-04 | P1 | 实现 Java 作业协作取消与服务端 deadline | 取消/超时后及时释放线程、Maven 进程与源码快照 |
 | O-05 | P1 | 显式处理 EventBus 回放缺口和服务重启 epoch | 避免断线后任务终态长期停留在旧值 |
-| O-06 | P1 | TaskRunner 使用 handler 返回的 Task | 消除返回新快照时的结果、报告或终态信息丢失风险 |
+| O-06 | P1 | TaskRunner 使用 handler 返回的 Task | 消除返回新快照时的结果、报告或终态信息丢失风险（✅ 已完成） |
 | O-07 | P1 | 合并源码快照、内容指纹与 Java 缓存键计算 | 降低大型仓库冷启动 I/O、磁盘占用和重复哈希 |
 | O-08 | P1 | Java 分析缓存按权重限制，而非只限制条目数 | 控制大型调用图缓存造成的堆内存峰值 |
 | O-09 | P1 | 前端列表与参数推断增加请求代次/取消 | 防止旧响应覆盖新筛选条件或新输入 |
@@ -243,6 +243,19 @@
 - 断线期间发生的任务终态最终与 SQLite 一致，不依赖用户手动刷新页面。
 
 ### O-06 TaskRunner 使用 handler 返回的 Task（P1）
+
+> ✅ **已完成（2026-08-10）**。实现要点：
+> - `TaskRunner.run()` 保存 `handler_result = await asyncio.wait_for(...)` 并传入
+>   `_finalize_run(running_task, handler_result)`。
+> - `_finalize_run` 完成前读取最新持久化状态：已写入终态（外部取消/并发终态）或非 RUNNING
+>   （外部 pause）时原样返回、绝不覆盖；报告生成后再核对一次，防止迟到的成功返回覆盖外部取消。
+> - handler 返回全新 Task 快照时以其为结果数据源，生命周期/身份字段从最新持久化状态回填
+>   （`_LIFECYCLE_FIELDS`）；返回 None 或原地返回同一对象时以运行期 task 对象为准（Whitebox 现状保持）。
+> - `TaskHandler` 收窄为 async-only，同步 handler 被拦截并给出明确错误（须经 `run_in_thread` 包装）。
+>   运行时行为变更：同步 handler 抛 `TypeError` 并落 FAILED（旧实现会透传返回值正常完成）；当前生产
+>   handler（blackbox/whitebox 均为 async）不受影响。
+> - 新增 `tests/unit/test_task_runner.py`：返回全新快照 / 返回 None / 并发取消 / 已写终态 /
+>   外部 pause / 同步 handler 拒绝，6 个用例。
 
 **现状证据**
 

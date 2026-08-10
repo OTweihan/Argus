@@ -17,7 +17,9 @@ from argus_py.task.models import Task
 
 logger = logging.getLogger(__name__)
 
-TaskHandler = Callable[[Task], Task | Awaitable[Task | None] | None]
+# handler 收窄为 async-only：返回 ``Awaitable[Task | None]``。
+# 同步扩展必须由调用方经 run_in_thread 包装后再注册，避免阻塞事件循环。
+TaskHandler = Callable[[Task], Awaitable[Task | None]]
 
 # 终态集合（重复写入保护）
 TERMINAL_STATUSES: frozenset[TaskStatus] = frozenset(
@@ -26,6 +28,36 @@ TERMINAL_STATUSES: frozenset[TaskStatus] = frozenset(
         TaskStatus.FAILED,
         TaskStatus.TIMEOUT,
         TaskStatus.CANCELLED,
+    }
+)
+
+# handler 返回全新 Task 快照时，以下生命周期/身份字段一律从最新持久化状态回填，
+# 不采纳快照值——防止覆盖外部 cancel/pause 写入的状态、丢失租约/时间戳/重试链信息。
+# 注意：logs/result_json/source_*/external_job_* 等半结果字段不在此列，既不会从快照
+# 采纳（全新 Task() 默认空），也不会被回填；快照型 handler 如需保留这些字段，应在返回
+# 快照前自行携带。字段清单需与 task/models.Task 保持同步，新增生命周期字段时需一并维护。
+_LIFECYCLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "task_id",
+        "status",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "worker_id",
+        "worker_lease_expires_at",
+        "execution_attempt",
+        "retry_parent_task_id",
+        "name",
+        "project_id",
+        "goal",
+        "start_url",
+        "task_type",
+        "max_steps",
+        "timeout_seconds",
+        "capture_screenshots",
+        "parameters",
+        "whitebox_config_json",
+        "whitebox_config_schema_version",
     }
 )
 
@@ -57,8 +89,14 @@ class TaskRunner:
     async def run(self, task: Task) -> Task:
         """执行任务并管理生命周期。
 
+        Handler 返回值语义：
+        - 返回全新 Task 快照 → 采纳其 result_summary/findings 等结果字段进入报告与终态，
+          生命周期/身份字段以最新持久化状态为准；
+        - 返回 None 或原地返回同一对象 → 以运行期 task 对象（含 handler 原地修改）为准。
+        完成前再次核对最新持久化状态，外部 cancel/pause 写入的终态不会被迟到的成功返回覆盖。
+
         终态写入规则：
-        - Handler 返回 None（正常完成）→ COMPLETED
+        - Handler 正常返回 → COMPLETED（除非外部已写入终态）
         - Handler 抛 WhiteboxTaskCancelled → CANCELLED
         - Handler 抛 WhiteboxTaskTimeout → TIMEOUT
         - Handler 抛 WhiteboxTaskError → FAILED
@@ -78,8 +116,9 @@ class TaskRunner:
         # 熔断路径：handler 完全失控时 asyncio.wait_for 介入
         safety_timeout = running_task.timeout_seconds + 30
 
+        handler_result: Task | None = None
         try:
-            await asyncio.wait_for(
+            handler_result = await asyncio.wait_for(
                 self._run_handler(handler, running_task),
                 timeout=safety_timeout,
             )
@@ -96,17 +135,22 @@ class TaskRunner:
         except Exception as exc:
             return await self._handle_exception(running_task, exc)
 
-        return await self._finalize_run(running_task)
+        return await self._finalize_run(running_task, handler_result)
 
     async def _run_handler(self, handler: TaskHandler, task: Task) -> Task | None:
-        """执行同步或异步任务 handler。
+        """执行异步任务 handler。
 
+        TaskHandler 收窄为 async-only：同步 handler 会被拦截并给出明确错误，
+        同步扩展必须由调用方经 run_in_thread 包装后再注册，避免阻塞事件循环。
         类型化异常直接透传到 run() 的 except 链。
         """
         result = handler(task)
-        if inspect.isawaitable(result):
-            return await result
-        return result
+        if not inspect.isawaitable(result):
+            raise TypeError(
+                f"TaskHandler 必须是异步 handler（当前返回 {type(result).__name__}），"
+                "同步实现请用 run_in_thread 包装后再注册。"
+            )
+        return await result
 
     # ── 终态处理 ──────────────────────────────────────────────────────────
 
@@ -164,12 +208,35 @@ class TaskRunner:
         raise TaskError(message)
 
     async def _finalize_run(self, task: Task, result: Task | None = None) -> Task:
-        """最终报告生成：完成未终态的任务并生成报告。"""
-        completed = result or task
-        if completed.status is TaskStatus.RUNNING:
-            completed = await self._generate_report(completed)
-            completed = self.lifecycle.complete_task(completed)
-        return completed
+        """最终报告生成：完成未终态的任务并生成报告。
+
+        数据源优先级：
+        - handler 返回全新 Task 快照 → 以其为结果数据源，生命周期/身份字段从
+          最新持久化状态回填（见 _LIFECYCLE_FIELDS）；
+        - 返回 None 或原地返回同一对象 → 以运行期 task 对象（含 handler 原地修改）为准。
+        完成前读取最新持久化状态：已写入终态（外部取消/并发终态）或非 RUNNING
+        （外部 pause）时原样返回、绝不覆盖；报告生成后再核对一次，防止迟到的
+        成功返回覆盖外部取消。
+        """
+        latest = self._latest_task(task)
+        if latest.status in TERMINAL_STATUSES:
+            # 外部/并发已写入终态：不覆盖
+            return latest
+        if latest.status is not TaskStatus.RUNNING:
+            # 外部 pause 已介入：保留非运行状态，不推进完成
+            return latest
+        if result is not None and result is not task:
+            completed = result
+            for field in _LIFECYCLE_FIELDS:
+                setattr(completed, field, getattr(latest, field))
+        else:
+            completed = task
+        completed = await self._generate_report(completed)
+        # 报告生成期间外部可能已取消/暂停，完成前再次核对最新状态
+        final = self._latest_task(task)
+        if final.status is not TaskStatus.RUNNING:
+            return final
+        return self.lifecycle.complete_task(completed)
 
 
 # ── whitebox 类型化异常导入 ──────────────────────────────────────────────
