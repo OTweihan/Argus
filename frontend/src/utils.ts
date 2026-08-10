@@ -46,6 +46,17 @@ export function errorMessage(error: unknown): string {
   return "未知错误。";
 }
 
+/** 请求是否因主动取消（AbortController.abort() / 组件卸载）而失败。
+ *
+ * client.request 统一把 fetch 的 AbortError 转成 code=REQUEST_ABORTED 的 ApiError；
+ * 这里兼容原生 DOMException，供调用方区分「正常取消」与真实失败，避免误弹错误提示。 */
+export function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof ApiError && error.code === "REQUEST_ABORTED") ||
+    (error instanceof DOMException && error.name === "AbortError")
+  );
+}
+
 /** 过载类错误（队列满载 / 限流）返回带"稍后重试"的明确提示，而非一般失败。 */
 export function overloadMessage(error: unknown): string {
   const apiError = error instanceof ApiError ? error : undefined;

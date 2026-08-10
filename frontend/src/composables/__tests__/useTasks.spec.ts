@@ -4,19 +4,32 @@
  * openEditTaskDialog，间接断言 buildWhiteboxPayload 与 _restoreWhiteboxForm。
  */
 
-import { computed, defineComponent, reactive, ref } from "vue";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { computed, defineComponent, nextTick, reactive, ref } from "vue";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import type { Project, Task } from "../../types";
 
-vi.mock("../../api", () => ({
-  createTask: vi.fn(),
-  updateTask: vi.fn(),
-  deleteTask: vi.fn(),
-  restartTask: vi.fn(),
-  startTask: vi.fn(),
-  inferTaskLimits: vi.fn(),
-}));
+vi.mock("../../api", () => {
+  class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public code = "HTTP_ERROR",
+      public details: Record<string, unknown> = {},
+    ) {
+      super(message);
+    }
+  }
+  return {
+    ApiError,
+    createTask: vi.fn(),
+    updateTask: vi.fn(),
+    deleteTask: vi.fn(),
+    restartTask: vi.fn(),
+    startTask: vi.fn(),
+    inferTaskLimits: vi.fn(),
+  };
+});
 
 vi.mock("../useTaskList", () => ({
   useTaskList: () => ({
@@ -197,5 +210,214 @@ describe("useTasks 白盒 payload", () => {
     expect(payload.taskType).toBe("whitebox");
     expect(payload.whiteboxConfig.sourceType).toBe("local");
     expect(payload.whiteboxConfig.sourcePath).toBe("/opt/ws/proj");
+  });
+});
+
+describe("useTasks autoFillLimits — 取消与乱序防护", () => {
+  const apiInferTaskLimitsMock = api.inferTaskLimits as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    apiInferTaskLimitsMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  type Limits = { maxSteps: number; timeoutSeconds: number };
+
+  /** 设定 goal 并推进 400ms 防抖，让 autoFillLimits 真正发出推断请求。 */
+  async function fireInference(
+    t: ReturnType<typeof useTasks>,
+    goal: string,
+  ): Promise<void> {
+    t.taskForm.goal = goal;
+    await nextTick(); // goal watch 先跑，防抖计时器就位
+    await vi.advanceTimersByTimeAsync(400);
+    await flushPromises();
+  }
+
+  it("正常推断写回 blackbox maxSteps/timeoutSeconds", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    apiInferTaskLimitsMock.mockResolvedValue({ maxSteps: 5, timeoutSeconds: 60 });
+
+    await fireInference(t, "测试登录流程");
+
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+    expect(apiInferTaskLimitsMock.mock.calls[0][0]).toBe("测试登录流程");
+    expect(apiInferTaskLimitsMock.mock.calls[0][1]).toBeUndefined();
+    expect(t.taskForm.blackbox.maxSteps).toBe(5);
+    expect(t.taskForm.blackbox.timeoutSeconds).toBe(60);
+  });
+
+  it("旧推断迟到返回不覆盖新推断结果（代次保护）", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    let resolveFirst!: (v: Limits) => void;
+    let resolveSecond!: (v: Limits) => void;
+    apiInferTaskLimitsMock.mockImplementationOnce(
+      () => new Promise<Limits>((res) => { resolveFirst = res; }),
+    );
+    apiInferTaskLimitsMock.mockImplementationOnce(
+      () => new Promise<Limits>((res) => { resolveSecond = res; }),
+    );
+
+    // 第一次推断（goal="a"）挂起
+    await fireInference(t, "a");
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+
+    // 修改 goal → 400ms 后第二次推断发出（取消第一次）
+    await fireInference(t, "b");
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(2);
+
+    // 第二次先返回
+    resolveSecond({ maxSteps: 8, timeoutSeconds: 90 });
+    await flushPromises();
+    expect(t.taskForm.blackbox.maxSteps).toBe(8);
+    expect(t.taskForm.blackbox.timeoutSeconds).toBe(90);
+
+    // 第一次迟到返回：代次已落后，应被丢弃
+    resolveFirst({ maxSteps: 5, timeoutSeconds: 60 });
+    await flushPromises();
+    expect(t.taskForm.blackbox.maxSteps).toBe(8);
+    expect(t.taskForm.blackbox.timeoutSeconds).toBe(90);
+  });
+
+  it("响应期间用户修改 goal：旧推断不覆盖用户输入", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    let resolve!: (v: Limits) => void;
+    apiInferTaskLimitsMock.mockImplementationOnce(
+      () => new Promise<Limits>((res) => { resolve = res; }),
+    );
+
+    await fireInference(t, "aaa");
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+
+    // 推断在途时用户继续编辑 goal（防抖窗口内尚未发出新推断）
+    t.taskForm.goal = "bbb";
+    resolve({ maxSteps: 5, timeoutSeconds: 60 });
+    await flushPromises();
+
+    // 目标已变，旧推断结果被丢弃
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+    expect(t.taskForm.blackbox.timeoutSeconds).toBeNull();
+  });
+
+  it("响应期间切换 taskType：旧黑盒推断不写入", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    let resolve!: (v: Limits) => void;
+    apiInferTaskLimitsMock.mockImplementationOnce(
+      () => new Promise<Limits>((res) => { resolve = res; }),
+    );
+
+    await fireInference(t, "分析登录");
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+
+    t.taskForm.taskType = "whitebox";
+    resolve({ maxSteps: 5, timeoutSeconds: 60 });
+    await flushPromises();
+
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+  });
+
+  it("响应期间 startUrl 变化：旧黑盒推断不覆盖", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    let resolve!: (v: Limits) => void;
+    apiInferTaskLimitsMock.mockImplementationOnce(
+      () => new Promise<Limits>((res) => { resolve = res; }),
+    );
+
+    t.taskForm.goal = "分析登录";
+    t.taskForm.blackbox.startUrl = "https://example.com";
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(400);
+    await flushPromises();
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+    // 发起时 startUrl 快照
+    expect(apiInferTaskLimitsMock.mock.calls[0][1]).toBe("https://example.com");
+
+    t.taskForm.blackbox.startUrl = "https://other.example.com";
+    resolve({ maxSteps: 5, timeoutSeconds: 60 });
+    await flushPromises();
+
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+  });
+
+  it("推断在途时打开编辑对话框：旧推断不覆盖表单", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    let resolve!: (v: Limits) => void;
+    apiInferTaskLimitsMock.mockImplementationOnce(
+      () => new Promise<Limits>((res) => { resolve = res; }),
+    );
+
+    await fireInference(t, "分析登录");
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+
+    t.taskForm.editingId = "t-edit";
+    resolve({ maxSteps: 5, timeoutSeconds: 60 });
+    await flushPromises();
+
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+  });
+
+  it("目标被清空：取消在途推断并使其代次失效，不覆盖表单", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    let resolve!: (v: Limits) => void;
+    apiInferTaskLimitsMock.mockImplementationOnce(
+      () => new Promise<Limits>((res) => { resolve = res; }),
+    );
+
+    await fireInference(t, "aaa");
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+
+    // 清空 goal：400ms 后 autoFillLimits 走 trimmed 空分支 → abort + 代次失效
+    await fireInference(t, "");
+    expect(t.taskForm.goal).toBe("");
+
+    // 旧推断此时返回：代次已落后，应被丢弃
+    resolve({ maxSteps: 5, timeoutSeconds: 60 });
+    await flushPromises();
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+    expect(t.taskForm.blackbox.timeoutSeconds).toBeNull();
+  });
+
+  it("推断失败：console.warn 且不写回；主动取消不告警", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t = mountHarness();
+    vi.useFakeTimers();
+
+    // 第一次：真实失败 → warn
+    apiInferTaskLimitsMock.mockRejectedValueOnce(new Error("网络错误"));
+    await fireInference(t, "a");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+
+    // 第二次：主动取消（client 转成 REQUEST_ABORTED）→ 不告警
+    apiInferTaskLimitsMock.mockRejectedValueOnce(
+      new api.ApiError("请求已取消。", 0, "REQUEST_ABORTED", { path: "/tasks/infer-limits" }),
+    );
+    await fireInference(t, "b");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+  });
+
+  it("白盒模式下推断结果不写回黑盒字段（行为保留）", async () => {
+    const t = mountHarness();
+    vi.useFakeTimers();
+    t.taskForm.taskType = "whitebox";
+    apiInferTaskLimitsMock.mockResolvedValue({ maxSteps: 5, timeoutSeconds: 60 });
+
+    await fireInference(t, "分析登录");
+
+    expect(apiInferTaskLimitsMock).toHaveBeenCalledTimes(1);
+    expect(t.taskForm.blackbox.maxSteps).toBeNull();
+    expect(t.taskForm.blackbox.timeoutSeconds).toBeNull();
   });
 });

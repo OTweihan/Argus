@@ -1,4 +1,4 @@
-import { reactive, ref, watch, type Ref } from "vue";
+import { getCurrentScope, onScopeDispose, reactive, ref, watch, type Ref } from "vue";
 import { ElMessageBox } from "element-plus";
 import {
   createTask as apiCreateTask,
@@ -13,6 +13,7 @@ import type { ModelConfig, Project, Task, TaskDisplayStatus } from "../types";
 import {
   clearFormErrors,
   errorMessage,
+  isAbortError,
   nullableBoolean,
   nullableText,
   overloadMessage,
@@ -248,7 +249,14 @@ export function useTasks(opts: {
 }) {
   const { allTasks, projects, error, message, formErrors, view } = opts;
 
-  const taskList = useTaskList({ allTasks });
+  const taskList = useTaskList({
+    allTasks,
+    // 列表内部触发（分页/筛选/搜索防抖）的失败上报到共享 error ref；
+    // 显式调用方（loadAll / retry / delete / 事件刷新）仍由各自 try/catch 处理。
+    onError: (msg) => {
+      error.value = msg;
+    },
+  });
   const taskSelection = useTaskSelection({ allTasks, view, error });
 
   /* ── 任务表单 ── */
@@ -267,20 +275,55 @@ export function useTasks(opts: {
     "cancelled",
   ];
 
+  /** 推断请求的 AbortController；新一次推断先取消旧推断，避免迟到结果覆盖较新输入。 */
+  let inferController: AbortController | null = null;
+  /** 推断代次：只有最新一次推断能写回表单。 */
+  let inferGeneration = 0;
+
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      inferController?.abort();
+    });
+  }
+
   async function autoFillLimits(): Promise<void> {
     if (taskForm.editingId) return;
     const trimmed = taskForm.goal.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      // 目标被清空：没有新推断要发起，取消在途推断并使其代次失效，
+      // 防止迟到结果在用户重新输入前覆盖表单。
+      inferController?.abort();
+      inferGeneration += 1;
+      return;
+    }
+    // 发起瞬间定格推断输入；响应落地前任何一项变化都说明用户已更新，丢弃结果。
+    const goalSnapshot = trimmed;
+    const taskTypeSnapshot = taskForm.taskType;
+    const startUrlSnapshot = taskTypeSnapshot === "blackbox" ? taskForm.blackbox.startUrl : "";
+
+    inferController?.abort();
+    const controller = new AbortController();
+    inferController = controller;
+    const gen = ++inferGeneration;
+
     try {
-      const limits = await inferTaskLimits(
-        trimmed,
-        taskForm.taskType === "blackbox" ? taskForm.blackbox.startUrl : undefined,
-      );
-      if (taskForm.taskType === "blackbox") {
+      const limits = await inferTaskLimits(goalSnapshot, startUrlSnapshot || undefined, {
+        signal: controller.signal,
+      });
+      // 二次核对：用户手工修改 goal/startUrl/taskType 或进入编辑态后，不覆盖其输入。
+      if (gen !== inferGeneration) return; // 已有更新的推断取代本次
+      if (taskForm.editingId) return;
+      if (taskForm.taskType !== taskTypeSnapshot) return;
+      if (taskForm.goal.trim() !== goalSnapshot) return;
+      if (taskTypeSnapshot === "blackbox") {
+        if (taskForm.blackbox.startUrl !== startUrlSnapshot) return;
         taskForm.blackbox.maxSteps = limits.maxSteps;
         taskForm.blackbox.timeoutSeconds = limits.timeoutSeconds;
       }
+      // taskTypeSnapshot === "whitebox" 时不写黑盒字段（与旧行为一致）。
     } catch (caught) {
+      if (gen !== inferGeneration) return; // 旧推断的失败不告警
+      if (isAbortError(caught)) return; // 主动取消 / 被新推断取代，不告警
       console.warn("任务参数推断失败：", errorMessage(caught));
     }
   }

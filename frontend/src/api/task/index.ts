@@ -21,6 +21,7 @@ export function listTasks(
     offset?: number;
     limit?: number;
   } = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<TaskListResponse> {
   const params = new URLSearchParams();
   if (filters.status && filters.status !== "queued") params.set("status", filters.status);
@@ -30,7 +31,9 @@ export function listTasks(
   if (filters.offset !== undefined) params.set("offset", String(filters.offset));
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
   const query = params.toString();
-  return request<TaskListResponse>(`/tasks${query ? `?${query}` : ""}`);
+  return request<TaskListResponse>(`/tasks${query ? `?${query}` : ""}`, {
+    signal: options.signal,
+  });
 }
 
 export function getTask(taskId: string): Promise<Task> {
@@ -79,10 +82,11 @@ export function getTaskTraces(taskId: string): Promise<LLMTraceRecord[]> {
 export function inferTaskLimits(
   goal: string,
   startUrl?: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ maxSteps: number; timeoutSeconds: number }> {
   const params = new URLSearchParams({ goal });
   if (startUrl) params.set("startUrl", startUrl);
-  return request(`/tasks/infer-limits?${params.toString()}`);
+  return request(`/tasks/infer-limits?${params.toString()}`, { signal: options.signal });
 }
 
 export function getDashboardStats(recentLimit?: number): Promise<DashboardStats> {

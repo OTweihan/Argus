@@ -6,9 +6,21 @@ import type { Task, TaskEvent } from "../../types";
 
 // 对 ../api 做模块级 mock：保证 useTaskEvents 内部的 apiGetTask
 // 走可控的 mock 实现，测试不依赖真实 HTTP 调用。
-vi.mock("../../api", () => ({
-  getTask: vi.fn(),
-}));
+vi.mock("../../api", () => {
+  class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public code = "HTTP_ERROR",
+      public details: Record<string, unknown> = {},
+    ) {
+      super(message);
+    }
+  }
+  // 导出 ApiError：errorMessage 依赖 instanceof ApiError，缺了会让
+  // 未来任何 reject 用例在 catch 里抛 TypeError。
+  return { ApiError, getTask: vi.fn() };
+});
 
 import * as apiModule from "../../api";
 import { useTaskEvents } from "../useTaskEvents";
