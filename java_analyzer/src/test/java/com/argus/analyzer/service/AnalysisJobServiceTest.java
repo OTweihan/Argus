@@ -227,6 +227,32 @@ class AnalysisJobServiceTest {
     }
 
     @Test
+    void shouldMarkQueuedJobTimedOutAndPreventItFromRunning() throws Exception {
+        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
+        List<Runnable> queued = new ArrayList<>();
+        AnalysisJobService service = new AnalysisJobService(
+                analyzer,
+                queued::add,
+                10,
+                1800,
+                new MavenProcessRegistry(),
+                1,
+                1
+        );
+
+        var submitted = service.submit(request);
+        assertThat(submitted.status()).isEqualTo("PENDING");
+
+        Thread.sleep(1200); // 超过 1s deadline，但任务仍在执行器队列中
+        service.enforceDeadlines();
+
+        assertThat(service.getStatus(submitted.jobId()).status()).isEqualTo("TIMED_OUT");
+        queued.forEach(Runnable::run);
+        verify(analyzer, never()).analyze(any(), any());
+        assertThat(service.cancel(submitted.jobId()).status()).isEqualTo("TIMED_OUT");
+    }
+
+    @Test
     void shouldClampRequestedTimeoutToServerCap() {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
         List<Runnable> queued = new ArrayList<>();

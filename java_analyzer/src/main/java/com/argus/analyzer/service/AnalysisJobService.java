@@ -25,6 +25,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -108,8 +109,13 @@ public class AnalysisJobService {
             }
 
             try {
-                Future<?> future = jobExecutor.submit(() -> runJob(job, request));
+                FutureTask<Void> future = new FutureTask<>(() -> {
+                    runJob(job, request);
+                    return null;
+                });
+                // execute() 前登记 Future，确保直接执行器/快速取消也能观察到同一任务。
                 job.future = future;
+                jobExecutor.execute(future);
             } catch (RejectedExecutionException error) {
                 jobs.remove(jobId);
                 if (requestId != null) {
@@ -161,9 +167,8 @@ public class AnalysisJobService {
             if (job.isActive() && job.deadline != null && job.deadline.isBefore(now)) {
                 log.warn("Analysis job {} exceeded server deadline {}; forcing TIMED_OUT",
                         job.jobId, job.deadline);
-                job.requestCancel();
+                job.requestTimeout();
                 mavenProcessRegistry.destroyFor(job.progress());
-                job.markTimedOut();
             }
         });
     }
@@ -398,6 +403,27 @@ public class AnalysisJobService {
                 addEvent("analysis", "INFO", "Cancellation requested; stopping at next safe boundary");
             } else {
                 // 已终态：no-op，重复取消返回同一终态
+            }
+            return this;
+        }
+
+        /**
+         * deadline 到期：设置协作取消令牌，并由 TIMED_OUT 直接抢占终态。
+         *
+         * <p>不能复用 {@link #requestCancel()}：它会把 PENDING 先推进到
+         * CANCELLED，导致后续无法再落 TIMED_OUT。排队 Future 同样需要取消，
+         * 确保执行器随后取出该 Future 时不会再运行分析逻辑。</p>
+         */
+        AnalysisJob requestTimeout() {
+            cancelRequested.set(true);
+            if ("PENDING".equals(status.get())) {
+                Future<?> f = future;
+                if (f != null) {
+                    f.cancel(false);
+                }
+            }
+            if (markTimedOut()) {
+                addEvent("analysis", "WARN", "Job exceeded server deadline");
             }
             return this;
         }
