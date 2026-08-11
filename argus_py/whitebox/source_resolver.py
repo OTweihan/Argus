@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -25,6 +26,46 @@ _HASH_CHUNK_SIZE = 1024 * 1024
 _STALE_SNAPSHOT_SECONDS = 24 * 60 * 60
 _SNAPSHOT_MARKER = ".argus_snapshot"
 
+# 快照排除规则（O-07，保守、可配置）：只排除确定无关的 VCS、构建输出与工具缓存。
+# 设计约束：
+# - `.mvn`、`mvnw`/`mvnw.cmd`、`gradlew` 等 wrapper 配置**不排除**——可能参与构建流程；
+# - 可能参与生成源码的目录（如 annotation processor 输出）未经验证不得排除，
+#   因此这里只按目录名匹配确定无关项，不触碰 `.mvn`、`src` 等。
+_DEFAULT_SNAPSHOT_EXCLUDE_DIRS = frozenset(
+    {
+        ".git",  # VCS
+        ".svn",
+        ".hg",
+        "target",  # Maven 构建输出（含 generated-sources/classes，分析器不扫描）
+        "build",  # Gradle 构建输出
+        "out",  # IDE 编译输出
+        ".gradle",  # Gradle 缓存
+        "node_modules",  # 前端依赖
+        ".idea",  # IDE 缓存
+        ".vscode",
+        ".settings",
+        "__pycache__",  # Python 字节码
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".cache",  # 通用工具缓存
+        ".m2",  # 本地 Maven 仓库（通常不在仓库内）
+        ".argus",  # 分析器自身 classpath 缓存
+    }
+)
+
+
+@dataclass
+class _SnapshotStats:
+    """快照物化统计（O-07 指标）。复制与内容指纹在单次流式遍历中完成。"""
+
+    file_count: int = 0
+    copied_bytes: int = 0
+    excluded_dir_count: int = 0
+    copy_duration_ms: float = 0.0
+    hash_duration_ms: float = 0.0
+    content_sha256: str | None = None
+
 
 @dataclass
 class ResolvedSource:
@@ -32,6 +73,10 @@ class ResolvedSource:
 
     所有来源都被物化到任务独立目录。Git 仓库保留 HEAD commit SHA，
     非 Git 目录使用完整快照内容的 SHA-256 作为快照标识。
+
+    ``source_revision`` / ``snapshot_digest`` 是进入 Python→Java 契约的稳定
+    revision（O-07）：Git 源用 commit SHA，本地源用快照内容 SHA-256。Java
+    缓存键据此免去每次查找时全量读取源码树。
     """
 
     source_type: str  # "git" | "local"
@@ -42,6 +87,10 @@ class ResolvedSource:
     is_dirty: bool | None  # 原始 Git 工作区是否有未提交改动
     content_sha256: str | None = None
     managed_snapshot: bool = False
+    # O-07：传给 Java 的稳定 revision / 快照内容摘要。
+    # git 源 = commit SHA（snapshot_digest=None）；local 源 = 内容 SHA-256（两者相同）。
+    source_revision: str | None = None
+    snapshot_digest: str | None = None
 
 
 class SourceResolutionError(Exception):
@@ -63,12 +112,26 @@ class SourceResolver:
         self,
         work_dir: str | None = None,
         allowed_roots: list[Path] | None = None,
+        exclude_dirs: frozenset[str] | None = None,
     ) -> None:
         self._work_dir = (
             Path(work_dir) if work_dir else Path(tempfile.gettempdir(), "argus_sources")
         ).resolve()
         self._allowed_roots = allowed_roots or []
+        # O-07：快照排除规则可配置；未指定时使用保守默认集。
+        self._exclude_dirs = (
+            frozenset(exclude_dirs) if exclude_dirs is not None else _DEFAULT_SNAPSHOT_EXCLUDE_DIRS
+        )
         self._cleanup_stale_snapshots()
+        # O-07 指标（快照物化统计），供 /metrics 汇总。SourceResolver 在
+        # run_in_thread 线程池中被并发调用，累加需加锁防丢更新。
+        self._stats_lock = threading.Lock()
+        self._snapshot_count = 0
+        self._snapshot_files_total = 0
+        self._snapshot_bytes_total = 0
+        self._snapshot_copy_ms_total = 0.0
+        self._snapshot_hash_ms_total = 0.0
+        self._snapshot_excluded_dirs_total = 0
 
     def resolve(
         self, repo_url: str, ref: str | None = None, *, clone_id: str | None = None
@@ -148,6 +211,8 @@ class SourceResolver:
             is_dirty=False,  # 浅克隆始终干净
             content_sha256=None,
             managed_snapshot=True,
+            source_revision=sha,
+            snapshot_digest=None,
         )
 
     def resolve_path(self, source_path: str, *, snapshot_id: str | None = None) -> ResolvedSource:
@@ -195,14 +260,16 @@ class SourceResolver:
         # 先记录原始 Git 状态，再物化不可变快照
         sha = self._get_head_commit(resolved)
         is_dirty = self._get_dirty_status(resolved) if sha else None
-        snapshot_dir = self._copy_snapshot(
+        snapshot_dir, stats = self._copy_snapshot(
             resolved,
             snapshot_id or uuid.uuid4().hex[:12],
         )
-        content_hash = self._compute_dir_hash(snapshot_dir)
+        content_hash = stats.content_sha256
         logger.info(
-            "本地源码已创建不可变快照 (hash=%s): %s -> %s",
-            content_hash[:8],
+            "本地源码已创建不可变快照 (hash=%s, files=%d, bytes=%d): %s -> %s",
+            (content_hash or "")[:8],
+            stats.file_count,
+            stats.copied_bytes,
             resolved,
             snapshot_dir,
         )
@@ -215,6 +282,9 @@ class SourceResolver:
             is_dirty=is_dirty,
             content_sha256=content_hash,
             managed_snapshot=True,
+            # O-07：本地源以快照内容 SHA 同时充当 sourceRevision 与 snapshotDigest。
+            source_revision=content_hash,
+            snapshot_digest=content_hash,
         )
 
     def _clone(self, repo_url: str, ref: str | None = None, clone_id: str = "") -> str:
@@ -287,25 +357,149 @@ class SourceResolver:
             shutil.rmtree(target_dir, ignore_errors=True)
             raise
 
-    def _copy_snapshot(self, source: Path, snapshot_id: str) -> Path:
-        """将本地源码物化为任务独立快照。"""
+    def _copy_snapshot(self, source: Path, snapshot_id: str) -> tuple[Path, _SnapshotStats]:
+        """将本地源码物化为任务独立快照，复制与内容指纹单次流式遍历完成。
+
+        Parameters
+        ----------
+        source : Path
+            本地源码根目录。
+        snapshot_id : str
+            任务唯一标识，用于生成互不冲突的快照目录。
+
+        Returns
+        -------
+        tuple[Path, _SnapshotStats]
+            快照目录路径与物化统计（含内容 SHA-256）。
+        """
         safe_id = _sanitize_dir_name(snapshot_id) or uuid.uuid4().hex[:12]
         snapshot_dir = self._work_dir / f"local_{_sanitize_dir_name(str(source))}__{safe_id}"
         if snapshot_dir.exists():
             shutil.rmtree(snapshot_dir)
         self._validate_tree_symlinks(source)
         try:
-            shutil.copytree(
-                source,
-                snapshot_dir,
-                symlinks=False,
-                ignore=shutil.ignore_patterns(".git"),
-            )
+            stats = self._materialize_snapshot(source, snapshot_dir)
             self._mark_snapshot(snapshot_dir)
         except (OSError, SourceResolutionError) as exc:
             shutil.rmtree(snapshot_dir, ignore_errors=True)
             raise SourceResolutionError(f"本地源码快照创建失败: {exc}") from exc
-        return snapshot_dir.resolve()
+        self._record_snapshot_stats(stats)
+        return snapshot_dir.resolve(), stats
+
+    def _materialize_snapshot(self, source: Path, dest: Path) -> _SnapshotStats:
+        """单次流式遍历：把源码复制到 ``dest`` 并同时计算内容 SHA-256。
+
+        哈希格式与旧 ``_compute_dir_hash`` 保持一致：每个被复制文件先写入
+        （8 字节大端长度 + 相对 POSIX 路径），再写入文件内容，按相对路径排序
+        保证确定性。排除规则作用于目录名（任意深度），排除目录既不复制也不
+        参与哈希。复制与哈希共享同一次文件读取。
+        """
+        stats = _SnapshotStats()
+        hasher = hashlib.sha256()
+        copy_start = time.perf_counter()
+        # 空目录（或全部文件被排除）时也必须物化出一个目录，供 _mark_snapshot 落标。
+        dest.mkdir(parents=True, exist_ok=True)
+
+        # 先收集 (源文件, 相对路径) 并按相对路径排序，保证哈希输入确定。
+        # 跟随目录符号链接（与旧 copytree 语义一致），但用已访问的真实路径
+        # 防环；排除规则作用于目录名（任意深度）。
+        entries: list[tuple[Path, Path]] = []
+        excluded_dirs = 0
+        visited_dirs: set[str] = set()
+        stack: list[tuple[Path, Path]] = [(source, Path())]
+        while stack:
+            cur_dir, rel_dir = stack.pop()
+            try:
+                real = cur_dir.resolve(strict=True)
+            except OSError:
+                continue
+            if str(real) in visited_dirs:
+                continue
+            visited_dirs.add(str(real))
+            try:
+                children = sorted(cur_dir.iterdir(), key=lambda p: p.name)
+            except OSError as exc:
+                raise SourceResolutionError(f"无法读取快照源目录: {cur_dir}") from exc
+            subdirs: list[tuple[Path, Path]] = []
+            for child in children:
+                name = child.name
+                if name == _SNAPSHOT_MARKER:
+                    continue
+                if child.is_dir():
+                    if name in self._exclude_dirs:
+                        excluded_dirs += 1
+                    else:
+                        subdirs.append((child, rel_dir / name))
+                elif child.is_file():
+                    # 文件符号链接兜底逃逸检查：`_validate_tree_symlinks` 的 rglob
+                    # 不深入符号链接目录，物化会跟随进入（与旧 copytree 语义一致），
+                    # 因此目录链接内部的文件链接必须在此处再次校验，防止源外内容
+                    # 被复制进共享快照。
+                    if child.is_symlink():
+                        try:
+                            target = child.resolve(strict=True)
+                            target.relative_to(source)
+                        except (OSError, ValueError) as exc:
+                            raise SourceResolutionError(
+                                f"源码目录包含越界或无效符号链接: {child}"
+                            ) from exc
+                    entries.append((child, rel_dir / name))
+            for d in reversed(subdirs):
+                stack.append(d)
+        entries.sort(key=lambda pair: pair[1].as_posix())
+
+        for src_file, dest_rel in entries:
+            dst_file = dest / dest_rel
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            rel_bytes = dest_rel.as_posix().encode("utf-8")
+            hasher.update(len(rel_bytes).to_bytes(8, "big"))
+            hasher.update(rel_bytes)
+            copied = 0
+            try:
+                with src_file.open("rb") as reader, dst_file.open("wb") as writer:
+                    while chunk := reader.read(_HASH_CHUNK_SIZE):
+                        writer.write(chunk)
+                        # 指纹耗时单独累计：只计 SHA-256 update 的 CPU 时间，
+                        # 文件 I/O 归入复制耗时。
+                        tick = time.perf_counter()
+                        hasher.update(chunk)
+                        stats.hash_duration_ms += (time.perf_counter() - tick) * 1000.0
+                        copied += len(chunk)
+            except OSError as exc:
+                raise SourceResolutionError(f"无法复制或读取快照文件: {src_file}") from exc
+            stats.file_count += 1
+            stats.copied_bytes += copied
+
+        stats.copy_duration_ms = (time.perf_counter() - copy_start) * 1000.0
+        stats.excluded_dir_count = excluded_dirs
+        stats.content_sha256 = hasher.hexdigest()
+        return stats
+
+    def _record_snapshot_stats(self, stats: _SnapshotStats) -> None:
+        """累加快照物化指标（O-07）。多任务并发物化时加锁防丢更新。"""
+        with self._stats_lock:
+            self._snapshot_count += 1
+            self._snapshot_files_total += stats.file_count
+            self._snapshot_bytes_total += stats.copied_bytes
+            self._snapshot_copy_ms_total += stats.copy_duration_ms
+            self._snapshot_hash_ms_total += stats.hash_duration_ms
+            self._snapshot_excluded_dirs_total += stats.excluded_dir_count
+
+    def metrics(self) -> dict[str, int | float]:
+        """快照物化指标（O-07），供 /metrics 汇总。
+
+        复制与指纹在单次流式遍历中合并完成，因此统一报告物化耗时与指纹
+        CPU 耗时。用这些数据决定是否继续引入增量 per-file digest。
+        """
+        with self._stats_lock:
+            return {
+                "snapshot_count": self._snapshot_count,
+                "snapshot_files_total": self._snapshot_files_total,
+                "snapshot_bytes_total": self._snapshot_bytes_total,
+                "snapshot_copy_ms_total": round(self._snapshot_copy_ms_total, 3),
+                "snapshot_hash_ms_total": round(self._snapshot_hash_ms_total, 3),
+                "snapshot_excluded_dirs_total": self._snapshot_excluded_dirs_total,
+            }
 
     @staticmethod
     def _mark_snapshot(snapshot_dir: Path) -> None:
@@ -328,29 +522,6 @@ class SourceResolver:
                 target.relative_to(source)
             except (OSError, ValueError) as exc:
                 raise SourceResolutionError(f"源码目录包含越界或无效符号链接: {entry}") from exc
-
-    def _compute_dir_hash(self, dir_path: Path) -> str:
-        """按相对路径排序计算快照的完整 SHA-256。"""
-        hasher = hashlib.sha256()
-        files = [
-            f
-            for f in dir_path.rglob("*")
-            if f.is_file()
-            and f.name != _SNAPSHOT_MARKER
-            and ".git" not in f.relative_to(dir_path).parts
-        ]
-        files.sort(key=lambda p: p.relative_to(dir_path))
-        for f in files:
-            rel = f.relative_to(dir_path).as_posix().encode("utf-8")
-            hasher.update(len(rel).to_bytes(8, "big"))
-            hasher.update(rel)
-            try:
-                with f.open("rb") as stream:
-                    while chunk := stream.read(_HASH_CHUNK_SIZE):
-                        hasher.update(chunk)
-            except OSError as exc:
-                raise SourceResolutionError(f"无法读取快照文件: {f}") from exc
-        return hasher.hexdigest()
 
     def _get_head_commit(self, repo_dir: Path) -> str | None:
         """获取 Git 仓库 HEAD commit SHA。"""

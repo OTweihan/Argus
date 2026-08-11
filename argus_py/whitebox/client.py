@@ -197,6 +197,8 @@ class WhiteboxClient:
         scope: str = "all",
         maven: dict | None = None,
         target_modules: list[str] | None = None,
+        source_revision: str | None = None,
+        snapshot_digest: str | None = None,
     ) -> WhiteboxResult:
         """向 Java 分析服务发起**同步**分析请求（兼容旧接口）。"""
         payload: dict[str, object] = {"sourcePath": source_path, "scope": scope}
@@ -204,6 +206,10 @@ class WhiteboxClient:
             payload["maven"] = maven
         if target_modules:
             payload["targetModules"] = target_modules
+        if source_revision:
+            payload["sourceRevision"] = source_revision
+        if snapshot_digest:
+            payload["snapshotDigest"] = snapshot_digest
 
         # 同步 analyze 使用较长超时
         try:
@@ -224,6 +230,8 @@ class WhiteboxClient:
         target_modules: list[str] | None = None,
         client_request_id: str | None = None,
         timeout_seconds: int | None = None,
+        source_revision: str | None = None,
+        snapshot_digest: str | None = None,
     ) -> WhiteboxJobStatus:
         """提交异步 Java 分析作业。
 
@@ -234,6 +242,11 @@ class WhiteboxClient:
         timeout_seconds : int | None
             服务端 deadline（秒，受 Java 端上限约束）。Python 断联后由
             Java 侧 deadline 兜底终止作业，防止永久占用资源。
+        source_revision : str | None
+            O-07：稳定内容 revision（git=commit SHA，local=内容 SHA-256）。
+            Java 缓存键据此免去全量源码树哈希。
+        snapshot_digest : str | None
+            O-07：快照内容 SHA-256（local 源与 source_revision 相同；git 源为 None）。
         """
         payload: dict[str, object] = {"sourcePath": source_path, "scope": scope}
         if maven:
@@ -244,6 +257,10 @@ class WhiteboxClient:
             payload["clientRequestId"] = client_request_id
         if timeout_seconds is not None and timeout_seconds > 0:
             payload["timeoutSeconds"] = timeout_seconds
+        if source_revision:
+            payload["sourceRevision"] = source_revision
+        if snapshot_digest:
+            payload["snapshotDigest"] = snapshot_digest
 
         try:
             response = await self._request(

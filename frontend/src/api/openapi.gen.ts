@@ -62,7 +62,7 @@ export interface paths {
         };
         /**
          * Metrics
-         * @description 返回运行指标（EventBus、队列、Worker 真实健康）。
+         * @description 返回运行指标（EventBus、队列、Worker 真实健康、快照物化）。
          */
         get: operations["metrics_metrics_get"];
         put?: never;
@@ -1993,6 +1993,36 @@ export interface components {
              * @default 0
              */
             queue_rejected_total: number;
+            /**
+             * Snapshot Count
+             * @default 0
+             */
+            snapshot_count: number;
+            /**
+             * Snapshot Files Total
+             * @default 0
+             */
+            snapshot_files_total: number;
+            /**
+             * Snapshot Bytes Total
+             * @default 0
+             */
+            snapshot_bytes_total: number;
+            /**
+             * Snapshot Copy Ms Total
+             * @default 0
+             */
+            snapshot_copy_ms_total: number;
+            /**
+             * Snapshot Hash Ms Total
+             * @default 0
+             */
+            snapshot_hash_ms_total: number;
+            /**
+             * Snapshot Excluded Dirs Total
+             * @default 0
+             */
+            snapshot_excluded_dirs_total: number;
         };
         /**
          * ModelConfigCreateRequest

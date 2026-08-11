@@ -345,6 +345,29 @@ def test_symlink_escaping_source_dir_is_rejected(tmp_path: Path) -> None:
         resolver._validate_tree_symlinks(source)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 创建符号链接需要管理员权限")
+def test_snapshot_follows_dir_symlink_without_cycle(tmp_path: Path) -> None:
+    """O-07：目录符号链接被跟随（与旧 copytree 语义一致），且循环链接不死循环。"""
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Main.java").write_text("class Main {}", encoding="utf-8")
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    (real_dir / "Shared.java").write_text("class Shared {}", encoding="utf-8")
+    (source / "link-to-real").symlink_to(real_dir, target_is_directory=True)
+    # 自环目录链接：防环必须跳过而非死循环
+    (source / "self-loop").symlink_to(source, target_is_directory=True)
+
+    resolver = _resolver(tmp_path)
+    result = resolver.resolve_path(str(source), snapshot_id="symlink-1")
+
+    snapshot = Path(result.resolved_path)
+    assert (snapshot / "Main.java").is_file()
+    assert (snapshot / "link-to-real" / "Shared.java").is_file()
+    # 自环不会导致快照无限展开：被解析到同一真实目录后跳过
+    assert snapshot.is_dir()
+
+
 def test_git_resolve_skips_content_hash(tmp_path: Path, monkeypatch) -> None:
     """Git 仓库解析后 content_sha256 为 None（commit SHA 已为精确标识）。
 
@@ -384,3 +407,103 @@ def test_git_resolve_skips_content_hash(tmp_path: Path, monkeypatch) -> None:
     assert git_result.content_sha256 is None
     assert git_result.resolved_commit_sha is not None
     assert git_result.source_type == "git"
+    # O-07：git 源 source_revision=commit SHA，snapshot_digest=None
+    assert git_result.source_revision == git_result.resolved_commit_sha
+    assert git_result.snapshot_digest is None
+
+
+def test_snapshot_excludes_default_build_and_vcs_dirs(tmp_path: Path) -> None:
+    """O-07：默认排除 VCS、构建输出与工具缓存，但不排除源码与 wrapper 目录。"""
+    source = tmp_path / "source"
+    (source / "src" / "main").mkdir(parents=True)
+    (source / "src" / "main" / "Main.java").write_text("class Main {}", encoding="utf-8")
+    (source / "target" / "classes").mkdir(parents=True)
+    (source / "target" / "classes" / "Main.class").write_bytes(b"\xca\xfe\xba\xbe")
+    (source / "node_modules" / "pkg").mkdir(parents=True)
+    (source / "node_modules" / "pkg" / "index.js").write_text("x", encoding="utf-8")
+    (source / ".git").mkdir()
+    (source / ".git" / "HEAD").write_text("ref: refs/heads/main", encoding="utf-8")
+    # wrapper 目录/文件不得排除
+    (source / ".mvn" / "wrapper").mkdir(parents=True)
+    (source / ".mvn" / "wrapper" / "maven-wrapper.properties").write_text(
+        "distributionUrl=...", encoding="utf-8"
+    )
+    (source / "mvnw").write_text("#!/bin/sh", encoding="utf-8")
+
+    resolver = _resolver(tmp_path)
+    result = resolver.resolve_path(str(source), snapshot_id="excl-1")
+
+    snapshot = Path(result.resolved_path)
+    assert (snapshot / "src" / "main" / "Main.java").is_file()
+    assert not (snapshot / "target").exists()
+    assert not (snapshot / "node_modules").exists()
+    assert not (snapshot / ".git").exists()
+    assert (snapshot / ".mvn" / "wrapper" / "maven-wrapper.properties").is_file()
+    assert (snapshot / "mvnw").is_file()
+
+    metrics = resolver.metrics()
+    assert metrics["snapshot_excluded_dirs_total"] >= 3
+    assert result.source_revision == result.content_sha256
+    assert result.snapshot_digest == result.content_sha256
+
+
+def test_custom_exclude_dirs_overrides_default(tmp_path: Path) -> None:
+    """O-07：自定义排除集覆盖默认集（target 不再被排除）。"""
+    source = tmp_path / "source"
+    (source / "src").mkdir(parents=True)
+    (source / "src" / "a.java").write_text("class A {}", encoding="utf-8")
+    (source / "custom_out").mkdir()
+    (source / "custom_out" / "x.txt").write_text("x", encoding="utf-8")
+    (source / "target").mkdir(parents=True)
+    (source / "target" / "t.txt").write_text("t", encoding="utf-8")
+
+    resolver = SourceResolver(
+        work_dir=str(tmp_path / "snapshots"),
+        exclude_dirs=frozenset({"custom_out"}),
+    )
+    result = resolver.resolve_path(str(source), snapshot_id="custom")
+
+    snapshot = Path(result.resolved_path)
+    assert not (snapshot / "custom_out").exists()
+    assert (snapshot / "src" / "a.java").is_file()
+    # 覆盖默认集后 target 被保留
+    assert (snapshot / "target" / "t.txt").is_file()
+    assert resolver.metrics()["snapshot_excluded_dirs_total"] == 1
+
+
+def test_metrics_accumulate_snapshot_materialize(tmp_path: Path) -> None:
+    """O-07：快照物化指标随解析累计。"""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "f.bin").write_bytes(b"x" * 1024)
+
+    resolver = _resolver(tmp_path)
+    assert resolver.metrics()["snapshot_count"] == 0
+
+    resolver.resolve_path(str(source), snapshot_id="m1")
+    resolver.resolve_path(str(source), snapshot_id="m2")
+
+    metrics = resolver.metrics()
+    assert metrics["snapshot_count"] == 2
+    assert metrics["snapshot_files_total"] == 2
+    assert metrics["snapshot_bytes_total"] == 2048
+    assert metrics["snapshot_copy_ms_total"] >= 0
+    assert metrics["snapshot_hash_ms_total"] >= 0
+
+
+def test_snapshot_hash_covers_excluded_removal(tmp_path: Path) -> None:
+    """O-07：排除目录中的文件不参与内容哈希（排除改变后哈希随之改变）。"""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.txt").write_text("a", encoding="utf-8")
+    (source / "target").mkdir(parents=True)
+    (source / "target" / "b.bin").write_bytes(b"z" * 1024)
+
+    resolver = _resolver(tmp_path)
+    first = resolver.resolve_path(str(source), snapshot_id="h1")
+
+    # 在排除目录里追加内容——不改变快照内容哈希
+    (source / "target" / "c.bin").write_bytes(b"y" * 4096)
+    second = resolver.resolve_path(str(source), snapshot_id="h2")
+
+    assert first.content_sha256 == second.content_sha256

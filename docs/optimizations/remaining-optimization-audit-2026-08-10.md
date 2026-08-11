@@ -47,7 +47,7 @@
 | O-04 | P1 | 实现 Java 作业协作取消与服务端 deadline | 取消/超时后及时释放线程、Maven 进程与源码快照 |
 | O-05 | P1 | 显式处理 EventBus 回放缺口和服务重启 epoch | 避免断线后任务终态长期停留在旧值 |
 | O-06 | P1 | TaskRunner 使用 handler 返回的 Task | 消除返回新快照时的结果、报告或终态信息丢失风险（✅ 已完成） |
-| O-07 | P1 | 合并源码快照、内容指纹与 Java 缓存键计算 | 降低大型仓库冷启动 I/O、磁盘占用和重复哈希 |
+| O-07 | P1 | 合并源码快照、内容指纹与 Java 缓存键计算 | 降低大型仓库冷启动 I/O、磁盘占用和重复哈希（✅ 已完成） |
 | O-08 | P1 | Java 分析缓存按权重限制，而非只限制条目数 | 控制大型调用图缓存造成的堆内存峰值 |
 | O-09 | P1 | 前端列表与参数推断增加请求代次/取消 | 防止旧响应覆盖新筛选条件或新输入 |
 | O-10 | P2 | 批量化分析投影写入，修正游标分页重复计数 | 降低大型分析结果的 SQLite 调用开销 |
@@ -283,6 +283,19 @@
 - Whitebox 的 None 返回路径保持现状，外部取消不能被迟到的成功返回覆盖。
 
 ### O-07 合并源码快照、内容指纹与 Java 缓存键计算（P1）
+
+> ✅ **已完成（2026-08-11）**。实现要点：
+> - Python→Java 契约新增兼容字段 `sourceRevision`/`snapshotDigest`：Git 源传 commit SHA，
+>   本地源传快照内容 SHA-256；`WhiteboxClient.submit_analyze_job/analyze` 与
+>   `WhiteboxRunner._submit_job` 均透传。
+> - `ProjectIndexCache.createKey` 在客户端提供 revision 时以
+>   `revision + Maven 配置指纹 + analyzer/pass 版本` 建键，路径不再参与身份（跨快照目录可命中），
+>   且查找不再全量读取源码树；旧客户端（无 revision）保留 path + 全量指纹回退。
+> - `SourceResolver` 复制与内容指纹合并为单次流式遍历（`_materialize_snapshot`），不再复制后二次读取；
+>   快照排除规则保守、可配置（默认排除 VCS/构建输出/工具缓存，不排除 `.mvn`/wrapper）。
+> - 指标：Python 记录快照文件数/复制字节/复制与指纹耗时/排除目录数（`/metrics` 新增 `snapshot_*`），
+>   Java `ProjectIndexCache.metrics()` 记录 lookup/hit/fingerprint/revision 统计。
+> - reflink/hardlink 未引入：与流式哈希互斥且平台差异大，先以指标决定是否继续。
 
 **现状证据**
 

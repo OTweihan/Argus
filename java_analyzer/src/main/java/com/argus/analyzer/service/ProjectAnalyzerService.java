@@ -72,7 +72,9 @@ public class ProjectAnalyzerService {
         Path sourcePath = sourceLocator.resolveForAnalysis(request.sourcePath());
         String scope = request.scope() != null ? request.scope() : "all";
         MavenConfig mavenConfig = request.maven() != null ? request.maven() : new MavenConfig();
-        var cacheKey = indexCache.createKey(sourcePath, scope, request.targetModules(), mavenConfig);
+        // O-07：客户端提供稳定 revision 时，缓存键免去全量源码树哈希。
+        var cacheKey = indexCache.createKey(sourcePath, scope, request.targetModules(), mavenConfig,
+                request.sourceRevision(), request.snapshotDigest());
         var cached = indexCache.getOrCompute(cacheKey, () -> analyzeUncached(
                 sourcePath, scope, mavenConfig, request.targetModules(), progress));
         if (cached.cacheHit()) {

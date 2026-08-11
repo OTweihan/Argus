@@ -20,6 +20,7 @@ SERVER_CONFIG_ENV = "ARGUS_SERVER_CONFIG"
 DEFAULT_QUEUE_MAX_SIZE = 32
 WHITEBOX_SOURCE_WORK_DIR_ENV = "ARGUS_WHITEBOX_SOURCE_WORK_DIR"
 WHITEBOX_ALLOWED_SOURCE_ROOTS_ENV = "ARGUS_WHITEBOX_ALLOWED_SOURCE_ROOTS"
+WHITEBOX_SNAPSHOT_EXCLUDE_DIRS_ENV = "ARGUS_WHITEBOX_SNAPSHOT_EXCLUDE_DIRS"
 JAVA_ANALYZER_URL_ENV = "ARGUS_JAVA_ANALYZER_URL"
 
 
@@ -79,6 +80,10 @@ class ServerSettings:
     java_analyzer_request_timeout: float = 30.0
     whitebox_allowed_source_roots: list[str] = field(default_factory=list)
     whitebox_source_work_dir: str | None = None
+    # O-07：快照排除目录名列表。空列表 = 使用 SourceResolver 保守默认集；
+    # 非空时**覆盖**默认集（注意排除规则可能改变包含生成源码项目的分析结果，
+    # 见 docs/optimizations/remaining-optimization-audit-2026-08-10.md O-07）。
+    whitebox_snapshot_exclude_dirs: list[str] = field(default_factory=list)
     # 黑白盒关联 — 网关前缀映射（见 correlation/PathMapping）
     # 反代在浏览器与后端之间剥离的路径前缀（如 ["/api"]）与需要重挂的前缀。
     # 请求路径在匹配前按段边界剥离这些前缀，使浏览器侧路径对齐后端 Controller 端点。
@@ -172,6 +177,10 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         whitebox_source_work_dir=(
             os.getenv(WHITEBOX_SOURCE_WORK_DIR_ENV)
             or _as_optional_str(whitebox.get("source_work_dir"))
+        ),
+        whitebox_snapshot_exclude_dirs=_as_str_list(
+            os.getenv(WHITEBOX_SNAPSHOT_EXCLUDE_DIRS_ENV) or whitebox.get("snapshot_exclude_dirs"),
+            [],
         ),
         correlation_gateway_strip_prefixes=_as_str_list(
             correlation.get("gateway_strip_prefixes"), []

@@ -159,6 +159,44 @@ async def test_submit_analyze_job_wraps_invalid_json(client: WhiteboxClient) -> 
 
 
 @pytest.mark.asyncio
+async def test_submit_analyze_job_sends_source_revision(client: WhiteboxClient) -> None:
+    """O-07：提交作业时携带 sourceRevision/snapshotDigest，且不污染旧字段。"""
+    response = _mock_response(
+        200,
+        {
+            "jobId": "job-1",
+            "status": "PENDING",
+            "stage": "queued",
+            "createdAt": "2026-05-25T00:00:00Z",
+            "events": [],
+        },
+    )
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.request.return_value = response
+        mock_get_client.return_value = mock_http
+
+        await client.submit_analyze_job(
+            "/tmp/test-project",
+            scope="all",
+            source_revision="abc123",
+            snapshot_digest="deadbeef",
+        )
+
+    call_args = mock_http.request.call_args
+    method, path = call_args.args
+    payload = call_args.kwargs["json"]
+    assert method == "POST"
+    assert path == "/argus/api/analyze/jobs"
+    assert payload["sourcePath"] == "/tmp/test-project"
+    assert payload["sourceRevision"] == "abc123"
+    assert payload["snapshotDigest"] == "deadbeef"
+    # 未提供时默认不携带（旧客户端兼容）
+    assert "clientRequestId" not in payload
+    assert "timeoutSeconds" not in payload
+
+
+@pytest.mark.asyncio
 async def test_get_analyze_job_result_wraps_invalid_json(client: WhiteboxClient) -> None:
     with patch.object(client, "_get_client") as mock_get_client:
         mock_http = AsyncMock()

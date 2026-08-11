@@ -46,6 +46,9 @@ def test_analyze_request_fields() -> None:
     assert isinstance(data["autoDetect"], bool)
     assert isinstance(data["generateClasspath"], bool)
     assert isinstance(data["offline"], bool)
+    # O-07：Python 物化快照时计算的稳定 revision 进入请求契约
+    assert data["sourceRevision"] == "git-commit-sha"
+    assert data["snapshotDigest"] == "snapshot-content-sha256"
 
 
 # ── Job Status ──────────────────────────────────────────────────

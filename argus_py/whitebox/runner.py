@@ -144,6 +144,8 @@ class WhiteboxRunner:
                     "requested_ref": resolved.requested_ref,
                     "ref_type": resolved.ref_type,
                     "dirty": resolved.is_dirty,
+                    "source_revision": resolved.source_revision,
+                    "snapshot_digest": resolved.snapshot_digest,
                 },
             )
 
@@ -441,6 +443,10 @@ class WhiteboxRunner:
             target_modules=config.target_modules or None,
             client_request_id=f"{task.task_id}:{task.execution_attempt}",
             timeout_seconds=max(1, int(task.timeout_seconds)),
+            # O-07：把 Python 在物化快照时算好的稳定 revision 传给 Java，
+            # 让 Java 缓存键免去每次查找时的全量源码树哈希。
+            source_revision=resolved.source_revision,
+            snapshot_digest=resolved.snapshot_digest,
         )
         job_id = job_status.job_id
         task.external_job_id = job_id

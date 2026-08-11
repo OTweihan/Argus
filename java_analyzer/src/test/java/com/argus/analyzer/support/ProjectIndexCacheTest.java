@@ -182,6 +182,72 @@ class ProjectIndexCacheTest {
         assertThat(cache.get(second)).isNull();
     }
 
+    // ── O-07：revision 缓存键 ──────────────────────────────────────────────
+
+    @Test
+    void shouldKeyByRevisionAcrossDifferentSnapshotDirs(@org.junit.jupiter.api.io.TempDir Path tempDir)
+            throws Exception {
+        // 同一 commit/content 在不同快照目录间应命中同一缓存键（路径不参与身份）。
+        Path dirA = Files.createDirectory(tempDir.resolve("snapshot-A"));
+        Path dirB = Files.createDirectory(tempDir.resolve("snapshot-B"));
+        Files.writeString(dirA.resolve("Example.java"), "class Example {}");
+        Files.writeString(dirB.resolve("Example.java"), "class Example {}");
+
+        var keyA = cache.createKey(dirA, "all", List.of(), new MavenConfig(), "abc123", null);
+        var keyB = cache.createKey(dirB, "all", List.of(), new MavenConfig(), "abc123", null);
+
+        assertThat(keyA).isEqualTo(keyB);
+        assertThat(keyA.sourcePath()).isEmpty();
+        assertThat(keyA.sourceRevision()).isEqualTo("abc123");
+    }
+
+    @Test
+    void shouldInvalidateWhenRevisionChanges(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        var keyV1 = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-1", null);
+        var keyV2 = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-2", null);
+
+        assertThat(keyV2).isNotEqualTo(keyV1);
+    }
+
+    @Test
+    void shouldPreferSourceRevisionOverSnapshotDigest(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "revision", "digest");
+        assertThat(key.sourceRevision()).isEqualTo("revision");
+        // 缓存键身份由 sourceRevision 决定，snapshotDigest 仅作冗余携带
+        var other = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "revision", "other");
+        assertThat(other).isEqualTo(key);
+    }
+
+    @Test
+    void shouldFallbackToSnapshotDigestWhenNoSourceRevision(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), null, "digest-only");
+        assertThat(key.sourceRevision()).isEqualTo("digest-only");
+        assertThat(key.sourcePath()).isEmpty();
+    }
+
+    @Test
+    void shouldIncludeAnalyzerPassVersionInKey(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-1", null);
+        assertThat(key.analyzerVersion()).isEqualTo(ProjectIndexCache.ANALYZER_PASS_VERSION);
+    }
+
+    @Test
+    void shouldRecordCacheMetrics(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        AnalyzeResponse response = new AnalyzeResponse(
+                List.of(), Map.of(), List.of(), List.of(), List.of(), null);
+        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-1", null);
+        cache.put(key, response);
+        assertThat(cache.get(key)).isSameAs(response);
+        assertThat(cache.get(cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-2", null)))
+                .isNull();
+
+        Map<String, Object> metrics = cache.metrics();
+        assertThat(metrics.get("lookup_count")).isEqualTo(2L);
+        assertThat(metrics.get("hit_count")).isEqualTo(1L);
+        assertThat(metrics.get("revision_lookups")).isEqualTo(2L);
+        assertThat(metrics.get("fingerprint_computations")).isEqualTo(0L);
+    }
+
     private ProjectIndexCache.CacheKey key(Path sourcePath, String scope) {
         return cache.createKey(sourcePath, scope, List.of(), new MavenConfig());
     }

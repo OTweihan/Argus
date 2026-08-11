@@ -103,6 +103,9 @@ llm:
 whitebox:
   source_work_dir: null
   allowed_source_roots: []
+  # O-07 快照排除目录名（逗号分隔）。留空 = 使用保守默认集
+  # （.git/target/build/node_modules/IDE 缓存等，见 source_resolver.py）。
+  snapshot_exclude_dirs: []
 
 observability:
   request_logging: true

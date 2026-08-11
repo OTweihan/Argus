@@ -45,3 +45,11 @@ class MetricsResponse(ApiModel):
     queue_utilization: float = 0.0
     queue_oldest_queued_age_seconds: float = -1.0
     queue_rejected_total: int = 0
+    # O-07：白盒源码快照物化指标（进程累计值）。copy 与 hash 在单次流式遍历
+    # 中合并完成，copy_ms 为整体物化耗时，hash_ms 为 SHA-256 CPU 耗时近似。
+    snapshot_count: int = 0
+    snapshot_files_total: int = 0
+    snapshot_bytes_total: int = 0
+    snapshot_copy_ms_total: float = 0.0
+    snapshot_hash_ms_total: float = 0.0
+    snapshot_excluded_dirs_total: int = 0

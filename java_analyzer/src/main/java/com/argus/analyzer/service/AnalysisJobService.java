@@ -283,7 +283,9 @@ public class AnalysisJobService {
             String sourcePath,
             String scope,
             List<String> targetModules,
-            MavenFingerprint maven
+            MavenFingerprint maven,
+            String sourceRevision,
+            String snapshotDigest
     ) {
         private static RequestFingerprint from(AnalyzeRequest request) {
             List<String> modules = request.targetModules() == null
@@ -293,7 +295,9 @@ public class AnalysisJobService {
                     request.sourcePath(),
                     request.scope(),
                     modules,
-                    MavenFingerprint.from(request.maven())
+                    MavenFingerprint.from(request.maven()),
+                    request.sourceRevision(),
+                    request.snapshotDigest()
             );
         }
     }

@@ -87,6 +87,7 @@ class RuntimeContainer:
     # 白盒
     whitebox_client: WhiteboxClient
     whitebox_runner: WhiteboxRunner
+    source_resolver: SourceResolver
     # 业务 handler 注册表（供测试/自定义注入）
     task_handlers: _TASK_HANDLER_TYPE
 
@@ -199,6 +200,12 @@ def create_container() -> RuntimeContainer:
     source_resolver = SourceResolver(
         work_dir=settings.whitebox_source_work_dir,
         allowed_roots=[Path(p) for p in settings.whitebox_allowed_source_roots],
+        # O-07：快照排除规则；留空使用保守默认集。
+        exclude_dirs=(
+            frozenset(settings.whitebox_snapshot_exclude_dirs)
+            if settings.whitebox_snapshot_exclude_dirs
+            else None
+        ),
     )
 
     # ── 白盒：WhiteboxClient ──
@@ -698,6 +705,7 @@ def create_container() -> RuntimeContainer:
         report_generator=report_generator,
         whitebox_client=whitebox_client,
         whitebox_runner=whitebox_runner,
+        source_resolver=source_resolver,
         task_handlers=handlers,
     )
 

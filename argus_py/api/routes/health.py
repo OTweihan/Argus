@@ -87,9 +87,10 @@ def _readiness_body(http_status: int, response: ReadinessResponse) -> JSONRespon
 
 @router.get("/metrics", response_model=MetricsResponse)
 async def metrics(
+    request: Request,
     worker: TaskWorker = Depends(get_task_worker),
 ) -> MetricsResponse:
-    """返回运行指标（EventBus、队列、Worker 真实健康）。"""
+    """返回运行指标（EventBus、队列、Worker 真实健康、快照物化）。"""
     eb = get_event_bus()
     reader = get_task_read_service()
 
@@ -114,6 +115,15 @@ async def metrics(
     last_consume_stale = (
         -1 if snapshot.last_consume_at is None else int(time.monotonic() - snapshot.last_consume_at)
     )
+
+    # O-07：白盒源码快照物化指标（进程累计值）。容器未初始化时静默归零，
+    # 避免 CLI / 测试路径无 container 时抛错。
+    resolver_metrics: dict[str, int | float] = {}
+    container = getattr(request.app.state, "container", None)
+    resolver = getattr(container, "source_resolver", None) if container is not None else None
+    if resolver is not None:
+        resolver_metrics = resolver.metrics() or {}
+
     return MetricsResponse(
         event_bus=eb.metrics() if eb else {},
         total_tasks=await run_in_thread(reader.count_tasks),
@@ -130,6 +140,12 @@ async def metrics(
         queue_utilization=queue_utilization,
         queue_oldest_queued_age_seconds=queue_oldest_age,
         queue_rejected_total=queue_rejected,
+        snapshot_count=int(resolver_metrics.get("snapshot_count", 0)),
+        snapshot_files_total=int(resolver_metrics.get("snapshot_files_total", 0)),
+        snapshot_bytes_total=int(resolver_metrics.get("snapshot_bytes_total", 0)),
+        snapshot_copy_ms_total=float(resolver_metrics.get("snapshot_copy_ms_total", 0.0)),
+        snapshot_hash_ms_total=float(resolver_metrics.get("snapshot_hash_ms_total", 0.0)),
+        snapshot_excluded_dirs_total=int(resolver_metrics.get("snapshot_excluded_dirs_total", 0)),
     )
 
 

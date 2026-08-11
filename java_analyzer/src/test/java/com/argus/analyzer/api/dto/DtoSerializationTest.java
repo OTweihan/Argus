@@ -27,6 +27,21 @@ class DtoSerializationTest {
         assertEquals("all", request.scope());
         assertNull(request.targetModules());
         assertNull(request.maven());
+        assertNull(request.sourceRevision());
+        assertNull(request.snapshotDigest());
+    }
+
+    @Test
+    void analyzeRequestO07RevisionFields() {
+        // O-07：Python 在物化快照时计算一次 revision 并传入
+        var request = new AnalyzeRequest("D:/test/project", "all", null, null,
+                null, null, "abc123", "deadbeef");
+        assertEquals("abc123", request.sourceRevision());
+        assertEquals("deadbeef", request.snapshotDigest());
+        // 6 参便捷构造保留旧语义：revision 字段为 null
+        var legacy = new AnalyzeRequest("D:/test/project", "all", List.of(), null, null, 30L);
+        assertNull(legacy.sourceRevision());
+        assertNull(legacy.snapshotDigest());
     }
 
     @Test

@@ -5,5 +5,7 @@
   "classpathMode": "auto",
   "autoDetect": true,
   "generateClasspath": true,
-  "offline": false
+  "offline": false,
+  "sourceRevision": "git-commit-sha",
+  "snapshotDigest": "snapshot-content-sha256"
 }
