@@ -1,4 +1,4 @@
-package com.argus.analyzer.api.dto;
+package com.argus.analyzer.domain.model;
 
 import java.util.List;
 import java.util.Map;
@@ -44,6 +44,10 @@ public class AnalyzerDiagnostics {
     private int libraryModuleCount;
     private int bomModuleCount;
     private java.util.Map<String, String> moduleTypes;
+
+    // O-11：可选 AnalysisPass 显式降级记录（"passId: message"）。禁止静默吞错；
+    // 空列表/空值时未发生降级。wire contract 为兼容新增字段（Python 端同步镜像）。
+    private List<String> passFailures;
 
     public AnalyzerDiagnostics() {}
 
@@ -154,4 +158,7 @@ public class AnalyzerDiagnostics {
 
     public Map<String, String> getModuleTypes() { return moduleTypes; }
     public void setModuleTypes(Map<String, String> moduleTypes) { this.moduleTypes = moduleTypes; }
+
+    public List<String> getPassFailures() { return passFailures; }
+    public void setPassFailures(List<String> passFailures) { this.passFailures = passFailures; }
 }

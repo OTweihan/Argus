@@ -109,6 +109,17 @@ def test_dict_scalar_transparent():
     assert ad.module_types == {"app": "application"}
 
 
+# --- 6b. O-11 passFailures 显式降级（Java AnalyzerDiagnostics.passFailures） ---
+def test_pass_failures_deserializes_from_camel_case():
+    ad = AnalyzerDiagnostics.from_dict({"passFailures": ["flows: tracer bug", "clusters: npe"]})
+    assert ad.pass_failures == ["flows: tracer bug", "clusters: npe"]
+
+
+def test_pass_failures_defaults_to_empty():
+    ad = AnalyzerDiagnostics.from_dict({})
+    assert ad.pass_failures == []
+
+
 # --- 7. null list → default_factory ---
 def test_null_list_uses_default_factory():
     ad = AnalyzerDiagnostics.from_dict(

@@ -4,6 +4,9 @@ import com.argus.analyzer.api.dto.AnalyzeRequest;
 import com.argus.analyzer.api.dto.AnalyzeResponse;
 import com.argus.analyzer.api.dto.AnalysisJobStatusResponse;
 import com.argus.analyzer.api.dto.ValidateSourceRequest;
+import com.argus.analyzer.domain.AnalysisCommand;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.AnalysisResult;
 import com.argus.analyzer.service.AnalysisJobService;
 import com.argus.analyzer.service.ProjectAnalyzerService;
 import com.argus.analyzer.support.SourceLocator;
@@ -40,7 +43,12 @@ public class AnalysisController {
 
     @PostMapping("/analyze")
     public AnalyzeResponse analyze(@Valid @RequestBody AnalyzeRequest request) {
-        return analyzerService.analyze(request);
+        // 边界校验在 adapter 完成；核心只消费不可变命令（O-11）。
+        Path sourcePath = sourceLocator.resolveForAnalysis(request.sourcePath());
+        AnalysisCommand command = AnalysisCommandMapper.map(request, sourcePath);
+        AnalysisResult result = analyzerService.analyze(command, request.maven(),
+                AnalysisProgressListener.NOOP);
+        return AnalysisResultMapper.map(result);
     }
 
     @PostMapping("/analyze/validate-source")
@@ -59,8 +67,11 @@ public class AnalysisController {
 
     @PostMapping("/analyze/jobs")
     public AnalysisJobStatusResponse submitJob(@Valid @RequestBody AnalyzeRequest request) {
+        // 提交时即做 real-path 边界校验，非法路径快速失败（400），不进入作业队列。
+        Path sourcePath = sourceLocator.resolveForAnalysis(request.sourcePath());
+        AnalysisCommand command = AnalysisCommandMapper.map(request, sourcePath);
         try {
-            return jobService.submit(request);
+            return jobService.submit(command, request.maven());
         } catch (AnalysisJobService.IdempotencyConflictException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
         }
@@ -90,7 +101,7 @@ public class AnalysisController {
     @GetMapping("/analyze/jobs/{jobId}/result")
     public AnalyzeResponse getJobResult(@PathVariable String jobId) {
         try {
-            return jobService.getResult(jobId);
+            return AnalysisResultMapper.map(jobService.getResult(jobId));
         } catch (NoSuchElementException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
         } catch (IllegalStateException e) {

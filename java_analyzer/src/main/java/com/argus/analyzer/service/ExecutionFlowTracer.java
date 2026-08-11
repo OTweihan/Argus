@@ -1,21 +1,67 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.CallEdge;
-import com.argus.analyzer.api.dto.CallGraphNode;
-import com.argus.analyzer.api.dto.EndpointInfo;
-import com.argus.analyzer.api.dto.ExecutionFlow;
-import com.argus.analyzer.api.dto.FlowStep;
+import com.argus.analyzer.domain.AnalysisContribution;
+import com.argus.analyzer.domain.AnalysisContext;
+import com.argus.analyzer.domain.AnalysisPass;
+import com.argus.analyzer.domain.AnalysisPassException;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.Capability;
+import com.argus.analyzer.domain.JobCancelledException;
+import com.argus.analyzer.domain.model.CallEdge;
+import com.argus.analyzer.domain.model.CallGraphNode;
+import com.argus.analyzer.domain.model.EndpointInfo;
+import com.argus.analyzer.domain.model.ExecutionFlow;
+import com.argus.analyzer.domain.model.FlowStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 import java.util.*;
 
-@Service
-public class ExecutionFlowTracer {
+/**
+ * 执行流追踪（O-11 起实现 {@link AnalysisPass}，无状态、线程安全；消费
+ * {@code CALL_GRAPH + ENDPOINTS}，产出 {@code FLOWS}，失败可显式降级）。
+ */
+public class ExecutionFlowTracer implements AnalysisPass {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionFlowTracer.class);
     private static final int MAX_DEPTH = 20;
+
+    @Override
+    public String id() {
+        return "flows";
+    }
+
+    @Override
+    public Capability produced() {
+        return Capability.FLOWS;
+    }
+
+    @Override
+    public Set<Capability> requires() {
+        return Set.of(Capability.CALL_GRAPH, Capability.ENDPOINTS);
+    }
+
+    @Override
+    public boolean required() {
+        return false;
+    }
+
+    @Override
+    public AnalysisContribution run(AnalysisContext context) {
+        try {
+            Map<String, CallGraphNode> graph = context.get(Capability.CALL_GRAPH);
+            List<EndpointInfo> endpoints = context.get(Capability.ENDPOINTS);
+            if (graph == null || graph.isEmpty() || endpoints == null || endpoints.isEmpty()) {
+                return new AnalysisContribution(Capability.FLOWS, List.<ExecutionFlow>of());
+            }
+            return new AnalysisContribution(Capability.FLOWS,
+                    trace(graph, endpoints, context.progress()));
+        } catch (JobCancelledException cancelled) {
+            throw cancelled;
+        } catch (RuntimeException error) {
+            throw new AnalysisPassException(id(), error);
+        }
+    }
 
     public List<ExecutionFlow> trace(Map<String, CallGraphNode> callGraph, List<EndpointInfo> endpoints) {
         return trace(callGraph, endpoints, AnalysisProgressListener.NOOP);

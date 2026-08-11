@@ -1,7 +1,7 @@
 package com.argus.analyzer.env;
 
-import com.argus.analyzer.service.AnalysisProgressListener;
-import com.argus.analyzer.service.JobCancelledException;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.JobCancelledException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

@@ -3,7 +3,7 @@ package com.argus.analyzer.env.classpath.resolver;
 import com.argus.analyzer.env.ClasspathResult;
 import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.env.classpath.gateway.ClasspathGateway;
-import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

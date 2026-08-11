@@ -1,7 +1,9 @@
 package com.argus.analyzer.support;
 
-import com.argus.analyzer.api.dto.AnalyzeResponse;
-import com.argus.analyzer.api.dto.AnalyzerDiagnostics;
+import com.argus.analyzer.domain.AnalysisCommand;
+import com.argus.analyzer.domain.AnalysisResult;
+import com.argus.analyzer.domain.AnalysisScope;
+import com.argus.analyzer.domain.model.AnalyzerDiagnostics;
 import com.argus.analyzer.env.MavenConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +40,7 @@ import java.util.function.Supplier;
  * 且查找不再全量读取源码树。旧客户端未传 revision 时保留现有
  * {@code path + 全量源码指纹} 回退。</p>
  *
- * <p>O-08：条目上限之外增加权重预算。每个 {@link AnalyzeResponse} 由
+ * <p>O-08：条目上限之外增加权重预算。每个 {@link AnalysisResult} 由
  * {@link ResponseWeightEstimator} 估算近似堆字节（字符串长度 + 固定开销），
  * 同时约束 {@code maxEntries}、{@code maxTotalWeight} 与
  * {@code maxSingleEntryWeight}：超大响应直接不缓存（oversized bypass），
@@ -67,7 +69,7 @@ public class ProjectIndexCache {
     static final String ANALYZER_PASS_VERSION = "1";
 
     private final LinkedHashMap<CacheKey, CacheEntry> cache = new LinkedHashMap<>(16, 0.75f, true);
-    private final ConcurrentHashMap<CacheKey, CompletableFuture<AnalyzeResponse>> inFlight =
+    private final ConcurrentHashMap<CacheKey, CompletableFuture<AnalysisResult>> inFlight =
             new ConcurrentHashMap<>();
     private final Duration ttl;
     private final int maxEntries;
@@ -121,7 +123,7 @@ public class ProjectIndexCache {
                 maxTotalWeight, maxSingleEntryWeight);
     }
 
-    public synchronized AnalyzeResponse get(CacheKey key) {
+    public synchronized AnalysisResult get(CacheKey key) {
         long start = System.nanoTime();
         try {
             cacheLookups.incrementAndGet();
@@ -148,7 +150,7 @@ public class ProjectIndexCache {
      *
      * @return 是否真正入缓存；超大条目旁路（不缓存）时返回 {@code false}。
      */
-    public synchronized boolean put(CacheKey key, AnalyzeResponse response) {
+    public synchronized boolean put(CacheKey key, AnalysisResult response) {
         return insert(key, response) != null;
     }
 
@@ -161,7 +163,7 @@ public class ProjectIndexCache {
      *
      * @return 缓存内持有的响应实例；超大条目旁路（不缓存）时返回 {@code null}。
      */
-    private synchronized AnalyzeResponse insert(CacheKey key, AnalyzeResponse response) {
+    private synchronized AnalysisResult insert(CacheKey key, AnalysisResult response) {
         // 先估算再拷贝：将被旁路的超大响应不创建防御副本（原对象直接返回调用方）。
         long weight = ResponseWeightEstimator.estimateWeight(response);
         if (weight > maxSingleEntryWeight || weight > maxTotalWeight) {
@@ -172,7 +174,7 @@ public class ProjectIndexCache {
                     key, weight, maxSingleEntryWeight, maxTotalWeight);
             return null;
         }
-        AnalyzeResponse safe = immutableView(response);
+        AnalysisResult safe = immutableView(response);
         purgeExpired();
         CacheEntry previous = cache.put(key, new CacheEntry(safe, Instant.now().plus(ttl), weight));
         if (previous != null) {
@@ -220,26 +222,26 @@ public class ProjectIndexCache {
         log.debug("Cache cleared");
     }
 
-    public CacheResult getOrCompute(CacheKey key, Supplier<AnalyzeResponse> supplier) {
+    public CacheResult getOrCompute(CacheKey key, Supplier<AnalysisResult> supplier) {
         // 查找耗时由 get() 单独统计（不含 supplier 分析耗时）。
-        AnalyzeResponse cached = get(key);
+        AnalysisResult cached = get(key);
         if (cached != null) {
             return new CacheResult(cached, true);
         }
 
-        CompletableFuture<AnalyzeResponse> candidate = new CompletableFuture<>();
-        CompletableFuture<AnalyzeResponse> existing = inFlight.putIfAbsent(key, candidate);
+        CompletableFuture<AnalysisResult> candidate = new CompletableFuture<>();
+        CompletableFuture<AnalysisResult> existing = inFlight.putIfAbsent(key, candidate);
         if (existing != null) {
             // single-flight：并发请求等待同一 in-flight 计算结果，也算命中
-            AnalyzeResponse joined = existing.join();
+            AnalysisResult joined = existing.join();
             cacheHits.incrementAndGet();
             return new CacheResult(joined, true);
         }
         try {
-            AnalyzeResponse computed = supplier.get();
-            AnalyzeResponse safe = insert(key, computed);
+            AnalysisResult computed = supplier.get();
+            AnalysisResult safe = insert(key, computed);
             // 超大条目旁路时 safe 为 null：仍返回计算结果，只是不缓存。
-            AnalyzeResponse result = safe != null ? safe : computed;
+            AnalysisResult result = safe != null ? safe : computed;
             candidate.complete(result);
             return new CacheResult(result, false);
         } catch (RuntimeException | Error error) {
@@ -259,9 +261,9 @@ public class ProjectIndexCache {
      * 必须做防御拷贝：复制全部字段并对内部集合做不可变包装，否则调用方仍能通过
      * {@code diag.getFailedFiles().clear()} 等修改缓存内诊断数据。</p>
      */
-    private static AnalyzeResponse immutableView(AnalyzeResponse response) {
+    private static AnalysisResult immutableView(AnalysisResult response) {
         if (response == null) return null;
-        return new AnalyzeResponse(
+        return new AnalysisResult(
                 unmodifiableCopy(response.endpoints()),
                 unmodifiableCopy(response.callGraph()),
                 unmodifiableCopy(response.findings()),
@@ -310,6 +312,7 @@ public class ProjectIndexCache {
         copy.setLibraryModuleCount(diag.getLibraryModuleCount());
         copy.setBomModuleCount(diag.getBomModuleCount());
         copy.setModuleTypes(unmodifiableCopy(diag.getModuleTypes()));
+        copy.setPassFailures(unmodifiableCopy(diag.getPassFailures()));
         return copy;
     }
 
@@ -328,9 +331,19 @@ public class ProjectIndexCache {
     }
 
     /**
-     * 兼容旧签名：revision 为空，回退到 path + 全量源码指纹。
+     * 从 {@link AnalysisCommand} 构造缓存键（O-11）。
+     *
+     * <p>核心流程不再持有字符串 scope / 分离的参数，统一由不可变命令驱动。</p>
      */
-    public CacheKey createKey(Path sourcePath, String scope, List<String> targetModules,
+    public CacheKey createKey(AnalysisCommand command, MavenConfig config) {
+        return createKey(command.sourcePath(), command.scope(), command.targetModules(), config,
+                command.sourceRevision(), command.snapshotDigest());
+    }
+
+    /**
+     * 兼容便捷签名：revision 为空，回退到 path + 全量源码指纹。
+     */
+    public CacheKey createKey(Path sourcePath, AnalysisScope scope, List<String> targetModules,
                               MavenConfig config) {
         return createKey(sourcePath, scope, targetModules, config, null, null);
     }
@@ -342,7 +355,7 @@ public class ProjectIndexCache {
      * 以 revision 作为内容身份，跨快照目录可命中，且无需全量读取源码树；
      * 两者皆空时回退到 {@code path + sourceFingerprint}。</p>
      */
-    public CacheKey createKey(Path sourcePath, String scope, List<String> targetModules,
+    public CacheKey createKey(Path sourcePath, AnalysisScope scope, List<String> targetModules,
                               MavenConfig config, String sourceRevision, String snapshotDigest) {
         Path canonical = sourcePath.toAbsolutePath().normalize();
         List<String> modules = targetModules == null ? List.of() : targetModules.stream()
@@ -356,6 +369,9 @@ public class ProjectIndexCache {
         boolean revisionBased = revision != null;
         String fingerprint = "";
         String pathComponent = canonical.toString();
+        // 冗余携带规范化：revision 为内容身份时 snapshotDigest 不参与键身份，
+        // 统一置空避免同 revision 不同 digest 的请求产生不同键（O-07 语义）。
+        String storedDigest = revisionBased ? null : snapshotDigest;
         if (revisionBased) {
             // revision 是内容身份：路径仅用于定位文件，不参与缓存键身份，
             // 使同一 commit/内容哈希在不同快照目录间可命中。
@@ -366,12 +382,12 @@ public class ProjectIndexCache {
         }
         return new CacheKey(
                 pathComponent,
-                scope == null ? "all" : scope,
+                scope == null ? "all" : scope.wireValue(),
                 modules,
                 mavenSignature(config),
                 fingerprint,
                 revision,
-                snapshotDigest,
+                storedDigest,
                 ANALYZER_PASS_VERSION
         );
     }
@@ -517,7 +533,7 @@ public class ProjectIndexCache {
                            String mavenSignature, String sourceFingerprint,
                            String sourceRevision, String snapshotDigest, String analyzerVersion) {}
 
-    public record CacheResult(AnalyzeResponse response, boolean cacheHit) {}
+    public record CacheResult(AnalysisResult response, boolean cacheHit) {}
 
-    private record CacheEntry(AnalyzeResponse response, Instant expiresAt, long weight) {}
+    private record CacheEntry(AnalysisResult response, Instant expiresAt, long weight) {}
 }

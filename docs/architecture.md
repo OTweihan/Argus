@@ -170,37 +170,51 @@ HTTP adapter ──→ application ──→ domain
 - `domain`：纯 Java 的分析能力、结果、诊断和扩展点；不依赖 Spring、JavaParser、HTTP、
   文件系统或 Maven。
 - `application`：分析用例、作业编排、进度事件和端口接口；只依赖 domain。
+  （例外：`application.ClasspathResolver` 端口的返回类型使用 env 侧的
+  `ClasspathResult` 基础设施诊断模型，属已知务实取舍；ArchUnit 只挡具体
+  `env.classpath.gateway` 网关。）
 - `engine.javaparser`：源码索引和分析 pass；可依赖 JavaParser，不依赖 Spring/HTTP DTO。
 - `infrastructure`：源码、Maven/classpath、缓存、JobStore 和外部进程 adapter。
 - `adapter.http`：Controller、Validation、传输 DTO、异常映射和 command/result 转换。
 - `boot`：Spring Boot 入口、Bean 装配、配置绑定、调度和线程池。
 
+**O-11 落地状态**（当前 Maven 模块内）：`com.argus.analyzer.domain`（AnalysisScope/
+AnalysisCommand/AnalysisResult/AnalysisContext/AnalysisContribution/AnalysisPass 及结果模型
+`domain.model`）与 `com.argus.analyzer.application`（AnalysisPlan/PlanRegistry/PlanValidator/
+PassExecutor/ClasspathResolver 端口）已存在并被包依赖架构测试约束；五个算法类
+（endpoints/callgraph/findings/flows/clusters）实现 `AnalysisPass` 并在 `AnalyzerConfig`
+手工装配。HTTP `scope` 在 adapter 映射为 `AnalysisScope`，核心不再比较字符串。
+
 新代码必须遵守：
 
 - 分析算法、领域模型和扩展接口不得依赖 Spring MVC、`ApplicationContext` 或 HTTP DTO。
-- Controller 只做输入/输出映射；不能直接执行扫描、Maven 命令或分析算法。
+- Controller 只做输入/输出映射（AnalyzeRequest→AnalysisCommand、AnalysisResult→
+  AnalyzeResponse）；不能直接执行扫描、Maven 命令或分析算法。
 - Spring 注解只能出现在 adapter、配置和必要的应用装配边界。核心对象优先构造器注入的纯
   Java 类，以便无需 Spring 上下文即可单元测试。
 - 新的分析能力必须实现独立、可测试的分析单元，声明输入、输出和适用 scope；不得继续向
   `ProjectAnalyzerService` 增加大段条件分支。
-- 当新增第二类可插拔分析步骤时，提取稳定的 `AnalysisPass` SPI，由应用编排层接收
-  `List<AnalysisPass>` 并按显式顺序/依赖执行；SPI 不暴露 Spring 类型。
-- `AnalysisPass` 至少声明稳定 ID、所需/产出能力、支持的分析计划，以及接收
-  `AnalysisContext` 后返回不可变 contribution。能力依赖必须构成无环图，启动时校验重复、
-  缺失和循环依赖；无依赖 pass 才能并行。
+- `AnalysisPass` SPI 已落地：实现声明稳定 ID、产出/所需能力（`Capability`）、是否必需
+  （`required()`），接收 `AnalysisContext` 后返回不可变 `AnalysisContribution`。能力依赖
+  构成无环图，`PlanRegistry` 构造时经 `PlanValidator` 校验重复、缺失和循环依赖。
 - Pass 默认按单例使用，必须无状态且线程安全；请求状态只存在于 context/局部变量，不得
-  修改共享 AST、其他 pass 结果或最终 HTTP DTO。必需 pass 失败使作业失败，可选 pass
-  失败必须进入 diagnostics，禁止静默吞错。
-- HTTP `scope` 只作为兼容输入，在 adapter 映射为类型化 `AnalysisPlan/Capability`；新增核心
+  修改共享 AST、其他 pass 结果或最终 HTTP DTO。必需 pass 失败使作业失败；可选 pass
+  （flows/clusters）失败显式降级——记录到 `AnalyzerDiagnostics.passFailures`、经 progress
+  发 WARN 事件并打日志，禁止静默吞错。Python 侧 `_evaluate_completeness` 消费
+  `pass_failures` 判 `DEGRADED`（`ANALYSIS_PASS_FAILED` issue），使降级对报告/CLI 可见。
+  `JobCancelledException` 恒原样传播，绝不降级。
+- HTTP `scope` 只作为兼容输入，在 adapter 映射为类型化 `AnalysisScope`；新增核心
   代码不得继续比较 `"all"`、`"flows"` 等字符串。
 - 一次分析只构建一次规范化项目快照/源码索引并供 pass 复用。缓存键必须包含源码、
   classpath/config、分析器版本与 pass 版本指纹，不缓存可变 AST。
 - Maven/classpath 属于外部工具适配，命令执行、超时和异常转换停留在 gateway 边界；上层
-  不解析 stdout/stderr 文本判断业务状态。
+  不解析 stdout/stderr 文本判断业务状态。应用编排层经 `application.ClasspathResolver`
+  端口获取 classpath，不直接依赖具体 Maven 解析器/网关。
 - Spring Boot 替换只能由实际启动时间、空闲内存、镜像体积或短生命周期执行需求触发；
   替换前必须证明收益覆盖 HTTP、校验、调度、健康检查和运维能力的重建成本。
-- Domain、application 和 pass 单元测试必须可以脱离 Spring Context 直接实例化；边界稳定后
-  增加包依赖架构测试，阻止核心重新引入 Spring/adapter 类型。
+- Domain、application 和 pass 单元测试必须可以脱离 Spring Context 直接实例化；
+  `DependencyRuleTest`（ArchUnit）阻止 domain/application 依赖 Spring、`api` DTO 与具体
+  Maven gateway，阻止引擎 pass 依赖 HTTP DTO。
 
 ## 5. 契约与跨服务通信
 
@@ -224,6 +238,8 @@ HTTP adapter ──→ application ──→ domain
 - 变更请求/响应时必须同时更新 Java DTO/Controller、Python client/model、序列化契约测试和
   兼容说明。
 - 跨服务字段采用明确、稳定的 JSON 名称；不得依赖 Java/Python 类名或默认序列化偶然行为。
+- `AnalyzerDiagnostics.passFailures`（O-11 兼容新增，List&lt;String&gt;，空/缺省表示未降级）：
+  可选 AnalysisPass 失败时的显式降级记录，Python `AnalyzerDiagnostics.pass_failures` 同步镜像。
 - 网络调用必须有连接/请求超时、有界重试和可诊断错误；非幂等请求不得盲目重试。
 - `WhiteboxClient` 必须继续显式创建并传入 `httpx.AsyncHTTPTransport`；这是当前
   httpx/Tomcat 11 通信兼容基线，除非有回归测试证明可以移除。
@@ -236,6 +252,9 @@ HTTP adapter ──→ application ──→ domain
   的路径和符号链接逃逸；`validate-source` 对边界外路径统一返回不可见，不能用作路径探针。
   Java 裸机默认根目录为 `${java.io.tmpdir}/argus_sources`，容器固定 `/tmp/sources`；
   Python 本地输入未配置 allowed roots 时仍保留兼容告警，生产必须显式收紧。
+  （O-11 起 `analyze` 与作业提交在 HTTP adapter 前置 real-path 校验：非法路径同步
+  `analyze` 返回 400，异步 `submitJob` 提交即 400 快速失败——不再是「入队后作业 FAILED」。
+  容器模式下 Python 物化路径与 Java 可见路径不一致时表现为提交即永久失败，属预期收紧。）
 - 异步作业协作取消（O-04）：`DELETE /argus/api/analyze/jobs/{jobId}` 幂等取消，
   重复取消返回同一终态；提交时可选携带 `timeoutSeconds`（服务端 clamp 到上限），
   Java 侧 deadline 兜底——Python 断联后作业在约定时间内释放工作线程并终止 Maven
@@ -338,7 +357,7 @@ HTTP adapter ──→ application ──→ domain
 | 新任务类型 | `TaskType` + 独立 runner/handler + 组合根注册 | 生命周期、输入 schema、报告、API/前端和测试 |
 | 新 LLM 提供商 | LLM provider/client 适配边界 | 配置校验、脱敏、超时重试和契约测试 |
 | 新浏览器动作 | browser action/执行器边界 | 参数模型、Planner 协议、证据和失败恢复测试 |
-| 新 Java 分析规则 | 独立分析单元，后续统一到 `AnalysisPass` SPI | scope、诊断、结果 DTO 和纯 Java 单测 |
+| 新 Java 分析规则 | 独立分析单元（`AnalysisPass` SPI，O-11 已落地） | scope、能力声明、诊断、结果 DTO 和纯 Java 单测 |
 | 新 API | 薄 route + 应用服务 | OpenAPI、前端类型、错误码、认证/限流和契约测试 |
 | 新存储实现 | 领域端口的基础设施 adapter | 迁移、一致性、关闭生命周期和集成测试 |
 
@@ -384,8 +403,9 @@ ADR 至少包含：背景、决策、备选方案、取舍、兼容/迁移、回
 
 1. **守住现有契约和单副本正确性**：不以扩展性名义提前削弱状态、鉴权和事件约束。
 2. **收敛组合根**：把 Runner 内部创建具体存储/客户端的逻辑迁回 RuntimeContainer。
-3. **隔离 Java 核心**：逐步让分析算法脱离 Spring/HTTP DTO，并在新增分析类别时建立
-   `AnalysisPass` SPI。
+3. **隔离 Java 核心**（O-11 已完成首轮）：HTTP adapter 映射 `AnalysisCommand`、五个算法
+   已实现 `AnalysisPass`、`PlanValidator` 启动校验能力图、包依赖架构测试已落地；
+   后续新分析类别统一走 `AnalysisPass` SPI。
 4. **强化 Python↔Java 契约**：服务地址配置化、DTO 兼容测试、容器源码可见性明确化。
 5. **按测量结果扩容**：只有单进程吞吐成为真实瓶颈后，才外置队列、事件和存储。
 

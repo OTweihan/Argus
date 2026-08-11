@@ -217,6 +217,12 @@ class TestQualityIssueDefaults:
         _level, impact = get_quality_issue_defaults(QualityIssueCode.CALL_RESOLUTION_LOW)
         assert impact is CompletenessStatus.DEGRADED
 
+    def test_analysis_pass_failed_maps_to_degraded(self) -> None:
+        """O-11：可选 AnalysisPass 失败 → 显式降级。"""
+        level, impact = get_quality_issue_defaults(QualityIssueCode.ANALYSIS_PASS_FAILED)
+        assert level is QualityIssueLevel.WARNING
+        assert impact is CompletenessStatus.DEGRADED
+
     def test_zero_findings_does_not_affect_completeness(self) -> None:
         """零发现项是合法结果，不应当影响完整性判定。"""
         _level, impact = get_quality_issue_defaults(QualityIssueCode.ZERO_FINDINGS)

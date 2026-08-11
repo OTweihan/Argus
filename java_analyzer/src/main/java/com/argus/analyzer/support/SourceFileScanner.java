@@ -1,9 +1,9 @@
 package com.argus.analyzer.support;
 
-import com.argus.analyzer.api.dto.ParseFailureDetail;
+import com.argus.analyzer.domain.model.ParseFailureDetail;
 import com.argus.analyzer.env.MavenModuleIndex;
-import com.argus.analyzer.service.AnalysisProgressListener;
-import com.argus.analyzer.service.JobCancelledException;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.JobCancelledException;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Problem;

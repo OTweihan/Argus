@@ -1,21 +1,21 @@
 package com.argus.analyzer.support;
 
-import com.argus.analyzer.api.dto.AnalyzeResponse;
-import com.argus.analyzer.api.dto.AnalyzerDiagnostics;
-import com.argus.analyzer.api.dto.CallEdge;
-import com.argus.analyzer.api.dto.CallGraphNode;
-import com.argus.analyzer.api.dto.ClusterInfo;
-import com.argus.analyzer.api.dto.EndpointInfo;
-import com.argus.analyzer.api.dto.ExecutionFlow;
-import com.argus.analyzer.api.dto.FindingItem;
-import com.argus.analyzer.api.dto.FlowStep;
-import com.argus.analyzer.api.dto.ParseFailureDetail;
+import com.argus.analyzer.domain.AnalysisResult;
+import com.argus.analyzer.domain.model.AnalyzerDiagnostics;
+import com.argus.analyzer.domain.model.CallEdge;
+import com.argus.analyzer.domain.model.CallGraphNode;
+import com.argus.analyzer.domain.model.ClusterInfo;
+import com.argus.analyzer.domain.model.EndpointInfo;
+import com.argus.analyzer.domain.model.ExecutionFlow;
+import com.argus.analyzer.domain.model.FindingItem;
+import com.argus.analyzer.domain.model.FlowStep;
+import com.argus.analyzer.domain.model.ParseFailureDetail;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * {@link AnalyzeResponse} 的近似堆内存权重估算（O-08）。
+ * {@link AnalysisResult} 的近似堆内存权重估算（O-08）。
  *
  * <p>目标是给 {@link ProjectIndexCache} 提供"每条目估算占用字节"，用于按权重淘汰与
  * 超大条目旁路，而不是精确的 JVM 内存度量。估算基于字符串长度（Java 17+ compact
@@ -36,19 +36,19 @@ public final class ResponseWeightEstimator {
     // 集合中每个元素对应的槽位/节点开销（ArrayList 引用槽、Map 节点等）。
     private static final long SLOT_OVERHEAD = 24;
 
-    /** 估算 {@link AnalyzeResponse} 的近似保留堆字节数。 */
-    public static long estimateWeight(AnalyzeResponse response) {
+    /** 估算 {@link AnalysisResult} 的近似保留堆字节数。 */
+    public static long estimateWeight(AnalysisResult response) {
         if (response == null) return 0;
         return OBJECT_OVERHEAD
-                + weightOf(response.endpoints())
-                + weightOf(response.callGraph())
-                + weightOf(response.findings())
-                + weightOf(response.executionFlows())
-                + weightOf(response.clusters())
-                + weightOf(response.diagnostics());
+                + weightOfEndpoints(response.endpoints())
+                + weightOfCallGraph(response.callGraph())
+                + weightOfFindings(response.findings())
+                + weightOfFlows(response.executionFlows())
+                + weightOfClusters(response.clusters())
+                + weightOfDiagnostics(response.diagnostics());
     }
 
-    private static long weightOf(List<EndpointInfo> endpoints) {
+    private static long weightOfEndpoints(List<EndpointInfo> endpoints) {
         long weight = listOverhead(endpoints);
         if (endpoints == null) return weight;
         for (EndpointInfo endpoint : endpoints) {
@@ -65,7 +65,7 @@ public final class ResponseWeightEstimator {
         return weight;
     }
 
-    private static long weightOf(Map<String, CallGraphNode> callGraph) {
+    private static long weightOfCallGraph(Map<String, CallGraphNode> callGraph) {
         long weight = mapOverhead(callGraph);
         if (callGraph == null) return weight;
         for (Map.Entry<String, CallGraphNode> entry : callGraph.entrySet()) {
@@ -77,12 +77,12 @@ public final class ResponseWeightEstimator {
                     + str(node.className())
                     + str(node.methodName())
                     + str(node.methodSignature())
-                    + weightOf(node.calleeDetails());
+                    + weightOfEdges(node.calleeDetails());
         }
         return weight;
     }
 
-    private static long weightOf(List<CallEdge> edges) {
+    private static long weightOfEdges(List<CallEdge> edges) {
         long weight = listOverhead(edges);
         if (edges == null) return weight;
         for (CallEdge edge : edges) {
@@ -100,7 +100,7 @@ public final class ResponseWeightEstimator {
         return weight;
     }
 
-    private static long weightOf(List<FindingItem> findings) {
+    private static long weightOfFindings(List<FindingItem> findings) {
         long weight = listOverhead(findings);
         if (findings == null) return weight;
         for (FindingItem finding : findings) {
@@ -120,7 +120,7 @@ public final class ResponseWeightEstimator {
         return weight;
     }
 
-    private static long weightOf(List<ExecutionFlow> flows) {
+    private static long weightOfFlows(List<ExecutionFlow> flows) {
         long weight = listOverhead(flows);
         if (flows == null) return weight;
         for (ExecutionFlow flow : flows) {
@@ -145,7 +145,7 @@ public final class ResponseWeightEstimator {
         return weight;
     }
 
-    private static long weightOf(List<ClusterInfo> clusters) {
+    private static long weightOfClusters(List<ClusterInfo> clusters) {
         long weight = listOverhead(clusters);
         if (clusters == null) return weight;
         for (ClusterInfo cluster : clusters) {
@@ -159,7 +159,7 @@ public final class ResponseWeightEstimator {
         return weight;
     }
 
-    private static long weightOf(AnalyzerDiagnostics diagnostics) {
+    private static long weightOfDiagnostics(AnalyzerDiagnostics diagnostics) {
         if (diagnostics == null) return 0;
         // 可变对象：对象头 + 约 20 个基础类型字段。
         long weight = OBJECT_OVERHEAD * 2 + 160;
@@ -180,6 +180,8 @@ public final class ResponseWeightEstimator {
                 + strings(diagnostics.getClasspathTargetModules());
         weight += listOverhead(diagnostics.getClasspathFailedModules())
                 + strings(diagnostics.getClasspathFailedModules());
+        weight += listOverhead(diagnostics.getPassFailures())
+                + strings(diagnostics.getPassFailures());
         weight += mapOverhead(diagnostics.getModuleTypes());
         if (diagnostics.getModuleTypes() != null) {
             for (Map.Entry<String, String> entry : diagnostics.getModuleTypes().entrySet()) {

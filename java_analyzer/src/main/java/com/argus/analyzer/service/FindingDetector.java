@@ -1,6 +1,13 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.FindingItem;
+import com.argus.analyzer.domain.AnalysisContribution;
+import com.argus.analyzer.domain.AnalysisContext;
+import com.argus.analyzer.domain.AnalysisPass;
+import com.argus.analyzer.domain.AnalysisPassException;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.Capability;
+import com.argus.analyzer.domain.JobCancelledException;
+import com.argus.analyzer.domain.model.FindingItem;
 import com.argus.analyzer.support.SourceFileScanner;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -9,15 +16,17 @@ import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.TryStmt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
-@Service
-public class FindingDetector {
+/**
+ * 缺陷检测（O-11 起实现 {@link AnalysisPass}，无状态、线程安全）。
+ */
+public class FindingDetector implements AnalysisPass {
 
     private static final Logger log = LoggerFactory.getLogger(FindingDetector.class);
 
@@ -30,6 +39,38 @@ public class FindingDetector {
 
     public FindingDetector(SourceFileScanner sourceFileScanner) {
         this.sourceFileScanner = sourceFileScanner;
+    }
+
+    @Override
+    public String id() {
+        return "findings";
+    }
+
+    @Override
+    public Capability produced() {
+        return Capability.FINDINGS;
+    }
+
+    @Override
+    public Set<Capability> requires() {
+        return Set.of();
+    }
+
+    @Override
+    public boolean required() {
+        return true;
+    }
+
+    @Override
+    public AnalysisContribution run(AnalysisContext context) {
+        try {
+            return new AnalysisContribution(Capability.FINDINGS,
+                    detect(context.sourcePath(), context.classpathJars(), context.progress()));
+        } catch (JobCancelledException cancelled) {
+            throw cancelled;
+        } catch (RuntimeException error) {
+            throw new AnalysisPassException(id(), error);
+        }
     }
 
     public List<FindingItem> detect(Path sourcePath) {

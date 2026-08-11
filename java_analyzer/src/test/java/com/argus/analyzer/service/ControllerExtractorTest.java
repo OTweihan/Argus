@@ -1,6 +1,6 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.EndpointInfo;
+import com.argus.analyzer.domain.model.EndpointInfo;
 import com.argus.analyzer.env.MavenModuleScanner;
 import com.argus.analyzer.env.MavenProjectLocator;
 import com.argus.analyzer.support.SourceFileScanner;

@@ -1,6 +1,13 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.EndpointInfo;
+import com.argus.analyzer.domain.AnalysisContribution;
+import com.argus.analyzer.domain.AnalysisContext;
+import com.argus.analyzer.domain.AnalysisPass;
+import com.argus.analyzer.domain.AnalysisPassException;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.Capability;
+import com.argus.analyzer.domain.JobCancelledException;
+import com.argus.analyzer.domain.model.EndpointInfo;
 import com.argus.analyzer.support.SourceFileScanner;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -12,14 +19,15 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@Service
-public class ControllerExtractor {
+/**
+ * Controller 端点提取（O-11 起实现 {@link AnalysisPass}，无状态、线程安全）。
+ */
+public class ControllerExtractor implements AnalysisPass {
 
     private static final Logger log = LoggerFactory.getLogger(ControllerExtractor.class);
 
@@ -31,6 +39,38 @@ public class ControllerExtractor {
 
     public ControllerExtractor(SourceFileScanner sourceFileScanner) {
         this.sourceFileScanner = sourceFileScanner;
+    }
+
+    @Override
+    public String id() {
+        return "endpoints";
+    }
+
+    @Override
+    public Capability produced() {
+        return Capability.ENDPOINTS;
+    }
+
+    @Override
+    public Set<Capability> requires() {
+        return Set.of();
+    }
+
+    @Override
+    public boolean required() {
+        return true;
+    }
+
+    @Override
+    public AnalysisContribution run(AnalysisContext context) {
+        try {
+            return new AnalysisContribution(Capability.ENDPOINTS,
+                    extract(context.sourcePath(), context.classpathJars(), context.progress()));
+        } catch (JobCancelledException cancelled) {
+            throw cancelled;
+        } catch (RuntimeException error) {
+            throw new AnalysisPassException(id(), error);
+        }
     }
 
     public List<EndpointInfo> extract(Path sourcePath) {

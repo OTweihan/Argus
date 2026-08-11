@@ -1,12 +1,12 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.CallEdge;
-import com.argus.analyzer.api.dto.CallGraphNode;
-import com.argus.analyzer.api.dto.Confidence;
-import com.argus.analyzer.api.dto.EndpointInfo;
-import com.argus.analyzer.api.dto.ExecutionFlow;
-import com.argus.analyzer.api.dto.FlowStep;
-import com.argus.analyzer.api.dto.ResolutionType;
+import com.argus.analyzer.domain.model.CallEdge;
+import com.argus.analyzer.domain.model.CallGraphNode;
+import com.argus.analyzer.domain.model.Confidence;
+import com.argus.analyzer.domain.model.EndpointInfo;
+import com.argus.analyzer.domain.model.ExecutionFlow;
+import com.argus.analyzer.domain.model.FlowStep;
+import com.argus.analyzer.domain.model.ResolutionType;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

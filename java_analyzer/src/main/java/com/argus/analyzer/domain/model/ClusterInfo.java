@@ -1,4 +1,4 @@
-package com.argus.analyzer.api.dto;
+package com.argus.analyzer.domain.model;
 
 import java.util.ArrayList;
 import java.util.Collections;

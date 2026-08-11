@@ -1,9 +1,13 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.AnalyzeRequest;
-import com.argus.analyzer.api.dto.AnalyzeResponse;
+import com.argus.analyzer.domain.AnalysisCommand;
+import com.argus.analyzer.domain.AnalysisResult;
+import com.argus.analyzer.domain.AnalysisScope;
+import com.argus.analyzer.domain.JobCancelledException;
+import com.argus.analyzer.env.MavenConfig;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -25,19 +29,31 @@ import static org.mockito.Mockito.when;
 
 class AnalysisJobServiceTest {
 
-    private final AnalyzeRequest request = new AnalyzeRequest("C:\\project", "all");
-    private final AnalyzeResponse response = new AnalyzeResponse(
+    private final AnalysisCommand command = new AnalysisCommand(
+            Path.of("C:\\project"), AnalysisScope.ALL, List.of(), null, null, null, null);
+    private final AnalysisResult response = new AnalysisResult(
             List.of(), Map.of(), List.of(), List.of(), List.of(), null);
+
+    private static AnalysisCommand command(String scope) {
+        return new AnalysisCommand(Path.of("C:\\project"), AnalysisScope.from(scope),
+                List.of(), null, null, null, null);
+    }
+
+    private static AnalysisCommand command(String scope, List<String> targets,
+                                           String clientRequestId, Long timeoutSeconds) {
+        return new AnalysisCommand(Path.of("C:\\project"), AnalysisScope.from(scope),
+                targets, clientRequestId, timeoutSeconds, null, null);
+    }
 
     @Test
     void shouldRejectWhenExecutorQueueIsFull() {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
-        Executor rejecting = command -> {
+        Executor rejecting = r -> {
             throw new RejectedExecutionException("full");
         };
         AnalysisJobService service = new AnalysisJobService(analyzer, rejecting, 10, 1800);
 
-        assertThatThrownBy(() -> service.submit(request))
+        assertThatThrownBy(() -> service.submit(command, new MavenConfig()))
                 .isInstanceOf(RejectedExecutionException.class)
                 .hasMessage("full");
     }
@@ -48,9 +64,9 @@ class AnalysisJobServiceTest {
         List<Runnable> queued = new ArrayList<>();
         AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 1, 1800);
 
-        service.submit(request);
+        service.submit(command, new MavenConfig());
 
-        assertThatThrownBy(() -> service.submit(request))
+        assertThatThrownBy(() -> service.submit(command, new MavenConfig()))
                 .isInstanceOf(RejectedExecutionException.class)
                 .hasMessageContaining("capacity reached");
         assertThat(queued).hasSize(1);
@@ -59,10 +75,10 @@ class AnalysisJobServiceTest {
     @Test
     void shouldRetainFailureAsDeterministicJobStatus() {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
-        when(analyzer.analyze(any(), any())).thenThrow(new IllegalStateException("analysis failed"));
+        when(analyzer.analyze(any(), any(), any())).thenThrow(new IllegalStateException("analysis failed"));
         AnalysisJobService service = new AnalysisJobService(analyzer, Runnable::run, 10, 1800);
 
-        var submitted = service.submit(request);
+        var submitted = service.submit(command, new MavenConfig());
         var status = service.getStatus(submitted.jobId());
 
         assertThat(status.status()).isEqualTo("FAILED");
@@ -77,9 +93,9 @@ class AnalysisJobServiceTest {
     @Test
     void shouldRemoveOnlyCompletedJobsAfterRetention() throws Exception {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
-        when(analyzer.analyze(any(), any())).thenReturn(response);
+        when(analyzer.analyze(any(), any(), any())).thenReturn(response);
         AnalysisJobService service = new AnalysisJobService(analyzer, Runnable::run, 10, 1);
-        var submitted = service.submit(request);
+        var submitted = service.submit(command, new MavenConfig());
 
         Thread.sleep(1100);
         service.cleanupExpiredJobs();
@@ -93,11 +109,10 @@ class AnalysisJobServiceTest {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
         List<Runnable> queued = new ArrayList<>();
         AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 10, 1800);
-        AnalyzeRequest idempotent = new AnalyzeRequest(
-                "C:\\project", "all", List.of("module-a"), null, "task-1:1");
+        AnalysisCommand idempotent = command("all", List.of("module-a"), "task-1:1", null);
 
-        var first = service.submit(idempotent);
-        var second = service.submit(idempotent);
+        var first = service.submit(idempotent, new MavenConfig());
+        var second = service.submit(idempotent, new MavenConfig());
 
         assertThat(second.jobId()).isEqualTo(first.jobId());
         assertThat(queued).hasSize(1);
@@ -108,11 +123,10 @@ class AnalysisJobServiceTest {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
         List<Runnable> queued = new ArrayList<>();
         AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 10, 1800);
-        service.submit(new AnalyzeRequest(
-                "C:\\project", "all", List.of("module-a"), null, "task-1:1"));
+        service.submit(command("all", List.of("module-a"), "task-1:1", null), new MavenConfig());
 
-        assertThatThrownBy(() -> service.submit(new AnalyzeRequest(
-                "C:\\project", "flows", List.of("module-a"), null, "task-1:1")))
+        assertThatThrownBy(() -> service.submit(
+                command("flows", List.of("module-a"), "task-1:1", null), new MavenConfig()))
                 .isInstanceOf(AnalysisJobService.IdempotencyConflictException.class);
         assertThat(queued).hasSize(1);
     }
@@ -125,14 +139,14 @@ class AnalysisJobServiceTest {
         List<Runnable> queued = new ArrayList<>();
         AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 10, 1800);
 
-        var submitted = service.submit(request);
+        var submitted = service.submit(command, new MavenConfig());
 
         assertThat(service.cancel(submitted.jobId()).status()).isEqualTo("CANCELLED");
         // 重复取消返回同一终态
         assertThat(service.cancel(submitted.jobId()).status()).isEqualTo("CANCELLED");
         // 排队任务最终执行时不再调用 analyzer
         queued.forEach(Runnable::run);
-        verify(analyzer, never()).analyze(any(), any());
+        verify(analyzer, never()).analyze(any(), any(), any());
     }
 
     @Test
@@ -143,13 +157,13 @@ class AnalysisJobServiceTest {
             AnalysisJobService service = new AnalysisJobService(analyzer, executor, 10, 1800);
             CountDownLatch started = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
-            when(analyzer.analyze(any(), any())).thenAnswer(invocation -> {
+            when(analyzer.analyze(any(), any(), any())).thenAnswer(invocation -> {
                 started.countDown();
                 release.await(5, TimeUnit.SECONDS);
                 throw new JobCancelledException();
             });
 
-            var submitted = service.submit(request);
+            var submitted = service.submit(command, new MavenConfig());
             assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(service.getStatus(submitted.jobId()).status()).isEqualTo("RUNNING");
 
@@ -176,14 +190,14 @@ class AnalysisJobServiceTest {
             AnalysisJobService service = new AnalysisJobService(analyzer, executor, 10, 1800);
             CountDownLatch started = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
-            when(analyzer.analyze(any(), any())).thenAnswer(invocation -> {
+            when(analyzer.analyze(any(), any(), any())).thenAnswer(invocation -> {
                 started.countDown();
                 release.await(5, TimeUnit.SECONDS);
                 // 分析返回成功响应前先被取消 → 结果必须丢弃
                 return response;
             });
 
-            var submitted = service.submit(request);
+            var submitted = service.submit(command, new MavenConfig());
             assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
 
             // 在工作线程落 SUCCEEDED 之前先取消（取消先发生）
@@ -207,14 +221,14 @@ class AnalysisJobServiceTest {
         try {
             AnalysisJobService service = new AnalysisJobService(analyzer, executor, 10, 1800);
             CountDownLatch started = new CountDownLatch(1);
-            when(analyzer.analyze(any(), any())).thenAnswer(invocation -> {
+            when(analyzer.analyze(any(), any(), any())).thenAnswer(invocation -> {
                 started.countDown();
                 Thread.sleep(Long.MAX_VALUE); // 阻塞在分析中，直到测试终止
                 return response;
             });
 
-            AnalyzeRequest timed = new AnalyzeRequest("C:\\project", "all", List.of(), null, null, 1L);
-            var submitted = service.submit(timed);
+            AnalysisCommand timed = command("all", List.of(), null, 1L);
+            var submitted = service.submit(timed, new MavenConfig());
             assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
 
             Thread.sleep(1200); // 超过 1s deadline
@@ -240,7 +254,7 @@ class AnalysisJobServiceTest {
                 1
         );
 
-        var submitted = service.submit(request);
+        var submitted = service.submit(command, new MavenConfig());
         assertThat(submitted.status()).isEqualTo("PENDING");
 
         Thread.sleep(1200); // 超过 1s deadline，但任务仍在执行器队列中
@@ -248,7 +262,7 @@ class AnalysisJobServiceTest {
 
         assertThat(service.getStatus(submitted.jobId()).status()).isEqualTo("TIMED_OUT");
         queued.forEach(Runnable::run);
-        verify(analyzer, never()).analyze(any(), any());
+        verify(analyzer, never()).analyze(any(), any(), any());
         assertThat(service.cancel(submitted.jobId()).status()).isEqualTo("TIMED_OUT");
     }
 
@@ -259,8 +273,8 @@ class AnalysisJobServiceTest {
         AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 10, 1800);
 
         // 请求 999999s 被 clamp 到 max（3600）；此处只验证不抛且可提交
-        AnalyzeRequest huge = new AnalyzeRequest("C:\\project", "all", List.of(), null, null, 999_999L);
-        var submitted = service.submit(huge);
+        AnalysisCommand huge = command("all", List.of(), null, 999_999L);
+        var submitted = service.submit(huge, new MavenConfig());
         assertThat(submitted.status()).isEqualTo("PENDING");
     }
 

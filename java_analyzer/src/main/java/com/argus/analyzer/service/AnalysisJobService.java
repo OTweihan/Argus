@@ -2,8 +2,10 @@ package com.argus.analyzer.service;
 
 import com.argus.analyzer.api.dto.AnalysisJobEvent;
 import com.argus.analyzer.api.dto.AnalysisJobStatusResponse;
-import com.argus.analyzer.api.dto.AnalyzeRequest;
-import com.argus.analyzer.api.dto.AnalyzeResponse;
+import com.argus.analyzer.domain.AnalysisCommand;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.AnalysisResult;
+import com.argus.analyzer.domain.JobCancelledException;
 import com.argus.analyzer.env.MavenConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,15 +72,15 @@ public class AnalysisJobService {
                 new MavenProcessRegistry(), 1800, 3600);
     }
 
-    public AnalysisJobStatusResponse submit(AnalyzeRequest request) {
+    public AnalysisJobStatusResponse submit(AnalysisCommand command, MavenConfig mavenConfig) {
         // cleanupExpiredJobs 在 synchronized 外执行——jobs/idempotencyEntries
         // 均为 ConcurrentHashMap，removeIf 自身线程安全；避免锁内遍历阻塞提交
         cleanupExpiredJobs();
 
         synchronized (this) {
             // 幂等：相同 clientRequestId 返回已有作业
-            String requestId = request.clientRequestId();
-            RequestFingerprint fingerprint = RequestFingerprint.from(request);
+            String requestId = command.clientRequestId();
+            RequestFingerprint fingerprint = RequestFingerprint.from(command, mavenConfig);
             if (requestId != null && !requestId.isBlank()) {
                 IdempotencyEntry entry = idempotencyEntries.get(requestId);
                 if (entry != null) {
@@ -99,7 +101,7 @@ public class AnalysisJobService {
                 throw new RejectedExecutionException("Analysis job capacity reached: " + maxJobs);
             }
             String jobId = UUID.randomUUID().toString();
-            long timeout = resolveTimeoutSeconds(request.timeoutSeconds());
+            long timeout = resolveTimeoutSeconds(command.timeoutSeconds());
             Instant deadline = Instant.now().plusSeconds(timeout);
             AnalysisJob job = new AnalysisJob(jobId, deadline);
             jobs.put(jobId, job);
@@ -110,7 +112,7 @@ public class AnalysisJobService {
 
             try {
                 FutureTask<Void> future = new FutureTask<>(() -> {
-                    runJob(job, request);
+                    runJob(job, command, mavenConfig);
                     return null;
                 });
                 // execute() 前登记 Future，确保直接执行器/快速取消也能观察到同一任务。
@@ -177,7 +179,7 @@ public class AnalysisJobService {
         return getJob(jobId).toStatusResponse();
     }
 
-    public AnalyzeResponse getResult(String jobId) {
+    public AnalysisResult getResult(String jobId) {
         return getJob(jobId).getResult();
     }
 
@@ -198,7 +200,7 @@ public class AnalysisJobService {
         return job.toStatusResponse();
     }
 
-    private void runJob(AnalysisJob job, AnalyzeRequest request) {
+    private void runJob(AnalysisJob job, AnalysisCommand command, MavenConfig mavenConfig) {
         AnalysisProgressListener progress = job.progress();
         if (job.isCancelRequested()) {
             job.markCancelled();
@@ -211,7 +213,7 @@ public class AnalysisJobService {
         }
         job.addEvent("analysis", "INFO", "Analysis job started");
         try {
-            AnalyzeResponse response = analyzerService.analyze(request, progress);
+            AnalysisResult response = analyzerService.analyze(command, mavenConfig, progress);
             if (job.isCancelRequested()) {
                 // 取消先发生：丢弃结果，不发布成功
                 job.markCancelled();
@@ -287,17 +289,14 @@ public class AnalysisJobService {
             String sourceRevision,
             String snapshotDigest
     ) {
-        private static RequestFingerprint from(AnalyzeRequest request) {
-            List<String> modules = request.targetModules() == null
-                    ? List.of()
-                    : List.copyOf(request.targetModules());
+        private static RequestFingerprint from(AnalysisCommand command, MavenConfig mavenConfig) {
             return new RequestFingerprint(
-                    request.sourcePath(),
-                    request.scope(),
-                    modules,
-                    MavenFingerprint.from(request.maven()),
-                    request.sourceRevision(),
-                    request.snapshotDigest()
+                    command.sourcePath().toString(),
+                    command.scope().wireValue(),
+                    List.copyOf(command.targetModules()),
+                    MavenFingerprint.from(mavenConfig),
+                    command.sourceRevision(),
+                    command.snapshotDigest()
             );
         }
     }
@@ -356,7 +355,7 @@ public class AnalysisJobService {
         private volatile Instant startedAt;
         private volatile Instant finishedAt;
         private volatile String error;
-        private volatile AnalyzeResponse result;
+        private volatile AnalysisResult result;
         private volatile Future<?> future;
 
         private AnalysisJob(String jobId, Instant deadline) {
@@ -498,7 +497,7 @@ public class AnalysisJobService {
             );
         }
 
-        private synchronized AnalyzeResponse getResult() {
+        private synchronized AnalysisResult getResult() {
             if (!"SUCCEEDED".equals(status.get())) {
                 throw new IllegalStateException("Analysis job is not complete: " + status.get());
             }

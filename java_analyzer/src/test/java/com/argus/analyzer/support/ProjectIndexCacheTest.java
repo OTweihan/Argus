@@ -1,12 +1,13 @@
 package com.argus.analyzer.support;
 
-import com.argus.analyzer.api.dto.AnalyzeResponse;
-import com.argus.analyzer.api.dto.AnalyzerDiagnostics;
-import com.argus.analyzer.api.dto.CallEdge;
-import com.argus.analyzer.api.dto.CallGraphNode;
-import com.argus.analyzer.api.dto.Confidence;
-import com.argus.analyzer.api.dto.ParseFailureDetail;
-import com.argus.analyzer.api.dto.ResolutionType;
+import com.argus.analyzer.domain.AnalysisResult;
+import com.argus.analyzer.domain.AnalysisScope;
+import com.argus.analyzer.domain.model.AnalyzerDiagnostics;
+import com.argus.analyzer.domain.model.CallEdge;
+import com.argus.analyzer.domain.model.CallGraphNode;
+import com.argus.analyzer.domain.model.Confidence;
+import com.argus.analyzer.domain.model.ParseFailureDetail;
+import com.argus.analyzer.domain.model.ResolutionType;
 import com.argus.analyzer.env.MavenConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,15 +38,15 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldReturnNullForMiss(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        assertThat(cache.get(key(tempDir, "all"))).isNull();
+        assertThat(cache.get(key(tempDir, AnalysisScope.ALL))).isNull();
     }
 
     @Test
     void shouldReturnCachedValue(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
-        var key = key(tempDir, "all");
+        AnalysisResult response = emptyResult();
+        var key = key(tempDir, AnalysisScope.ALL);
         assertThat(cache.put(key, response)).isTrue();
-        AnalyzeResponse cached = cache.get(key);
+        AnalysisResult cached = cache.get(key);
         assertThat(cached).isNotNull();
         assertThat(cached).isEqualTo(response);
         // O-08：缓存持有防御性不可变副本，而非调用方原始实例。
@@ -54,8 +55,8 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldInvalidateKey(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
-        var key = key(tempDir, "all");
+        AnalysisResult response = emptyResult();
+        var key = key(tempDir, AnalysisScope.ALL);
         cache.put(key, response);
         cache.invalidate(key);
         assertThat(cache.get(key)).isNull();
@@ -65,9 +66,9 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldClearAll(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
-        var key1 = key(tempDir, "all");
-        var key2 = key(tempDir, "endpoints");
+        AnalysisResult response = emptyResult();
+        var key1 = key(tempDir, AnalysisScope.ALL);
+        var key2 = key(tempDir, AnalysisScope.ENDPOINTS);
         cache.put(key1, response);
         cache.put(key2, response);
         cache.clear();
@@ -82,9 +83,9 @@ class ProjectIndexCacheTest {
         offline.setOffline(true);
         MavenConfig online = new MavenConfig();
 
-        var all = cache.createKey(tempDir, "all", List.of("b", "a"), offline);
-        var endpoints = cache.createKey(tempDir, "endpoints", List.of("a", "b"), offline);
-        var differentConfig = cache.createKey(tempDir, "all", List.of("a", "b"), online);
+        var all = cache.createKey(tempDir, AnalysisScope.ALL, List.of("b", "a"), offline);
+        var endpoints = cache.createKey(tempDir, AnalysisScope.ENDPOINTS, List.of("a", "b"), offline);
+        var differentConfig = cache.createKey(tempDir, AnalysisScope.ALL, List.of("a", "b"), online);
 
         assertThat(all).isNotEqualTo(endpoints);
         assertThat(all).isNotEqualTo(differentConfig);
@@ -96,9 +97,9 @@ class ProjectIndexCacheTest {
             throws Exception {
         Path source = tempDir.resolve("Example.java");
         Files.writeString(source, "class Example {}");
-        var before = key(tempDir, "all");
+        var before = key(tempDir, AnalysisScope.ALL);
         Files.writeString(source, "class Example { int value; }");
-        var after = key(tempDir, "all");
+        var after = key(tempDir, AnalysisScope.ALL);
 
         assertThat(after.sourceFingerprint()).isNotEqualTo(before.sourceFingerprint());
     }
@@ -111,10 +112,10 @@ class ProjectIndexCacheTest {
             throws Exception {
         Path buildFile = tempDir.resolve(filename);
         Files.writeString(buildFile, "version = '1'");
-        var before = key(tempDir, "all");
+        var before = key(tempDir, AnalysisScope.ALL);
         Files.writeString(buildFile, "version = '2'");
 
-        assertThat(key(tempDir, "all").sourceFingerprint())
+        assertThat(key(tempDir, AnalysisScope.ALL).sourceFingerprint())
                 .isNotEqualTo(before.sourceFingerprint());
     }
 
@@ -125,10 +126,10 @@ class ProjectIndexCacheTest {
         Files.writeString(settings, "<settings/>");
         MavenConfig config = new MavenConfig();
         config.setSettingsXml(settings.toString());
-        var before = cache.createKey(tempDir, "all", List.of(), config);
+        var before = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), config);
         Files.writeString(settings, "<settings><offline>true</offline></settings>");
 
-        assertThat(cache.createKey(tempDir, "all", List.of(), config).mavenSignature())
+        assertThat(cache.createKey(tempDir, AnalysisScope.ALL, List.of(), config).mavenSignature())
                 .isNotEqualTo(before.mavenSignature());
     }
 
@@ -136,9 +137,8 @@ class ProjectIndexCacheTest {
     void shouldExpireEntryAfterTtl(@org.junit.jupiter.api.io.TempDir Path tempDir)
             throws Exception {
         cache = new ProjectIndexCache(Duration.ofMillis(10), 2);
-        AnalyzeResponse response = new AnalyzeResponse(
-                List.of(), Map.of(), List.of(), List.of(), List.of(), null);
-        var key = key(tempDir, "all");
+        AnalysisResult response = emptyResult();
+        var key = key(tempDir, AnalysisScope.ALL);
         cache.put(key, response);
 
         Thread.sleep(20);
@@ -152,8 +152,8 @@ class ProjectIndexCacheTest {
     @Test
     void shouldComputeSameKeyOnlyOnce(@org.junit.jupiter.api.io.TempDir Path tempDir)
             throws Exception {
-        var key = key(tempDir, "all");
-        var response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
+        var key = key(tempDir, AnalysisScope.ALL);
+        var response = emptyResult();
         AtomicInteger calls = new AtomicInteger();
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -183,7 +183,7 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldPropagateSupplierExceptionAndCleanInFlight(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        var key = key(tempDir, "all");
+        var key = key(tempDir, AnalysisScope.ALL);
         AtomicInteger calls = new AtomicInteger();
         assertThatThrownBy(() -> cache.getOrCompute(key, () -> {
             calls.incrementAndGet();
@@ -191,8 +191,7 @@ class ProjectIndexCacheTest {
         })).isInstanceOf(IllegalStateException.class);
 
         // in-flight 已清理：再次调用可重新计算，不残留失败 Future。
-        AnalyzeResponse response = new AnalyzeResponse(
-                List.of(), Map.of(), List.of(), List.of(), List.of(), null);
+        AnalysisResult response = emptyResult();
         var second = cache.getOrCompute(key, () -> {
             calls.incrementAndGet();
             return response;
@@ -205,13 +204,13 @@ class ProjectIndexCacheTest {
     void shouldEvictLeastRecentlyUsedEntry(@org.junit.jupiter.api.io.TempDir Path tempDir)
             throws Exception {
         cache = new ProjectIndexCache(Duration.ofMinutes(30), 2);
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
+        AnalysisResult response = emptyResult();
         Path firstDir = Files.createDirectory(tempDir.resolve("first"));
         Path secondDir = Files.createDirectory(tempDir.resolve("second"));
         Path thirdDir = Files.createDirectory(tempDir.resolve("third"));
-        var first = key(firstDir, "all");
-        var second = key(secondDir, "all");
-        var third = key(thirdDir, "all");
+        var first = key(firstDir, AnalysisScope.ALL);
+        var second = key(secondDir, AnalysisScope.ALL);
+        var third = key(thirdDir, AnalysisScope.ALL);
         cache.put(first, response);
         cache.put(second, response);
         assertThat(cache.get(first)).isNotNull();
@@ -228,15 +227,15 @@ class ProjectIndexCacheTest {
     void shouldDefendAgainstCallerMutationAfterCache(@org.junit.jupiter.api.io.TempDir Path tempDir) {
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
         graph.put("com.Example#run()", new CallGraphNode("Example", "run", "()V", List.of()));
-        AnalyzeResponse response = new AnalyzeResponse(List.of(), graph, List.of(), List.of(), List.of(), null);
-        var key = key(tempDir, "all");
+        AnalysisResult response = new AnalysisResult(List.of(), graph, List.of(), List.of(), List.of(), null);
+        var key = key(tempDir, AnalysisScope.ALL);
         cache.put(key, response);
 
         // 调用方继续修改自己的 map，缓存内数据不受影响。
         graph.put("com.Hacked#pwn()", new CallGraphNode("Hacked", "pwn", "()V", List.of()));
         graph.clear();
 
-        AnalyzeResponse cached = cache.get(key);
+        AnalysisResult cached = cache.get(key);
         assertThat(cached.callGraph()).containsOnlyKeys("com.Example#run()");
         assertThat(cached.callGraph()).isNotSameAs(graph);
     }
@@ -249,9 +248,9 @@ class ProjectIndexCacheTest {
         List<ParseFailureDetail> failures = new ArrayList<>();
         diag.setFailedFiles(failures);
         diag.setClasspathWarnings(new ArrayList<>(List.of("warn-1")));
-        AnalyzeResponse response = new AnalyzeResponse(
+        AnalysisResult response = new AnalysisResult(
                 List.of(), Map.of(), List.of(), List.of(), List.of(), diag);
-        var key = key(tempDir, "all");
+        var key = key(tempDir, AnalysisScope.ALL);
         cache.put(key, response);
 
         // 调用方继续修改自己的诊断集合，缓存内数据不受影响。
@@ -267,7 +266,7 @@ class ProjectIndexCacheTest {
     @Test
     void shouldEvictByWeightBeforeEntryLimit(@org.junit.jupiter.api.io.TempDir Path tempDir)
             throws Exception {
-        AnalyzeResponse response = responseWith(4, 3);
+        AnalysisResult response = responseWith(4, 3);
         long perEntryWeight = ResponseWeightEstimator.estimateWeight(response);
         // 条目上限足够宽松，但总权重预算只放得下 2 个条目。
         cache = new ProjectIndexCache(Duration.ofMinutes(30), 100,
@@ -275,9 +274,9 @@ class ProjectIndexCacheTest {
         Path firstDir = Files.createDirectory(tempDir.resolve("first"));
         Path secondDir = Files.createDirectory(tempDir.resolve("second"));
         Path thirdDir = Files.createDirectory(tempDir.resolve("third"));
-        var first = key(firstDir, "all");
-        var second = key(secondDir, "all");
-        var third = key(thirdDir, "all");
+        var first = key(firstDir, AnalysisScope.ALL);
+        var second = key(secondDir, AnalysisScope.ALL);
+        var third = key(thirdDir, AnalysisScope.ALL);
         cache.put(first, response);
         cache.put(second, response);
         assertThat(cache.get(first)).isNotNull();
@@ -297,11 +296,11 @@ class ProjectIndexCacheTest {
     void shouldBypassOversizedSingleEntry(@org.junit.jupiter.api.io.TempDir Path tempDir) {
         cache = new ProjectIndexCache(Duration.ofMinutes(30), 100,
                 1_000_000L, /* maxSingleEntryWeight */ 1_000L);
-        AnalyzeResponse response = responseWith(100, 10);
+        AnalysisResult response = responseWith(100, 10);
         long weight = ResponseWeightEstimator.estimateWeight(response);
         assertThat(weight).isGreaterThan(1_000L);
 
-        var key = key(tempDir, "all");
+        var key = key(tempDir, AnalysisScope.ALL);
         assertThat(cache.put(key, response)).isFalse();
 
         assertThat(cache.get(key)).isNull();
@@ -313,8 +312,8 @@ class ProjectIndexCacheTest {
     void shouldReturnOversizedResultThroughGetOrCompute(@org.junit.jupiter.api.io.TempDir Path tempDir) {
         cache = new ProjectIndexCache(Duration.ofMinutes(30), 100,
                 1_000_000L, /* maxSingleEntryWeight */ 1_000L);
-        AnalyzeResponse response = responseWith(100, 10);
-        var key = key(tempDir, "all");
+        AnalysisResult response = responseWith(100, 10);
+        var key = key(tempDir, AnalysisScope.ALL);
 
         var first = cache.getOrCompute(key, () -> response);
         // 旁路不缓存：结果仍返回给调用方。
@@ -328,9 +327,9 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldRecordWeightMetrics(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        AnalyzeResponse response = responseWith(3, 2);
+        AnalysisResult response = responseWith(3, 2);
         long weight = ResponseWeightEstimator.estimateWeight(response);
-        var key = key(tempDir, "all");
+        var key = key(tempDir, AnalysisScope.ALL);
         cache.put(key, response);
 
         Map<String, Object> metrics = cache.metrics();
@@ -357,8 +356,8 @@ class ProjectIndexCacheTest {
         Files.writeString(dirA.resolve("Example.java"), "class Example {}");
         Files.writeString(dirB.resolve("Example.java"), "class Example {}");
 
-        var keyA = cache.createKey(dirA, "all", List.of(), new MavenConfig(), "abc123", null);
-        var keyB = cache.createKey(dirB, "all", List.of(), new MavenConfig(), "abc123", null);
+        var keyA = cache.createKey(dirA, AnalysisScope.ALL, List.of(), new MavenConfig(), "abc123", null);
+        var keyB = cache.createKey(dirB, AnalysisScope.ALL, List.of(), new MavenConfig(), "abc123", null);
 
         assertThat(keyA).isEqualTo(keyB);
         assertThat(keyA.sourcePath()).isEmpty();
@@ -367,42 +366,41 @@ class ProjectIndexCacheTest {
 
     @Test
     void shouldInvalidateWhenRevisionChanges(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        var keyV1 = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-1", null);
-        var keyV2 = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-2", null);
+        var keyV1 = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), "rev-1", null);
+        var keyV2 = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), "rev-2", null);
 
         assertThat(keyV2).isNotEqualTo(keyV1);
     }
 
     @Test
     void shouldPreferSourceRevisionOverSnapshotDigest(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "revision", "digest");
+        var key = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), "revision", "digest");
         assertThat(key.sourceRevision()).isEqualTo("revision");
         // 缓存键身份由 sourceRevision 决定，snapshotDigest 仅作冗余携带
-        var other = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "revision", "other");
+        var other = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), "revision", "other");
         assertThat(other).isEqualTo(key);
     }
 
     @Test
     void shouldFallbackToSnapshotDigestWhenNoSourceRevision(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), null, "digest-only");
+        var key = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), null, "digest-only");
         assertThat(key.sourceRevision()).isEqualTo("digest-only");
         assertThat(key.sourcePath()).isEmpty();
     }
 
     @Test
     void shouldIncludeAnalyzerPassVersionInKey(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-1", null);
+        var key = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), "rev-1", null);
         assertThat(key.analyzerVersion()).isEqualTo(ProjectIndexCache.ANALYZER_PASS_VERSION);
     }
 
     @Test
     void shouldRecordCacheMetrics(@org.junit.jupiter.api.io.TempDir Path tempDir) {
-        AnalyzeResponse response = new AnalyzeResponse(
-                List.of(), Map.of(), List.of(), List.of(), List.of(), null);
-        var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-1", null);
+        AnalysisResult response = emptyResult();
+        var key = cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), "rev-1", null);
         cache.put(key, response);
         assertThat(cache.get(key)).isNotNull();
-        assertThat(cache.get(cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-2", null)))
+        assertThat(cache.get(cache.createKey(tempDir, AnalysisScope.ALL, List.of(), new MavenConfig(), "rev-2", null)))
                 .isNull();
 
         Map<String, Object> metrics = cache.metrics();
@@ -417,12 +415,16 @@ class ProjectIndexCacheTest {
                 "evictions_by_expiry", "oversized_bypass_count", "in_flight");
     }
 
-    private ProjectIndexCache.CacheKey key(Path sourcePath, String scope) {
+    private ProjectIndexCache.CacheKey key(Path sourcePath, AnalysisScope scope) {
         return cache.createKey(sourcePath, scope, List.of(), new MavenConfig());
     }
 
+    private static AnalysisResult emptyResult() {
+        return new AnalysisResult(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
+    }
+
     /** 构造含 nodes 个调用图节点、每个含 edges 条调用边的响应。 */
-    private static AnalyzeResponse responseWith(int nodes, int edges) {
+    private static AnalysisResult responseWith(int nodes, int edges) {
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
         for (int i = 0; i < nodes; i++) {
             List<CallEdge> callees = new ArrayList<>();
@@ -440,6 +442,6 @@ class ProjectIndexCacheTest {
             graph.put("com.acme.Thing" + i + "#run()",
                     new CallGraphNode("com.acme.Thing" + i, "run", "()V", callees));
         }
-        return new AnalyzeResponse(List.of(), graph, List.of(), List.of(), List.of(), null);
+        return new AnalysisResult(List.of(), graph, List.of(), List.of(), List.of(), null);
     }
 }

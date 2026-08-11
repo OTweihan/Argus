@@ -1,4 +1,4 @@
-package com.argus.analyzer.service;
+package com.argus.analyzer.domain;
 
 /**
  * 分析作业被协作取消时抛出的专用信号（O-04）。

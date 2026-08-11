@@ -1,4 +1,4 @@
-package com.argus.analyzer.api.dto;
+package com.argus.analyzer.domain.model;
 
 public enum Confidence {
     HIGH,

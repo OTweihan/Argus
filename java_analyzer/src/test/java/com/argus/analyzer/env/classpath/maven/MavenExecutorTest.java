@@ -2,8 +2,8 @@ package com.argus.analyzer.env.classpath.maven;
 
 import com.argus.analyzer.env.ClasspathGenerationException;
 import com.argus.analyzer.env.MavenConfig;
-import com.argus.analyzer.service.AnalysisProgressListener;
-import com.argus.analyzer.service.JobCancelledException;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.JobCancelledException;
 import com.argus.analyzer.service.MavenProcessRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

@@ -7,7 +7,7 @@ import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.env.classpath.maven.MavenDetector;
 import com.argus.analyzer.env.classpath.maven.MavenExecutor;
 import com.argus.analyzer.env.classpath.parser.ClasspathFileReader;
-import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

@@ -1,8 +1,9 @@
 package com.argus.analyzer.env;
 
+import com.argus.analyzer.application.ClasspathResolver;
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.env.classpath.resolver.LegacyClasspathResolver;
 import com.argus.analyzer.env.classpath.resolver.ModuleClasspathResolver;
-import com.argus.analyzer.service.AnalysisProgressListener;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -14,10 +15,10 @@ import java.util.List;
  * and {@link com.argus.analyzer.env.classpath.resolver.ModuleClasspathResolver}.
  *
  * <p>This class exists solely to maintain the public API contract for callers
- * (currently only {@code ProjectAnalyzerService}). It contains no business logic.
+ * (currently {@code application.ClasspathResolver}). It contains no business logic.
  */
 @Service
-public class MavenClasspathResolver {
+public class MavenClasspathResolver implements ClasspathResolver {
 
     private final LegacyClasspathResolver legacyResolver;
     private final ModuleClasspathResolver moduleResolver;

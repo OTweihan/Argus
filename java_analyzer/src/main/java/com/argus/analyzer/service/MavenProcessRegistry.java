@@ -1,5 +1,6 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

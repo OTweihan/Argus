@@ -286,6 +286,26 @@ class TestEvaluateCompleteness:
         codes = [i["code"] for i in issues]
         assert "CALL_RESOLUTION_LOW" in codes
 
+    def test_pass_failures_degrade_with_no_other_issue(self) -> None:
+        """O-11：仅可选 pass 失败（其余诊断正常）→ 显式降级而非静默 COMPLETE。"""
+        d = AnalyzerDiagnostics(
+            total_source_files=10,
+            parsed_file_count=10,
+            failed_file_count=0,
+            total_calls=5,
+            resolved_high=5,
+            classpath_available=True,
+            pass_failures=["flows: tracer bug", "clusters: npe"],
+        )
+        status, issues = _evaluate_completeness(d)
+        assert status == "DEGRADED"
+        codes = [i["code"] for i in issues]
+        assert "ANALYSIS_PASS_FAILED" in codes
+        issue = next(i for i in issues if i["code"] == "ANALYSIS_PASS_FAILED")
+        assert "flows: tracer bug" in issue["message"]
+        assert issue["affectedCount"] == 2
+        assert issue["totalCount"] == 2
+
 
 # ── _serialize_whitebox_result ───────────────────
 

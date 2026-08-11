@@ -9,7 +9,7 @@ import com.argus.analyzer.env.MavenNotFoundException;
 import com.argus.analyzer.env.MavenTimeoutException;
 import com.argus.analyzer.env.classpath.maven.MavenDetector;
 import com.argus.analyzer.env.classpath.maven.MavenExecutor;
-import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

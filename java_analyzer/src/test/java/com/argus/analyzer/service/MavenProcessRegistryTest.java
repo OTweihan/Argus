@@ -1,5 +1,6 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;

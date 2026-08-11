@@ -1119,6 +1119,20 @@ def _evaluate_completeness(
             }
         )
 
+    # O-11：可选 AnalysisPass 失败时 Java 显式记录 passFailures；此处消费使
+    # 降级对用户可见（完整性与 CLI/报告降级徽标据此触发），而非静默。
+    if diag.pass_failures:
+        completeness = CompletenessStatus.DEGRADED.value
+        quality_issues.append(
+            {
+                "code": QualityIssueCode.ANALYSIS_PASS_FAILED.value,
+                "level": QualityIssueLevel.WARNING.value,
+                "message": "分析子任务失败，结果已降级: " + "；".join(diag.pass_failures),
+                "affectedCount": len(diag.pass_failures),
+                "totalCount": len(diag.pass_failures),
+            }
+        )
+
     return completeness, quality_issues
 
 
@@ -1357,6 +1371,8 @@ def _serialize_whitebox_result(
                 "libraryModuleCount": result.diagnostics.library_module_count,
                 "bomModuleCount": result.diagnostics.bom_module_count,
                 "moduleTypes": result.diagnostics.module_types,
+                # O-11：可选 pass 降级记录（与 Java AnalyzerDiagnostics.passFailures 对齐）
+                "passFailures": result.diagnostics.pass_failures,
             }
             if result.diagnostics
             else None

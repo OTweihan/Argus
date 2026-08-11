@@ -2,7 +2,7 @@ package com.argus.analyzer.env.classpath.gateway;
 
 import com.argus.analyzer.env.ClasspathResult;
 import com.argus.analyzer.env.MavenConfig;
-import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.domain.AnalysisProgressListener;
 
 import java.nio.file.Path;
 

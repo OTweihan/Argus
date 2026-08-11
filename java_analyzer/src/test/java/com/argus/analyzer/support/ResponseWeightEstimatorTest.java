@@ -1,12 +1,12 @@
 package com.argus.analyzer.support;
 
-import com.argus.analyzer.api.dto.AnalyzeResponse;
-import com.argus.analyzer.api.dto.CallEdge;
-import com.argus.analyzer.api.dto.CallGraphNode;
-import com.argus.analyzer.api.dto.ClusterInfo;
-import com.argus.analyzer.api.dto.Confidence;
-import com.argus.analyzer.api.dto.FindingItem;
-import com.argus.analyzer.api.dto.ResolutionType;
+import com.argus.analyzer.domain.AnalysisResult;
+import com.argus.analyzer.domain.model.CallEdge;
+import com.argus.analyzer.domain.model.CallGraphNode;
+import com.argus.analyzer.domain.model.ClusterInfo;
+import com.argus.analyzer.domain.model.Confidence;
+import com.argus.analyzer.domain.model.FindingItem;
+import com.argus.analyzer.domain.model.ResolutionType;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -25,14 +25,14 @@ class ResponseWeightEstimatorTest {
 
     @Test
     void shouldEstimateSmallFixedOverheadForEmptyResponse() {
-        AnalyzeResponse empty = new AnalyzeResponse(
+        AnalysisResult empty = new AnalysisResult(
                 List.of(), Map.of(), List.of(), List.of(), List.of(), null);
         assertThat(ResponseWeightEstimator.estimateWeight(empty)).isEqualTo(64L);
     }
 
     @Test
     void shouldTolerateNullCollections() {
-        AnalyzeResponse response = new AnalyzeResponse(null, null, null, null, null, null);
+        AnalysisResult response = new AnalysisResult(null, null, null, null, null, null);
         assertThat(ResponseWeightEstimator.estimateWeight(response)).isEqualTo(64L);
     }
 
@@ -60,14 +60,14 @@ class ResponseWeightEstimatorTest {
     void shouldWeighFindingsAndClusters() {
         long findings = ResponseWeightEstimator.estimateWeight(findingsResponse("a", "b", "c"));
         long clusters = ResponseWeightEstimator.estimateWeight(clustersResponse(3));
-        long empty = ResponseWeightEstimator.estimateWeight(new AnalyzeResponse(
+        long empty = ResponseWeightEstimator.estimateWeight(new AnalysisResult(
                 List.of(), Map.of(), List.of(), List.of(), List.of(), null));
 
         assertThat(findings).isGreaterThan(empty);
         assertThat(clusters).isGreaterThan(empty);
     }
 
-    private static AnalyzeResponse responseWith(int nodes, int edges) {
+    private static AnalysisResult responseWith(int nodes, int edges) {
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
         for (int i = 0; i < nodes; i++) {
             List<CallEdge> callees = new ArrayList<>();
@@ -85,24 +85,24 @@ class ResponseWeightEstimatorTest {
             graph.put("com.acme.Thing" + i + "#run()",
                     new CallGraphNode("com.acme.Thing" + i, "run", "()V", callees));
         }
-        return new AnalyzeResponse(List.of(), graph, List.of(), List.of(), List.of(), null);
+        return new AnalysisResult(List.of(), graph, List.of(), List.of(), List.of(), null);
     }
 
-    private static AnalyzeResponse findingsResponse(String... titles) {
+    private static AnalysisResult findingsResponse(String... titles) {
         List<FindingItem> findings = new ArrayList<>();
         for (String title : titles) {
             findings.add(new FindingItem(
                     "rule1", "HIGH", title, "desc", "a.java", 1, "snippet", "cat", "HIGH"));
         }
-        return new AnalyzeResponse(List.of(), Map.of(), findings, List.of(), List.of(), null);
+        return new AnalysisResult(List.of(), Map.of(), findings, List.of(), List.of(), null);
     }
 
-    private static AnalyzeResponse clustersResponse(int count) {
+    private static AnalysisResult clustersResponse(int count) {
         List<ClusterInfo> clusters = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             clusters.add(new ClusterInfo(
                     "cluster_" + i, "label" + i, List.of("a.Thing" + i + "#m()")));
         }
-        return new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), clusters, null);
+        return new AnalysisResult(List.of(), Map.of(), List.of(), List.of(), clusters, null);
     }
 }

@@ -1,4 +1,4 @@
-package com.argus.analyzer.service;
+package com.argus.analyzer.domain;
 
 /**
  * 分析进度与协作取消的统一通道（O-04）。

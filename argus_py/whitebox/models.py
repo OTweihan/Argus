@@ -265,6 +265,9 @@ class AnalyzerDiagnostics:
     # P3: classpath 模块明细
     classpath_target_modules: list[str] = field(default_factory=list)
     classpath_failed_modules: list[str] = field(default_factory=list)
+    # O-11：可选 AnalysisPass 显式降级记录（"passId: message"），与 Java 端
+    # AnalyzerDiagnostics.passFailures 对齐；空列表表示未发生降级。
+    pass_failures: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalyzerDiagnostics:

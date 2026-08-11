@@ -1,20 +1,63 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.CallEdge;
-import com.argus.analyzer.api.dto.CallGraphNode;
-import com.argus.analyzer.api.dto.ClusterInfo;
+import com.argus.analyzer.domain.AnalysisContribution;
+import com.argus.analyzer.domain.AnalysisContext;
+import com.argus.analyzer.domain.AnalysisPass;
+import com.argus.analyzer.domain.AnalysisPassException;
+import com.argus.analyzer.domain.AnalysisProgressListener;
+import com.argus.analyzer.domain.Capability;
+import com.argus.analyzer.domain.JobCancelledException;
+import com.argus.analyzer.domain.model.CallEdge;
+import com.argus.analyzer.domain.model.CallGraphNode;
+import com.argus.analyzer.domain.model.ClusterInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
-@Service
-public class CommunityClusterer {
+/**
+ * 社区聚类（O-11 起实现 {@link AnalysisPass}，无状态、线程安全；消费
+ * {@code CALL_GRAPH}，产出 {@code CLUSTERS}，失败可显式降级）。
+ */
+public class CommunityClusterer implements AnalysisPass {
 
     private static final Logger log = LoggerFactory.getLogger(CommunityClusterer.class);
     private static final int MAX_ITERATIONS = 50;
+
+    @Override
+    public String id() {
+        return "clusters";
+    }
+
+    @Override
+    public Capability produced() {
+        return Capability.CLUSTERS;
+    }
+
+    @Override
+    public Set<Capability> requires() {
+        return Set.of(Capability.CALL_GRAPH);
+    }
+
+    @Override
+    public boolean required() {
+        return false;
+    }
+
+    @Override
+    public AnalysisContribution run(AnalysisContext context) {
+        try {
+            Map<String, CallGraphNode> graph = context.get(Capability.CALL_GRAPH);
+            if (graph == null || graph.isEmpty()) {
+                return new AnalysisContribution(Capability.CLUSTERS, List.<ClusterInfo>of());
+            }
+            return new AnalysisContribution(Capability.CLUSTERS, cluster(graph, context.progress()));
+        } catch (JobCancelledException cancelled) {
+            throw cancelled;
+        } catch (RuntimeException error) {
+            throw new AnalysisPassException(id(), error);
+        }
+    }
 
     public List<ClusterInfo> cluster(Map<String, CallGraphNode> callGraph) {
         return cluster(callGraph, AnalysisProgressListener.NOOP);

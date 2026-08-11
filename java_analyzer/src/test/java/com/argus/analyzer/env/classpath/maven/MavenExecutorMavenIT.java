@@ -3,7 +3,7 @@ package com.argus.analyzer.env.classpath.maven;
 import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.env.MavenExecutionException;
 import com.argus.analyzer.env.MavenTimeoutException;
-import com.argus.analyzer.service.AnalysisProgressListener;
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.service.MavenProcessRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
