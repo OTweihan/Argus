@@ -448,6 +448,15 @@
 
 ### O-11 收敛 Java DTO/核心边界并引入类型化 AnalysisPass（P2）
 
+> ✅ **已完成并补强（2026-08-11）**。HTTP adapter 已将 wire DTO 映射为内部
+> `AnalysisCommand`/`AnalysisResult`，五类分析能力统一实现 `AnalysisPass`，并由
+> `PlanRegistry`/`PlanValidator` 校验能力重复、缺失与循环。`PassExecutor` 按依赖分波并行，
+> 可选失败通过 `passFailures` 显式降级；同波任务在作业返回前全部收敛（含被有界执行器
+> 拒绝的部分提交），JVM `Error` 原样传播并在 `AnalysisJobService` 作业边界落 `FAILED`
+> 终态，不静默降级也不停在 `RUNNING` 等 deadline 兜底。
+> ArchUnit 门禁禁止 domain/application 依赖 HTTP DTO、Spring 或具体 Maven gateway，
+> 同时阻止分析 pass 反向依赖 HTTP DTO。
+
 **现状证据**
 
 - `ProjectAnalyzerService` 直接接收 `api.dto.AnalyzeRequest` 并构造 `AnalyzeResponse`。

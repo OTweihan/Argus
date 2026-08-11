@@ -91,6 +91,22 @@ class AnalysisJobServiceTest {
     }
 
     @Test
+    void shouldMarkFailedWhenAnalyzerThrowsFatalError() {
+        // Error（非 Exception）也必须收敛到 FAILED 终态，而不是停在 RUNNING 等 deadline 兜底。
+        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
+        when(analyzer.analyze(any(), any(), any()))
+                .thenThrow(new AssertionError("fatal analyzer failure"));
+        AnalysisJobService service = new AnalysisJobService(analyzer, Runnable::run, 10, 1800);
+
+        var submitted = service.submit(command, new MavenConfig());
+        var status = service.getStatus(submitted.jobId());
+
+        assertThat(status.status()).isEqualTo("FAILED");
+        assertThat(status.error()).isEqualTo("fatal analyzer failure");
+        assertThat(status.events()).anyMatch(event -> "ERROR".equals(event.level()));
+    }
+
+    @Test
     void shouldRemoveOnlyCompletedJobsAfterRetention() throws Exception {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
         when(analyzer.analyze(any(), any(), any())).thenReturn(response);

@@ -79,9 +79,22 @@ public final class PassExecutor {
             pending.removeAll(ready);
 
             List<CompletableFuture<AnalysisContribution>> futures = new ArrayList<>();
-            for (AnalysisPass pass : ready) {
-                futures.add(CompletableFuture.supplyAsync(() -> pass.run(context), executor));
+            try {
+                for (AnalysisPass pass : ready) {
+                    futures.add(CompletableFuture.supplyAsync(
+                            () -> Objects.requireNonNull(
+                                    pass.run(context), "Pass '" + pass.id() + "' returned null"),
+                            executor));
+                }
+            } catch (RuntimeException | Error submissionFailure) {
+                // 部分任务已提交而后续提交被有界执行器拒绝时，必须等待已提交任务
+                // 收敛，避免作业先失败、调用方释放源码快照后后台任务仍继续读取。
+                awaitSettlement(futures);
+                throw submissionFailure;
             }
+            // 同波任务全部结束后再处理各自结果。这样任一必需 pass 失败/取消时，
+            // 不会遗留仍访问源码快照的后台分析任务。
+            awaitSettlement(futures);
             for (int i = 0; i < ready.size(); i++) {
                 AnalysisPass pass = ready.get(i);
                 try {
@@ -97,6 +110,9 @@ public final class PassExecutor {
                     Throwable cause = unwrap(error);
                     if (cause instanceof JobCancelledException cancelled) {
                         throw cancelled;
+                    }
+                    if (cause instanceof Error fatal) {
+                        throw fatal;
                     }
                     if (pass.required()) {
                         throw cause instanceof RuntimeException runtime
@@ -120,6 +136,16 @@ public final class PassExecutor {
                 listOrEmpty(context.get(Capability.FLOWS)),
                 listOrEmpty(context.get(Capability.CLUSTERS)),
                 diagnostics);
+    }
+
+    /** 等待已提交 Future 全部进入终态，同时延迟到逐项处理时再传播具体失败。 */
+    private static void awaitSettlement(List<? extends CompletableFuture<?>> futures) {
+        if (futures.isEmpty()) {
+            return;
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                .handle((ignored, error) -> null)
+                .join();
     }
 
     /** 合并 pass 附加诊断（目前仅 call graph pass 提供解析统计）。 */

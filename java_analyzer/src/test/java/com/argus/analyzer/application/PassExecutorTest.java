@@ -18,8 +18,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -144,6 +148,82 @@ class PassExecutorTest {
         assertThatThrownBy(() -> passExecutor.execute(List.of(flows), context()))
                 .isInstanceOf(JobCancelledException.class)
                 .hasMessageContaining("cancelled during flows");
+    }
+
+    @Test
+    void fatalErrorPropagatesEvenForOptionalPass() {
+        AnalysisPass flows = pass("flows", Capability.FLOWS, false, ctx -> {
+            throw new OutOfMemoryError("fatal pass failure");
+        });
+
+        assertThatThrownBy(() -> passExecutor.execute(List.of(flows), context()))
+                .isInstanceOf(OutOfMemoryError.class)
+                .hasMessageContaining("fatal pass failure");
+    }
+
+    @Test
+    void requiredFailureWaitsForSiblingPassToSettle() {
+        CountDownLatch siblingStarted = new CountDownLatch(1);
+        AtomicBoolean siblingFinished = new AtomicBoolean();
+        AnalysisPass failing = pass("failing", Capability.ENDPOINTS, true, ctx -> {
+            try {
+                siblingStarted.await();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(error);
+            }
+            throw new IllegalStateException("required pass failed");
+        });
+        AnalysisPass sibling = pass("sibling", Capability.CALL_GRAPH, true, ctx -> {
+            siblingStarted.countDown();
+            try {
+                Thread.sleep(75);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(error);
+            }
+            siblingFinished.set(true);
+            return new AnalysisContribution(Capability.CALL_GRAPH, Map.of());
+        });
+
+        assertThatThrownBy(() -> passExecutor.execute(List.of(failing, sibling), context()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("required pass failed");
+        assertThat(siblingFinished)
+                .as("同波任务必须在作业返回失败前结束")
+                .isTrue();
+    }
+
+    @Test
+    void rejectedSubmissionWaitsForAlreadySubmittedPass() {
+        AtomicInteger submissions = new AtomicInteger();
+        AtomicBoolean firstFinished = new AtomicBoolean();
+        Executor rejectingExecutor = command -> {
+            if (submissions.incrementAndGet() > 1) {
+                throw new RejectedExecutionException("worker queue full");
+            }
+            executor.execute(command);
+        };
+        PassExecutor boundedPassExecutor = new PassExecutor(rejectingExecutor);
+        AnalysisPass first = pass("first", Capability.ENDPOINTS, true, ctx -> {
+            try {
+                Thread.sleep(75);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(error);
+            }
+            firstFinished.set(true);
+            return new AnalysisContribution(Capability.ENDPOINTS, List.of());
+        });
+        AnalysisPass rejected = pass("rejected", Capability.CALL_GRAPH, true);
+
+        assertThatThrownBy(
+                () -> boundedPassExecutor.execute(List.of(first, rejected), context()))
+                .isInstanceOf(RejectedExecutionException.class)
+                .hasMessageContaining("worker queue full");
+        assertThat(firstFinished)
+                .as("提交失败前已启动的 pass 必须先收敛")
+                .isTrue();
     }
 
     @Test

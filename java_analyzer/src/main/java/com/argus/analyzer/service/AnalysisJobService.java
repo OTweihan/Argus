@@ -241,10 +241,14 @@ public class AnalysisJobService {
                 job.addEvent("analysis", "ERROR", e.getMessage());
                 job.markFailed(e);
             }
-        } catch (Exception e) {
-            log.error("Analysis job {} failed: {}", job.jobId, e.getMessage(), e);
-            job.addEvent("analysis", "ERROR", e.getMessage());
-            job.markFailed(e);
+        } catch (Throwable t) {
+            // Error（OOM/StackOverflow/AssertionError 等）也在作业边界收敛到终态，
+            // 避免作业停在 RUNNING 直到 deadline 兜底。PassExecutor 语义上 Error
+            // 原样传播，此处只负责把终态与错误信息记录在作业边界。
+            String message = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+            log.error("Analysis job {} failed: {}", job.jobId, message, t);
+            job.addEvent("analysis", "ERROR", message);
+            job.markFailed(t);
         } finally {
             mavenProcessRegistry.destroyFor(progress);
         }
@@ -444,10 +448,10 @@ public class AnalysisJobService {
             return false;
         }
 
-        boolean markFailed(Exception e) {
+        boolean markFailed(Throwable t) {
             if (status.compareAndSet("PENDING", "FAILED") || status.compareAndSet("RUNNING", "FAILED")) {
                 stage = "failed";
-                error = e.getMessage();
+                error = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
                 finishedAt = Instant.now();
                 return true;
             }

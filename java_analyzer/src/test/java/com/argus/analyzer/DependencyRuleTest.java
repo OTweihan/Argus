@@ -33,14 +33,13 @@ class DependencyRuleTest {
     }
 
     @Test
-    void applicationMustNotDependOnApiSpringMvcOrConcreteMavenGateway() {
+    void applicationMustNotDependOnApiSpringOrConcreteMavenGateway() {
         ArchRule rule = noClasses().that().resideInAPackage("com.argus.analyzer.application..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "com.argus.analyzer.api..",
                         "com.argus.analyzer.env.classpath.gateway..",
                         "com.argus.analyzer.service..",
-                        "org.springframework.web..",
-                        "org.springframework.stereotype..");
+                        "org.springframework..");
         rule.check(classes);
     }
 
