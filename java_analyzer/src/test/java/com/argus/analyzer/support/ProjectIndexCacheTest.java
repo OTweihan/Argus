@@ -1,6 +1,10 @@
 package com.argus.analyzer.support;
 
 import com.argus.analyzer.api.dto.AnalyzeResponse;
+import com.argus.analyzer.api.dto.CallEdge;
+import com.argus.analyzer.api.dto.CallGraphNode;
+import com.argus.analyzer.api.dto.Confidence;
+import com.argus.analyzer.api.dto.ResolutionType;
 import com.argus.analyzer.env.MavenConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,12 +14,15 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.time.Duration;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ProjectIndexCacheTest {
 
@@ -36,7 +43,11 @@ class ProjectIndexCacheTest {
         AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
         var key = key(tempDir, "all");
         cache.put(key, response);
-        assertThat(cache.get(key)).isSameAs(response);
+        AnalyzeResponse cached = cache.get(key);
+        assertThat(cached).isNotNull();
+        assertThat(cached).isEqualTo(response);
+        // O-08：缓存持有防御性不可变副本，而非调用方原始实例。
+        assertThat(cached).isNotSameAs(response);
     }
 
     @Test
@@ -46,6 +57,8 @@ class ProjectIndexCacheTest {
         cache.put(key, response);
         cache.invalidate(key);
         assertThat(cache.get(key)).isNull();
+        // 权重同步回收。
+        assertThat(cache.metrics().get("current_weight")).isEqualTo(0L);
     }
 
     @Test
@@ -58,6 +71,7 @@ class ProjectIndexCacheTest {
         cache.clear();
         assertThat(cache.get(key1)).isNull();
         assertThat(cache.get(key2)).isNull();
+        assertThat(cache.metrics().get("current_weight")).isEqualTo(0L);
     }
 
     @Test
@@ -128,6 +142,9 @@ class ProjectIndexCacheTest {
         Thread.sleep(20);
 
         assertThat(cache.get(key)).isNull();
+        // TTL 过期条目同步回收权重。
+        assertThat(cache.metrics().get("current_weight")).isEqualTo(0L);
+        assertThat(cache.metrics().get("evictions_by_expiry")).isEqualTo(1L);
     }
 
     @Test
@@ -163,6 +180,26 @@ class ProjectIndexCacheTest {
     }
 
     @Test
+    void shouldPropagateSupplierExceptionAndCleanInFlight(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        var key = key(tempDir, "all");
+        AtomicInteger calls = new AtomicInteger();
+        assertThatThrownBy(() -> cache.getOrCompute(key, () -> {
+            calls.incrementAndGet();
+            throw new IllegalStateException("boom");
+        })).isInstanceOf(IllegalStateException.class);
+
+        // in-flight 已清理：再次调用可重新计算，不残留失败 Future。
+        AnalyzeResponse response = new AnalyzeResponse(
+                List.of(), Map.of(), List.of(), List.of(), List.of(), null);
+        var second = cache.getOrCompute(key, () -> {
+            calls.incrementAndGet();
+            return response;
+        });
+        assertThat(calls).hasValue(2);
+        assertThat(second.cacheHit()).isFalse();
+    }
+
+    @Test
     void shouldEvictLeastRecentlyUsedEntry(@org.junit.jupiter.api.io.TempDir Path tempDir)
             throws Exception {
         cache = new ProjectIndexCache(Duration.ofMinutes(30), 2);
@@ -175,11 +212,113 @@ class ProjectIndexCacheTest {
         var third = key(thirdDir, "all");
         cache.put(first, response);
         cache.put(second, response);
-        assertThat(cache.get(first)).isSameAs(response);
+        assertThat(cache.get(first)).isNotNull();
         cache.put(third, response);
 
-        assertThat(cache.get(first)).isSameAs(response);
+        assertThat(cache.get(first)).isNotNull();
         assertThat(cache.get(second)).isNull();
+        assertThat(cache.metrics().get("evictions_by_count")).isEqualTo(1L);
+    }
+
+    // ── O-08：权重预算与超大旁路 ──────────────────────────────────────────
+
+    @Test
+    void shouldDefendAgainstCallerMutationAfterCache(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        Map<String, CallGraphNode> graph = new LinkedHashMap<>();
+        graph.put("com.Example#run()", new CallGraphNode("Example", "run", "()V", List.of()));
+        AnalyzeResponse response = new AnalyzeResponse(List.of(), graph, List.of(), List.of(), List.of(), null);
+        var key = key(tempDir, "all");
+        cache.put(key, response);
+
+        // 调用方继续修改自己的 map，缓存内数据不受影响。
+        graph.put("com.Hacked#pwn()", new CallGraphNode("Hacked", "pwn", "()V", List.of()));
+        graph.clear();
+
+        AnalyzeResponse cached = cache.get(key);
+        assertThat(cached.callGraph()).containsOnlyKeys("com.Example#run()");
+        assertThat(cached.callGraph()).isNotSameAs(graph);
+    }
+
+    @Test
+    void shouldEvictByWeightBeforeEntryLimit(@org.junit.jupiter.api.io.TempDir Path tempDir)
+            throws Exception {
+        AnalyzeResponse response = responseWith(4, 3);
+        long perEntryWeight = ResponseWeightEstimator.estimateWeight(response);
+        // 条目上限足够宽松，但总权重预算只放得下 2 个条目。
+        cache = new ProjectIndexCache(Duration.ofMinutes(30), 100,
+                perEntryWeight * 2, Long.MAX_VALUE / 4);
+        Path firstDir = Files.createDirectory(tempDir.resolve("first"));
+        Path secondDir = Files.createDirectory(tempDir.resolve("second"));
+        Path thirdDir = Files.createDirectory(tempDir.resolve("third"));
+        var first = key(firstDir, "all");
+        var second = key(secondDir, "all");
+        var third = key(thirdDir, "all");
+        cache.put(first, response);
+        cache.put(second, response);
+        assertThat(cache.get(first)).isNotNull();
+        assertThat(cache.get(second)).isNotNull();
+        cache.put(third, response);
+
+        // 第 3 个触发权重淘汰：最久未用的 first 被挤出。
+        assertThat(cache.get(first)).isNull();
+        assertThat(cache.get(second)).isNotNull();
+        assertThat(cache.get(third)).isNotNull();
+        assertThat(cache.metrics().get("current_weight"))
+                .isEqualTo(perEntryWeight * 2);
+        assertThat(cache.metrics().get("evictions_by_weight")).isEqualTo(1L);
+    }
+
+    @Test
+    void shouldBypassOversizedSingleEntry(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        cache = new ProjectIndexCache(Duration.ofMinutes(30), 100,
+                1_000_000L, /* maxSingleEntryWeight */ 1_000L);
+        AnalyzeResponse response = responseWith(100, 10);
+        long weight = ResponseWeightEstimator.estimateWeight(response);
+        assertThat(weight).isGreaterThan(1_000L);
+
+        var key = key(tempDir, "all");
+        cache.put(key, response);
+
+        assertThat(cache.get(key)).isNull();
+        assertThat(cache.metrics().get("current_weight")).isEqualTo(0L);
+        assertThat(cache.metrics().get("oversized_bypass_count")).isEqualTo(1L);
+    }
+
+    @Test
+    void shouldReturnOversizedResultThroughGetOrCompute(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        cache = new ProjectIndexCache(Duration.ofMinutes(30), 100,
+                1_000_000L, /* maxSingleEntryWeight */ 1_000L);
+        AnalyzeResponse response = responseWith(100, 10);
+        var key = key(tempDir, "all");
+
+        var first = cache.getOrCompute(key, () -> response);
+        // 旁路不缓存：结果仍返回给调用方。
+        assertThat(first.cacheHit()).isFalse();
+        assertThat(first.response()).isSameAs(response);
+
+        // 未入缓存：第二次请求会再次执行 supplier。
+        var second = cache.getOrCompute(key, () -> response);
+        assertThat(second.cacheHit()).isFalse();
+    }
+
+    @Test
+    void shouldRecordWeightMetrics(@org.junit.jupiter.api.io.TempDir Path tempDir) {
+        AnalyzeResponse response = responseWith(3, 2);
+        long weight = ResponseWeightEstimator.estimateWeight(response);
+        var key = key(tempDir, "all");
+        cache.put(key, response);
+
+        Map<String, Object> metrics = cache.metrics();
+        assertThat(metrics.get("current_entries")).isEqualTo(1);
+        assertThat(metrics.get("current_weight")).isEqualTo(weight);
+        assertThat(metrics.get("max_entries")).isEqualTo(128L);
+        assertThat(metrics.get("max_total_weight")).isEqualTo(64L * 1024 * 1024);
+        assertThat(metrics.get("max_single_entry_weight")).isEqualTo(16L * 1024 * 1024);
+        assertThat(metrics.get("evictions_by_weight")).isEqualTo(0L);
+        assertThat(metrics.get("evictions_by_count")).isEqualTo(0L);
+        assertThat(metrics.get("evictions_by_expiry")).isEqualTo(0L);
+        assertThat(metrics.get("oversized_bypass_count")).isEqualTo(0L);
+        assertThat(metrics.get("in_flight")).isEqualTo(0L);
     }
 
     // ── O-07：revision 缓存键 ──────────────────────────────────────────────
@@ -237,7 +376,7 @@ class ProjectIndexCacheTest {
                 List.of(), Map.of(), List.of(), List.of(), List.of(), null);
         var key = cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-1", null);
         cache.put(key, response);
-        assertThat(cache.get(key)).isSameAs(response);
+        assertThat(cache.get(key)).isNotNull();
         assertThat(cache.get(cache.createKey(tempDir, "all", List.of(), new MavenConfig(), "rev-2", null)))
                 .isNull();
 
@@ -246,9 +385,36 @@ class ProjectIndexCacheTest {
         assertThat(metrics.get("hit_count")).isEqualTo(1L);
         assertThat(metrics.get("revision_lookups")).isEqualTo(2L);
         assertThat(metrics.get("fingerprint_computations")).isEqualTo(0L);
+        // O-08 指标键存在。
+        assertThat(metrics).containsKeys(
+                "current_entries", "current_weight", "max_total_weight",
+                "max_single_entry_weight", "evictions_by_count", "evictions_by_weight",
+                "evictions_by_expiry", "oversized_bypass_count", "in_flight");
     }
 
     private ProjectIndexCache.CacheKey key(Path sourcePath, String scope) {
         return cache.createKey(sourcePath, scope, List.of(), new MavenConfig());
+    }
+
+    /** 构造含 nodes 个调用图节点、每个含 edges 条调用边的响应。 */
+    private static AnalyzeResponse responseWith(int nodes, int edges) {
+        Map<String, CallGraphNode> graph = new LinkedHashMap<>();
+        for (int i = 0; i < nodes; i++) {
+            List<CallEdge> callees = new ArrayList<>();
+            for (int j = 0; j < edges; j++) {
+                callees.add(new CallEdge(
+                        "com.acme.Thing" + i + "#call" + j,
+                        "call" + j,
+                        "Thing" + i,
+                        ResolutionType.SYMBOL_SOLVER,
+                        Confidence.HIGH,
+                        List.of("com.acme.Thing" + i),
+                        "Thing" + i + ".java",
+                        i + j));
+            }
+            graph.put("com.acme.Thing" + i + "#run()",
+                    new CallGraphNode("com.acme.Thing" + i, "run", "()V", callees));
+        }
+        return new AnalyzeResponse(List.of(), graph, List.of(), List.of(), List.of(), null);
     }
 }

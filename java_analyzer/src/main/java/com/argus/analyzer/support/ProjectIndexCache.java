@@ -17,6 +17,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -29,12 +30,19 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
- * 分析结果索引缓存（LRU + TTL + single-flight）。
+ * 分析结果索引缓存（LRU + TTL + single-flight + 按权重限制）。
  *
  * <p>O-07：缓存键在客户端提供稳定 revision（commit SHA / 内容 SHA-256）时，
  * 使用 revision + Maven 配置指纹 + analyzer/pass 版本，跨快照目录可命中，
  * 且查找不再全量读取源码树。旧客户端未传 revision 时保留现有
  * {@code path + 全量源码指纹} 回退。</p>
+ *
+ * <p>O-08：条目上限之外增加权重预算。每个 {@link AnalyzeResponse} 由
+ * {@link ResponseWeightEstimator} 估算近似堆字节（字符串长度 + 固定开销），
+ * 同时约束 {@code maxEntries}、{@code maxTotalWeight} 与
+ * {@code maxSingleEntryWeight}：超大响应直接不缓存（oversized bypass），
+ * 超出总权重预算按 LRU 淘汰。缓存值在插入时对顶层集合做防御性不可变包装，
+ * 避免调用方修改共享响应污染后续请求。</p>
  */
 @Component
 public class ProjectIndexCache {
@@ -43,6 +51,12 @@ public class ProjectIndexCache {
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(30);
 
     private static final int DEFAULT_MAX_ENTRIES = 128;
+
+    /** 总权重默认预算（64 MiB，O-08）。以真实大型项目 + 受限 -Xmx 压测后调优。 */
+    private static final long DEFAULT_MAX_TOTAL_WEIGHT = 64L * 1024 * 1024;
+
+    /** 单条目权重默认上限（16 MiB，O-08）：超过的响应不缓存。 */
+    private static final long DEFAULT_MAX_SINGLE_ENTRY_WEIGHT = 16L * 1024 * 1024;
 
     /**
      * 分析 pass 版本（O-07 缓存键组成部分）。当新增/变更会影响缓存结果语义的
@@ -56,6 +70,11 @@ public class ProjectIndexCache {
             new ConcurrentHashMap<>();
     private final Duration ttl;
     private final int maxEntries;
+    private final long maxTotalWeight;
+    private final long maxSingleEntryWeight;
+
+    /** 当前缓存条目的估算总权重（与 {@link #cache} 同锁维护）。 */
+    private long totalWeight;
 
     // O-07 指标：缓存命中不再全量读取源码内容，用指纹耗时决定是否继续引入
     // 增量 per-file digest。
@@ -66,24 +85,39 @@ public class ProjectIndexCache {
     private final AtomicLong fingerprintNanos = new AtomicLong();
     private final AtomicLong revisionLookups = new AtomicLong();
 
+    // O-08 指标：淘汰原因与超大条目旁路。
+    private final AtomicLong evictionsByCount = new AtomicLong();
+    private final AtomicLong evictionsByWeight = new AtomicLong();
+    private final AtomicLong evictionsByExpiry = new AtomicLong();
+    private final AtomicLong oversizedBypassCount = new AtomicLong();
+
     public ProjectIndexCache() {
-        this(DEFAULT_TTL, DEFAULT_MAX_ENTRIES);
+        this(DEFAULT_TTL, DEFAULT_MAX_ENTRIES, DEFAULT_MAX_TOTAL_WEIGHT, DEFAULT_MAX_SINGLE_ENTRY_WEIGHT);
     }
 
     public ProjectIndexCache(Duration ttl) {
-        this(ttl, DEFAULT_MAX_ENTRIES);
+        this(ttl, DEFAULT_MAX_ENTRIES, DEFAULT_MAX_TOTAL_WEIGHT, DEFAULT_MAX_SINGLE_ENTRY_WEIGHT);
     }
 
     public ProjectIndexCache(Duration ttl, int maxEntries) {
+        this(ttl, maxEntries, DEFAULT_MAX_TOTAL_WEIGHT, DEFAULT_MAX_SINGLE_ENTRY_WEIGHT);
+    }
+
+    public ProjectIndexCache(Duration ttl, int maxEntries, long maxTotalWeight, long maxSingleEntryWeight) {
         this.ttl = ttl;
         this.maxEntries = Math.max(1, maxEntries);
+        this.maxTotalWeight = Math.max(1, maxTotalWeight);
+        this.maxSingleEntryWeight = Math.max(1, maxSingleEntryWeight);
     }
 
     @Autowired
     public ProjectIndexCache(
             @Value("${argus.analysis.cache.ttl-minutes:30}") long ttlMinutes,
-            @Value("${argus.analysis.cache.max-entries:128}") int maxEntries) {
-        this(Duration.ofMinutes(Math.max(1, ttlMinutes)), maxEntries);
+            @Value("${argus.analysis.cache.max-entries:128}") int maxEntries,
+            @Value("${argus.analysis.cache.max-total-weight-bytes:67108864}") long maxTotalWeight,
+            @Value("${argus.analysis.cache.max-single-entry-weight-bytes:16777216}") long maxSingleEntryWeight) {
+        this(Duration.ofMinutes(Math.max(1, ttlMinutes)), maxEntries,
+                maxTotalWeight, maxSingleEntryWeight);
     }
 
     public synchronized AnalyzeResponse get(CacheKey key) {
@@ -94,6 +128,8 @@ public class ProjectIndexCache {
             if (entry == null) return null;
             if (Instant.now().isAfter(entry.expiresAt())) {
                 cache.remove(key);
+                totalWeight -= entry.weight();
+                evictionsByExpiry.incrementAndGet();
                 log.debug("Cache entry expired for key: {}", key);
                 return null;
             }
@@ -107,22 +143,74 @@ public class ProjectIndexCache {
     }
 
     public synchronized void put(CacheKey key, AnalyzeResponse response) {
-        purgeExpired();
-        cache.put(key, new CacheEntry(response, Instant.now().plus(ttl)));
-        while (cache.size() > maxEntries) {
-            CacheKey eldest = cache.keySet().iterator().next();
-            cache.remove(eldest);
+        insert(key, response);
+    }
+
+    /**
+     * 插入条目：估算权重、防御性不可变包装、超大旁路、LRU + 权重淘汰。
+     *
+     * <p>必须同步：{@link #getOrCompute} 的 miss 路径绕过 {@link #put} 直接调用，
+     * 而 {@code cache} 是普通 {@link LinkedHashMap}。权重估算在锁内完成——只在
+     * 一次完整分析结束后执行一次，相对分析耗时可忽略。</p>
+     *
+     * @return 缓存内持有的响应实例；超大条目旁路（不缓存）时返回 {@code null}。
+     */
+    private synchronized AnalyzeResponse insert(CacheKey key, AnalyzeResponse response) {
+        // 先估算再拷贝：将被旁路的超大响应不创建防御副本（原对象直接返回调用方）。
+        long weight = ResponseWeightEstimator.estimateWeight(response);
+        if (weight > maxSingleEntryWeight || weight > maxTotalWeight) {
+            // 超大响应直接不缓存：返回给调用方但不占用预算，避免单个大调用图挤爆堆。
+            oversizedBypassCount.incrementAndGet();
+            log.warn("Analysis result for key {} estimated at {} bytes exceeds cache budget "
+                            + "(single-entry max={}, total max={}); not cached",
+                    key, weight, maxSingleEntryWeight, maxTotalWeight);
+            return null;
         }
-        log.debug("Cached analysis result for key: {}", key);
+        AnalyzeResponse safe = immutableView(response);
+        purgeExpired();
+        CacheEntry previous = cache.put(key, new CacheEntry(safe, Instant.now().plus(ttl), weight));
+        if (previous != null) {
+            totalWeight -= previous.weight();
+        }
+        totalWeight += weight;
+        evictOverBudget();
+        log.debug("Cached analysis result for key: {} (weight={} bytes)", key, weight);
+        return safe;
+    }
+
+    /** LRU 淘汰：超过条目上限或总权重预算时按最久未使用顺序移除。 */
+    private void evictOverBudget() {
+        while (cache.size() > maxEntries || totalWeight > maxTotalWeight) {
+            if (cache.isEmpty()) {
+                // 防御：单条目即超预算时避免死循环。
+                break;
+            }
+            boolean byCount = cache.size() > maxEntries;
+            CacheKey eldest = cache.keySet().iterator().next();
+            CacheEntry evicted = cache.remove(eldest);
+            totalWeight -= evicted.weight();
+            if (byCount) {
+                evictionsByCount.incrementAndGet();
+                log.debug("Evicted cache entry (entry-count limit): {}", eldest);
+            } else {
+                evictionsByWeight.incrementAndGet();
+                log.debug("Evicted cache entry (weight limit): {} (weight={} bytes)",
+                        eldest, evicted.weight());
+            }
+        }
     }
 
     public synchronized void invalidate(CacheKey key) {
-        cache.remove(key);
+        CacheEntry removed = cache.remove(key);
+        if (removed != null) {
+            totalWeight -= removed.weight();
+        }
         log.debug("Invalidated cache for key: {}", key);
     }
 
     public synchronized void clear() {
         cache.clear();
+        totalWeight = 0;
         log.debug("Cache cleared");
     }
 
@@ -142,16 +230,45 @@ public class ProjectIndexCache {
             return new CacheResult(joined, true);
         }
         try {
-            AnalyzeResponse response = supplier.get();
-            put(key, response);
-            candidate.complete(response);
-            return new CacheResult(response, false);
+            AnalyzeResponse computed = supplier.get();
+            AnalyzeResponse safe = insert(key, computed);
+            // 超大条目旁路时 safe 为 null：仍返回计算结果，只是不缓存。
+            AnalyzeResponse result = safe != null ? safe : computed;
+            candidate.complete(result);
+            return new CacheResult(result, false);
         } catch (RuntimeException | Error error) {
             candidate.completeExceptionally(error);
             throw error;
         } finally {
             inFlight.remove(key, candidate);
         }
+    }
+
+    /**
+     * 防御性不可变视图：对顶层集合做浅拷贝 + 不可变包装，防止调用方修改共享
+     * 响应污染缓存内数据。嵌套集合保持共享（分析完成后视为只读），属"尽量不可变"
+     * 的最佳实践——真正的不可变拷贝会付出 O(响应大小) 的额外分配。
+     */
+    private static AnalyzeResponse immutableView(AnalyzeResponse response) {
+        if (response == null) return null;
+        return new AnalyzeResponse(
+                unmodifiableCopy(response.endpoints()),
+                unmodifiableCopy(response.callGraph()),
+                unmodifiableCopy(response.findings()),
+                unmodifiableCopy(response.executionFlows()),
+                unmodifiableCopy(response.clusters()),
+                response.diagnostics()
+        );
+    }
+
+    private static <T> List<T> unmodifiableCopy(List<T> list) {
+        if (list == null || list.isEmpty()) return list;
+        return Collections.unmodifiableList(new ArrayList<>(list));
+    }
+
+    private static <K, V> Map<K, V> unmodifiableCopy(Map<K, V> map) {
+        if (map == null || map.isEmpty()) return map;
+        return Collections.unmodifiableMap(new LinkedHashMap<>(map));
     }
 
     /**
@@ -204,9 +321,9 @@ public class ProjectIndexCache {
     }
 
     /**
-     * 缓存指标（O-07），供运维/监控汇总。见 {@link #metrics()}。
+     * 缓存指标（O-07/O-08），供运维/监控汇总。见 {@link #metrics()}。
      */
-    public Map<String, Object> metrics() {
+    public synchronized Map<String, Object> metrics() {
         long lookups = cacheLookups.get();
         return Map.ofEntries(
                 Map.entry("lookup_count", lookups),
@@ -215,7 +332,18 @@ public class ProjectIndexCache {
                 Map.entry("avg_lookup_ms", lookups > 0 ? (lookupNanos.get() / 1_000_000.0) / lookups : 0.0),
                 Map.entry("fingerprint_computations", fingerprintComputations.get()),
                 Map.entry("fingerprint_ms_total", ms(fingerprintNanos)),
-                Map.entry("revision_lookups", revisionLookups.get())
+                Map.entry("revision_lookups", revisionLookups.get()),
+                // O-08：权重预算、淘汰原因与旁路统计。
+                Map.entry("current_entries", cache.size()),
+                Map.entry("current_weight", totalWeight),
+                Map.entry("max_entries", (long) maxEntries),
+                Map.entry("max_total_weight", maxTotalWeight),
+                Map.entry("max_single_entry_weight", maxSingleEntryWeight),
+                Map.entry("evictions_by_count", evictionsByCount.get()),
+                Map.entry("evictions_by_weight", evictionsByWeight.get()),
+                Map.entry("evictions_by_expiry", evictionsByExpiry.get()),
+                Map.entry("oversized_bypass_count", oversizedBypassCount.get()),
+                Map.entry("in_flight", (long) inFlight.size())
         );
     }
 
@@ -233,7 +361,15 @@ public class ProjectIndexCache {
 
     private synchronized void purgeExpired() {
         Instant now = Instant.now();
-        cache.entrySet().removeIf(entry -> now.isAfter(entry.getValue().expiresAt()));
+        var iterator = cache.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<CacheKey, CacheEntry> entry = iterator.next();
+            if (now.isAfter(entry.getValue().expiresAt())) {
+                totalWeight -= entry.getValue().weight();
+                evictionsByExpiry.incrementAndGet();
+                iterator.remove();
+            }
+        }
     }
 
     private String sourceFingerprint(Path sourcePath) {
@@ -327,5 +463,5 @@ public class ProjectIndexCache {
 
     public record CacheResult(AnalyzeResponse response, boolean cacheHit) {}
 
-    private record CacheEntry(AnalyzeResponse response, Instant expiresAt) {}
+    private record CacheEntry(AnalyzeResponse response, Instant expiresAt, long weight) {}
 }

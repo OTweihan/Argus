@@ -48,7 +48,7 @@
 | O-05 | P1 | 显式处理 EventBus 回放缺口和服务重启 epoch | 避免断线后任务终态长期停留在旧值 |
 | O-06 | P1 | TaskRunner 使用 handler 返回的 Task | 消除返回新快照时的结果、报告或终态信息丢失风险（✅ 已完成） |
 | O-07 | P1 | 合并源码快照、内容指纹与 Java 缓存键计算 | 降低大型仓库冷启动 I/O、磁盘占用和重复哈希（✅ 已完成） |
-| O-08 | P1 | Java 分析缓存按权重限制，而非只限制条目数 | 控制大型调用图缓存造成的堆内存峰值 |
+| O-08 | P1 | Java 分析缓存按权重限制，而非只限制条目数 | 控制大型调用图缓存造成的堆内存峰值（✅ 已完成） |
 | O-09 | P1 | 前端列表与参数推断增加请求代次/取消 | 防止旧响应覆盖新筛选条件或新输入 |
 | O-10 | P2 | 批量化分析投影写入，修正游标分页重复计数 | 降低大型分析结果的 SQLite 调用开销 |
 | O-11 | P2 | 收敛 Java DTO/核心边界并引入类型化 AnalysisPass | 降低新增分析能力时的编排分支和跨层耦合 |
@@ -328,6 +328,18 @@
 - 冷分析的复制字节和目录占用显著下降，分析结果与旧路径保持契约一致。
 
 ### O-08 Java 分析缓存按权重限制，而非只限制条目数（P1）
+
+> ✅ **已完成（2026-08-11）**。实现要点：
+> - 新增 `ResponseWeightEstimator`：基于字符串长度（保守按 UTF-16 2 字节/字符）加固定
+>   对象头/集合槽位开销估算 `AnalyzeResponse` 近似保留堆字节，零分配、O(响应元素数)。
+> - `ProjectIndexCache` 同时约束 `maxEntries`、`maxTotalWeight` 与 `maxSingleEntryWeight`
+>   （默认 128 / 64 MiB / 16 MiB，`argus.analysis.cache.*-weight-bytes` 可配）：超大响应
+>   直接不缓存（oversized bypass），超出总权重预算按 LRU 淘汰，TTL 过期同步回收权重。
+> - 缓存值插入时对顶层集合做浅拷贝 + 不可变包装，避免调用方修改共享响应污染后续请求；
+>   single-flight、异常传播与 TTL/LRU 语义保持不变。
+> - `metrics()` 新增 current weight / current entries / eviction reason（count、weight、
+>   expiry 分项）/ oversized bypass / in-flight 等指标。
+> - 默认预算需用真实大型项目 + 受限 `-Xmx` 压测后调优（估算偏差只影响命中率）。
 
 **现状证据**
 

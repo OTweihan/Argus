@@ -19,6 +19,12 @@ argus:
     cache:
       ttl-minutes: 30
       max-entries: 128
+      # O-08 权重预算（字节）：同时约束条目数、总权重与单条目权重。
+      # max-total-weight-bytes 控制缓存整体堆占用；超过
+      # max-single-entry-weight-bytes 的单个超大响应直接不缓存。
+      # 默认值需用真实大型项目 + 受限 -Xmx 压测后调优（估算偏差只影响命中率）。
+      max-total-weight-bytes: 67108864
+      max-single-entry-weight-bytes: 16777216
     jobs:
       threads: 2
       queue-capacity: 32
