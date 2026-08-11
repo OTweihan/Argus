@@ -50,7 +50,7 @@
 | O-07 | P1 | 合并源码快照、内容指纹与 Java 缓存键计算 | 降低大型仓库冷启动 I/O、磁盘占用和重复哈希（✅ 已完成） |
 | O-08 | P1 | Java 分析缓存按权重限制，而非只限制条目数 | 控制大型调用图缓存造成的堆内存峰值（✅ 已完成） |
 | O-09 | P1 | 前端列表与参数推断增加请求代次/取消 | 防止旧响应覆盖新筛选条件或新输入 |
-| O-10 | P2 | 批量化分析投影写入，修正游标分页重复计数 | 降低大型分析结果的 SQLite 调用开销 |
+| O-10 | P2 | 批量化分析投影写入，修正游标分页重复计数 | 降低大型分析结果的 SQLite 调用开销（✅ 已完成） |
 | O-11 | P2 | 收敛 Java DTO/核心边界并引入类型化 AnalysisPass | 降低新增分析能力时的编排分支和跨层耦合 |
 
 ## 4. 详细优化建议
@@ -394,6 +394,22 @@
 - loading 状态准确，已取消请求不产生错误提示或覆盖用户输入。
 
 ### O-10 批量化分析投影写入，修正游标分页重复计数（P2）
+
+> ✅ **已完成（2026-08-11）**。实现要点：
+> - `_write_projection` 将 call nodes / endpoints / edges / flows / steps / clusters 由逐行
+>   `conn.execute()` 改为同事务分批 `executemany`（`_executemany_batched`，默认单批 500）。
+>   行源为生成器，由 `itertools.islice` 逐批取出，峰值内存只保留当前批、不随总行数增长。
+>   事务边界保持在 `complete_projection` 的 `tx()` 内，任一批失败整体回滚，不暴露半份投影。
+> - `_paginated_query` 仅在首页（无有效 cursor）执行 `COUNT(*)`；后续 cursor 页返回
+>   `total=None`，由客户端复用首屏 total。OpenAPI 的 `total` 字段本已是 `int | None`，
+>   前端 `usePagedList` 以 `page.total ?? null` 消费，无 schema / 前端变更。游标解码前置并
+>   校验为与排序列等长的列表，结构非法的游标（非列表 / 键数不符）回退首页且不抛 500。
+> - 新增 `tests/unit/test_analysis_projection_repo.py`：分批 chunk 边界、生成器行源分片、
+>   6 张表走 executemany / 诊断单行 execute、中途失败回滚、重复投影幂等替换、
+>   1137 行跨 3 批全量落库、cursor 分页第二页起不执行 COUNT（trace 断言）且无重复/无遗漏、
+>   末页恰好填满、带筛选条件翻页、无效及结构非法游标回退首页。共 17 个用例。
+> - 未新增索引：`EXPLAIN QUERY PLAN` 显示各分页查询已用 `analysis_id` 索引做过滤、
+>   COUNT 走覆盖索引，仅 ORDER BY 需临时 B-tree；按审计结论不凭感觉加索引引入写放大。
 
 **现状证据**
 

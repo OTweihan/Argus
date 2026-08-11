@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Iterable
+from itertools import islice
 from typing import Any
 
 from argus_py.analysis.enums import (
@@ -22,6 +24,35 @@ _MARK_TERMINAL_ALLOWED: frozenset[AnalysisRunStatus] = frozenset(
         AnalysisRunStatus.TIMED_OUT,
     }
 )
+
+# 投影写入单批行数。executemany 会一次性持有整批行元组，批过大会在
+# 超大批次时瞬时翻倍内存；批过小则退化为接近逐行 execute。基准建议
+# 200～1000，这里取中间值 500。
+_PROJECTION_BATCH_SIZE = 500
+
+
+def _executemany_batched(
+    conn: Any,
+    sql: str,
+    rows: Iterable[tuple],
+    *,
+    batch_size: int = _PROJECTION_BATCH_SIZE,
+) -> None:
+    """在同一事务内分批 ``executemany``，控制单批内存上限。
+
+    接受任意可迭代对象（列表或生成器）：逐批 ``islice`` 取出
+    ``batch_size`` 行后调用 ``executemany``。行源为生成器时，峰值内存
+    只保留当前批，不随总行数增长。事务边界由调用方
+    （``complete_projection`` 的 ``tx()``）保证：任一批失败都会回滚
+    整个投影，不会暴露半份写入。
+    """
+    it = iter(rows)
+    while True:
+        chunk = list(islice(it, batch_size))
+        if not chunk:
+            break
+        conn.executemany(sql, chunk)
+
 
 # ── 行映射 ──────────────────────────────────────────────────────────
 
@@ -526,69 +557,78 @@ class AnalysisRunRepository:
             (analysis_id,),
         )
 
-        # 写入 CallNode（先写，因为后续外键引用）
-        for cn in projection_data.get("call_nodes", []):
-            conn.execute(
-                """INSERT INTO analysis_call_nodes (
-                    call_node_id, analysis_id, call_node_fingerprint,
-                    class_name, method_name, method_signature,
-                    source_file, source_start_line, source_start_column,
-                    source_end_line, source_end_column
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _call_node_to_row(analysis_id, cn),
-            )
+        # 行源构造为生成器，在同一事务内分批 executemany，把 Python↔SQLite
+        # 的往返从逐行 execute 降为每批一次；峰值内存只保留当前批，不随
+        # 总行数增长（_executemany_batched 内部 islice 分片）。
+        # CallNode 先写（后续外键引用）。
+        _executemany_batched(
+            conn,
+            """INSERT INTO analysis_call_nodes (
+                call_node_id, analysis_id, call_node_fingerprint,
+                class_name, method_name, method_signature,
+                source_file, source_start_line, source_start_column,
+                source_end_line, source_end_column
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (_call_node_to_row(analysis_id, cn) for cn in projection_data.get("call_nodes", [])),
+        )
 
         # Endpoint
-        for ep in projection_data.get("endpoints", []):
-            conn.execute(
-                """INSERT INTO analysis_endpoints (
-                    endpoint_id, analysis_id, endpoint_fingerprint,
-                    http_method, raw_path, normalized_exact_path,
-                    normalized_path_template, is_templated,
-                    path_normalization_version, path_segment_count,
-                    static_prefix, canonical_path_shape,
-                    controller_class, controller_method,
-                    controller_method_signature,
-                    parameters, return_type,
-                    source_file, source_start_line, source_start_column,
-                    source_end_line, source_end_column,
-                    entry_call_node_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _endpoint_to_row(analysis_id, ep),
-            )
+        _executemany_batched(
+            conn,
+            """INSERT INTO analysis_endpoints (
+                endpoint_id, analysis_id, endpoint_fingerprint,
+                http_method, raw_path, normalized_exact_path,
+                normalized_path_template, is_templated,
+                path_normalization_version, path_segment_count,
+                static_prefix, canonical_path_shape,
+                controller_class, controller_method,
+                controller_method_signature,
+                parameters, return_type,
+                source_file, source_start_line, source_start_column,
+                source_end_line, source_end_column,
+                entry_call_node_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (_endpoint_to_row(analysis_id, ep) for ep in projection_data.get("endpoints", [])),
+        )
 
         # CallEdge
-        for ce in projection_data.get("call_edges", []):
-            conn.execute(
-                """INSERT INTO analysis_call_edges (
-                    call_edge_id, analysis_id, from_node_id, to_node_id,
-                    to_class_name, to_method_name,
-                    resolution_type, confidence,
-                    source_file, source_start_line, source_start_column,
-                    source_end_line, source_end_column
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _call_edge_to_row(analysis_id, ce),
-            )
+        _executemany_batched(
+            conn,
+            """INSERT INTO analysis_call_edges (
+                call_edge_id, analysis_id, from_node_id, to_node_id,
+                to_class_name, to_method_name,
+                resolution_type, confidence,
+                source_file, source_start_line, source_start_column,
+                source_end_line, source_end_column
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (_call_edge_to_row(analysis_id, ce) for ce in projection_data.get("call_edges", [])),
+        )
 
         # ExecutionFlow
-        for flow in projection_data.get("execution_flows", []):
-            conn.execute(
-                """INSERT INTO analysis_execution_flows (
-                    execution_flow_id, analysis_id, execution_flow_fingerprint,
-                    entry_point, call_depth
-                ) VALUES (?, ?, ?, ?, ?)""",
-                _flow_to_row(analysis_id, flow),
-            )
+        _executemany_batched(
+            conn,
+            """INSERT INTO analysis_execution_flows (
+                execution_flow_id, analysis_id, execution_flow_fingerprint,
+                entry_point, call_depth
+            ) VALUES (?, ?, ?, ?, ?)""",
+            (
+                _flow_to_row(analysis_id, flow)
+                for flow in projection_data.get("execution_flows", [])
+            ),
+        )
 
         # FlowStep
-        for step in projection_data.get("flow_steps", []):
-            conn.execute(
-                """INSERT INTO analysis_flow_steps (
-                    flow_step_id, execution_flow_id, step_index, depth,
-                    method_key, class_name, method_name, call_node_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                _flow_step_to_row(step.get("execution_flow_id", ""), step),
-            )
+        _executemany_batched(
+            conn,
+            """INSERT INTO analysis_flow_steps (
+                flow_step_id, execution_flow_id, step_index, depth,
+                method_key, class_name, method_name, call_node_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                _flow_step_to_row(step.get("execution_flow_id", ""), step)
+                for step in projection_data.get("flow_steps", [])
+            ),
+        )
 
         # Diagnostics
         diag = projection_data.get("diagnostics")
@@ -626,14 +666,17 @@ class AnalysisRunRepository:
             )
 
         # Clusters
-        for cluster in projection_data.get("clusters", []):
-            conn.execute(
-                """INSERT INTO analysis_clusters (
-                    cluster_id, analysis_id, suggested_label,
-                    member_keys_json, member_count
-                ) VALUES (?, ?, ?, ?, ?)""",
-                _cluster_to_row(analysis_id, cluster),
-            )
+        _executemany_batched(
+            conn,
+            """INSERT INTO analysis_clusters (
+                cluster_id, analysis_id, suggested_label,
+                member_keys_json, member_count
+            ) VALUES (?, ?, ?, ?, ?)""",
+            (
+                _cluster_to_row(analysis_id, cluster)
+                for cluster in projection_data.get("clusters", [])
+            ),
+        )
 
     # ── 分页查询 ──────────────────────────────────────────────────
 
@@ -844,43 +887,53 @@ class AnalysisRunRepository:
         elif where_clause is None:
             raise ValueError("Must provide either analysis_id or where_clause")
 
+        # 游标编码：base64(json({"k": [sort_key_values]}))。解码或校验失败
+        # （非列表 / 键数与排序列不符）时回退为首页请求：仍计算 total。
+        order_cols = [c.strip().split()[0] for c in order.split(",")]
+        cursor_keys: list[Any] | None = None
+        if cursor:
+            try:
+                decoded = json.loads(base64.urlsafe_b64decode(cursor).decode())
+                keys = decoded["k"]
+                if not isinstance(keys, list) or len(keys) != len(order_cols):
+                    raise ValueError("cursor keys must match order columns")
+                cursor_keys = keys
+            except Exception:
+                cursor = None
+                cursor_keys = None
+
         sql = f"SELECT * FROM {table} WHERE {where_clause}"
         with self._pool.ro_conn() as conn:
-            # total（仅在首屏请求时计算）
-            row = conn.execute(
-                f"SELECT COUNT(*) AS cnt FROM {table} WHERE {where_clause}",
-                params,
-            ).fetchone()
-            total: int | None = row["cnt"] if row else 0
+            # total 仅在首屏请求（无有效 cursor）时计算；后续 cursor 页返回
+            # None，由客户端复用首屏 total，避免每页执行全表/索引 COUNT。
+            total: int | None = None
+            if cursor is None:
+                row = conn.execute(
+                    f"SELECT COUNT(*) AS cnt FROM {table} WHERE {where_clause}",
+                    params,
+                ).fetchone()
+                total = row["cnt"] if row else 0
 
             limit = min(limit, 200)
-            if cursor:
-                # 游标编码：base64(json({"k": [sort_key_values]}))
-                try:
-                    decoded = json.loads(base64.urlsafe_b64decode(cursor).decode())
-                    cursor_keys = decoded["k"]
-                    # 游标过滤：排序键 > 游标值
-                    # 简化实现：按 order 提取列名构造 WHERE 子句
-                    order_cols = [c.strip().split()[0] for c in order.split(",")]
-                    cursor_conds = []
-                    cursor_params = list(params)
-                    for i, col in enumerate(order_cols):
-                        prefix_cols = [c.strip().split()[0] for c in order.split(",")[:i]]
-                        prefix_cond = (
-                            " AND ".join(f"{pc} = ?" for pc in prefix_cols) if prefix_cols else ""
-                        )
-                        if prefix_cond:
-                            cursor_conds.append(f"({prefix_cond} AND {col} > ?)")
-                            for j, _pc in enumerate(prefix_cols[:i]):
-                                cursor_params.append(cursor_keys[j])
-                            cursor_params.append(cursor_keys[i])
-                        else:
-                            cursor_conds.append(f"{col} > ?")
-                            cursor_params.append(cursor_keys[i])
-                    sql += f" AND ({' OR '.join(cursor_conds)})"
-                    params = cursor_params
-                except Exception:
-                    cursor = None  # 游标无效，从头开始
+            if cursor_keys is not None:
+                # 游标过滤：排序键 > 游标值
+                # 简化实现：按 order 提取列名构造 WHERE 子句
+                cursor_conds = []
+                cursor_params = list(params)
+                for i, col in enumerate(order_cols):
+                    prefix_cols = order_cols[:i]
+                    prefix_cond = (
+                        " AND ".join(f"{pc} = ?" for pc in prefix_cols) if prefix_cols else ""
+                    )
+                    if prefix_cond:
+                        cursor_conds.append(f"({prefix_cond} AND {col} > ?)")
+                        cursor_params.extend(cursor_keys[:i])
+                        cursor_params.append(cursor_keys[i])
+                    else:
+                        cursor_conds.append(f"{col} > ?")
+                        cursor_params.append(cursor_keys[i])
+                sql += f" AND ({' OR '.join(cursor_conds)})"
+                params = cursor_params
 
             sql += f" ORDER BY {order} LIMIT ?"
             params_with_limit = list(params) + [limit + 1]
@@ -891,7 +944,6 @@ class AnalysisRunRepository:
         next_cursor = None
         if has_more and items:
             # 游标编码最后一行的排序键
-            order_cols = [c.strip().split()[0] for c in order.split(",")]
             last = items[-1]
             cursor_payload = {"k": [last[col] for col in order_cols]}
             next_cursor = base64.urlsafe_b64encode(json.dumps(cursor_payload).encode()).decode()
