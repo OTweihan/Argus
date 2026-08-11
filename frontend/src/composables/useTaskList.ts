@@ -86,6 +86,13 @@ export function useTaskList(opts: {
     void loadTasks().catch((caught) => onError?.(errorMessage(caught)));
   }
 
+  /** 查询条件已经变化、但新请求尚在防抖等待时，立即废弃旧查询。 */
+  function invalidateInflightLoad(): void {
+    inflightController?.abort();
+    loadGeneration += 1;
+    taskLoading.value = false;
+  }
+
   function onPageChange(newPage: number): void {
     page.value = newPage;
     safeLoad();
@@ -101,7 +108,11 @@ export function useTaskList(opts: {
     page.value = 1;
     safeLoad();
   }, 300);
-  watch(taskSearchQuery, debouncedSearch);
+  watch(taskSearchQuery, () => {
+    // 不等 300ms 防抖结束才取消：搜索词改变后，旧响应已不再对应当前界面条件。
+    invalidateInflightLoad();
+    debouncedSearch();
+  });
 
   watch([taskStatusFilter, taskProjectFilter, taskTypeFilter], () => {
     page.value = 1;

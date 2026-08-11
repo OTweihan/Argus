@@ -123,6 +123,7 @@ async function flushPromises(): Promise<void> {
 describe("useTaskList — 请求代次 / 取消 / 快照", () => {
   afterEach(() => {
     vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it("加载成功写入 allTasks/total 并复位 loading", async () => {
@@ -216,6 +217,37 @@ describe("useTaskList — 请求代次 / 取消 / 快照", () => {
     await flushPromises();
     expect(h.allTasks.value.map((t) => t.taskId)).toEqual(["t2"]);
     expect(h.list.page.value).toBe(1);
+    h.dispose();
+  });
+
+  it("搜索防抖期间立即取消旧请求，旧响应不能短暂覆盖当前条件", async () => {
+    vi.useFakeTimers();
+    const h = setupHarness();
+    const entries = makeDeferredListMock();
+
+    void h.list.loadTasks();
+    await flushPromises();
+    expect(h.list.taskLoading.value).toBe(true);
+
+    h.list.taskSearchQuery.value = "new query";
+    await nextTick();
+    await flushPromises();
+
+    expect(entries[0].signal?.aborted).toBe(true);
+    expect(h.list.taskLoading.value).toBe(false);
+    expect(h.onError).not.toHaveBeenCalled();
+    expect(apiListTasksMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    expect(apiListTasksMock).toHaveBeenCalledTimes(2);
+    expect(apiListTasksMock.mock.calls[1][0].q).toBe("new query");
+
+    entries[1].resolve(listOf(1, makeTask({ taskId: "new" })));
+    await flushPromises();
+    expect(h.allTasks.value.map((task) => task.taskId)).toEqual(["new"]);
+    expect(h.list.taskLoading.value).toBe(false);
+
     h.dispose();
   });
 
