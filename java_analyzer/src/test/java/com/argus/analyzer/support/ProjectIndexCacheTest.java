@@ -1,9 +1,11 @@
 package com.argus.analyzer.support;
 
 import com.argus.analyzer.api.dto.AnalyzeResponse;
+import com.argus.analyzer.api.dto.AnalyzerDiagnostics;
 import com.argus.analyzer.api.dto.CallEdge;
 import com.argus.analyzer.api.dto.CallGraphNode;
 import com.argus.analyzer.api.dto.Confidence;
+import com.argus.analyzer.api.dto.ParseFailureDetail;
 import com.argus.analyzer.api.dto.ResolutionType;
 import com.argus.analyzer.env.MavenConfig;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +44,7 @@ class ProjectIndexCacheTest {
     void shouldReturnCachedValue(@org.junit.jupiter.api.io.TempDir Path tempDir) {
         AnalyzeResponse response = new AnalyzeResponse(List.of(), Map.of(), List.of(), List.of(), List.of(), null);
         var key = key(tempDir, "all");
-        cache.put(key, response);
+        assertThat(cache.put(key, response)).isTrue();
         AnalyzeResponse cached = cache.get(key);
         assertThat(cached).isNotNull();
         assertThat(cached).isEqualTo(response);
@@ -240,6 +242,29 @@ class ProjectIndexCacheTest {
     }
 
     @Test
+    void shouldDefendAgainstCallerMutationOfDiagnosticsAfterCache(
+            @org.junit.jupiter.api.io.TempDir Path tempDir) {
+        // AnalyzerDiagnostics 是可变类：缓存必须防御拷贝，使调用方后续修改不影响缓存内数据。
+        AnalyzerDiagnostics diag = new AnalyzerDiagnostics();
+        List<ParseFailureDetail> failures = new ArrayList<>();
+        diag.setFailedFiles(failures);
+        diag.setClasspathWarnings(new ArrayList<>(List.of("warn-1")));
+        AnalyzeResponse response = new AnalyzeResponse(
+                List.of(), Map.of(), List.of(), List.of(), List.of(), diag);
+        var key = key(tempDir, "all");
+        cache.put(key, response);
+
+        // 调用方继续修改自己的诊断集合，缓存内数据不受影响。
+        failures.add(new ParseFailureDetail("A.java", List.of("boom")));
+        diag.getClasspathWarnings().add("warn-2");
+
+        AnalyzerDiagnostics cached = cache.get(key).diagnostics();
+        assertThat(cached).isNotSameAs(diag);
+        assertThat(cached.getFailedFiles()).isEmpty();
+        assertThat(cached.getClasspathWarnings()).containsExactly("warn-1");
+    }
+
+    @Test
     void shouldEvictByWeightBeforeEntryLimit(@org.junit.jupiter.api.io.TempDir Path tempDir)
             throws Exception {
         AnalyzeResponse response = responseWith(4, 3);
@@ -277,7 +302,7 @@ class ProjectIndexCacheTest {
         assertThat(weight).isGreaterThan(1_000L);
 
         var key = key(tempDir, "all");
-        cache.put(key, response);
+        assertThat(cache.put(key, response)).isFalse();
 
         assertThat(cache.get(key)).isNull();
         assertThat(cache.metrics().get("current_weight")).isEqualTo(0L);

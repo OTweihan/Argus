@@ -293,6 +293,10 @@
 >   且查找不再全量读取源码树；旧客户端（无 revision）保留 path + 全量指纹回退。
 > - `SourceResolver` 复制与内容指纹合并为单次流式遍历（`_materialize_snapshot`），不再复制后二次读取；
 >   快照排除规则保守、可配置（默认排除 VCS/构建输出/工具缓存，不排除 `.mvn`/wrapper）。
+>   注意：默认排除 `build/`（Gradle 构建输出）会改变 Gradle 项目的快照内容——Java 侧
+>   `SourceFileScanner` 只过滤 `target/` 不过滤 `build/`，旧路径会扫描 `build/` 下生成的源码，
+>   新路径因快照已排除而静默缺失。分析器以 Maven 为主，该差异风险低；如需分析 Gradle 生成源码，
+>   可通过 `whitebox.snapshot_exclude_dirs` 放开。
 > - 指标：Python 记录快照文件数/复制字节/复制与指纹耗时/排除目录数（`/metrics` 新增 `snapshot_*`），
 >   Java `ProjectIndexCache.metrics()` 记录 lookup/hit/fingerprint/revision 统计。
 > - reflink/hardlink 未引入：与流式哈希互斥且平台差异大，先以指标决定是否继续。
@@ -336,6 +340,8 @@
 >   （默认 128 / 64 MiB / 16 MiB，`argus.analysis.cache.*-weight-bytes` 可配）：超大响应
 >   直接不缓存（oversized bypass），超出总权重预算按 LRU 淘汰，TTL 过期同步回收权重。
 > - 缓存值插入时对顶层集合做浅拷贝 + 不可变包装，避免调用方修改共享响应污染后续请求；
+>   可变类 `AnalyzerDiagnostics` 做全字段防御拷贝（内部集合同样不可变包装），
+>   `put()` 返回 boolean 标识是否真正入缓存（超大旁路时 false）；
 >   single-flight、异常传播与 TTL/LRU 语义保持不变。
 > - `metrics()` 新增 current weight / current entries / eviction reason（count、weight、
 >   expiry 分项）/ oversized bypass / in-flight 等指标。
@@ -403,11 +409,13 @@
 > - `_paginated_query` 仅在首页（无有效 cursor）执行 `COUNT(*)`；后续 cursor 页返回
 >   `total=None`，由客户端复用首屏 total。OpenAPI 的 `total` 字段本已是 `int | None`，
 >   前端 `usePagedList` 以 `page.total ?? null` 消费，无 schema / 前端变更。游标解码前置并
->   校验为与排序列等长的列表，结构非法的游标（非列表 / 键数不符）回退首页且不抛 500。
+>   校验为与排序列等长的标量列表（非列表 / 键数不符 / 元素非标量如 bool、null、容器
+>   均回退首页），不抛 500。
 > - 新增 `tests/unit/test_analysis_projection_repo.py`：分批 chunk 边界、生成器行源分片、
 >   6 张表走 executemany / 诊断单行 execute、中途失败回滚、重复投影幂等替换、
 >   1137 行跨 3 批全量落库、cursor 分页第二页起不执行 COUNT（trace 断言）且无重复/无遗漏、
->   末页恰好填满、带筛选条件翻页、无效及结构非法游标回退首页。共 17 个用例。
+>   末页恰好填满、带筛选条件翻页、无效及结构非法游标（非列表 / 键数不符 /
+>   元素非标量）回退首页。共 20 个用例。
 > - 未新增索引：`EXPLAIN QUERY PLAN` 显示各分页查询已用 `analysis_id` 索引做过滤、
 >   COUNT 走覆盖索引，仅 ORDER BY 需临时 B-tree；按审计结论不凭感觉加索引引入写放大。
 

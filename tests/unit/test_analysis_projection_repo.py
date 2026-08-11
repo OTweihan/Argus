@@ -539,8 +539,18 @@ def _encode_cursor(payload: dict[str, Any]) -> str:
         _encode_cursor({"k": 5}),  # 键值非列表
         _encode_cursor({"k": "nope"}),  # 键值为字符串
         _encode_cursor({"k": [1]}),  # 键数与排序列数（3）不符
+        _encode_cursor({"k": [{"a": 1}, "GET", "ep-1"]}),  # 元素为容器（dict）
+        _encode_cursor({"k": [True, "GET", "ep-1"]}),  # 元素为 bool
+        _encode_cursor({"k": [None, "GET", "ep-1"]}),  # 元素为 null
     ],
-    ids=["non_list_keys", "string_keys", "wrong_key_count"],
+    ids=[
+        "non_list_keys",
+        "string_keys",
+        "wrong_key_count",
+        "container_element",
+        "bool_element",
+        "null_element",
+    ],
 )
 def test_malformed_cursor_falls_back_to_first_page(
     storage: TaskSQLiteStorage, bad_cursor: str

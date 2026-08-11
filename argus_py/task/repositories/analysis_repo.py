@@ -897,6 +897,10 @@ class AnalysisRunRepository:
                 keys = decoded["k"]
                 if not isinstance(keys, list) or len(keys) != len(order_cols):
                     raise ValueError("cursor keys must match order columns")
+                # 键元素必须为标量（str/int/float，显式排除 bool/None/容器），否则
+                # 长度合规但元素非标量的游标会在 SQLite 参数绑定时抛 500，而不是回退首页。
+                if any(not isinstance(k, (str, int, float)) or isinstance(k, bool) for k in keys):
+                    raise ValueError("cursor keys must be scalar")
                 cursor_keys = keys
             except Exception:
                 cursor = None

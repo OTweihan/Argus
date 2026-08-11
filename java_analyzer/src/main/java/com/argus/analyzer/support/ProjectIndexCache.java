@@ -1,6 +1,7 @@
 package com.argus.analyzer.support;
 
 import com.argus.analyzer.api.dto.AnalyzeResponse;
+import com.argus.analyzer.api.dto.AnalyzerDiagnostics;
 import com.argus.analyzer.env.MavenConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -142,8 +143,13 @@ public class ProjectIndexCache {
         }
     }
 
-    public synchronized void put(CacheKey key, AnalyzeResponse response) {
-        insert(key, response);
+    /**
+     * 插入缓存条目（等价于 {@link #getOrCompute} 的缓存写入路径）。
+     *
+     * @return 是否真正入缓存；超大条目旁路（不缓存）时返回 {@code false}。
+     */
+    public synchronized boolean put(CacheKey key, AnalyzeResponse response) {
+        return insert(key, response) != null;
     }
 
     /**
@@ -248,6 +254,10 @@ public class ProjectIndexCache {
      * 防御性不可变视图：对顶层集合做浅拷贝 + 不可变包装，防止调用方修改共享
      * 响应污染缓存内数据。嵌套集合保持共享（分析完成后视为只读），属"尽量不可变"
      * 的最佳实践——真正的不可变拷贝会付出 O(响应大小) 的额外分配。
+     *
+     * <p>与顶层集合不同，{@link AnalyzerDiagnostics} 是可变类（全部经 setter 暴露），
+     * 必须做防御拷贝：复制全部字段并对内部集合做不可变包装，否则调用方仍能通过
+     * {@code diag.getFailedFiles().clear()} 等修改缓存内诊断数据。</p>
      */
     private static AnalyzeResponse immutableView(AnalyzeResponse response) {
         if (response == null) return null;
@@ -257,17 +267,63 @@ public class ProjectIndexCache {
                 unmodifiableCopy(response.findings()),
                 unmodifiableCopy(response.executionFlows()),
                 unmodifiableCopy(response.clusters()),
-                response.diagnostics()
+                defensiveDiagnostics(response.diagnostics())
         );
     }
 
+    /**
+     * 防御拷贝 {@link AnalyzerDiagnostics}：复制全部标量字段，内部 List/Map 用
+     * 不可变包装（与 {@link #unmodifiableCopy} 语义一致），使缓存内的诊断数据与
+     * 调用方实例完全隔离。
+     */
+    private static AnalyzerDiagnostics defensiveDiagnostics(AnalyzerDiagnostics diag) {
+        if (diag == null) return null;
+        AnalyzerDiagnostics copy = new AnalyzerDiagnostics();
+        copy.setTotalSourceFiles(diag.getTotalSourceFiles());
+        copy.setParsedFileCount(diag.getParsedFileCount());
+        copy.setFailedFileCount(diag.getFailedFileCount());
+        copy.setFailedFiles(unmodifiableCopy(diag.getFailedFiles()));
+        copy.setTotalCalls(diag.getTotalCalls());
+        copy.setResolvedHigh(diag.getResolvedHigh());
+        copy.setResolvedMedium(diag.getResolvedMedium());
+        copy.setResolvedLow(diag.getResolvedLow());
+        copy.setUnresolved(diag.getUnresolved());
+        copy.setClasspathAvailable(diag.isClasspathAvailable());
+        copy.setJarCount(diag.getJarCount());
+        copy.setClasspathSource(diag.getClasspathSource());
+        copy.setClasspathWarnings(unmodifiableCopy(diag.getClasspathWarnings()));
+        copy.setClasspathErrors(unmodifiableCopy(diag.getClasspathErrors()));
+        copy.setClasspathCommand(diag.getClasspathCommand());
+        copy.setClasspathExitCode(diag.getClasspathExitCode());
+        copy.setClasspathDurationMs(diag.getClasspathDurationMs());
+        copy.setClasspathStdoutTail(diag.getClasspathStdoutTail());
+        copy.setClasspathStderrTail(diag.getClasspathStderrTail());
+        copy.setClasspathTimedOut(diag.isClasspathTimedOut());
+        copy.setRootPom(diag.getRootPom());
+        copy.setModuleCount(diag.getModuleCount());
+        copy.setSourceRootCount(diag.getSourceRootCount());
+        copy.setModules(unmodifiableCopy(diag.getModules()));
+        copy.setClasspathTargetModules(unmodifiableCopy(diag.getClasspathTargetModules()));
+        copy.setClasspathFailedModules(unmodifiableCopy(diag.getClasspathFailedModules()));
+        copy.setApplicationModuleCount(diag.getApplicationModuleCount());
+        copy.setBusinessModuleCount(diag.getBusinessModuleCount());
+        copy.setLibraryModuleCount(diag.getLibraryModuleCount());
+        copy.setBomModuleCount(diag.getBomModuleCount());
+        copy.setModuleTypes(unmodifiableCopy(diag.getModuleTypes()));
+        return copy;
+    }
+
+    /**
+     * 浅拷贝 + 不可变包装。空集合也返回新包装（不共享原引用）：调用方持有的空
+     * 可变集合后续 add/clear 不应污染缓存内数据。
+     */
     private static <T> List<T> unmodifiableCopy(List<T> list) {
-        if (list == null || list.isEmpty()) return list;
+        if (list == null) return null;
         return Collections.unmodifiableList(new ArrayList<>(list));
     }
 
     private static <K, V> Map<K, V> unmodifiableCopy(Map<K, V> map) {
-        if (map == null || map.isEmpty()) return map;
+        if (map == null) return null;
         return Collections.unmodifiableMap(new LinkedHashMap<>(map));
     }
 
