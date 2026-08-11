@@ -84,9 +84,16 @@ export class TaskEventStream {
     if (this.socket && this.endpoint === endpoint && this.socket.readyState <= WebSocket.OPEN) {
       return;
     }
+    const endpointChanged = this.endpoint !== "" && this.endpoint !== endpoint;
     this.clearReconnectTimer();
     this.manuallyClosed = false;
     this.closeSocket();
+    // sequence 是全局递增值，但任务级订阅只回放该任务的事件。跨端点沿用旧
+    // cursor 可能跳过目标任务更早的历史事件；仅同端点重连才允许部分回放。
+    if (endpointChanged) {
+      this.lastSequence = undefined;
+      this.gapPendingThisReady = false;
+    }
     this.endpoint = endpoint;
     void this.openSocket(endpoint, this.lastSequence, this.streamEpoch);
   }

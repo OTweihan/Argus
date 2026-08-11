@@ -172,7 +172,7 @@ describe("TaskEventStream — replay gap / epoch 处理", () => {
     stream.close();
   });
 
-  it("端点切换：关闭旧 socket，新端点携带游标与纪元重连", () => {
+  it("端点切换：关闭旧 socket 并清空跨订阅游标，保留进程纪元", () => {
     const stream = new TaskEventStream();
     stream.connect();
     send(MockWebSocket.instances[0], readyEvent("ev-A"));
@@ -192,10 +192,35 @@ describe("TaskEventStream — replay gap / epoch 处理", () => {
     const second = MockWebSocket.instances[1];
     const url = new URL(second.url);
     expect(url.pathname).toContain("/ws/tasks/t1");
-    // 携带上次的游标与纪元，服务端可做部分回放 / epoch 校验
-    expect(url.searchParams.get("sinceSeq")).toBe("5");
+    // 不复用全局订阅的游标，确保任务端点完整回放自身 history。
+    expect(url.searchParams.has("sinceSeq")).toBe(false);
     expect(url.searchParams.get("epoch")).toBe("ev-A");
 
+    stream.close();
+  });
+
+  it("同端点重连：保留游标与纪元，携带 sinceSeq 做部分回放", () => {
+    const stream = new TaskEventStream();
+    stream.connect();
+    send(MockWebSocket.instances[0], readyEvent("ev-A"));
+    send(MockWebSocket.instances[0], {
+      sequence: 42,
+      eventType: "task.updated",
+      taskId: "t1",
+      data: {},
+    });
+    const internal = stream as unknown as { lastSequence: number | undefined };
+    expect(internal.lastSequence).toBe(42);
+
+    // 模拟网络抖动重连（端点不变）：与端点切换相反，游标/纪元均应保留
+    stream.close();
+    stream.connect();
+
+    const second = MockWebSocket.instances[1];
+    const url = new URL(second.url);
+    expect(url.pathname).toContain("/ws/tasks");
+    expect(url.searchParams.get("sinceSeq")).toBe("42");
+    expect(url.searchParams.get("epoch")).toBe("ev-A");
     stream.close();
   });
 });
