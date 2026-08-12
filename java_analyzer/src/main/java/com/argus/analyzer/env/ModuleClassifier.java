@@ -29,10 +29,16 @@ public class ModuleClassifier {
     private static final Logger log = LoggerFactory.getLogger(ModuleClassifier.class);
 
     /**
-     * classifyAll 扫描完成后的信号缓存，避免 scoreModule 重复
-     * scanSignals()。线程安全由调用方保证（当前为单线程调用）。
+     * classifyAll 扫描完成后的信号缓存，避免 scoreModule 重复 scanSignals()。
+     *
+     * <p>按线程隔离（ThreadLocal）：{@link ModuleClassifier} 是 Spring 单例，而分析
+     * 作业执行器默认 2 线程并发运行，多个作业会同时调用 classifyAll/selectTargets。
+     * 若用共享 Map，A 作业的 clear()/put() 会与 B 作业的 getOrDefault() 竞争（破坏
+     * HashMap 或丢失信号），且 A 的 clear 会清掉 B 的缓存迫使 B 全量重扫。
+     * classifyAll → selectTargets 在同一作业线程内顺序执行，ThreadLocal 恰好
+     * 覆盖该生命周期。</p>
      */
-    private final Map<MavenModule, Signals> _signalsCache = new HashMap<>();
+    private final ThreadLocal<Map<MavenModule, Signals>> _signalsCache = new ThreadLocal<>();
 
     // Library 关键词：artifactId 匹配其中之一则判定为基础设施/公共模块
     private static final Pattern LIBRARY_KEYWORDS = Pattern.compile(
@@ -59,7 +65,7 @@ public class ModuleClassifier {
      * 检查 {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
      */
     public void classifyAll(MavenModuleIndex index, AnalysisProgressListener progress) {
-        _signalsCache.clear();
+        _signalsCache.set(new HashMap<>());
         for (MavenModule module : index.getModules()) {
             if (progress.isCancelled()) {
                 throw new JobCancelledException("Module classification cancelled");
@@ -73,7 +79,7 @@ public class ModuleClassifier {
             }
             // 先 scanSignals，结果缓存供后续 scoreModule() 复用
             Signals signals = scanSignals(module, progress);
-            _signalsCache.put(module, signals);
+            _signalsCache.get().put(module, signals);
             ModuleType type = classifySingle(module, signals);
             module.setModuleType(type);
             log.debug("[CLASSIFIER] Module {}: classified as {}", module.getDisplayName(), type);
@@ -240,8 +246,13 @@ public class ModuleClassifier {
             return 50; // 应用模块默认高分
         }
         if (module.getModuleType() == ModuleType.BUSINESS) {
-            // 优先复用 classifyAll 阶段的扫描缓存，避免重复 I/O
-            Signals s = _signalsCache.getOrDefault(module, scanSignals(module, progress));
+            // 优先复用 classifyAll 阶段写入的线程本地扫描缓存，避免重复 I/O。
+            // classifyAll 必然先于 selectTargets 在同线程执行，因此缓存非空；
+            // get() 为 null 仅发生在绕过 classifyAll 直接调用的防御路径。
+            Map<MavenModule, Signals> cache = _signalsCache.get();
+            Signals s = cache != null
+                    ? cache.getOrDefault(module, scanSignals(module, progress))
+                    : scanSignals(module, progress);
             return s.businessScore();
         }
         return 0;

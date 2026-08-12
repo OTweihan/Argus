@@ -180,6 +180,86 @@ class ModuleClassifierTest {
         assertThat(targets.get(1).getModuleType()).isEqualTo(ModuleType.BUSINESS);
     }
 
+    @Test
+    void concurrentClassifyAllDoesNotCrossPolluteSignalsCache() throws Exception {
+        // 两个独立索引并发分类/选目标，结果必须与单线程基线一致。
+        // 回归 J-H2：_signalsCache 若为共享 HashMap，A 作业 clear()/put() 会与
+        // B 作业 getOrDefault() 竞争，导致错误分类或丢缓存；ThreadLocal 隔离后
+        // 每个作业线程只看到自己的缓存。
+        Path dirA = tempDir.resolve("index-a");
+        Path dirB = tempDir.resolve("index-b");
+        writeApplicationClass(dirA.resolve("a-app"));
+        writeRestController(dirA.resolve("a-biz"));
+        writeRestController(dirB.resolve("b-app"));
+        writePom(dirA.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.test</groupId>
+                  <artifactId>parent-a</artifactId>
+                  <version>1.0.0</version>
+                  <packaging>pom</packaging>
+                  <modules><module>a-app</module><module>a-biz</module></modules>
+                </project>
+                """);
+        writePom(dirB.resolve("pom.xml"), """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.test</groupId>
+                  <artifactId>parent-b</artifactId>
+                  <version>1.0.0</version>
+                  <packaging>pom</packaging>
+                  <modules><module>b-app</module></modules>
+                </project>
+                """);
+
+        MavenModuleIndex indexA = new MavenModuleScanner().scan(dirA.resolve("pom.xml"));
+        MavenModuleIndex indexB = new MavenModuleScanner().scan(dirB.resolve("pom.xml"));
+
+        // 单线程基线
+        ModuleClassifier baseline = new ModuleClassifier();
+        baseline.classifyAll(indexA);
+        var baselineA = baseline.selectTargets(indexA);
+        baseline.classifyAll(indexB);
+        var baselineB = baseline.selectTargets(indexB);
+
+        // 共享 classifier 上双线程并发（每线程各自 classifyAll → selectTargets）
+        ModuleClassifier shared = new ModuleClassifier();
+        List<Throwable> failures = new java.util.concurrent.CopyOnWriteArrayList<>();
+        Runnable taskA = () -> {
+            try {
+                shared.classifyAll(indexA);
+                var targets = shared.selectTargets(indexA);
+                assertTargetTypesEqual(baselineA, targets);
+            } catch (Throwable t) {
+                failures.add(t);
+            }
+        };
+        Runnable taskB = () -> {
+            try {
+                shared.classifyAll(indexB);
+                var targets = shared.selectTargets(indexB);
+                assertTargetTypesEqual(baselineB, targets);
+            } catch (Throwable t) {
+                failures.add(t);
+            }
+        };
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var f1 = pool.submit(taskA);
+            var f2 = pool.submit(taskB);
+            f1.get();
+            f2.get();
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(failures).isEmpty();
+    }
+
+    private static void assertTargetTypesEqual(List<MavenModule> expected, List<MavenModule> actual) {
+        assertThat(actual.stream().map(MavenModule::getModuleType).toList())
+                .containsExactlyElementsOf(expected.stream().map(MavenModule::getModuleType).toList());
+    }
+
     // ====== 辅助方法 ======
 
     private MavenModuleIndex buildIndex(Path moduleDir, String artifactId) throws IOException {

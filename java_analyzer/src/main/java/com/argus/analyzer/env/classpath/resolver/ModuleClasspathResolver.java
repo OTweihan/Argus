@@ -16,7 +16,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Handles module-aware classpath resolution for multi-module Maven projects.
@@ -54,9 +56,16 @@ public class ModuleClasspathResolver {
         List<String> failed = new ArrayList<>();
         ClasspathResult firstExecutionDiagnostics = null;
 
+        // 单次 resolve 内按 projectRoot 记忆化 Maven 可执行文件检测结果：同一仓库的
+        // 所有目标模块共享同一根目录，此前每个模块都重新 spawn `mvn --version`
+        // 子进程（每次 10s 等待），N 模块 → N× 检测。computeIfAbsent 惰性触发，
+        // 全部命中缓存的模块不再检测。
+        Map<Path, String> mvnExecByRoot = new HashMap<>();
+
         for (String targetModule : targetModules) {
             log.info("[CLASSPATH] Resolving classpath for module: {}", targetModule);
-            ClasspathResult moduleResult = resolveForModule(moduleIndex, targetModule, config, progress);
+            ClasspathResult moduleResult = resolveForModule(
+                    moduleIndex, targetModule, config, progress, mvnExecByRoot);
             if (moduleResult.isAvailable() && moduleResult.hasValidJars()) {
                 allJars.addAll(moduleResult.getJars());
                 succeeded.add(targetModule);
@@ -100,7 +109,8 @@ public class ModuleClasspathResolver {
     }
 
     private ClasspathResult resolveForModule(MavenModuleIndex moduleIndex, String moduleSelector, MavenConfig config,
-                                             AnalysisProgressListener progress) {
+                                             AnalysisProgressListener progress,
+                                             Map<Path, String> mvnExecByRoot) {
         var optModule = moduleIndex.findModule(moduleSelector);
         if (optModule.isEmpty()) {
             return ClasspathResult.unavailable("Module not found in index: " + moduleSelector);
@@ -139,7 +149,8 @@ public class ModuleClasspathResolver {
             return ClasspathResult.unavailable("No valid cache for module: " + moduleKey + " (mode=CACHE_ONLY)");
         }
 
-        String mvnExec = gateway.detectMavenExecutable(projectRoot, config);
+        String mvnExec = mvnExecByRoot.computeIfAbsent(projectRoot,
+                root -> gateway.detectMavenExecutable(root, config));
         if (mvnExec == null) {
             log.warn("[CLASSPATH] Module {}: no Maven executable found", moduleKey);
             return fallbackToSourceOnly(moduleKey);
