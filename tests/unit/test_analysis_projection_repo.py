@@ -567,3 +567,145 @@ def test_malformed_cursor_falls_back_to_first_page(
     assert len(items) == 5
     assert has_more is False
     assert next_cursor is None
+
+
+# ── 非分页"取全部"查询（关联匹配引擎，P-H1）────────────────────────────
+
+
+def test_list_all_queries_return_full_set_beyond_pagination_clamp(
+    storage: TaskSQLiteStorage,
+) -> None:
+    """分页查询将 limit 钳制在 200，而 list_all_* 必须返回全量行。
+
+    关联匹配引擎以 ``limit=10_000/50_000`` 期望加载全部投影行，此前被
+    ``_paginated_query`` 静默截断为前 200 行 → 关联证据只覆盖前 200 行。
+    """
+    aid = "a-all"
+    _create_run(storage, "t-all", aid)
+    _complete(storage, aid, _projection(aid, call_nodes=250, endpoints=210, flows=205))
+
+    # 分页查询仍钳制到 200 行
+    eps_page, _, total, _ = storage.list_analysis_endpoints(aid, limit=10_000)
+    assert len(eps_page) == 200
+    assert total == 210
+
+    # list_all_* 返回全量
+    assert len(storage.list_all_analysis_endpoints(aid)) == 210
+    assert len(storage.list_all_analysis_call_nodes(aid)) == 250
+    assert len(storage.list_all_analysis_execution_flows(aid)) == 205
+    assert len(storage.list_all_analysis_flow_steps(aid)) == 205 * 2
+
+
+def test_list_all_queries_match_paginated_rows(storage: TaskSQLiteStorage) -> None:
+    """list_all_* 行映射与分页查询一致（同一 row mapper、同一排序列）。"""
+    aid = "a-consistent"
+    _create_run(storage, "t-consistent", aid)
+    _complete(storage, aid, _projection(aid, call_nodes=8, endpoints=6, flows=4))
+
+    page_eps, _, _, _ = storage.list_analysis_endpoints(aid, limit=100)
+    all_eps = storage.list_all_analysis_endpoints(aid)
+    assert {e["endpoint_id"] for e in page_eps} == {e["endpoint_id"] for e in all_eps}
+
+    page_nodes, _, _, _ = storage.list_analysis_call_nodes(aid, limit=100)
+    all_nodes = storage.list_all_analysis_call_nodes(aid)
+    assert {n["call_node_id"] for n in page_nodes} == {n["call_node_id"] for n in all_nodes}
+
+
+# ── 批量 COUNT（analysis-runs 列表，P-H2）──────────────────────────────
+
+
+def test_get_counts_batch_matches_single_counts(storage: TaskSQLiteStorage) -> None:
+    """get_counts_batch 与逐个 get_counts 结果一致（消除 N+1 COUNT）。"""
+    aid1, aid2 = "a-b1", "a-b2"
+    _create_run(storage, "t-b1", aid1)
+    _create_run(storage, "t-b2", aid2)
+    _complete(storage, aid1, _projection(aid1, call_nodes=4, endpoints=3, call_edges=2, flows=1))
+    _complete(storage, aid2, _projection(aid2, call_nodes=7, endpoints=5, flows=3))
+
+    batch = storage.get_analysis_counts_batch([aid1, aid2])
+    assert batch[aid1] == storage.get_analysis_counts(aid1)
+    assert batch[aid2] == storage.get_analysis_counts(aid2)
+    # 未写入的表计数为 0
+    assert batch[aid1]["analysis_clusters"] == 0
+
+    # 空列表与无命中 id 均安全（无命中 id 与 get_counts 一样返回全 0）
+    assert storage.get_analysis_counts_batch([]) == {}
+    assert storage.get_analysis_counts_batch(["no-such"]) == {
+        "no-such": storage.get_analysis_counts("no-such")
+    }
+
+
+def test_get_finding_severity_counts_batch_matches_single(storage: TaskSQLiteStorage) -> None:
+    """批量严重级别分布与逐个查询一致。"""
+    aid1 = "a-sev1"
+    aid2 = "a-sev2"
+    _create_run(storage, "t-sev1", aid1)
+    _create_run(storage, "t-sev2", aid2)
+
+    # 通过 findings 表直接插入（投影写入不落 findings）
+    from argus_py.core.enums import FindingSeverity, FindingType
+    from argus_py.task.models import Finding
+
+    for aid, sev in (
+        (aid1, FindingSeverity.CRITICAL),
+        (aid1, FindingSeverity.HIGH),
+        (aid2, FindingSeverity.LOW),
+    ):
+        storage._findings.append(
+            "t-sev1" if aid == aid1 else "t-sev2",
+            Finding(
+                finding_id=f"f-{aid}-{sev.value}",
+                title="t",
+                description="",
+                severity=sev,
+                finding_type=FindingType.FUNCTIONAL,
+                analysis_id=aid,
+            ),
+        )
+
+    batch = storage.get_analysis_finding_severity_counts_batch([aid1, aid2])
+    assert batch[aid1] == storage.get_analysis_finding_severity_counts(aid1)
+    assert batch[aid2] == storage.get_analysis_finding_severity_counts(aid2)
+    assert batch[aid1]["critical"] == 1
+    assert batch[aid1]["high"] == 1
+    assert batch[aid2]["low"] == 1
+
+
+# ── findings 游标分页仅首页 COUNT（P-L5）───────────────────────────────
+
+
+def test_finding_pagination_total_only_first_page(storage: TaskSQLiteStorage) -> None:
+    """findings 游标分页与 O-10 的 _paginated_query 对齐：仅首页计算 total。"""
+    aid = "a-fpaging"
+    _create_run(storage, "t-fpaging", aid)
+
+    from argus_py.core.enums import FindingSeverity, FindingType
+    from argus_py.task.models import Finding
+
+    for i in range(12):
+        storage._findings.append(
+            "t-fpaging",
+            Finding(
+                finding_id=f"f-fp:{i}",
+                title="t",
+                description="",
+                severity=FindingSeverity.INFO,
+                finding_type=FindingType.FUNCTIONAL,
+                analysis_id=aid,
+            ),
+        )
+
+    seen: list[str] = []
+    cursor: str | None = None
+    for _ in range(4):  # 12 条 / limit 5 → 至多 3 页，留 1 次容差
+        items, cursor, total, has_more = storage.get_analysis_findings(aid, cursor=cursor, limit=5)
+        if seen:
+            assert total is None, "后续 cursor 页不应重复计算 total"
+        else:
+            assert total == 12
+        seen.extend(f.finding_id for f in items)
+        if not has_more:
+            assert cursor is None
+            break
+    assert len(seen) == 12
+    assert len(set(seen)) == 12  # 无重复、无遗漏

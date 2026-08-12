@@ -468,6 +468,58 @@ class TestHttpRequestEvidence:
         assert "hre:c2" not in eligible_ids
         assert "hre:c3" in eligible_ids
 
+    def test_count_eligible_requests_matches_listing(
+        self, storage: TaskSQLiteStorage, req_base: str
+    ) -> None:
+        """count_eligible_requests 与 list_eligible_requests 谓词完全一致。"""
+        items = [
+            HttpRequestEvidence(
+                request_evidence_id=f"hre:cnt{i}",
+                blackbox_run_id=req_base,
+                task_id="t:req",
+                step_execution_id=None,
+                request_sequence=i + 1,
+                http_method="GET",
+                normalized_path=f"/x{i}",
+                display_path=f"/x{i}",
+                origin="https://example.com",
+                endpoint_match_eligibility=(
+                    CorrelationEligibility.CONFIRMED_ELIGIBLE
+                    if i % 2 == 0
+                    else CorrelationEligibility.ATTEMPT_ONLY
+                ),
+                outcome=RequestOutcome.COMPLETED,
+                request_owner=RequestOwner.FRAME,
+                captured_at="2024-01-01T00:00:00",
+            )
+            for i in range(5)
+        ]
+        items.append(
+            HttpRequestEvidence(
+                request_evidence_id="hre:cnt6",
+                blackbox_run_id=req_base,
+                task_id="t:req",
+                step_execution_id=None,
+                request_sequence=99,
+                http_method="GET",
+                normalized_path="/excluded",
+                display_path="/excluded",
+                origin="https://example.com",
+                endpoint_match_eligibility=CorrelationEligibility.EXCLUDED_SW_CACHE,
+                outcome=RequestOutcome.COMPLETED,
+                request_owner=RequestOwner.FRAME,
+                captured_at="2024-01-01T00:00:00",
+            )
+        )
+        storage.insert_http_request_batch(items)
+
+        assert storage.count_eligible_requests(req_base) == len(
+            storage.list_eligible_requests(req_base)
+        )
+        assert storage.count_eligible_requests(req_base) == 5
+        # 不存在的 run 返回 0
+        assert storage.count_eligible_requests("no-such-run") == 0
+
 
 # ── EndpointEvidence + Candidate + Flow ──────────────────────────────
 

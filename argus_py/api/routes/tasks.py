@@ -337,14 +337,17 @@ async def list_analysis_runs(
 ) -> AnalysisRunListResponse:
     """列出任务的所有分析执行记录。"""
     runs, total = await run_in_thread(app.list_analysis_runs, task_id, offset=offset, limit=limit)
+    # 批量取各 run 的投影计数与严重级别分布：此前对每个 run 串行执行 6+1 条
+    # COUNT（N 个 run 最坏 N×7 条 SQL + 2N 次线程池往返），改为 IN GROUP BY
+    # 一次取回，消除 analysis-runs 列表的 N+1 COUNT。
+    analysis_ids = [run.analysis_id for run in runs]
+    counts_map = await run_in_thread(app.get_analysis_counts_batch, analysis_ids)
+    severity_map = await run_in_thread(app.get_analysis_finding_severity_counts_batch, analysis_ids)
     summaries: list[AnalysisRunSummaryResponse] = []
     for run in runs:
         summary = _build_analysis_run_summary(run)
-        # 列表视图补充计数（资源数量 + 严重级别分布）
-        counts = await run_in_thread(app.get_analysis_counts, run.analysis_id)
-        severity_counts = await run_in_thread(
-            app.get_analysis_finding_severity_counts, run.analysis_id
-        )
+        counts = counts_map.get(run.analysis_id, {})
+        severity_counts = severity_map.get(run.analysis_id, {})
         summary.endpoint_count = counts.get("analysis_endpoints", 0)
         summary.call_graph_node_count = counts.get("analysis_call_nodes", 0)
         summary.execution_flow_count = counts.get("analysis_execution_flows", 0)
@@ -581,10 +584,17 @@ async def list_analysis_execution_flows(
         cursor=cursor,
         limit=limit,
     )
+    # 一次取全所有 flow steps 后按 execution_flow_id 分组，避免对每个 flow 单独
+    # 查询（N+1）。steps 已按 execution_flow_id, step_index 排序（JOIN 查询）。
+    steps_by_flow: dict[str, list[dict[str, Any]]] = {}
+    if items:
+        all_steps = await run_in_thread(app.list_all_analysis_flow_steps, analysis_id)
+        for step in all_steps:
+            steps_by_flow.setdefault(step["execution_flow_id"], []).append(step)
     flows = []
     for flow in items:
         flow_id = flow["execution_flow_id"]
-        steps_raw = await run_in_thread(app.get_analysis_flow_steps, flow_id)
+        steps_raw = steps_by_flow.get(flow_id, [])
         steps = [
             ExecutionFlowStepResponse(
                 flow_step_id=step["flow_step_id"],

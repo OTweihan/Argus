@@ -148,7 +148,6 @@ class DbPool:
             )
         else:
             connection = sqlite3.connect(self._db_path, timeout=5, check_same_thread=False)
-            connection.execute("PRAGMA journal_mode = WAL")
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")

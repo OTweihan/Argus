@@ -511,6 +511,76 @@ class TestDetermineRelationType:
         assert rel == FindingRelationType.UNKNOWN
 
 
+class TestPreFetchedProjectionDedup:
+    """P-H1/P-M2：传入已取全的 flows/call_nodes 与内部取数结果完全一致。
+
+    关联匹配单次取数后，generate_flows / generate_finding_evidence 接收
+    预先取全的投影列表，不再重复查询同一投影表；去重必须不改变结果语义。
+    """
+
+    def test_generate_flows_identical_with_passed_flows(self, tmp_path: Path) -> None:
+        from tests.integration.correlation._fixtures import setup_base_tables
+
+        storage = setup_base_tables(tmp_path / "dedup.db")
+        _seed_analysis_data(storage)
+
+        endpoints = storage.list_all_analysis_endpoints("analysis-fe")
+        evidence_list = [_make_evidence("ev-1", "ep-fe-1")]
+        pre_fetched = storage.list_all_analysis_execution_flows("analysis-fe")
+
+        by_storage = generate_flows(storage, "analysis-fe", evidence_list, endpoints)
+        by_passed = generate_flows(
+            storage, "analysis-fe", evidence_list, endpoints, flows=pre_fetched
+        )
+        assert len(by_storage) == len(by_passed)
+        assert {(f.endpoint_evidence_id, f.execution_flow_id) for f in by_storage} == {
+            (f.endpoint_evidence_id, f.execution_flow_id) for f in by_passed
+        }
+
+    def test_generate_finding_evidence_identical_with_passed_projections(
+        self, tmp_path: Path
+    ) -> None:
+        from tests.integration.correlation._fixtures import setup_base_tables
+
+        storage = setup_base_tables(tmp_path / "dedup.db")
+        _seed_analysis_data(storage)
+
+        endpoints = storage.list_all_analysis_endpoints("analysis-fe")
+        evidence_list = [_make_evidence("ev-1", "ep-fe-1")]
+        pre_flows = storage.list_all_analysis_execution_flows("analysis-fe")
+        pre_nodes = storage.list_all_analysis_call_nodes("analysis-fe")
+
+        fe_storage, fl_storage = generate_finding_evidence(
+            storage, "analysis-fe", "ca-fe", evidence_list, endpoints
+        )
+        fe_passed, fl_passed = generate_finding_evidence(
+            storage,
+            "analysis-fe",
+            "ca-fe",
+            evidence_list,
+            endpoints,
+            flows=pre_flows,
+            call_nodes=pre_nodes,
+        )
+        assert {fe.finding_id: fe.best_relation_type for fe in fe_storage} == {
+            fe.finding_id: fe.best_relation_type for fe in fe_passed
+        }
+        # finding_evidence_id 为每次调用随机生成，不可直接比较；把两端 fe_id 都归一
+        # 为 finding_id 后，按 (finding_id, endpoint_id, relation_type) 结构比较
+        # 去重路径与内部取数路径产出的链接等价。
+        finding_by_fe_id = {fe.finding_evidence_id: fe.finding_id for fe in fe_storage}
+        finding_by_fe_id_passed = {fe.finding_evidence_id: fe.finding_id for fe in fe_passed}
+        links_storage = {
+            (finding_by_fe_id[fl.finding_evidence_id], fl.endpoint_id, fl.relation_type)
+            for fl in fl_storage
+        }
+        links_passed = {
+            (finding_by_fe_id_passed[fl.finding_evidence_id], fl.endpoint_id, fl.relation_type)
+            for fl in fl_passed
+        }
+        assert links_storage == links_passed
+
+
 class TestParseFindingLocation:
     def test_normal_location(self) -> None:
         file, start, end = _parse_finding_location("com/example/UserController.java:45")

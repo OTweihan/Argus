@@ -384,9 +384,12 @@ class TaskLifecycleService(_StorageEventBase):
         return None
 
     def start_analysis_run(self, analysis_id: str) -> None:
-        """分析执行：QUEUED → SUBMITTING → RUNNING。"""
+        """分析执行：QUEUED → RUNNING。
+
+        SUBMITTING 状态不存在可观察窗口（紧随其后的 RUNNING 立即写入），
+        直接落 RUNNING 减少一次不必要的事务更新。
+        """
         if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.update_analysis_run_status(analysis_id, "SUBMITTING")
             self.storage.update_analysis_run_status(
                 analysis_id, "RUNNING", started_at=utc_now().isoformat()
             )

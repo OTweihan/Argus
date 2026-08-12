@@ -348,8 +348,21 @@ class TaskSQLiteStorage:
     ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
         return self._analysis.list_execution_flows(analysis_id, cursor=cursor, limit=limit)
 
-    def get_analysis_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
-        return self._analysis.get_flow_steps(flow_id)
+    def list_all_analysis_endpoints(self, analysis_id: str) -> list[dict[str, Any]]:
+        """返回分析的全部端点（无分页钳制，关联匹配引擎用）。"""
+        return self._analysis.list_all_endpoints(analysis_id)
+
+    def list_all_analysis_call_nodes(self, analysis_id: str) -> list[dict[str, Any]]:
+        """返回分析的全部调用节点（无分页钳制，关联匹配引擎用）。"""
+        return self._analysis.list_all_call_nodes(analysis_id)
+
+    def list_all_analysis_execution_flows(self, analysis_id: str) -> list[dict[str, Any]]:
+        """返回分析的全部执行流（无分页钳制，关联匹配引擎用）。"""
+        return self._analysis.list_all_execution_flows(analysis_id)
+
+    def list_all_analysis_findings(self, analysis_id: str) -> list[Any]:
+        """返回分析的全部发现项（无分页钳制，关联匹配引擎用）。"""
+        return self._findings.list_all_by_analysis_id(analysis_id)
 
     def list_all_analysis_flow_steps(self, analysis_id: str) -> list[dict[str, Any]]:
         """一次查询获取分析的所有 flow steps，避免 N+1 查询。"""
@@ -360,6 +373,16 @@ class TaskSQLiteStorage:
 
     def get_analysis_counts(self, analysis_id: str) -> dict[str, int]:
         return self._analysis.get_counts(analysis_id)
+
+    def get_analysis_counts_batch(self, analysis_ids: list[str]) -> dict[str, dict[str, int]]:
+        """批量返回多个分析的投影计数（消除 analysis-runs 列表的 N+1 COUNT）。"""
+        return self._analysis.get_counts_batch(analysis_ids)
+
+    def get_analysis_finding_severity_counts_batch(
+        self, analysis_ids: list[str]
+    ) -> dict[str, dict[str, int]]:
+        """批量返回多个分析的 findings 严重级别分布。"""
+        return self._analysis.get_finding_severity_counts_batch(analysis_ids)
 
     def list_analysis_clusters(
         self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
@@ -470,6 +493,10 @@ class TaskSQLiteStorage:
 
     def list_eligible_requests(self, bb_id: str) -> list[HttpRequestEvidence]:
         return self._correlation.list_eligible_requests(bb_id)
+
+    def count_eligible_requests(self, bb_id: str) -> int:
+        """返回合格请求数（COUNT 不物化行，供 get_summary 用）。"""
+        return self._correlation.count_eligible_requests(bb_id)
 
     def list_unmatched_requests(
         self,

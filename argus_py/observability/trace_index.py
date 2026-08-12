@@ -71,20 +71,6 @@ def _clear_cache() -> None:
 # ── 外部接口 ──────────────────────────────────────────
 
 
-def append_trace_index(trace_path: Path, trace_id: str, byte_offset: int) -> None:
-    """追加一条索引记录到 ``.idx`` 侧边文件。"""
-    idx_path = trace_path.with_suffix(".idx")
-    try:
-        with open(idx_path, "a", encoding="utf-8") as f:
-            f.write(
-                json.dumps({"trace_id": trace_id, "offset": byte_offset}, ensure_ascii=False) + "\n"
-            )
-    except OSError as exc:
-        logger.warning("写入 trace 索引失败：%s err=%s", idx_path, exc)
-
-    _cache_invalidate(trace_path)
-
-
 def load_trace_index(
     trace_path: Path,
 ) -> tuple[list[TraceIndexEntry], dict[str, int]]:

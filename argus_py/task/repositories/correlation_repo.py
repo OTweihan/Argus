@@ -681,6 +681,22 @@ class CorrelationRepository:
             ).fetchall()
         return [_row_to_http_request(dict(r)) for r in rows]
 
+    def count_eligible_requests(self, blackbox_run_id: str) -> int:
+        """返回 CONFIRMED_ELIGIBLE 或 ATTEMPT_ONLY 的请求数（谓词与
+        ``list_eligible_requests`` 完全一致，但只 COUNT 不物化行）。
+
+        供 ``get_summary`` 计算 correlatable_request_count，避免为取长度而
+        加载最多 ``_max_requests_per_run``（10 万）行请求。
+        """
+        with self._pool.ro_conn() as conn:
+            row = conn.execute(
+                """SELECT COUNT(*) AS cnt FROM http_request_evidence
+                   WHERE blackbox_run_id = ?
+                     AND endpoint_match_eligibility IN ('CONFIRMED_ELIGIBLE', 'ATTEMPT_ONLY')""",
+                (blackbox_run_id,),
+            ).fetchone()
+        return row["cnt"] if row else 0
+
     def list_unmatched_requests(
         self,
         correlation_run_id: str,
@@ -882,8 +898,9 @@ class CorrelationRepository:
                 summary.captured_request_count = total_row["cnt"] if total_row else 0
 
         # ── 可关联请求 ──
-        eligible_reqs = self.list_eligible_requests(bb_id)
-        summary.correlatable_request_count = len(eligible_reqs)
+        # 只 COUNT 合格请求，不物化全部行（list_eligible_requests 最多加载
+        # _max_requests_per_run=10 万行，此前仅为取 len()）。
+        summary.correlatable_request_count = self.count_eligible_requests(bb_id)
 
         if attempt_id is None:
             return summary

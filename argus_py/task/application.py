@@ -561,16 +561,33 @@ class TaskApplicationService:
             return storage.get_analysis_counts(analysis_id)
         return {}
 
+    def get_analysis_counts_batch(self, analysis_ids: list[str]) -> dict[str, dict[str, int]]:
+        """批量返回多个分析的投影计数（analysis-runs 列表用，消除 N+1 COUNT）。"""
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.get_analysis_counts_batch(analysis_ids)
+        return {}
+
     def get_analysis_finding_severity_counts(self, analysis_id: str) -> dict[str, int]:
         storage = self._read.storage
         if isinstance(storage, TaskSQLiteStorage):
             return storage.get_analysis_finding_severity_counts(analysis_id)
         return {}
 
-    def get_analysis_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
+    def get_analysis_finding_severity_counts_batch(
+        self, analysis_ids: list[str]
+    ) -> dict[str, dict[str, int]]:
+        """批量返回多个分析的 findings 严重级别分布（analysis-runs 列表用）。"""
         storage = self._read.storage
         if isinstance(storage, TaskSQLiteStorage):
-            return storage.get_analysis_flow_steps(flow_id)
+            return storage.get_analysis_finding_severity_counts_batch(analysis_ids)
+        return {}
+
+    def list_all_analysis_flow_steps(self, analysis_id: str) -> list[dict[str, Any]]:
+        """一次查询返回分析的全部执行流步骤（执行流列表路由用，消除 N+1）。"""
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_all_analysis_flow_steps(analysis_id)
         return []
 
     def get_analysis_findings(
@@ -1108,8 +1125,8 @@ def _execute_matching_sync(
         has_persistence_failure,
     )
 
-    endpoints_result = storage.list_analysis_endpoints(cr.analysis_id, limit=10_000)
-    endpoints_list = endpoints_result[0]
+    # 先取合格请求做早退判断：无合格请求时无需加载投影全量行（端点/执行流/
+    # 调用节点），避免浪费三次大查询。
     eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
 
     if not eligible_requests:
@@ -1142,6 +1159,12 @@ def _execute_matching_sync(
             on_completed(cr.analysis_id, cr.correlation_run_id)
         return
 
+    # 关联匹配需要投影全量行（不做 200 行分页钳制）；执行流/调用节点一次取全，
+    # 供 generate_flows / generate_finding_evidence 共用，避免同一分析内重复查询。
+    endpoints_list = storage.list_all_analysis_endpoints(cr.analysis_id)
+    analysis_flows = storage.list_all_analysis_execution_flows(cr.analysis_id)
+    call_nodes = storage.list_all_analysis_call_nodes(cr.analysis_id)
+
     matcher = EndpointMatcher(
         matcher_version="v1",
         normalization_version="v1",
@@ -1168,7 +1191,13 @@ def _execute_matching_sync(
         storage.insert_candidates_batch(result.candidates)
 
     # ── 生成调用流关联 ──
-    flows = generate_flows(storage, cr.analysis_id, result.evidence_list, endpoints_list)
+    flows = generate_flows(
+        storage,
+        cr.analysis_id,
+        result.evidence_list,
+        endpoints_list,
+        flows=analysis_flows,
+    )
     if flows:
         storage.insert_flows_batch(flows)
 
@@ -1179,6 +1208,8 @@ def _execute_matching_sync(
         attempt.correlation_attempt_id,
         result.evidence_list,
         endpoints_list,
+        flows=analysis_flows,
+        call_nodes=call_nodes,
     )
     if finding_evidence_list:
         storage.insert_finding_evidence_batch(finding_evidence_list)
@@ -1396,10 +1427,11 @@ def build_correlation_report_data(
         )
         item.pop("evidenceIds", None)
 
-    # list_analysis_endpoints 每页最多 200 行，total 为真实总数。
-    # 未覆盖列表展示前 200（按路径排序），但计数必须用真实 total。
-    endpoints, _, endpoint_total, _ = storage.list_analysis_endpoints(analysis_id, limit=10_000)
-    total_endpoint_count = endpoint_total if endpoint_total is not None else len(endpoints)
+    # 未覆盖列表展示全量端点（按路径排序），避免被分页钳制为前 200 行导致
+    # 列表与真实 total 计数不一致；端点集合已在 `_execute_matching_sync` 中
+    # 全量加载过，此处为报告再取一次（仅被关联报告路径调用，频率低）。
+    endpoints = storage.list_all_analysis_endpoints(analysis_id)
+    total_endpoint_count = len(endpoints)
     touched_ids = set(touched)
     uncovered = [
         _endpoint_to_report_dict(ep) for ep in endpoints if ep.get("endpoint_id") not in touched_ids

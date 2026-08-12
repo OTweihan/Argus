@@ -765,14 +765,43 @@ class AnalysisRunRepository:
         )
         return [_row_to_flow(r) for r in items], next_cursor, total, has_more
 
-    def get_flow_steps(self, flow_id: str) -> list[dict[str, Any]]:
+    # ── 非分页"取全部"查询（关联匹配引擎专用）─────────────────────────
+    #
+    # 分页查询 `_paginated_query` 将 limit 钳制在 200（前端分页语义），但关联
+    # 匹配引擎需要投影全量行（端点/调用节点/执行流/发现）才能生成完整证据。
+    # 此前引擎传 10_000/50_000 期望加载全部却被静默截断为前 200 行，导致
+    # 关联证据与未触达列表只覆盖前 200 行。以下方法直接全量查询、不做
+    # 分页钳制，也不执行 COUNT。
+
+    def list_all_endpoints(self, analysis_id: str) -> list[dict[str, Any]]:
+        """返回分析的全部端点（无 200 行钳制，关联匹配用）。"""
         with self._pool.ro_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM analysis_flow_steps WHERE execution_flow_id = ? "
-                "ORDER BY step_index ASC",
-                (flow_id,),
+                "SELECT * FROM analysis_endpoints WHERE analysis_id = ? "
+                "ORDER BY normalized_path_template ASC, http_method ASC, endpoint_id ASC",
+                (analysis_id,),
             ).fetchall()
-        return [_row_to_flow_step(r) for r in rows]
+        return [_row_to_endpoint(dict(r)) for r in rows]
+
+    def list_all_call_nodes(self, analysis_id: str) -> list[dict[str, Any]]:
+        """返回分析的全部调用节点（无 200 行钳制，关联匹配用）。"""
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analysis_call_nodes WHERE analysis_id = ? "
+                "ORDER BY class_name ASC, method_name ASC, call_node_id ASC",
+                (analysis_id,),
+            ).fetchall()
+        return [_row_to_call_node(dict(r)) for r in rows]
+
+    def list_all_execution_flows(self, analysis_id: str) -> list[dict[str, Any]]:
+        """返回分析的全部执行流（无 200 行钳制，关联匹配用）。"""
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analysis_execution_flows WHERE analysis_id = ? "
+                "ORDER BY entry_point ASC, execution_flow_id ASC",
+                (analysis_id,),
+            ).fetchall()
+        return [_row_to_flow(dict(r)) for r in rows]
 
     def list_all_flow_steps_by_analysis(self, analysis_id: str) -> list[dict[str, Any]]:
         """一次查询获取分析的所有 flow steps（JOIN execution_flows），避免 N+1。"""
@@ -868,6 +897,77 @@ class AnalysisRunRepository:
             if isinstance(sev, str) and sev:
                 counts[sev] = row["cnt"]
         return counts
+
+    def get_counts_batch(self, analysis_ids: list[str]) -> dict[str, dict[str, int]]:
+        """批量返回多个分析的投影计数（analysis_id → 各表 COUNT）。
+
+        ``GET /tasks/{id}/analysis-runs`` 列表对每个 run 串行执行 6+1 条 COUNT，
+        N 个 run 最坏 N×7 条 SQL。此处用 ``IN (...) GROUP BY analysis_id``
+        一次批量取回，消除 N+1 COUNT。
+        """
+        if not analysis_ids:
+            return {}
+        placeholders = ",".join("?" for _ in analysis_ids)
+        # 与 get_counts 一致：为每个 analysis_id 预置全部表键（无行时为 0），
+        # 保证批量结果与逐条 get_counts 结构等价。
+        result: dict[str, dict[str, int]] = {
+            aid: {
+                t: 0
+                for t in (
+                    "analysis_endpoints",
+                    "analysis_call_nodes",
+                    "analysis_call_edges",
+                    "analysis_execution_flows",
+                    "analysis_clusters",
+                )
+            }
+            | {"findings": 0}
+            for aid in analysis_ids
+        }
+        with self._pool.ro_conn() as conn:
+            for table in (
+                "analysis_endpoints",
+                "analysis_call_nodes",
+                "analysis_call_edges",
+                "analysis_execution_flows",
+                "analysis_clusters",
+            ):
+                rows = conn.execute(
+                    f"SELECT analysis_id, COUNT(*) AS cnt FROM {table} "
+                    f"WHERE analysis_id IN ({placeholders}) GROUP BY analysis_id",
+                    analysis_ids,
+                ).fetchall()
+                for row in rows:
+                    result[row["analysis_id"]][table] = row["cnt"]
+            # findings 表示在 findings 表中而非 analysis_ 前缀
+            rows = conn.execute(
+                f"SELECT analysis_id, COUNT(*) AS cnt FROM findings "
+                f"WHERE analysis_id IN ({placeholders}) GROUP BY analysis_id",
+                analysis_ids,
+            ).fetchall()
+            for row in rows:
+                result[row["analysis_id"]]["findings"] = row["cnt"]
+        return result
+
+    def get_finding_severity_counts_batch(
+        self, analysis_ids: list[str]
+    ) -> dict[str, dict[str, int]]:
+        """批量返回多个分析的 findings 严重级别分布（analysis_id → severity → count）。"""
+        if not analysis_ids:
+            return {}
+        placeholders = ",".join("?" for _ in analysis_ids)
+        result: dict[str, dict[str, int]] = {}
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                f"SELECT analysis_id, severity, COUNT(*) AS cnt FROM findings "
+                f"WHERE analysis_id IN ({placeholders}) GROUP BY analysis_id, severity",
+                analysis_ids,
+            ).fetchall()
+        for row in rows:
+            sev = row["severity"]
+            if isinstance(sev, str) and sev:
+                result.setdefault(row["analysis_id"], {})[sev] = row["cnt"]
+        return result
 
     # ── 内部辅助 ──────────────────────────────────────────────────
 

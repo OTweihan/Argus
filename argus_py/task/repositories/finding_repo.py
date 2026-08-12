@@ -49,20 +49,17 @@ class FindingRepository:
         cursor: str | None = None,
         limit: int = 100,
     ) -> tuple[list[Finding], str | None, int | None, bool]:
-        """按 analysis_id 分页查询发现项（游标分页，按 created_at DESC）。"""
+        """按 analysis_id 分页查询发现项（游标分页，按 created_at DESC）。
+
+        与 O-10 修正后的 ``_paginated_query`` 语义一致：仅在无有效游标（首页或
+        非法游标回退首页）时计算 total；后续 cursor 页返回 None，由客户端复用
+        首页 total，避免每页重复全表/索引 COUNT。
+        """
         params: list[Any] = [analysis_id]
 
         with self._pool.ro_conn() as conn:
-            # total
-            row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM findings WHERE analysis_id = ?",
-                (analysis_id,),
-            ).fetchone()
-            total: int | None = row["cnt"] if row else 0
-
-            limit = min(limit, 200)
-
             sql = "SELECT * FROM findings WHERE analysis_id = ?"
+            total: int | None = None
             if cursor:
                 try:
                     decoded = json.loads(base64.urlsafe_b64decode(cursor).decode())
@@ -76,6 +73,15 @@ class FindingRepository:
                     ]
                 except Exception:
                     cursor = None
+
+            if cursor is None:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM findings WHERE analysis_id = ?",
+                    (analysis_id,),
+                ).fetchone()
+                total = row["cnt"] if row else 0
+
+            limit = min(limit, 200)
 
             sql += " ORDER BY created_at DESC, finding_id ASC LIMIT ?"
             params_with_limit = list(params) + [limit + 1]
@@ -94,3 +100,17 @@ class FindingRepository:
             ).decode()
 
         return items, next_cursor, total, has_more
+
+    def list_all_by_analysis_id(self, analysis_id: str) -> list[Finding]:
+        """返回分析的全部发现项（无 200 行钳制，关联匹配引擎用）。
+
+        与 ``list_by_analysis_id`` 的分页钳制（``limit=min(limit,200)``）不同，
+        关联引擎需要全量发现项生成 FindingEvidence，此前被静默截断为前 200 行。
+        """
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM findings WHERE analysis_id = ? "
+                "ORDER BY created_at DESC, finding_id ASC",
+                (analysis_id,),
+            ).fetchall()
+        return [row_to_finding(r) for r in rows]

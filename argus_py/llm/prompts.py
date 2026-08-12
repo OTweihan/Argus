@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,11 +39,17 @@ def resolve_prompt_path(
     return Path(builtin_prompts_dir) / name
 
 
+@functools.cache
 def load_prompt_template(
     name: str,
     builtin_prompts_dir: str | Path = BUILTIN_PROMPTS_DIR,
 ) -> PromptTemplate:
-    """读取 Prompt 模板对象。"""
+    """读取 Prompt 模板对象。
+
+    结果按 ``(name, builtin_prompts_dir)`` 缓存：内置 prompt 在部署后静态不变，
+    planner/evaluator 每步与预览接口重复从盘读取纯属浪费。注意：运行期修改
+    prompt 文件需重启进程才生效（或显式调用 ``load_prompt_template.cache_clear()``）。
+    """
     path = resolve_prompt_path(name, builtin_prompts_dir)
     if not path.exists():
         raise FileNotFoundError(

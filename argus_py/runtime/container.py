@@ -476,9 +476,8 @@ def create_container() -> RuntimeContainer:
             has_persistence_failure,
         )
 
-        # 加载白盒端点
-        endpoints_result = storage.list_analysis_endpoints(cr.analysis_id, limit=10_000)
-        endpoints = endpoints_result[0]
+        # 先取合格请求做早退判断：无合格请求时无需加载投影全量行（端点/执行流/
+        # 调用节点），避免浪费三次大查询。
         eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
 
         if not eligible_requests:
@@ -506,6 +505,12 @@ def create_container() -> RuntimeContainer:
                 completeness,
             )
             return
+
+        # 加载白盒端点（全量，不做 200 行分页钳制）；执行流/调用节点一次取全供
+        # generate_flows / generate_finding_evidence 共用，避免同一分析内重复查询。
+        endpoints = storage.list_all_analysis_endpoints(cr.analysis_id)
+        analysis_flows = storage.list_all_analysis_execution_flows(cr.analysis_id)
+        call_nodes = storage.list_all_analysis_call_nodes(cr.analysis_id)
 
         matcher = EndpointMatcher(
             matcher_version="v1",
@@ -535,7 +540,9 @@ def create_container() -> RuntimeContainer:
             storage.insert_candidates_batch(result.candidates)
 
         # ── 生成调用流关联 ──
-        flows = generate_flows(storage, cr.analysis_id, result.evidence_list, endpoints)
+        flows = generate_flows(
+            storage, cr.analysis_id, result.evidence_list, endpoints, flows=analysis_flows
+        )
         if flows:
             storage.insert_flows_batch(flows)
 
@@ -546,6 +553,8 @@ def create_container() -> RuntimeContainer:
             attempt.correlation_attempt_id,
             result.evidence_list,
             endpoints,
+            flows=analysis_flows,
+            call_nodes=call_nodes,
         )
         if finding_evidence_list:
             storage.insert_finding_evidence_batch(finding_evidence_list)

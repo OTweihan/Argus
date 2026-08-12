@@ -105,27 +105,21 @@ def _format_endpoint_location(endpoint: dict[str, Any]) -> str:
 
 
 def _build_flow_indices(
-    storage: Any,
-    analysis_id: str,
+    flows: list[dict[str, Any]],
 ) -> tuple[
     dict[str, list[dict[str, Any]]],
     dict[str, list[dict[str, Any]]],
-    list[dict[str, Any]],
 ]:
-    """构建执行流双重索引 + 原始列表。
+    """构建执行流双重索引（接收已取全的执行流列表）。
 
     Returns:
-        (flows_by_entry, flows_by_method, analysis_flows)
+        (flows_by_entry, flows_by_method)
         - flows_by_entry: "ControllerClass.methodName" → [flow, ...]
         - flows_by_method: "methodName" → [flow, ...]
-        - analysis_flows: 原始执行流列表
     """
-    flows_result = storage.list_analysis_execution_flows(analysis_id, limit=10_000)
-    analysis_flows = flows_result[0]
-
     flows_by_entry: dict[str, list[dict[str, Any]]] = {}
     flows_by_method: dict[str, list[dict[str, Any]]] = {}
-    for flow in analysis_flows:
+    for flow in flows:
         entry = flow.get("entry_point", "")
         if not entry:
             continue
@@ -135,7 +129,7 @@ def _build_flow_indices(
         method_name = entry[dot_pos + 1 :] if dot_pos > 0 else entry
         flows_by_method.setdefault(method_name, []).append(flow)
 
-    return flows_by_entry, flows_by_method, analysis_flows
+    return flows_by_entry, flows_by_method
 
 
 def generate_flows(
@@ -143,11 +137,17 @@ def generate_flows(
     analysis_id: str,
     evidence_list: list[Any],
     endpoints: list[dict[str, Any]],
+    *,
+    flows: list[dict[str, Any]] | None = None,
 ) -> list[Any]:
     """为已匹配的端点证据生成 EndpointEvidenceFlow 关联。
 
     查询分析执行中的 execution_flows，按 controller_method 匹配端点。
     建立 method_name → flows 索引以避免 O(n×m) 回退扫描。
+
+    ``flows`` 为可选：调用方若已取全执行流（关联匹配单次取数），传入可避免
+    同一分析内重复查询；未传入时内部经 ``list_all_analysis_execution_flows``
+    取全（不做 200 行分页钳制）。
     """
     # 构建 endpoint_id → endpoint 映射
     ep_map: dict[str, dict[str, Any]] = {}
@@ -156,7 +156,9 @@ def generate_flows(
         if eid:
             ep_map[eid] = ep
 
-    flows_by_entry, flows_by_method, _ = _build_flow_indices(storage, analysis_id)
+    if flows is None:
+        flows = storage.list_all_analysis_execution_flows(analysis_id)
+    flows_by_entry, flows_by_method = _build_flow_indices(flows)
 
     result: list[Any] = []
     seen: set[tuple[str, str]] = set()
@@ -273,29 +275,26 @@ def _build_method_line_index(
 
 
 def _build_flow_method_index(
-    storage: Any,
-    analysis_id: str,
+    call_nodes: list[dict[str, Any]],
+    flow_steps: list[dict[str, Any]],
 ) -> dict[str, set[str]]:
     """构建 flow_id → set of method_keys 索引。
 
-    一次查询获取全部分析的 flow steps + call_nodes，避免 N+1。
+    接收已取全的 call_nodes 与 flow_steps（关联匹配单次取数），避免重复查询。
     """
-    # 批量查询 call_nodes，构建 call_node_id → method_key 映射
-    cn_result = storage.list_analysis_call_nodes(analysis_id, limit=50_000)
-    all_call_nodes = cn_result[0]
+    # 构建 call_node_id → method_key 映射
     cn_method: dict[str, str] = {}
-    for cn in all_call_nodes:
+    for cn in call_nodes:
         cn_id = cn.get("call_node_id", "")
         cn_class = cn.get("class_name") or ""
         cn_method_name = cn.get("method_name") or ""
         if cn_id and cn_method_name:
             cn_method[cn_id] = f"{cn_class}.{cn_method_name}" if cn_class else cn_method_name
 
-    # 一次查询获取全部 flow steps（按 analysis_id），按 execution_flow_id 分组
+    # 按 execution_flow_id 分组
     flow_methods: dict[str, set[str]] = {}
-    all_steps = storage.list_all_analysis_flow_steps(analysis_id)
     steps_by_flow: dict[str, list[dict[str, Any]]] = {}
-    for step in all_steps:
+    for step in flow_steps:
         flow_id = step.get("execution_flow_id", "")
         if flow_id:
             steps_by_flow.setdefault(flow_id, []).append(step)
@@ -411,6 +410,9 @@ def generate_finding_evidence(
     correlation_attempt_id: str,
     evidence_list: list[Any],
     endpoints: list[dict[str, Any]],
+    *,
+    flows: list[dict[str, Any]] | None = None,
+    call_nodes: list[dict[str, Any]] | None = None,
 ) -> tuple[list[Any], list[Any]]:
     """为分析中的发现项生成 FindingEvidence 和 FindingEvidenceLink。
 
@@ -424,9 +426,15 @@ def generate_finding_evidence(
     4. finding.url 与 endpoint 路径匹配
        → DIRECT_HANDLER（URL 匹配视为 confirmed）
     5. 无匹配 → UNKNOWN
+
+    ``flows``/``call_nodes`` 为可选：调用方若已取全（关联匹配单次取数）传入可避免
+    同一分析内重复查询；未传入时内部经 ``list_all_*`` 取全（不做 200 行钳制）。
     """
-    findings_result = storage.get_analysis_findings(analysis_id, limit=10_000)
-    all_findings = findings_result[0]
+    if flows is None:
+        flows = storage.list_all_analysis_execution_flows(analysis_id)
+    if call_nodes is None:
+        call_nodes = storage.list_all_analysis_call_nodes(analysis_id)
+    all_findings = storage.list_all_analysis_findings(analysis_id)
     if not all_findings:
         return [], []
 
@@ -446,12 +454,12 @@ def generate_finding_evidence(
             ev_list_by_ep_id.setdefault(ep_id, []).append(ev)
 
     # 执行流索引（共享 _build_flow_indices，用于 FLOW_MEMBER 判定）
-    flows_by_entry, flows_by_method, _ = _build_flow_indices(storage, analysis_id)
+    flows_by_entry, flows_by_method = _build_flow_indices(flows)
 
     # 方法行号索引 + flow→methods 索引
-    cn_result = storage.list_analysis_call_nodes(analysis_id, limit=50_000)
-    method_line_index = _build_method_line_index(cn_result[0])
-    flow_method_index = _build_flow_method_index(storage, analysis_id)
+    method_line_index = _build_method_line_index(call_nodes)
+    flow_steps = storage.list_all_analysis_flow_steps(analysis_id)
+    flow_method_index = _build_flow_method_index(call_nodes, flow_steps)
 
     fe_list: list[Any] = []
     fl_list: list[Any] = []
