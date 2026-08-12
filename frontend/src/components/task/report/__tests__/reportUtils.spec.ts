@@ -39,10 +39,9 @@ describe("reportUtils.prettyJson", () => {
 });
 
 describe("reportUtils.REPORT_NAV_ITEMS", () => {
-  it("顺序与 ReportView 模板 section ID 一致", () => {
+  it("顺序与 ReportView 页签面板 ID 一致", () => {
     expect(REPORT_NAV_ITEMS.map((i) => i.id)).toEqual([
       "overview",
-      "task",
       "steps",
       "findings",
       "raw-json",

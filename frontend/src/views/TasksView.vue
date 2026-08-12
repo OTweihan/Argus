@@ -68,6 +68,7 @@
               :report="reportData"
               :loading="reportLoading"
               :task-id="selectedTask.taskId"
+              :task-status="selectedTask.status"
             />
           </el-tab-pane>
           <el-tab-pane lazy :label="isWhitebox ? '分析日志' : '执行时间线'" name="timeline">

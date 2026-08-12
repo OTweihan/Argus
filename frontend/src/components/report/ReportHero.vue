@@ -3,7 +3,7 @@
     <div class="hero-bg-grid" />
     <div class="hero-inner">
       <div class="hero-main">
-        <div class="eyebrow">Argus Blackbox Testing</div>
+        <div class="eyebrow">BLACKBOX TESTING</div>
         <h1>{{ taskName }}</h1>
         <p class="hero-desc">
           {{ summary }}
@@ -84,18 +84,13 @@ const taskName = computed(() => {
   position: relative;
   width: min(1200px, 100%);
   margin: 0 auto;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 28px;
+  border: 1px solid rgba(10, 186, 181, 0.22);
+  border-radius: var(--radius-lg, 18px);
   background:
-    linear-gradient(
-      135deg,
-      rgba(14, 43, 47, 0.96),
-      rgba(8, 123, 120, 0.93) 55%,
-      rgba(10, 186, 181, 0.9)
-    ),
-    #111827;
-  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-  color: #ffffff;
+    linear-gradient(120deg, rgba(255, 255, 255, 0.96), rgba(236, 254, 253, 0.88)),
+    var(--surface-solid, #fff);
+  box-shadow: var(--shadow-sm, 0 8px 24px rgba(15, 23, 42, 0.06));
+  color: var(--text-strong, #172033);
   overflow: hidden;
 }
 
@@ -109,12 +104,13 @@ const taskName = computed(() => {
 .report-hero::after {
   content: "";
   position: absolute;
-  right: -160px;
-  top: -160px;
-  width: 360px;
-  height: 360px;
+  right: -88px;
+  top: -132px;
+  width: 220px;
+  height: 220px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(10, 186, 181, 0.12);
+  pointer-events: none;
 }
 
 .hero-inner {
@@ -123,7 +119,7 @@ const taskName = computed(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 28px;
-  padding: 34px;
+  padding: 22px 24px;
 }
 
 .hero-main {
@@ -134,42 +130,37 @@ const taskName = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
-  color: #9af3ef;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  margin-bottom: 7px;
+  color: var(--brand-700, #087b78);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .eyebrow::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #22c55e;
-  box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.18);
+  display: none;
 }
 
 .report-hero h1 {
   margin: 0;
-  color: #ffffff;
-  font-size: clamp(28px, 4vw, 42px);
-  font-weight: 740;
-  letter-spacing: -0.04em;
-  line-height: 1.25;
+  color: var(--text-strong, #172033);
+  font-size: clamp(22px, 2.4vw, 30px);
+  font-weight: 720;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
 }
 
 .hero-desc {
-  margin: 12px 0 0;
-  color: #dbe4ff;
-  font-size: 15px;
+  margin: 8px 0 0;
+  color: var(--text-muted, #667085);
+  font-size: 13px;
   line-height: 1.65;
   max-width: 760px;
 }
 
 .hero-status {
-  margin-top: 18px;
+  margin-top: 14px;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -243,15 +234,16 @@ const taskName = computed(() => {
 }
 
 .hero-meta {
-  min-width: 290px;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
+  min-width: 300px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft, #e4e7ec);
+  border-radius: var(--radius-md, 14px);
+  background: rgba(255, 255, 255, 0.7);
   display: grid;
   gap: 10px;
   align-content: start;
-  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-xs, 0 4px 14px rgba(15, 23, 42, 0.04));
+  backdrop-filter: blur(12px);
 }
 
 .meta-row {
@@ -262,14 +254,26 @@ const taskName = computed(() => {
 }
 
 .meta-label {
-  color: #9af3ef;
-  font-size: 12px;
+  color: var(--text-faint, #98a2b3);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .meta-value {
   overflow-wrap: anywhere;
-  color: #ffffff;
+  color: var(--text-strong, #172033);
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .hero-inner {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .hero-meta {
+    min-width: 0;
+  }
 }
 </style>

@@ -97,12 +97,10 @@ const screenshotOpen = ref(false);
 .finding-card {
   display: flex;
   border: 1px solid var(--rp-line);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-xs, var(--shadow-sm));
   overflow: hidden;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   transition:
     box-shadow var(--transition),
     transform var(--transition);
@@ -121,7 +119,7 @@ const screenshotOpen = ref(false);
 }
 
 .finding-indicator {
-  width: 5px;
+  width: 4px;
   flex-shrink: 0;
 }
 
@@ -147,7 +145,7 @@ const screenshotOpen = ref(false);
 
 .finding-body {
   flex: 1;
-  padding: 16px 18px;
+  padding: 17px 18px;
   display: grid;
   gap: 12px;
 }
@@ -184,7 +182,7 @@ const screenshotOpen = ref(false);
   min-width: 76px;
   justify-content: center;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 7px;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;

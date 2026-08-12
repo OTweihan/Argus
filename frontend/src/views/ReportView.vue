@@ -5,7 +5,7 @@
   <div v-else-if="!report" class="empty-state">
     <el-empty description="该任务尚未生成报告，请先执行任务。" />
   </div>
-  <div v-else class="report-container">
+  <div v-else ref="reportContainer" class="report-container">
     <!-- Hero -->
     <ReportHero
       :report="report"
@@ -18,27 +18,34 @@
 
     <!-- Layout -->
     <div class="report-layout">
-      <aside class="report-sidebar">
-        <nav class="nav-card">
-          <p class="nav-title">目录</p>
-          <a
+      <aside ref="reportTabs" class="report-sidebar">
+        <nav class="nav-card" role="tablist" aria-label="黑盒报告章节">
+          <button
             v-for="item in navItems"
             :key="item.id"
-            :class="['nav-link', { active: activeSection === item.id }]"
-            :href="'#' + item.id"
-            @click.prevent="scrollTo(item.id)"
+            type="button"
+            role="tab"
+            :aria-selected="reportTab === item.id"
+            :aria-controls="`report-panel-${item.id}`"
+            :class="['nav-link', { active: reportTab === item.id }]"
+            @click="selectReportTab(item.id)"
           >
             <span class="nav-link-text">
               <span class="nav-index">{{ item.index }}</span>
               {{ item.label }}
             </span>
-          </a>
+          </button>
         </nav>
       </aside>
 
       <main class="report-main">
         <!-- Overview / Metrics -->
-        <section id="overview" class="section" data-section>
+        <section
+          v-show="reportTab === 'overview'"
+          id="report-panel-overview"
+          class="section overview-panel report-tab-panel"
+          role="tabpanel"
+        >
           <ReportMetrics
             :status-label="statusLabel"
             :step-count="stepCount"
@@ -46,94 +53,98 @@
             :failed-count="failedCount"
             :max-steps="report.task.maxSteps"
           />
-        </section>
-
-        <!-- Task Info -->
-        <section id="task" class="section section-card" data-section>
-          <div class="section-head">
-            <div class="section-title-group">
-              <div class="section-icon">
-                <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
-                  <rect
-                    x="3"
-                    y="3"
-                    width="14"
-                    height="14"
-                    rx="2"
-                    stroke="currentColor"
-                    stroke-width="1.4"
-                  />
-                  <path
-                    d="M7 10l2 2 4-4"
-                    stroke="currentColor"
-                    stroke-width="1.4"
-                    stroke-linecap="round"
-                  />
-                </svg>
+          <section class="overview-details">
+            <div class="section-head">
+              <div class="section-title-group">
+                <div class="section-icon">
+                  <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
+                    <rect
+                      x="3"
+                      y="3"
+                      width="14"
+                      height="14"
+                      rx="2"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                    />
+                    <path
+                      d="M7 10l2 2 4-4"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <span class="section-kicker">TASK SNAPSHOT</span>
+                  <h2>任务信息</h2>
+                  <p class="section-subtitle">记录测试目标、入口地址、执行结果与时间线。</p>
+                </div>
               </div>
-              <div>
-                <h2>任务信息</h2>
-                <p class="section-subtitle">记录测试目标、入口地址、执行结果与时间线。</p>
-              </div>
+              <span :class="['status-badge', 'badge-' + status]">
+                <span class="badge-dot" />
+                {{ statusLabel }}
+              </span>
             </div>
-            <span :class="['status-badge', 'badge-' + status]">
-              <span class="badge-dot" />
-              {{ statusLabel }}
-            </span>
-          </div>
-          <table class="info-table">
-            <tbody>
-              <tr>
-                <th>任务 ID</th>
-                <td>
-                  <code>{{ report.task.taskId }}</code>
-                </td>
-              </tr>
-              <tr>
-                <th>目标</th>
-                <td>{{ report.task.goal }}</td>
-              </tr>
-              <tr>
-                <th>起始 URL</th>
-                <td>{{ report.task.startUrl || "-" }}</td>
-              </tr>
-              <tr>
-                <th>结果摘要</th>
-                <td>{{ summary }}</td>
-              </tr>
-              <tr>
-                <th>报告路径</th>
-                <td>
-                  <code>{{ report.task.reportPath || "-" }}</code>
-                </td>
-              </tr>
-              <tr>
-                <th>错误信息</th>
-                <td>
-                  <span v-if="report.task.errorMessage" class="error-text">{{
-                    report.task.errorMessage
-                  }}</span>
-                  <span v-else class="muted">无</span>
-                </td>
-              </tr>
-              <tr>
-                <th>创建时间</th>
-                <td>{{ formatDate(report.task.createdAt) }}</td>
-              </tr>
-              <tr>
-                <th>开始时间</th>
-                <td>{{ formatDate(report.task.startedAt) }}</td>
-              </tr>
-              <tr>
-                <th>完成时间</th>
-                <td>{{ formatDate(report.task.completedAt) }}</td>
-              </tr>
-            </tbody>
-          </table>
+            <table class="info-table">
+              <tbody>
+                <tr>
+                  <th>任务 ID</th>
+                  <td>
+                    <code>{{ report.task.taskId }}</code>
+                  </td>
+                </tr>
+                <tr>
+                  <th>目标</th>
+                  <td>{{ report.task.goal }}</td>
+                </tr>
+                <tr>
+                  <th>起始 URL</th>
+                  <td>{{ report.task.startUrl || "-" }}</td>
+                </tr>
+                <tr>
+                  <th>结果摘要</th>
+                  <td>{{ summary }}</td>
+                </tr>
+                <tr>
+                  <th>报告路径</th>
+                  <td>
+                    <code>{{ report.task.reportPath || "-" }}</code>
+                  </td>
+                </tr>
+                <tr>
+                  <th>错误信息</th>
+                  <td>
+                    <span v-if="report.task.errorMessage" class="error-text">{{
+                      report.task.errorMessage
+                    }}</span>
+                    <span v-else class="muted">无</span>
+                  </td>
+                </tr>
+                <tr>
+                  <th>创建时间</th>
+                  <td>{{ formatDate(report.task.createdAt) }}</td>
+                </tr>
+                <tr>
+                  <th>开始时间</th>
+                  <td>{{ formatDate(report.task.startedAt) }}</td>
+                </tr>
+                <tr>
+                  <th>完成时间</th>
+                  <td>{{ formatDate(report.task.completedAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
         </section>
 
         <!-- Steps -->
-        <section id="steps" class="section" data-section>
+        <section
+          v-show="reportTab === 'steps'"
+          id="report-panel-steps"
+          class="section steps-panel report-tab-panel"
+          role="tabpanel"
+        >
           <div class="section-head">
             <div class="section-title-group">
               <div class="section-icon">
@@ -158,6 +169,25 @@
             <span :class="['status-badge', failedCount === 0 ? 'badge-success' : 'badge-danger']">
               失败 {{ failedCount }}
             </span>
+          </div>
+
+          <div class="panel-summary" aria-label="执行步骤摘要">
+            <div class="summary-item">
+              <span class="summary-label">全部步骤</span>
+              <strong>{{ stepCount }}</strong>
+            </div>
+            <div class="summary-item summary-success">
+              <span class="summary-label">执行成功</span>
+              <strong>{{ successCount }}</strong>
+            </div>
+            <div class="summary-item" :class="failedCount ? 'summary-danger' : 'summary-muted'">
+              <span class="summary-label">执行失败</span>
+              <strong>{{ failedCount }}</strong>
+            </div>
+            <div class="summary-item summary-muted">
+              <span class="summary-label">已隐藏</span>
+              <strong>{{ report.hiddenStepsCount }}</strong>
+            </div>
           </div>
 
           <!-- Failed Steps Summary -->
@@ -213,7 +243,12 @@
         </section>
 
         <!-- Findings -->
-        <section id="findings" class="section section-card" data-section>
+        <section
+          v-show="reportTab === 'findings'"
+          id="report-panel-findings"
+          class="section findings-panel report-tab-panel"
+          role="tabpanel"
+        >
           <div class="section-head">
             <div class="section-title-group">
               <div class="section-icon">
@@ -236,6 +271,40 @@
             </span>
           </div>
 
+          <div :class="['finding-overview', findingCount ? 'has-findings' : 'is-clear']">
+            <div class="finding-overview-mark">
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path
+                  v-if="findingCount === 0"
+                  d="M5.5 10.5 8.5 13.5 15 7"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  v-else
+                  d="M10 5.5v5M10 14v.2"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </div>
+            <div>
+              <strong>{{
+                findingCount ? `发现 ${findingCount} 个待关注问题` : "本次检查未记录问题"
+              }}</strong>
+              <p>
+                {{
+                  findingCount
+                    ? "建议优先处理高严重级别项目，并结合截图与定位信息复核。"
+                    : "当前报告没有识别到缺陷、异常或未完成目标。"
+                }}
+              </p>
+            </div>
+          </div>
+
           <div v-if="report.findings.length" class="findings-list">
             <FindingCard
               v-for="(finding, index) in report.findings"
@@ -250,7 +319,12 @@
         </section>
 
         <!-- Raw JSON -->
-        <section id="raw-json" class="section section-card" data-section>
+        <section
+          v-show="reportTab === 'raw-json'"
+          id="report-panel-raw-json"
+          class="section json-panel report-tab-panel"
+          role="tabpanel"
+        >
           <div class="section-head">
             <div class="section-title-group">
               <div class="section-icon">
@@ -269,25 +343,41 @@
               </div>
             </div>
           </div>
-          <button class="extras-toggle" @click="rawJsonOpen = !rawJsonOpen">
-            <svg
-              :class="['chevron', { open: rawJsonOpen }]"
-              viewBox="0 0 16 16"
-              fill="none"
-              width="12"
-              height="12"
-            >
-              <path
-                d="M6 4l4 4-4 4"
-                stroke="currentColor"
-                stroke-width="1.4"
-                stroke-linecap="round"
-              />
-            </svg>
-            {{ rawJsonOpen ? "收起" : "展开" }}原始 JSON
-          </button>
-          <div v-if="rawJsonOpen" class="extras-content">
-            <pre class="code-block json-block">{{ reportJson }}</pre>
+          <div class="json-workbench">
+            <div class="json-toolbar">
+              <div class="json-file-meta">
+                <span class="json-file-type">JSON</span>
+                <div>
+                  <strong>report.json</strong>
+                  <span>{{ reportJsonSize }} · UTF-8</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="json-toggle"
+                :aria-expanded="rawJsonOpen"
+                @click="rawJsonOpen = !rawJsonOpen"
+              >
+                <svg
+                  :class="['chevron', { open: rawJsonOpen }]"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  width="12"
+                  height="12"
+                >
+                  <path
+                    d="M6 4l4 4-4 4"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                {{ rawJsonOpen ? "收起内容" : "查看内容" }}
+              </button>
+            </div>
+            <div v-if="rawJsonOpen" class="json-content">
+              <pre class="code-block json-block">{{ reportJson }}</pre>
+            </div>
           </div>
         </section>
       </main>
@@ -318,11 +408,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import type { ReportData } from "../types";
+import { computed, nextTick, ref } from "vue";
+import type { ReportData, TaskStatus } from "../types";
 import { screenshotPath } from "../api";
 import AuthenticatedImage from "../components/AuthenticatedImage.vue";
-import { useScrollSpy } from "../composables/useScrollSpy";
 import ReportHero from "../components/report/ReportHero.vue";
 import ReportMetrics from "../components/report/ReportMetrics.vue";
 import StepCard from "../components/task/report/StepCard.vue";
@@ -339,10 +428,13 @@ const props = defineProps<{
   report: ReportData | null;
   loading: boolean;
   taskId: string;
+  taskStatus?: TaskStatus;
 }>();
 
 // --- reactive state ---
-const { activeSection } = useScrollSpy();
+const reportTab = ref("overview");
+const reportContainer = ref<HTMLElement | null>(null);
+const reportTabs = ref<HTMLElement | null>(null);
 const rawJsonOpen = ref(false);
 const lightboxSrc = ref<string | null>(null);
 
@@ -351,21 +443,40 @@ const lightboxSrc = ref<string | null>(null);
 const navItems = REPORT_NAV_ITEMS;
 
 // --- computed ---
-const status = computed(() => props.report?.task?.status ?? "");
+// report.json 是生成时快照，任务完成事件到达后可能仍记录 running；
+// 优先使用任务详情列表中的实时状态，旧调用方未传入时再回退到报告快照。
+const status = computed(() => props.taskStatus ?? props.report?.task?.status ?? "");
 const statusLabel = computed(() => getStatusLabel(status.value));
 const summary = computed(() => getReportSummary(props.report));
 const displaySteps = computed(() => props.report?.displaySteps ?? []);
 const failedSteps = computed(() => displaySteps.value.filter((s) => s.result === "failed"));
 const failedCount = computed(() => failedSteps.value.length);
+const successCount = computed(
+  () => displaySteps.value.filter((step) => step.result === "success").length,
+);
 const findingCount = computed(() => props.report?.findings?.length ?? 0);
 const stepCount = computed(() => displaySteps.value.length);
 const reportJson = computed(() => (rawJsonOpen.value ? prettyJson(props.report) : ""));
+const reportJsonSize = computed(() => {
+  const bytes = new Blob([prettyJson(props.report)]).size;
+  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+});
 
 // --- functions ---
 function scrollTo(id: string): void {
   const el = document.getElementById(id);
   if (el) {
     el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+async function selectReportTab(id: string): Promise<void> {
+  reportTab.value = id;
+  await nextTick();
+  const container = reportContainer.value;
+  const tabs = reportTabs.value;
+  if (container && tabs) {
+    container.scrollTo({ top: tabs.offsetTop, behavior: "smooth" });
   }
 }
 

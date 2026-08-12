@@ -67,6 +67,24 @@ describe("ReportView", () => {
     expect(text).toContain("完成所有步骤");
   });
 
+  it("实时任务状态优先于报告生成时快照", () => {
+    const runningSnapshot: ReportData = {
+      ...sampleReport,
+      task: { ...sampleReport.task, status: "running" },
+    };
+    const wrapper = shallowMount(ReportView, {
+      props: {
+        report: runningSnapshot,
+        loading: false,
+        taskId: "t1",
+        taskStatus: "completed",
+      },
+    });
+
+    expect(wrapper.getComponent({ name: "ReportHero" }).props("status")).toBe("completed");
+    expect(wrapper.getComponent({ name: "ReportMetrics" }).props("statusLabel")).toBe("已完成");
+  });
+
   it("渲染问题数量", () => {
     const reportWithFindings: ReportData = {
       ...sampleReport,
@@ -104,6 +122,6 @@ describe("ReportView", () => {
     });
     const text = wrapper.text();
     expect(text).toContain("原始 JSON");
-    expect(text).toContain("展开");
+    expect(text).toContain("查看内容");
   });
 });

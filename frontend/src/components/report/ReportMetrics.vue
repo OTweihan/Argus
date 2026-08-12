@@ -116,8 +116,8 @@ defineProps<{
 .metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: -10px;
+  gap: 12px;
+  margin-top: 0;
 }
 
 .r-metric {
@@ -127,29 +127,24 @@ defineProps<{
   align-items: center;
   gap: 14px;
   border: 1px solid #e4e7ec;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.78);
-  padding: 20px;
-  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.05);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  border-radius: var(--radius-md, 14px);
+  background: var(--surface-glass-strong, rgba(255, 255, 255, 0.88));
+  padding: 16px 18px;
+  box-shadow: var(--shadow-xs, 0 4px 14px rgba(15, 23, 42, 0.04));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   transition:
     box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.r-metric::after {
+.r-metric::before {
   content: "";
   position: absolute;
-  right: -28px;
-  bottom: -28px;
-  width: 96px;
-  height: 96px;
-  border-radius: 999px;
-  filter: blur(2px);
-  opacity: 0.85;
+  inset: 0 0 auto;
+  height: 3px;
+  background: #dbeafe;
   pointer-events: none;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .r-metric:hover {
@@ -157,24 +152,20 @@ defineProps<{
   transform: translateY(-2px);
 }
 
-.r-metric:hover::after {
-  transform: scale(1.08);
+.metric-accent-primary::before {
+  background: var(--brand-gradient, linear-gradient(90deg, #0abab5, #087b78));
 }
-
-.metric-accent-primary::after {
-  background: var(--brand-50);
+.metric-accent-success::before {
+  background: #22c55e;
 }
-.metric-accent-success::after {
-  background: #ecfdf3;
+.metric-accent-danger::before {
+  background: #ef4444;
 }
-.metric-accent-danger::after {
-  background: #fff1f3;
+.metric-accent-warning::before {
+  background: #f59e0b;
 }
-.metric-accent-warning::after {
-  background: #fffaeb;
-}
-.metric-accent-info::after {
-  background: #eff8ff;
+.metric-accent-info::before {
+  background: #60a5fa;
 }
 
 .metric-icon {
@@ -227,12 +218,38 @@ defineProps<{
 }
 
 .metric-value {
-  font-size: 26px;
+  font-size: 23px;
   font-weight: 720;
   color: #172033;
   letter-spacing: -0.04em;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 1120px) {
+  .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .r-metric:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 460px) {
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .r-metric:first-child {
+    grid-column: auto;
+  }
 }
 </style>

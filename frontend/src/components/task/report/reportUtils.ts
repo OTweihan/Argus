@@ -30,7 +30,7 @@ export function formatDate(value: string | null): string {
 // JSON 格式化与时间线共用（./timeFormat），保持 re-export 以免改动既有调用点。
 export { prettyJson } from "../timeFormat";
 
-/** 报告页左侧导航条目，顺序与 `ReportView.vue` 模板中的 section ID 一一对应。 */
+/** 黑盒报告页签条目，顺序与 `ReportView.vue` 中的内容面板一一对应。 */
 export interface ReportNavItem {
   id: string;
   label: string;
@@ -39,10 +39,9 @@ export interface ReportNavItem {
 
 export const REPORT_NAV_ITEMS: ReadonlyArray<ReportNavItem> = Object.freeze([
   { id: "overview", label: "概览", index: "01" },
-  { id: "task", label: "任务信息", index: "02" },
-  { id: "steps", label: "执行步骤", index: "03" },
-  { id: "findings", label: "问题清单", index: "04" },
-  { id: "raw-json", label: "原始 JSON", index: "05" },
+  { id: "steps", label: "执行步骤", index: "02" },
+  { id: "findings", label: "问题清单", index: "03" },
+  { id: "raw-json", label: "原始 JSON", index: "04" },
 ]);
 
 const STATUS_LABEL_MAP: Readonly<Record<string, string>> = Object.freeze({

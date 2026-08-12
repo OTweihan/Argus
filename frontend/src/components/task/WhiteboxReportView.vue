@@ -377,10 +377,18 @@ watch(subTab, () => loadCurrentTabResources());
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 18px 8px 18px;
+  padding: 8px 18px 32px;
   background:
     radial-gradient(circle at 0 0, rgba(10, 186, 181, 0.08), transparent 34%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(248, 250, 252, 0.35));
+}
+
+.wb-report > .report-hero,
+.wb-report > .report-summary,
+.wb-report > .report-tabs {
+  width: min(1200px, 100%);
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .report-hero {
@@ -448,14 +456,15 @@ watch(subTab, () => loadCurrentTabResources());
   flex: 0 0 auto;
   grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.8fr);
   gap: 12px;
-  margin: 14px 0;
+  margin-top: 14px;
+  margin-bottom: 14px;
 }
 
 .report-tabs {
   display: flex;
   flex: 1 0 auto;
   min-height: 300px;
-  padding: 0 16px 8px;
+  padding: 0 18px 18px;
   flex-direction: column;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
@@ -465,8 +474,8 @@ watch(subTab, () => loadCurrentTabResources());
 
 .report-tabs :deep(.el-tabs__header) {
   flex: 0 0 auto;
-  margin: 0 -16px 16px;
-  padding: 0 16px;
+  margin: 0 -18px 18px;
+  padding: 0 18px;
   border-bottom: 1px solid var(--line-soft);
   background: rgba(248, 250, 252, 0.78);
   border-radius: var(--radius-md) var(--radius-md) 0 0;

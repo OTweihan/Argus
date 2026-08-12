@@ -41,6 +41,10 @@ const serviceDefinitions = [
     color: "\u001b[36m",
     cwd: projectRoot,
     command: () => paths.python,
+    // Windows 下 uvicorn --reload 会强制 SelectorEventLoop，该 loop 不支持
+    // asyncio 子进程，导致 Playwright 无法拉起浏览器进程（黑盒任务启动即失败，
+    // 报 NotImplementedError）。因此仅非 Windows 平台启用 Python 热重载——
+    // macOS/Linux 的 SelectorEventLoop 支持子进程，不受此限制。
     args: [
       "-u",
       "-m",
@@ -50,7 +54,7 @@ const serviceDefinitions = [
       "127.0.0.1",
       "--port",
       "8000",
-      "--reload",
+      ...(isWindows ? [] : ["--reload"]),
     ],
     healthUrl: "http://127.0.0.1:8000/health",
   },

@@ -145,11 +145,9 @@ const screenshotOpen = ref(false);
 .step-card {
   position: relative;
   border: 1px solid var(--rp-line);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-xs, var(--shadow-sm));
   transition:
     box-shadow var(--transition),
     transform var(--transition);
@@ -168,19 +166,19 @@ const screenshotOpen = ref(false);
 
 .step-node {
   position: absolute;
-  left: -52px;
-  top: 18px;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  left: -48px;
+  top: 17px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   font-weight: 800;
   z-index: 1;
-  border: 3px solid #ffffff;
-  box-shadow: 0 8px 20px rgba(10, 186, 181, 0.25);
+  border: 2px solid #ffffff;
+  box-shadow: 0 5px 14px rgba(10, 186, 181, 0.2);
 }
 
 .node-success {
@@ -200,7 +198,7 @@ const screenshotOpen = ref(false);
 }
 
 .step-card-body {
-  padding: 18px;
+  padding: 16px 18px;
   display: grid;
   gap: 12px;
 }
@@ -231,7 +229,7 @@ const screenshotOpen = ref(false);
   display: inline-flex;
   align-items: center;
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: 7px;
   background: var(--accent-soft);
   color: var(--accent);
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
@@ -247,7 +245,7 @@ const screenshotOpen = ref(false);
   justify-content: center;
   gap: 6px;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 7px;
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
