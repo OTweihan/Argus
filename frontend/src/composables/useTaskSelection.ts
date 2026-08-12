@@ -1,7 +1,7 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, shallowRef, type Ref } from "vue";
 import { getTask as apiGetTask, getTaskReportJson as apiGetTaskReportJson } from "../api";
 import type { ReportData, Task } from "../types";
-import { errorMessage, upsertById } from "../utils";
+import { errorMessage, isAbortError, upsertById } from "../utils";
 
 export type TaskDetailTab = "report" | "timeline" | "llm-debug";
 
@@ -21,8 +21,16 @@ export function useTaskSelection(opts: {
   const { allTasks, view, error } = opts;
   const selectedTaskId = ref<string | null>(null);
   const selectedTaskTab = ref<TaskDetailTab>("report");
-  const reportData = ref<ReportData | null>(null);
+  // 报告 payload 只整体替换、从不原地改：shallowRef 避免对多 MB 报告做深层
+  // Proxy 转换（F-H3），模板访问也只走顶层 trap。
+  const reportData = shallowRef<ReportData | null>(null);
   const reportLoading = ref(false);
+
+  // 代次守卫 + 取消（F-M1）：快速切换任务时，只有最新一次 selectTask 允许
+  // 写回 reportData/allTasks/reportLoading/error，避免旧任务的大报告后到覆盖
+  // 当前任务的渲染。
+  let selectGeneration = 0;
+  let inflightController: AbortController | null = null;
 
   const selectedTask = computed(() => {
     if (!selectedTaskId.value) return null;
@@ -30,6 +38,10 @@ export function useTaskSelection(opts: {
   });
 
   async function selectTask(taskId: string, tab: TaskDetailTab = "report"): Promise<void> {
+    inflightController?.abort();
+    const controller = new AbortController();
+    inflightController = controller;
+    const gen = ++selectGeneration;
     try {
       // 先翻转 view 与 selectedTaskId，使编排层 watch 能在数据加载期间
       // 就已触发 WS 重连，事件接收点更早。
@@ -39,16 +51,20 @@ export function useTaskSelection(opts: {
       window.location.hash = "task-detail/" + taskId;
       reportData.value = null;
       reportLoading.value = true;
-      const task = await apiGetTask(taskId);
+      const task = await apiGetTask(taskId, { signal: controller.signal });
+      if (gen !== selectGeneration || controller.signal.aborted) return;
       allTasks.value = upsertById(allTasks.value, task, "taskId");
       if (task.reportPath) {
-        const data = await apiGetTaskReportJson(taskId);
+        const data = await apiGetTaskReportJson(taskId, { signal: controller.signal });
+        if (gen !== selectGeneration || controller.signal.aborted) return;
         reportData.value = data;
       }
     } catch (caught) {
+      if (gen !== selectGeneration) return;
+      if (isAbortError(caught)) return; // 被更新的选择/卸载主动取消，非错误
       error.value = errorMessage(caught);
     } finally {
-      reportLoading.value = false;
+      if (gen === selectGeneration) reportLoading.value = false;
     }
   }
 

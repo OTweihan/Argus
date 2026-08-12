@@ -36,8 +36,11 @@ export function listTasks(
   });
 }
 
-export function getTask(taskId: string): Promise<Task> {
-  return request<Task>(`/tasks/${encodeURIComponent(taskId)}`);
+export function getTask(
+  taskId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<Task> {
+  return request<Task>(`/tasks/${encodeURIComponent(taskId)}`, { signal: options.signal });
 }
 
 export function createTask(payload: TaskPayload): Promise<Task> {
@@ -67,8 +70,13 @@ export function restartTask(taskId: string): Promise<TaskStartResponse> {
   });
 }
 
-export function getTaskReportJson(taskId: string): Promise<ReportData> {
-  return request<ReportData>(`/tasks/${encodeURIComponent(taskId)}/report.json`);
+export function getTaskReportJson(
+  taskId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<ReportData> {
+  return request<ReportData>(`/tasks/${encodeURIComponent(taskId)}/report.json`, {
+    signal: options.signal,
+  });
 }
 
 export function getTaskEvents(taskId: string): Promise<TimelineEvent[]> {

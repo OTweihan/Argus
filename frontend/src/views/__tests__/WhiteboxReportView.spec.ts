@@ -18,12 +18,8 @@ vi.mock("../../api/task", () => ({
   listAnalysisFindings: vi.fn(),
   listAnalysisClusters: vi.fn(),
 }));
-vi.mock("../../api/correlation", () => ({
-  listCorrelationRunsByTask: vi.fn(),
-}));
 
 import * as taskApi from "../../api/task";
-import * as corrApi from "../../api/correlation";
 import WhiteboxReportView from "../../components/task/WhiteboxReportView.vue";
 
 const runs = [
@@ -83,9 +79,9 @@ const WHITEBOX_CHILD_STUBS = {
   },
 };
 
-async function mountView(taskId: string) {
+async function mountView(taskId: string, correlationRunId?: string | null) {
   const wrapper = mount(WhiteboxReportView, {
-    props: { taskId },
+    props: { taskId, correlationRunId: correlationRunId ?? null },
     global: { stubs: WHITEBOX_CHILD_STUBS },
   });
   await flushPromises();
@@ -102,14 +98,12 @@ describe("WhiteboxReportView", () => {
       hasMore: false,
       nextCursor: null,
     });
-    (corrApi.listCorrelationRunsByTask as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const wrapper = await mountView("t-none");
     expect(wrapper.text()).toContain("暂无分析执行数据");
   });
 
   it("有分析时渲染 run selector 与基础 tab", async () => {
     mockRuns();
-    (corrApi.listCorrelationRunsByTask as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const wrapper = await mountView("t-1");
 
     expect(taskApi.getAnalysisRunSummary).toHaveBeenCalledWith("t-1", "an-1");
@@ -121,22 +115,18 @@ describe("WhiteboxReportView", () => {
     for (const label of BASE_TABS) {
       expect(text).toContain(label);
     }
-    // 无关联运行时不应渲染关联证据 tab
+    // 未传入关联运行 id 时不应渲染关联证据 tab
     expect(text).not.toContain("关联证据");
   });
 
-  it("存在关联运行时渲染关联证据 tab", async () => {
+  it("传入关联运行 id 时渲染关联证据 tab", async () => {
     mockRuns();
-    (corrApi.listCorrelationRunsByTask as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { correlationRunId: "cr-1" },
-    ]);
-    const wrapper = await mountView("t-1");
+    const wrapper = await mountView("t-1", "cr-1");
     expect(wrapper.text()).toContain("关联证据");
   });
 
   it("长内容页签显示返回顶部入口", async () => {
     mockRuns();
-    (corrApi.listCorrelationRunsByTask as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const wrapper = await mountView("t-1");
 
     expect(wrapper.find(".backtop-stub").exists()).toBe(false);
@@ -151,7 +141,6 @@ describe("WhiteboxReportView", () => {
 
   it("切换 run 时刷新 summary", async () => {
     mockRuns();
-    (corrApi.listCorrelationRunsByTask as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const wrapper = await mountView("t-1");
     const selector = wrapper.findComponent({ name: "AnalysisRunSelector" });
     expect(selector.exists()).toBe(true);

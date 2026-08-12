@@ -61,6 +61,7 @@
               v-if="isWhitebox"
               :key="'whitebox-' + selectedTask.taskId"
               :task-id="selectedTask.taskId"
+              :correlation-run-id="correlationRunId"
             />
             <ReportView
               v-else
@@ -289,13 +290,18 @@ function editTask(task: Task): void {
 
 const isWhitebox = computed(() => selectedTask.value?.taskType === "whitebox");
 
+// 关联运行由本视图作为单一 owner 查询（F-M3），经 prop 下传给
+// WhiteboxReportView，避免其在挂载时重复请求同一接口。
 const correlationRunId = ref<string | null>(null);
 
 watch(selectedTask, async (task) => {
   correlationRunId.value = null;
   if (!task) return;
+  const taskId = task.taskId;
   try {
-    const crs = await listCorrelationRunsByTask(task.taskId);
+    const crs = await listCorrelationRunsByTask(taskId);
+    // 快照 taskId：快速切换任务时丢弃过期响应，防止旧任务的结果覆盖新任务
+    if (taskId !== selectedTask.value?.taskId) return;
     if (crs.length > 0) {
       correlationRunId.value = crs[0].correlationRunId;
     }

@@ -140,9 +140,10 @@ import DiagnosticsPanel from "./whitebox/DiagnosticsPanel.vue";
 import ClusterList from "./whitebox/ClusterList.vue";
 import FindingList from "./whitebox/FindingList.vue";
 import CorrelationTab from "./whitebox/CorrelationTab.vue";
-import { listCorrelationRunsByTask } from "../../api/correlation";
 
-const props = defineProps<{ taskId: string }>();
+// correlationRunId 由父级 TasksView 作为单一 owner 查询后经 prop 传入（F-M3），
+// 本组件不再自行调用 listCorrelationRunsByTask，避免任务打开时重复请求。
+const props = defineProps<{ taskId: string; correlationRunId?: string | null }>();
 
 const summary = ref<AnalysisRunSummary | null>(null);
 const runs = ref<AnalysisRunSummary[]>([]);
@@ -150,11 +151,10 @@ const analysisId = ref<string | null>(null);
 const loading = ref(false);
 const error = ref("");
 const subTab = ref("overview");
-const correlationRunId = ref<string | null>(null);
 const SCROLLABLE_TABS = new Set(["endpoints", "callgraph", "flows", "clusters", "findings", "correlation"]);
 const showBackTop = computed(() => SCROLLABLE_TABS.has(subTab.value));
 
-// 初始化：加载历史列表 + 默认选择最新 + 检查关联
+// 初始化：加载历史列表 + 默认选择最新（关联运行已由父级查询并传入）
 (async () => {
   loading.value = true;
   try {
@@ -166,11 +166,6 @@ const showBackTop = computed(() => SCROLLABLE_TABS.has(subTab.value));
       const selected = running || succeeded || page.items[0];
       analysisId.value = selected.analysisId;
       summary.value = await getAnalysisRunSummary(props.taskId, selected.analysisId);
-    }
-    // 检查是否存在关联运行
-    const crs = await listCorrelationRunsByTask(props.taskId);
-    if (crs.length > 0) {
-      correlationRunId.value = crs[0].correlationRunId;
     }
   } catch (e) {
     error.value = errorMessage(e);

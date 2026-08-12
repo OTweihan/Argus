@@ -456,12 +456,15 @@ const {
 const loadMoreUncovered = (): void => void uncoveredList.loadMore();
 
 // ── Tab 懒加载 ──
-
+// 子表在切换 tab 后仍保持挂载（el-tabs 内部 pane 保留），items 跨切换保留；
+// 仅在首次访问该页签（items 为空）时加载，避免每次切换重复拉第 1 页并丢弃
+// 已加载分页。注意：evidenceList 不能用 lazyOnce（onEvidenceFilterChange 需显式
+// 重载），因此用 items.length === 0 门。
 watch(subTab, (tab) => {
-  if (tab === "endpoints") void evidenceList.load();
-  if (tab === "findings") void findingEvList.load();
-  if (tab === "unmatched") void unmatchedList.load();
-  if (tab === "uncovered") void uncoveredList.load();
+  if (tab === "endpoints" && evidenceItems.value.length === 0) void evidenceList.load();
+  if (tab === "findings" && findingEvItems.value.length === 0) void findingEvList.load();
+  if (tab === "unmatched" && unmatchedItems.value.length === 0) void unmatchedList.load();
+  if (tab === "uncovered" && uncoveredItems.value.length === 0) void uncoveredList.load();
 });
 
 </script>
