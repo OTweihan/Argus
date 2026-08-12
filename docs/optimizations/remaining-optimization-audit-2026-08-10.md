@@ -13,7 +13,9 @@
 4. 修复异步请求乱序和 handler 返回值丢失等容易在边界条件下暴露的正确性问题；
 5. 对大规模投影写入做基准驱动的批量化，再推进 Java 分析管线的类型化边界。
 
-建议先完成 P0，再实施 P1。P2 应以压测、查询计划或新增分析 pass 的实际需求作为触发条件。
+O-01～O-11 已于 2026-08-10～08-11 按此建议全部实施完成（见 §3 完成标记与各节完成说明）；P2 项
+O-10/O-11 已分别以压测/查询计划与新增分析 pass 架构门禁需求落地，后续优化以新增分析 pass 等实际需求
+作为触发条件。
 
 ## 2. 审查范围与方法
 
@@ -44,14 +46,14 @@
 | O-01 | P0 | 默认部署入口与源码路径边界改为 fail-closed | 降低未鉴权访问、路径探测和任意可见目录分析风险（✅ 已完成） |
 | O-02 | P0 | 强制单 Python 实例，并修正 readiness/Worker 存活语义 | 防止多进程状态分裂，避免探针把失效实例判为可用（✅ 已完成） |
 | O-03 | P0 | 为任务提交增加有界、非阻塞的准入控制 | 防止任务无限堆积和 HTTP 请求长时间挂起（✅ 已完成） |
-| O-04 | P1 | 实现 Java 作业协作取消与服务端 deadline | 取消/超时后及时释放线程、Maven 进程与源码快照 |
-| O-05 | P1 | 显式处理 EventBus 回放缺口和服务重启 epoch | 避免断线后任务终态长期停留在旧值 |
+| O-04 | P1 | 实现 Java 作业协作取消与服务端 deadline | 取消/超时后及时释放线程、Maven 进程与源码快照（✅ 已完成） |
+| O-05 | P1 | 显式处理 EventBus 回放缺口和服务重启 epoch | 避免断线后任务终态长期停留在旧值（✅ 已完成） |
 | O-06 | P1 | TaskRunner 使用 handler 返回的 Task | 消除返回新快照时的结果、报告或终态信息丢失风险（✅ 已完成） |
 | O-07 | P1 | 合并源码快照、内容指纹与 Java 缓存键计算 | 降低大型仓库冷启动 I/O、磁盘占用和重复哈希（✅ 已完成） |
 | O-08 | P1 | Java 分析缓存按权重限制，而非只限制条目数 | 控制大型调用图缓存造成的堆内存峰值（✅ 已完成） |
-| O-09 | P1 | 前端列表与参数推断增加请求代次/取消 | 防止旧响应覆盖新筛选条件或新输入 |
+| O-09 | P1 | 前端列表与参数推断增加请求代次/取消 | 防止旧响应覆盖新筛选条件或新输入（✅ 已完成） |
 | O-10 | P2 | 批量化分析投影写入，修正游标分页重复计数 | 降低大型分析结果的 SQLite 调用开销（✅ 已完成） |
-| O-11 | P2 | 收敛 Java DTO/核心边界并引入类型化 AnalysisPass | 降低新增分析能力时的编排分支和跨层耦合 |
+| O-11 | P2 | 收敛 Java DTO/核心边界并引入类型化 AnalysisPass | 降低新增分析能力时的编排分支和跨层耦合（✅ 已完成） |
 
 ## 4. 详细优化建议
 
@@ -183,6 +185,28 @@
 
 ### O-04 实现 Java 作业协作取消与服务端 deadline（P1）
 
+> ✅ **已完成并补强（2026-08-10）**。Java 侧 `AnalysisJobService` 重写为单向 CAS 状态机：
+> `markRunning/Succeeded/Failed/Cancelled/TimedOut` 全部 CAS，取消/完成/超时并发先发生者定序；
+> `getResult` 仅在 SUCCEEDED 返回，取消后不可发布结果。新增幂等 `cancel(jobId)`（PENDING 直接落
+> CANCELLED 并从执行队列移除，`future.cancel(false)` 不 interrupt；RUNNING 置协作令牌 + 经
+> `MavenProcessRegistry` 立即终止 Maven 进程树；已终态 no-op），Controller 新增
+> `DELETE /argus/api/analyze/jobs/{jobId}`；`enforceDeadlines()` @Scheduled 对运行/排队作业兜底
+> TIMED_OUT（PENDING 同时取消排队 Future，避免执行器随后再启动分析）。协作检查下钻到
+> `SourceFileScanner`/`ControllerExtractor`/`CallGraphBuilder`/`FindingDetector`/`ExecutionFlowTracer`/
+> `CommunityClusterer`/`ModuleClassifier`/`MavenExecutor`，统一抛 `JobCancelledException`（非
+> ClasspathException 子类，不被 gateway 吞掉）；`runJob` 捕获 `CompletionException` 解包取消信号。
+> Python 侧 `WhiteboxClient.cancel_analyze_job`（DELETE，404→None）；`WhiteboxRunner` 取消先
+> `_cancel_remote_with_confirmation`（确认窗口内轮询 CANCELLED）→ confirmed 落 CANCELLED /
+> requested|unknown|unreachable 保留 STOPPED_WAITING；超时与 Worker shutdown（asyncio.CancelledError
+> → shield）均 best-effort 通知远端。新增 `whitebox/recovery.py`：
+> `reconcile_orphan_whitebox_jobs` 对孤儿作业按远端状态重新接管/拉结果/落超时/落失败，`TaskWorker`
+> 可选持有 whitebox_client 完整接管。Python 1322 tests 全过；Java 侧经本次 `mvn test`（2026-08-12）
+> BUILD SUCCESS——147 tests，0 failures / 0 errors，2 skipped（均在 `SourceLocatorTest`，Windows 下
+> symlink 相关用例跳过），含 `AnalysisJobServiceTest` 13 个取消/超时/CAS 用例与 ArchUnit
+> `DependencyRuleTest`。已知边界：同一 cacheKey 下 job B 被
+> 去重到 job A 的 in-flight future 时，A 取消会让 B 的 `join()` 抛 `CompletionException` 并按取消
+> 处理（单 worker 每源单分析下罕见，若需 B 重跑可后续观察）。
+
 **现状证据**
 
 - `argus_py/whitebox/runner.py:460-474` 明确说明本地取消只停止轮询，Java 作业可能仍在运行。
@@ -213,6 +237,22 @@
 - Python 不可达、Java 重启和取消/完成竞态均有契约测试。
 
 ### O-05 显式处理 EventBus 回放缺口和服务重启 epoch（P1）
+
+> ✅ **已完成（2026-08-10）**。实现要点：
+> - `EventBus` 新增 `stream_epoch`（进程级纪元，重启即变化）与 `ReplayWindow`/`EventSubscriptionResult`；
+>   `subscribe_with_replay()` 把回放收集为有界列表（不经过比 history 更小的订阅队列，避免 drop-oldest），
+>   `replay_window()` 返回可回放窗口。
+> - `ws.py`：`system.ready` 携带 `streamEpoch/oldestSequence/currentSequence/replayComplete`；
+>   `system.replay_gap`（`epoch_changed`/`since_seq_out_of_window`）显式下发、不静默丢事件；回放按
+>   `REPLAY_BATCH_SIZE=100` 分批直发；`_stream_events` 重构为 select 循环，断连时主动释放订阅队列。
+> - 前端 `ws.ts`：`TaskEventStream` 消费 `system.ready`（纪元变化兜底触发 gap）与 `system.replay_gap`
+>   （清空 `lastSequence` + 防重复上报）；重连带 `epoch` query，指数退避 + 50%–100% jitter。
+>   `useRuntimeEvents.onReplayGap`；`useConsoleApp` gap 处理器触发 `refreshRuntimeData()` +
+>   `timelineReloadTick++`，`TaskTimeline` 重拉持久化时间线。顺序正确性依据：DB 写入先于 publish →
+>   SQLite 快照恒 ≥ 已接收事件，权威刷新代次防乱序。
+> - 测试：`test_event_bus.py`（subscribe_with_replay/stream_epoch）、`test_ws_utils.py`（ready/gap 事件）、
+>   新 `tests/integration/test_ws_replay_gap.py`；前端 `ws.spec.ts`/`useTaskEvents.spec.ts`/`clientAuth.spec.ts`。
+>   Python 1345 + 前端 192 tests 全过。
 
 **现状证据**
 
@@ -373,6 +413,19 @@
 
 ### O-09 前端列表与参数推断增加请求代次/取消（P1）
 
+> ✅ **已完成（2026-08-10）**。实现要点：
+> - `api/task/index.ts`：`listTasks`/`inferTaskLimits` 增加可选 `options: { signal?: AbortSignal }`；
+>   `client.request` 支持外部 signal（abort 统一转 `ApiError(code="REQUEST_ABORTED")`）；
+>   `utils.isAbortError` 区分"正常取消"与真实失败，避免误弹错误 toast。
+> - `useTaskList`：每次 `loadTasks` 先 abort 旧请求 + `++loadGeneration` 代次守卫——只有最新代次可写回
+>   `allTasks/total/loading/error`；查询条件在发起瞬间定格为不可变快照（请求期间不再读 ref）；
+>   `onScopeDispose` 置 disposed 并 abort。
+> - `useTasks.autoFillLimits`：推断请求同样 abort + 代次守卫，响应落地前二次核对
+>   `goal/startUrl/taskType/editingId` 均未变才写回，用户手工修改后不被自动推断覆盖。
+> - 测试：`useTaskList.spec.ts`（11 用例：反序完成/快速切页/快速筛选/卸载/失败/取消等）、
+>   `useTasks.spec.ts` 增补 autoFillLimits 取消与乱序防护（8 用例）。前端 212 tests 全过；
+>   无 Python/Java 改动。
+
 **现状证据**
 
 - `useTaskList.loadTasks()` 没有 AbortController 或 request generation。筛选、分页、搜索和重连刷新可同时
@@ -485,7 +538,11 @@
 - 核心分析单测无需 Spring Context；HTTP DTO 变化不直接传播到算法类。
 - capability 依赖可在启动时校验重复、缺失和循环，分析结果顺序可重复。
 
-## 5. 推荐实施顺序
+## 5. 实施顺序（已全部完成）
+
+> ✅ 以下批次已按计划全部实施完成（截至 2026-08-11）：第一批 O-01～O-03（安全与运行护栏）、
+> 第二批 O-04～O-06 与 O-09（生命周期正确性）、第三批 O-07/O-08/O-10（基准驱动性能），
+> O-11（类型化 AnalysisPass 与包依赖门禁）也已按扩展需求触发落地。
 
 ```text
 第一批：安全与运行护栏
@@ -530,6 +587,9 @@ O-11 类型化 AnalysisPass 与包依赖门禁
 | 前端请求 | 旧请求后返回、abort、快速筛选/翻页、重连刷新并发 |
 | SQLite 投影 | 1k/10k/50k 规模、失败回滚、分页无重复和查询计划 |
 
+> ✅ 上述场景均已由 O-01～O-11 对应的定向测试覆盖（详见各节"已完成"说明）；后续新增功能继续沿用该
+> 矩阵作为回归基线。
+
 ## 7. 当前不建议做的事项
 
 1. **不因队列问题直接引入 Redis/Kafka。** 当前产品仍是单进程/单副本，先把本地队列准入、取消和探针
@@ -545,6 +605,7 @@ O-11 类型化 AnalysisPass 与包依赖门禁
 
 ## 8. 最终建议
 
-最小高收益闭环是：先完成 O-01～O-03，确保系统在错误部署和压力下能够拒绝而不是失控；随后完成
-O-04～O-06 和 O-09，把取消、断线恢复和任务终态做成可验证的一致语义；最后以大型仓库和大型调用图
-基准决定 O-07、O-08、O-10 的具体预算。O-11 作为新增分析能力前的架构门禁，不应抢在可靠性工作之前。
+上述最小高收益闭环已按建议完成：O-01～O-03 先落地，保证系统在错误部署和压力下能够拒绝而不是失控；
+随后 O-04～O-06 与 O-09 把取消、断线恢复和任务终态做成可验证的一致语义；最后以大型仓库与调用图
+基准完成 O-07、O-08、O-10，并把 O-11 作为新增分析能力前的架构门禁落地。后续优化应以压测、查询
+计划或新增分析 pass 的实际需求作为触发条件，不提前重构。
