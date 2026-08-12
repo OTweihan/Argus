@@ -2327,7 +2327,7 @@ export interface components {
          * @description 质量问题代码 — 结构化错误码，前端据此显示图标和操作提示。
          * @enum {string}
          */
-        QualityIssueCode: "NO_ELIGIBLE_SOURCE_FILES" | "MODULE_PARSE_PARTIAL_FAILURE" | "CLASSPATH_DEGRADED" | "CLASSPATH_UNAVAILABLE" | "CALL_RESOLUTION_LOW" | "PARTIAL_RESULT" | "ZERO_FINDINGS" | "SCHEMA_VERSION_MISMATCH";
+        QualityIssueCode: "NO_ELIGIBLE_SOURCE_FILES" | "MODULE_PARSE_PARTIAL_FAILURE" | "CLASSPATH_DEGRADED" | "CLASSPATH_UNAVAILABLE" | "CALL_RESOLUTION_LOW" | "ANALYSIS_PASS_FAILED" | "PARTIAL_RESULT" | "ZERO_FINDINGS" | "SCHEMA_VERSION_MISMATCH";
         /**
          * QualityIssueLevel
          * @description 质量问题等级。
