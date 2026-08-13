@@ -437,148 +437,24 @@ def create_container() -> RuntimeContainer:
     async def _execute_correlation(attempt: Any) -> None:
         """执行端点匹配 + 调用流关联 + Finding 证据关联。
 
-        根据采集质量和匹配结果决定 completeness 是 COMPLETE 还是 PARTIAL，
-        并写入对应的 reasons 和 diagnostics。
+        薄委托到 ``correlation._execution.execute_correlation``（与 application.py
+        同步路径共用同一编排实现，消除两份近逐字副本）。根据采集质量和匹配结果
+        决定 completeness 是 COMPLETE 还是 PARTIAL，并写入对应的 reasons 和
+        diagnostics。
         """
-        from argus_py.correlation._execution import (
-            assess_capture_quality,
-            build_quality_reasons,
-            generate_finding_evidence,
-            generate_flows,
-            resolve_completeness,
-        )
-        from argus_py.correlation.enums import (
-            AttemptDiagnosticCode,
-            AttemptStatus,
-            EvidenceCompleteness,
-        )
-        from argus_py.correlation.matcher import EndpointMatcher
-        from argus_py.correlation.models import (
-            CorrelationAttemptDiagnostic,
-        )
+        from argus_py.correlation._execution import execute_correlation
+        from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
 
         cr = storage.get_correlation_run(attempt.correlation_run_id)
-        if cr is None or cr.analysis_id is None:
+        if cr is None:
             storage.complete_and_activate_attempt(
                 attempt.correlation_attempt_id,
-                AttemptStatus.FAILED,
-                EvidenceCompleteness.PARTIAL,
+                AttemptStatus.FAILED.value,
+                EvidenceCompleteness.PARTIAL.value,
             )
             return
 
-        # ── 读取采集质量 ──
-        cq = storage.get_capture_quality(cr.blackbox_run_id)
-        capture_truncated, has_persistence_failure = assess_capture_quality(cq)
-        reasons, diagnostics = build_quality_reasons(
-            attempt.correlation_attempt_id,
-            cq,
-            capture_truncated,
-            has_persistence_failure,
-        )
-
-        # 先取合格请求做早退判断：无合格请求时无需加载投影全量行（端点/执行流/
-        # 调用节点），避免浪费三次大查询。
-        eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
-
-        if not eligible_requests:
-            diagnostics.append(
-                CorrelationAttemptDiagnostic(
-                    correlation_attempt_id=attempt.correlation_attempt_id,
-                    diagnostic_code=AttemptDiagnosticCode.NO_ELIGIBLE_REQUESTS,
-                    detail=f"blackbox_run_id={cr.blackbox_run_id} 无 CONFIRMED_ELIGIBLE 请求",
-                )
-            )
-            completeness = resolve_completeness(
-                bool(reasons),
-                capture_truncated,
-                has_persistence_failure,
-            )
-            if reasons:
-                storage.insert_attempt_reasons_batch(reasons)
-            if diagnostics:
-                storage.insert_attempt_diagnostics_batch(diagnostics)
-            storage.complete_and_activate_attempt(
-                attempt.correlation_attempt_id,
-                AttemptStatus.PARTIAL
-                if completeness == EvidenceCompleteness.PARTIAL
-                else AttemptStatus.SUCCEEDED,
-                completeness,
-            )
-            return
-
-        # 加载白盒端点（全量，不做 200 行分页钳制）；执行流/调用节点一次取全供
-        # generate_flows / generate_finding_evidence 共用，避免同一分析内重复查询。
-        endpoints = storage.list_all_analysis_endpoints(cr.analysis_id)
-        analysis_flows = storage.list_all_analysis_execution_flows(cr.analysis_id)
-        call_nodes = storage.list_all_analysis_call_nodes(cr.analysis_id)
-
-        matcher = EndpointMatcher(
-            matcher_version="v1",
-            normalization_version="v1",
-            path_mapping=path_mapping,
-        )
-        result = matcher.match_batch(eligible_requests, endpoints)
-
-        # 诊断：正则约束不可移植
-        if result.diagnostics:
-            diagnostics.extend(
-                CorrelationAttemptDiagnostic(
-                    correlation_attempt_id=attempt.correlation_attempt_id,
-                    diagnostic_code=d,
-                    detail=None,
-                )
-                for d in result.diagnostics
-            )
-
-        # 写入证据（填充 correlation_run_id 和 attempt_id）
-        for ev in result.evidence_list:
-            ev.correlation_run_id = cr.correlation_run_id
-            ev.correlation_attempt_id = attempt.correlation_attempt_id
-
-        storage.insert_endpoint_evidence_batch(result.evidence_list)
-        if result.candidates:
-            storage.insert_candidates_batch(result.candidates)
-
-        # ── 生成调用流关联 ──
-        flows = generate_flows(
-            storage, cr.analysis_id, result.evidence_list, endpoints, flows=analysis_flows
-        )
-        if flows:
-            storage.insert_flows_batch(flows)
-
-        # ── 生成 Finding 证据关联 ──
-        finding_evidence_list, finding_links = generate_finding_evidence(
-            storage,
-            cr.analysis_id,
-            attempt.correlation_attempt_id,
-            result.evidence_list,
-            endpoints,
-            flows=analysis_flows,
-            call_nodes=call_nodes,
-        )
-        if finding_evidence_list:
-            storage.insert_finding_evidence_batch(finding_evidence_list)
-        if finding_links:
-            storage.insert_finding_links_batch(finding_links)
-
-        # ── 决定 completeness ──
-        completeness = resolve_completeness(
-            bool(reasons),
-            capture_truncated,
-            has_persistence_failure,
-        )
-        if reasons:
-            storage.insert_attempt_reasons_batch(reasons)
-        if diagnostics:
-            storage.insert_attempt_diagnostics_batch(diagnostics)
-
-        storage.complete_and_activate_attempt(
-            attempt.correlation_attempt_id,
-            AttemptStatus.PARTIAL
-            if completeness == EvidenceCompleteness.PARTIAL
-            else AttemptStatus.SUCCEEDED,
-            completeness,
-        )
+        execute_correlation(storage, cr, attempt, path_mapping=path_mapping)
 
     # 生成 Worker 标识（单进程单 Worker，ID 稳定）
     worker_id = getattr(settings, "worker_id", "") or generate_id("w")

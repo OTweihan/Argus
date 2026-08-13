@@ -118,6 +118,19 @@ class TaskApplicationService:
             if not result.is_ok():
                 raise TaskError(f"startUrl 校验失败：{result.error_message}")
 
+            # 项目默认执行限制先合并：用户显式值优先，其次项目默认，最后留给推断。
+            # 必须在 resolve_execution_limits 之前合并，否则项目默认 max_steps/timeout
+            # 会被 limits 计算时的 None 静默忽略（capture_screenshots 走局部变量返回值、
+            # 不受影响，此前两处默认值是否生效不一致）。白盒不在此合并——白盒是单步
+            # 分析，max_steps/timeout 固定兜底值，不继承项目浏览器默认限制。
+            if project:
+                max_steps = max_steps if max_steps is not None else project.default_max_steps
+                timeout_seconds = (
+                    timeout_seconds
+                    if timeout_seconds is not None
+                    else project.default_timeout_seconds
+                )
+
             limits = resolve_execution_limits(goal, start_url, max_steps, timeout_seconds)
             whitebox_config_json: str | None = None
         else:
@@ -166,8 +179,8 @@ class TaskApplicationService:
             )
 
         if project:
-            max_steps = max_steps or project.default_max_steps
-            timeout_seconds = timeout_seconds or project.default_timeout_seconds
+            # max_steps/timeout 的项目默认值已在上方合并；此处只处理 capture_screenshots
+            # 与 parameters 合并。
             capture_screenshots = (
                 capture_screenshots
                 if capture_screenshots is not None
@@ -402,9 +415,6 @@ class TaskApplicationService:
 
     # ── 查询（委托） ──
 
-    def get_task(self, task_id: str) -> Any:
-        return self._read.get_task(task_id)
-
     async def get_task_with_scheduler(self, task_id: str) -> tuple[Any, str | None]:
         task = await run_in_thread(self._read.get_task, task_id)
         sched = await self._queue.scheduler_status(task_id)
@@ -426,17 +436,6 @@ class TaskApplicationService:
             offset=offset,
             limit=limit,
             q=q,
-        )
-
-    def count_tasks(
-        self,
-        status: TaskStatus | None = None,
-        project_id: str | None = None,
-        q: str | None = None,
-        task_type: TaskType | None = None,
-    ) -> int:
-        return self._read.count_tasks(
-            status=status, project_id=project_id, q=q, task_type=task_type
         )
 
     async def snapshot_queue_statuses(self) -> dict[str, str]:
@@ -1086,157 +1085,20 @@ def _execute_matching_sync(
 ) -> None:
     """关联匹配的同步实现 — 纯 CPU + 同步 SQLite 操作。
 
-    根据采集质量和匹配结果决定 completeness（COMPLETE/PARTIAL），
-    并写入对应的 reasons 和 diagnostics。
-    on_completed(analysis_id, correlation_run_id) 在 Attempt 落终态后调用。
+    薄委托到 ``correlation._execution.execute_correlation``（与 container.py
+    异步路径共用同一编排实现，避免两份近逐字副本）。根据采集质量和匹配结果
+    决定 completeness（COMPLETE/PARTIAL），并写入对应的 reasons 和 diagnostics。
+    ``on_completed(analysis_id, correlation_run_id)`` 在 Attempt 落终态后调用。
     """
-    from argus_py.correlation._execution import (
-        assess_capture_quality,
-        build_quality_reasons,
-        generate_finding_evidence,
-        generate_flows,
-        resolve_completeness,
-    )
-    from argus_py.correlation.enums import (
-        AttemptDiagnosticCode,
-        AttemptStatus,
-        EvidenceCompleteness,
-    )
-    from argus_py.correlation.matcher import EndpointMatcher
-    from argus_py.correlation.models import (
-        CorrelationAttemptDiagnostic,
-    )
+    from argus_py.correlation._execution import execute_correlation
 
-    if cr.analysis_id is None:
-        storage.complete_and_activate_attempt(
-            attempt.correlation_attempt_id,
-            AttemptStatus.FAILED.value,
-            EvidenceCompleteness.PARTIAL.value,
-        )
-        return
-
-    # ── 读取采集质量 ──
-    cq = storage.get_capture_quality(cr.blackbox_run_id)
-    capture_truncated, has_persistence_failure = assess_capture_quality(cq)
-    reasons, diagnostics = build_quality_reasons(
-        attempt.correlation_attempt_id,
-        cq,
-        capture_truncated,
-        has_persistence_failure,
-    )
-
-    # 先取合格请求做早退判断：无合格请求时无需加载投影全量行（端点/执行流/
-    # 调用节点），避免浪费三次大查询。
-    eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
-
-    if not eligible_requests:
-        diagnostics.append(
-            CorrelationAttemptDiagnostic(
-                correlation_attempt_id=attempt.correlation_attempt_id,
-                diagnostic_code=AttemptDiagnosticCode.NO_ELIGIBLE_REQUESTS,
-                detail=f"blackbox_run_id={cr.blackbox_run_id} 无 CONFIRMED_ELIGIBLE 请求",
-            )
-        )
-        completeness = resolve_completeness(
-            bool(reasons),
-            capture_truncated,
-            has_persistence_failure,
-        )
-        if reasons:
-            storage.insert_attempt_reasons_batch(reasons)
-        if diagnostics:
-            storage.insert_attempt_diagnostics_batch(diagnostics)
-        storage.complete_and_activate_attempt(
-            attempt.correlation_attempt_id,
-            (
-                AttemptStatus.PARTIAL
-                if completeness == EvidenceCompleteness.PARTIAL
-                else AttemptStatus.SUCCEEDED
-            ).value,
-            completeness.value,
-        )
-        if on_completed is not None:
-            on_completed(cr.analysis_id, cr.correlation_run_id)
-        return
-
-    # 关联匹配需要投影全量行（不做 200 行分页钳制）；执行流/调用节点一次取全，
-    # 供 generate_flows / generate_finding_evidence 共用，避免同一分析内重复查询。
-    endpoints_list = storage.list_all_analysis_endpoints(cr.analysis_id)
-    analysis_flows = storage.list_all_analysis_execution_flows(cr.analysis_id)
-    call_nodes = storage.list_all_analysis_call_nodes(cr.analysis_id)
-
-    matcher = EndpointMatcher(
-        matcher_version="v1",
-        normalization_version="v1",
+    execute_correlation(
+        storage,
+        cr,
+        attempt,
+        on_completed=on_completed,
         path_mapping=path_mapping,
     )
-    result = matcher.match_batch(eligible_requests, endpoints_list)
-
-    if result.diagnostics:
-        diagnostics.extend(
-            CorrelationAttemptDiagnostic(
-                correlation_attempt_id=attempt.correlation_attempt_id,
-                diagnostic_code=d,
-                detail=None,
-            )
-            for d in result.diagnostics
-        )
-
-    for ev in result.evidence_list:
-        ev.correlation_run_id = cr.correlation_run_id
-        ev.correlation_attempt_id = attempt.correlation_attempt_id
-
-    storage.insert_endpoint_evidence_batch(result.evidence_list)
-    if result.candidates:
-        storage.insert_candidates_batch(result.candidates)
-
-    # ── 生成调用流关联 ──
-    flows = generate_flows(
-        storage,
-        cr.analysis_id,
-        result.evidence_list,
-        endpoints_list,
-        flows=analysis_flows,
-    )
-    if flows:
-        storage.insert_flows_batch(flows)
-
-    # ── 生成 Finding 证据关联 ──
-    finding_evidence_list, finding_links = generate_finding_evidence(
-        storage,
-        cr.analysis_id,
-        attempt.correlation_attempt_id,
-        result.evidence_list,
-        endpoints_list,
-        flows=analysis_flows,
-        call_nodes=call_nodes,
-    )
-    if finding_evidence_list:
-        storage.insert_finding_evidence_batch(finding_evidence_list)
-    if finding_links:
-        storage.insert_finding_links_batch(finding_links)
-
-    completeness = resolve_completeness(
-        bool(reasons),
-        capture_truncated,
-        has_persistence_failure,
-    )
-    if reasons:
-        storage.insert_attempt_reasons_batch(reasons)
-    if diagnostics:
-        storage.insert_attempt_diagnostics_batch(diagnostics)
-
-    storage.complete_and_activate_attempt(
-        attempt.correlation_attempt_id,
-        (
-            AttemptStatus.PARTIAL
-            if completeness == EvidenceCompleteness.PARTIAL
-            else AttemptStatus.SUCCEEDED
-        ).value,
-        completeness.value,
-    )
-    if on_completed is not None:
-        on_completed(cr.analysis_id, cr.correlation_run_id)
 
 
 # ── 关联字典转换辅助（模块级）──────────────────────────────────────

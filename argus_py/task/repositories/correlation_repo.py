@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from argus_py.correlation.enums import (
@@ -46,11 +46,7 @@ _LEASE_DURATION_SECONDS = 300
 
 
 def _lease_expiry() -> str:
-    import datetime as _dt
-
-    return (
-        _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=_LEASE_DURATION_SECONDS)
-    ).isoformat()
+    return (datetime.now(timezone.utc) + timedelta(seconds=_LEASE_DURATION_SECONDS)).isoformat()
 
 
 # ── BlackboxRun 行映射 ─────────────────────────────────────
@@ -888,9 +884,8 @@ class CorrelationRepository:
                 summary.failed_capture_count = cq["persistence_failed"] or 0
                 summary.captured_request_count = cq["persisted_count"] or 0
 
-        # ── 请求证据总数（避免采集质量未持久化时为零）──
-        if summary.captured_request_count == 0:
-            with self._pool.ro_conn() as conn:
+            # ── 请求证据总数（避免采集质量未持久化时为零）──
+            if summary.captured_request_count == 0:
                 total_row = conn.execute(
                     "SELECT COUNT(*) AS cnt FROM http_request_evidence WHERE blackbox_run_id = ?",
                     (bb_id,),
@@ -1155,6 +1150,17 @@ class CorrelationRepository:
                     quality.updated_at or _utc_now_iso(),
                 ),
             )
+
+    def get_capture_quality(self, blackbox_run_id: str) -> dict[str, Any] | None:
+        """读取采集质量快照（供 storage 层复用，避免跨层访问 _pool）。"""
+        with self._pool.ro_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM http_capture_quality WHERE blackbox_run_id = ?",
+                (blackbox_run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
 
     # ══════════════════════════════════════════════════════════
     # Uncovered Endpoints

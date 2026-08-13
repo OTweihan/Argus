@@ -468,8 +468,7 @@ class TaskLifecycleService(_StorageEventBase):
                 first_aid = task.findings[0].analysis_id
                 if first_aid:
                     self.storage.delete_findings_by_analysis_id(first_aid)
-            for finding in task.findings:
-                self.storage.append_finding(task.task_id, finding)
+            self.storage.insert_findings_batch(task.task_id, task.findings)
 
 
 def _task_summary(task: Task) -> dict[str, Any]:

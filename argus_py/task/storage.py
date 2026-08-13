@@ -207,6 +207,10 @@ class TaskSQLiteStorage:
     def append_finding(self, task_id: str, finding: Finding) -> None:
         self._findings.append(task_id, finding)
 
+    def insert_findings_batch(self, task_id: str, findings: list[Finding]) -> None:
+        """批量写入一批发现项（单事务 executemany）。"""
+        self._findings.insert_batch(task_id, findings)
+
     def delete_findings_by_analysis_id(self, analysis_id: str) -> None:
         """删除指定分析执行的所有发现项（幂等清理）。"""
         self._findings.delete_by_analysis_id(analysis_id)
@@ -590,14 +594,7 @@ class TaskSQLiteStorage:
         self._correlation.upsert_capture_quality(quality)
 
     def get_capture_quality(self, blackbox_run_id: str) -> dict[str, Any] | None:
-        with self._correlation._pool.ro_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM http_capture_quality WHERE blackbox_run_id = ?",
-                (blackbox_run_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return dict(row)
+        return self._correlation.get_capture_quality(blackbox_run_id)
 
     # 崩溃恢复
     def recover_stale_attempts(self) -> list[CorrelationAttempt]:

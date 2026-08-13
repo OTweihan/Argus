@@ -28,6 +28,24 @@ class FindingRepository:
                 finding_to_row(task_id, finding),
             )
 
+    def insert_batch(self, task_id: str, findings: list[Finding]) -> None:
+        """同事务批量写入一批发现项（避免逐条开事务的 N+1 写放大）。
+
+        白盒分析 findings 可能达数百条，逐条 ``append`` 会开等量写事务；
+        这里改为单事务 ``executemany``，行元组已在内存中（``task.findings``），
+        无需再分片。
+        """
+        if not findings:
+            return
+        with self._pool.tx() as conn:
+            conn.executemany(
+                "INSERT INTO findings (finding_id, task_id, title, description, "
+                "severity, finding_type, url, location, screenshot_path, created_at, "
+                "rule_id, rule_category, confidence, fingerprint, snippet, analysis_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (finding_to_row(task_id, f) for f in findings),
+            )
+
     def delete_by_analysis_id(self, analysis_id: str) -> None:
         """删除指定分析执行的所有发现项（幂等清理，用于重新执行时避免累积）。"""
         with self._pool.tx() as conn:

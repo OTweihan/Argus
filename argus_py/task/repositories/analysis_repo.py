@@ -685,7 +685,7 @@ class AnalysisRunRepository:
     ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
         items, next_cursor, total, has_more = self._paginated_query(
             "analysis_endpoints",
-            analysis_id,
+            analysis_id=analysis_id,
             order="normalized_path_template ASC, http_method ASC, endpoint_id ASC",
             cursor=cursor,
             limit=limit,
@@ -758,7 +758,7 @@ class AnalysisRunRepository:
     ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
         items, next_cursor, total, has_more = self._paginated_query(
             "analysis_execution_flows",
-            analysis_id,
+            analysis_id=analysis_id,
             order="entry_point ASC, execution_flow_id ASC",
             cursor=cursor,
             limit=limit,
@@ -852,7 +852,7 @@ class AnalysisRunRepository:
         """分页查询聚类。"""
         items, next_cursor, total, has_more = self._paginated_query(
             "analysis_clusters",
-            analysis_id,
+            analysis_id=analysis_id,
             order="suggested_label ASC, cluster_id ASC",
             cursor=cursor,
             limit=limit,
@@ -974,18 +974,21 @@ class AnalysisRunRepository:
     def _paginated_query(
         self,
         table: str,
-        params: Any = None,
         *,
+        analysis_id: str | None = None,
         where_clause: str | None = None,
+        params: list[Any] | None = None,
         order: str = "",
         cursor: str | None = None,
         limit: int = 100,
     ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
-        if isinstance(params, str):
+        if analysis_id is not None:
             where_clause = "analysis_id = ?"
-            params = [params]
+            params = [analysis_id]
         elif where_clause is None:
             raise ValueError("Must provide either analysis_id or where_clause")
+        if params is None:
+            raise ValueError("where_clause path must provide params")
 
         # 游标编码：base64(json({"k": [sort_key_values]}))。解码或校验失败
         # （非列表 / 键数与排序列不符）时回退为首页请求：仍计算 total。

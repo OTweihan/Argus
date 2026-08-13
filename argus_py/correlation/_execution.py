@@ -91,6 +91,168 @@ def resolve_completeness(
     return EvidenceCompleteness.COMPLETE
 
 
+def execute_correlation(
+    storage: Any,
+    cr: Any,
+    attempt: Any,
+    *,
+    on_completed: Any | None = None,
+    path_mapping: Any | None = None,
+) -> None:
+    """关联匹配编排的单一实现 — 纯 CPU + 同步 SQLite 操作。
+
+    这是 application.py（同步路径）与 container.py（异步路径）共享的编排层：
+    两者此前各持一份约 150 行的近逐字副本，任何修复/新字段都需双处同步，
+    现收敛为一处。流程：
+
+    1. ``cr.analysis_id`` 为空 → 直接 FAILED/PARTIAL 落终态；
+    2. 读采集质量、生成 reasons/diagnostics；
+    3. 取合格请求做早退判断（无合格请求时无需加载投影全量行）；
+    4. 全量加载端点/执行流/调用节点 → 匹配 → 写证据/候选；
+    5. 生成调用流关联与 Finding 证据关联；
+    6. 决定 completeness 并 ``complete_and_activate_attempt``。
+
+    ``on_completed(analysis_id, correlation_run_id)`` 在 Attempt 落终态后调用。
+    """
+    from argus_py.correlation.enums import (
+        AttemptDiagnosticCode,
+        AttemptStatus,
+    )
+    from argus_py.correlation.matcher import EndpointMatcher
+
+    if cr.analysis_id is None:
+        storage.complete_and_activate_attempt(
+            attempt.correlation_attempt_id,
+            AttemptStatus.FAILED.value,
+            EvidenceCompleteness.PARTIAL.value,
+        )
+        # 与原 _execute_matching_sync 语义一致：analysis_id 缺失属「未绑定分析」，
+        # 直接落 FAILED 终态，不触发 on_completed 报告重生成（无 analysis_id 可关联）。
+        return
+
+    # ── 读取采集质量 ──
+    cq = storage.get_capture_quality(cr.blackbox_run_id)
+    capture_truncated, has_persistence_failure = assess_capture_quality(cq)
+    reasons, diagnostics = build_quality_reasons(
+        attempt.correlation_attempt_id,
+        cq,
+        capture_truncated,
+        has_persistence_failure,
+    )
+
+    # 先取合格请求做早退判断：无合格请求时无需加载投影全量行（端点/执行流/
+    # 调用节点），避免浪费三次大查询。
+    eligible_requests = storage.list_eligible_requests(cr.blackbox_run_id)
+
+    if not eligible_requests:
+        diagnostics.append(
+            CorrelationAttemptDiagnostic(
+                correlation_attempt_id=attempt.correlation_attempt_id,
+                diagnostic_code=AttemptDiagnosticCode.NO_ELIGIBLE_REQUESTS,
+                detail=f"blackbox_run_id={cr.blackbox_run_id} 无 CONFIRMED_ELIGIBLE 请求",
+            )
+        )
+        completeness = resolve_completeness(
+            bool(reasons),
+            capture_truncated,
+            has_persistence_failure,
+        )
+        if reasons:
+            storage.insert_attempt_reasons_batch(reasons)
+        if diagnostics:
+            storage.insert_attempt_diagnostics_batch(diagnostics)
+        storage.complete_and_activate_attempt(
+            attempt.correlation_attempt_id,
+            (
+                AttemptStatus.PARTIAL
+                if completeness == EvidenceCompleteness.PARTIAL
+                else AttemptStatus.SUCCEEDED
+            ).value,
+            completeness.value,
+        )
+        if on_completed is not None:
+            on_completed(cr.analysis_id, cr.correlation_run_id)
+        return
+
+    # 关联匹配需要投影全量行（不做 200 行分页钳制）；执行流/调用节点一次取全，
+    # 供 generate_flows / generate_finding_evidence 共用，避免同一分析内重复查询。
+    endpoints = storage.list_all_analysis_endpoints(cr.analysis_id)
+    analysis_flows = storage.list_all_analysis_execution_flows(cr.analysis_id)
+    call_nodes = storage.list_all_analysis_call_nodes(cr.analysis_id)
+
+    matcher = EndpointMatcher(
+        matcher_version="v1",
+        normalization_version="v1",
+        path_mapping=path_mapping,
+    )
+    result = matcher.match_batch(eligible_requests, endpoints)
+
+    # 诊断：正则约束不可移植
+    if result.diagnostics:
+        diagnostics.extend(
+            CorrelationAttemptDiagnostic(
+                correlation_attempt_id=attempt.correlation_attempt_id,
+                diagnostic_code=d,
+                detail=None,
+            )
+            for d in result.diagnostics
+        )
+
+    # 写入证据（填充 correlation_run_id 和 attempt_id）
+    for ev in result.evidence_list:
+        ev.correlation_run_id = cr.correlation_run_id
+        ev.correlation_attempt_id = attempt.correlation_attempt_id
+
+    storage.insert_endpoint_evidence_batch(result.evidence_list)
+    if result.candidates:
+        storage.insert_candidates_batch(result.candidates)
+
+    # ── 生成调用流关联 ──
+    flows = generate_flows(
+        storage, cr.analysis_id, result.evidence_list, endpoints, flows=analysis_flows
+    )
+    if flows:
+        storage.insert_flows_batch(flows)
+
+    # ── 生成 Finding 证据关联 ──
+    finding_evidence_list, finding_links = generate_finding_evidence(
+        storage,
+        cr.analysis_id,
+        attempt.correlation_attempt_id,
+        result.evidence_list,
+        endpoints,
+        flows=analysis_flows,
+        call_nodes=call_nodes,
+    )
+    if finding_evidence_list:
+        storage.insert_finding_evidence_batch(finding_evidence_list)
+    if finding_links:
+        storage.insert_finding_links_batch(finding_links)
+
+    # ── 决定 completeness ──
+    completeness = resolve_completeness(
+        bool(reasons),
+        capture_truncated,
+        has_persistence_failure,
+    )
+    if reasons:
+        storage.insert_attempt_reasons_batch(reasons)
+    if diagnostics:
+        storage.insert_attempt_diagnostics_batch(diagnostics)
+
+    storage.complete_and_activate_attempt(
+        attempt.correlation_attempt_id,
+        (
+            AttemptStatus.PARTIAL
+            if completeness == EvidenceCompleteness.PARTIAL
+            else AttemptStatus.SUCCEEDED
+        ).value,
+        completeness.value,
+    )
+    if on_completed is not None:
+        on_completed(cr.analysis_id, cr.correlation_run_id)
+
+
 # ── 调用流生成（异步/同步路径共用）────────────────────────────────
 
 

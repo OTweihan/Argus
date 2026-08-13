@@ -1140,25 +1140,28 @@ async def _persist_analysis_result(
     lifecycle: TaskLifecycleService,
     analysis_id: str,
     result: WhiteboxResult,
-    *,
-    scope: str = "",
+    serialized: dict[str, Any],
+    payload_json: str,
 ) -> None:
-    """将 Java 原始结果映射到结构化投影表（方案事务 1 + 2）。"""
+    """将 Java 原始结果映射到结构化投影表（方案事务 1 + 2）。
+
+    ``serialized`` / ``payload_json`` 由调用方 ``_persist_success_result`` 计算
+    一次后传入：同时供 ``result_json`` 与 ``raw_json`` 复用，避免对同一结果
+    重复序列化、重复评估完整性（O-07 之后白盒成功路径曾对完整结果做 2 次
+    JSON 序列化 + 3 次完整性评估）。
+    """
     # 事务 1：独立持久化 Java 原始响应（审计留存）
-    raw_json = json.dumps(
-        _serialize_whitebox_result(result, len(result.endpoints), len(result.findings), scope),
-        ensure_ascii=False,
-    )
-    result_digest = sha256(raw_json.encode()).hexdigest()
+    result_digest = sha256(payload_json.encode()).hexdigest()
     await run_in_thread(
         lifecycle.save_analysis_raw_result,
         analysis_id,
-        raw_json,
+        payload_json,
         result_digest,
     )
 
-    # 评估完整性（与报告序列化共用同一 helper）
-    completeness, quality_issues = _evaluate_completeness(result.diagnostics)
+    # 完整性结论已随 serialized 一次性计算，直接取用。
+    completeness = serialized["completeness"]
+    quality_issues = serialized["qualityIssues"]
     issues_json = json.dumps(quality_issues, ensure_ascii=False)
 
     # 事务 2：投影写入 + 标记 SUCCEEDED
@@ -1201,16 +1204,14 @@ async def _persist_success_result(
         f"{finding_count} 个代码缺陷/坏味道。"
         f"{diag_summary}"
     )
-    task.result_json = json.dumps(
-        _serialize_whitebox_result(result, endpoint_count, finding_count, scope),
-        ensure_ascii=False,
-    )
+    serialized = _serialize_whitebox_result(result, endpoint_count, finding_count, scope)
+    task.result_json = json.dumps(serialized, ensure_ascii=False)
     task.result_schema_version = 1
     task.result_size_bytes = len(task.result_json)
     task.external_job_status = "SUCCEEDED"
 
     await run_in_thread(lifecycle.save_task_findings, task)
-    await _persist_analysis_result(lifecycle, analysis_id, result, scope=scope)
+    await _persist_analysis_result(lifecycle, analysis_id, result, serialized, task.result_json)
 
 
 def _find_reusable_analysis_id(storage: TaskSQLiteStorage | object, task_id: str) -> str | None:

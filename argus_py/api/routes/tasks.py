@@ -65,17 +65,15 @@ def _to_http_exception(e: TaskAppError) -> HTTPException:
 async def _acall_sync(
     fn: Any,
     *args: Any,
-    http_status: int = 409,
     **kwargs: Any,
 ) -> Any:
     """在线程池中调用同步应用层方法，TaskAppError 自动转为 HTTPException。
 
     ``asyncio.to_thread`` 把阻塞 SQLite / 文件 IO 移出事件循环，避免并发请求
     互相阻塞。``TaskAppError`` 通过 ``to_thread`` 在线程内抛出，由 ``await`` 处
-    重新抛到协程上下文，再被本函数转换。``http_status`` 参数为兼容旧 ``_call``
-    签名保留，未实际使用（HTTP 状态码以 ``TaskAppError.http_status`` 为准）。
+    重新抛到协程上下文，再被本函数转换。HTTP 状态码以 ``TaskAppError.http_status``
+    为准，无需外部传入。
     """
-    del http_status  # 保留参数以兼容旧调用签名，实际未使用
     try:
         return await run_in_thread(fn, *args, **kwargs)
     except TaskAppError as e:
@@ -85,26 +83,25 @@ async def _acall_sync(
 async def _acall(
     fn: Any,
     *args: Any,
-    http_status: int = 409,
     **kwargs: Any,
 ) -> Any:
     """调用异步应用层方法，TaskAppError 自动转为 HTTPException。"""
-    del http_status
     try:
         return await fn(*args, **kwargs)
     except TaskAppError as e:
         raise _to_http_exception(e)
 
 
-@router.post("", response_model=TaskResponse, status_code=201)
-async def create_task(
-    request: TaskCreateRequest,
-    app: TaskApplicationService = Depends(get_task_app_service),
-) -> TaskResponse:
-    """创建任务快照，不立即启动执行。"""
-    # resolve_create_params 内部读取 project + model_config（同步 SQLite），
-    # 与 create_task 一起放线程池执行，避免事件循环被任一阶段阻塞。
-    params = await run_in_thread(
+async def _resolve_create_params(
+    app: TaskApplicationService,
+    request: Any,
+) -> dict[str, Any]:
+    """提取 create/update 请求的公共字段并解析为 create 参数。
+
+    ``resolve_create_params`` 内部读取 project + model_config（同步 SQLite），
+    与后续 create/update 一起放线程池执行，避免事件循环被任一阶段阻塞。
+    """
+    return await run_in_thread(
         app.resolve_create_params,
         goal=request.goal,
         name=request.name,
@@ -118,6 +115,15 @@ async def create_task(
         parameters=request.parameters,
         whitebox_config=request.whitebox_config,
     )
+
+
+@router.post("", response_model=TaskResponse, status_code=201)
+async def create_task(
+    request: TaskCreateRequest,
+    app: TaskApplicationService = Depends(get_task_app_service),
+) -> TaskResponse:
+    """创建任务快照，不立即启动执行。"""
+    params = await _resolve_create_params(app, request)
     task = await _acall_sync(app.create_task, **params)
     return TaskResponse.from_task(task)
 
@@ -129,20 +135,7 @@ async def update_task(
     app: TaskApplicationService = Depends(get_task_app_service),
 ) -> TaskResponse:
     """更新待执行任务的基础信息。"""
-    params = await run_in_thread(
-        app.resolve_create_params,
-        goal=request.goal,
-        name=request.name,
-        start_url=request.start_url,
-        task_type=request.task_type,
-        project_id=request.project_id,
-        max_steps=request.max_steps,
-        timeout_seconds=request.timeout_seconds,
-        capture_screenshots=request.capture_screenshots,
-        model_config_id=request.model_config_id,
-        parameters=request.parameters,
-        whitebox_config=request.whitebox_config,
-    )
+    params = await _resolve_create_params(app, request)
     # name 三态语义：未显式提供 → 保持原名（resolve_create_params 返回 dict 恒含
     # name，此处弹出后走 lifecycle 的 _UNSET 默认值）；显式传 null/空串/纯空白 →
     # 由 lifecycle 归一化为任务 ID 后 8 位；正常值 → 去除首尾空白后使用。
@@ -345,16 +338,13 @@ async def list_analysis_runs(
     severity_map = await run_in_thread(app.get_analysis_finding_severity_counts_batch, analysis_ids)
     summaries: list[AnalysisRunSummaryResponse] = []
     for run in runs:
-        summary = _build_analysis_run_summary(run)
-        counts = counts_map.get(run.analysis_id, {})
-        severity_counts = severity_map.get(run.analysis_id, {})
-        summary.endpoint_count = counts.get("analysis_endpoints", 0)
-        summary.call_graph_node_count = counts.get("analysis_call_nodes", 0)
-        summary.execution_flow_count = counts.get("analysis_execution_flows", 0)
-        summary.cluster_count = counts.get("analysis_clusters", 0)
-        summary.finding_count = counts.get("findings", 0)
-        summary.finding_severity_counts = severity_counts
-        summaries.append(summary)
+        summaries.append(
+            _build_analysis_run_summary(
+                run,
+                counts=counts_map.get(run.analysis_id, {}),
+                severity_counts=severity_map.get(run.analysis_id, {}),
+            )
+        )
     return AnalysisRunListResponse(
         items=summaries,
         total=total,
@@ -377,60 +367,11 @@ async def get_analysis_run_summary(
     diag = await run_in_thread(app.get_analysis_diagnostics, analysis_id)
     severity_counts = await run_in_thread(app.get_analysis_finding_severity_counts, analysis_id)
 
-    # 完整性指标
-    if diag:
-        metrics = CompletenessMetricsResponse(
-            eligible_source_files=diag.get("eligible_source_files", 0),
-            parsed_source_files=diag.get("parsed_file_count", 0),
-            total_calls=diag.get("total_calls", 0),
-            resolved_calls=(diag.get("resolved_high", 0) + diag.get("resolved_medium", 0)),
-        )
-    else:
-        metrics = CompletenessMetricsResponse(
-            eligible_source_files=0, parsed_source_files=0, total_calls=0, resolved_calls=0
-        )
-
-    # 质量缺陷（从 raw JSON 解析 quality_issues）
-    quality_issues: list[QualityIssueResponse] = []
-    if run.quality_issues:
-        quality_issues = [
-            QualityIssueResponse(
-                code=qi.code,
-                level=qi.level,
-                message=qi.message,
-                affected_count=qi.affected_count,
-                total_count=qi.total_count,
-            )
-            for qi in run.quality_issues
-        ]
-
-    completeness = CompletenessResponse(
-        status=run.completeness_status,
-        issues=quality_issues,
-        metrics=metrics,
-    )
-    return AnalysisRunSummaryResponse(
-        analysis_id=run.analysis_id,
-        task_id=run.task_id,
-        source_snapshot_id=run.source_snapshot_id,
-        resolved_commit_sha=run.resolved_commit_sha,
-        run_status=run.run_status,
-        external_job_id=run.external_job_id,
-        external_job_status=run.external_job_status,
-        failure_code=run.failure_code,
-        failure_message=run.failure_message,
-        stop_reason=run.stop_reason,
-        completeness=completeness,
-        endpoint_count=counts.get("analysis_endpoints", 0),
-        call_graph_node_count=counts.get("analysis_call_nodes", 0),
-        execution_flow_count=counts.get("analysis_execution_flows", 0),
-        cluster_count=counts.get("analysis_clusters", 0),
-        finding_count=counts.get("findings", 0),
-        finding_severity_counts=severity_counts,
-        created_at=run.created_at or "",
-        started_at=run.started_at,
-        completed_at=run.completed_at,
-        projection_completed_at=run.projection_completed_at,
+    return _build_analysis_run_summary(
+        run,
+        counts=counts,
+        severity_counts=severity_counts,
+        metrics=_build_completeness_metrics(diag),
     )
 
 
@@ -744,9 +685,33 @@ async def _check_analysis_belongs(
     return run
 
 
-def _build_analysis_run_summary(run: Any) -> AnalysisRunSummaryResponse:
-    """从 AnalysisRun 实体构造摘要响应（含 completeness.status + issues；metrics 为占位值，
-    调用方可补充 counts 和 diagnostics 指标）。"""
+def _build_completeness_metrics(diag: dict[str, Any] | None) -> CompletenessMetricsResponse:
+    """从分析诊断 dict 构造完整性指标（无 diag 时回退全 0）。"""
+    if diag:
+        return CompletenessMetricsResponse(
+            eligible_source_files=diag.get("eligible_source_files", 0),
+            parsed_source_files=diag.get("parsed_file_count", 0),
+            total_calls=diag.get("total_calls", 0),
+            resolved_calls=(diag.get("resolved_high", 0) + diag.get("resolved_medium", 0)),
+        )
+    return CompletenessMetricsResponse(
+        eligible_source_files=0, parsed_source_files=0, total_calls=0, resolved_calls=0
+    )
+
+
+def _build_analysis_run_summary(
+    run: Any,
+    *,
+    counts: dict[str, Any] | None = None,
+    severity_counts: dict[str, int] | None = None,
+    metrics: CompletenessMetricsResponse | None = None,
+) -> AnalysisRunSummaryResponse:
+    """从 AnalysisRun 实体构造摘要响应。
+
+    单次摘要（get_analysis_run_summary）与列表（list_analysis_runs）共用本函数：
+    前者传入真实 counts / severity_counts / metrics，后者批量取数后同样传入，
+    避免两处各自手工装配 quality_issues / completeness / count 字段导致漂移。
+    """
     quality_issues: list[QualityIssueResponse] = [
         QualityIssueResponse(
             code=qi.code,
@@ -757,6 +722,7 @@ def _build_analysis_run_summary(run: Any) -> AnalysisRunSummaryResponse:
         )
         for qi in (run.quality_issues or [])
     ]
+    counts = counts or {}
     return AnalysisRunSummaryResponse(
         analysis_id=run.analysis_id,
         task_id=run.task_id,
@@ -771,18 +737,20 @@ def _build_analysis_run_summary(run: Any) -> AnalysisRunSummaryResponse:
         completeness=CompletenessResponse(
             status=run.completeness_status,
             issues=quality_issues,
-            metrics=CompletenessMetricsResponse(
+            metrics=metrics
+            or CompletenessMetricsResponse(
                 eligible_source_files=0,
                 parsed_source_files=0,
                 total_calls=0,
                 resolved_calls=0,
             ),
         ),
-        endpoint_count=0,
-        call_graph_node_count=0,
-        execution_flow_count=0,
-        cluster_count=0,
-        finding_count=0,
+        endpoint_count=counts.get("analysis_endpoints", 0),
+        call_graph_node_count=counts.get("analysis_call_nodes", 0),
+        execution_flow_count=counts.get("analysis_execution_flows", 0),
+        cluster_count=counts.get("analysis_clusters", 0),
+        finding_count=counts.get("findings", 0),
+        finding_severity_counts=severity_counts or {},
         created_at=run.created_at or "",
         started_at=run.started_at,
         completed_at=run.completed_at,
