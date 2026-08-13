@@ -3,7 +3,6 @@ package com.argus.analyzer.service;
 import com.argus.analyzer.domain.AnalysisContribution;
 import com.argus.analyzer.domain.AnalysisContext;
 import com.argus.analyzer.domain.AnalysisPass;
-import com.argus.analyzer.domain.AnalysisPassException;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.Capability;
 import com.argus.analyzer.domain.JobCancelledException;
@@ -63,14 +62,9 @@ public class FindingDetector implements AnalysisPass {
 
     @Override
     public AnalysisContribution run(AnalysisContext context) {
-        try {
-            return new AnalysisContribution(Capability.FINDINGS,
-                    detect(context.sourcePath(), context.classpathJars(), context.progress()));
-        } catch (JobCancelledException cancelled) {
-            throw cancelled;
-        } catch (RuntimeException error) {
-            throw new AnalysisPassException(id(), error);
-        }
+        return guarded(context, () -> new AnalysisContribution(Capability.FINDINGS,
+                detectFrom(sourceFileScanner.scanForContext(context), context.sourcePath(),
+                        context.progress())));
     }
 
     public List<FindingItem> detect(Path sourcePath) {
@@ -87,9 +81,14 @@ public class FindingDetector implements AnalysisPass {
      */
     public List<FindingItem> detect(Path sourcePath, List<Path> classpathJars,
                                     AnalysisProgressListener progress) {
+        return detectFrom(sourceFileScanner.scan(sourcePath, null, classpathJars, progress),
+                sourcePath, progress);
+    }
+
+    private List<FindingItem> detectFrom(SourceFileScanner.ScanResult scanResult,
+                                         Path sourcePath, AnalysisProgressListener progress) {
         List<FindingItem> findings = new ArrayList<>();
 
-        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars, progress);
         for (var entry : scanResult.parsedFiles()) {
             if (progress.isCancelled()) {
                 throw new JobCancelledException("Finding detection cancelled");

@@ -50,4 +50,15 @@ class DependencyRuleTest {
                 .should().dependOnClassesThat().resideInAPackage("com.argus.analyzer.api..");
         rule.check(classes);
     }
+
+    @Test
+    void enginePassesMustNotDependOnSpring() {
+        // 分析算法（AnalysisPass 实现）不得依赖 Spring Web/Context，保持核心纯 Java。
+        // 服务编排类（ProjectAnalyzerService / AnalysisJobService / MavenProcessRegistry）
+        // 不是 pass，不受此约束；只有实现 AnalysisPass 的算法类被拦截。
+        ArchRule rule = noClasses().that().resideInAPackage("com.argus.analyzer.service..")
+                .and().implement(com.argus.analyzer.domain.AnalysisPass.class)
+                .should().dependOnClassesThat().resideInAPackage("org.springframework..");
+        rule.check(classes);
+    }
 }

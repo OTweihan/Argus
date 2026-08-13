@@ -19,7 +19,6 @@ public class MavenModule {
     private Path pomFile;
     private List<Path> sourceRoots = Collections.emptyList();
     private boolean aggregator;
-    private boolean applicationModule;
     private ModuleType moduleType = ModuleType.UNKNOWN;
 
     public MavenModule() {}
@@ -52,9 +51,6 @@ public class MavenModule {
 
     public boolean isAggregator() { return aggregator; }
     public void setAggregator(boolean aggregator) { this.aggregator = aggregator; }
-
-    public boolean isApplicationModule() { return applicationModule; }
-    public void setApplicationModule(boolean applicationModule) { this.applicationModule = applicationModule; }
 
     public ModuleType getModuleType() { return moduleType; }
     public void setModuleType(ModuleType moduleType) { this.moduleType = moduleType; }

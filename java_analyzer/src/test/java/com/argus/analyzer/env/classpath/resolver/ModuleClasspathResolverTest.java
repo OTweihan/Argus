@@ -1,6 +1,7 @@
 package com.argus.analyzer.env.classpath.resolver;
 
 import com.argus.analyzer.env.ClasspathResult;
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.env.MavenModule;
 import com.argus.analyzer.env.MavenModuleIndex;
@@ -68,6 +69,10 @@ class ModuleClasspathResolverTest {
         when(moduleIndex.findModule("m2")).thenReturn(Optional.of(module2));
         when(module1.getDisplayName()).thenReturn("m1");
         when(module2.getDisplayName()).thenReturn("m2");
+        when(cacheManager.toCacheFileName("m1")).thenReturn("m1.txt");
+        when(cacheManager.toMetaFileName("m1")).thenReturn("m1.meta");
+        when(cacheManager.toCacheFileName("m2")).thenReturn("m2.txt");
+        when(cacheManager.toMetaFileName("m2")).thenReturn("m2.meta");
         when(gateway.detectMavenExecutable(any(Path.class), any(MavenConfig.class))).thenReturn("mvn");
 
         ClasspathResult valid = new ClasspathResult();
@@ -75,7 +80,7 @@ class ModuleClasspathResolverTest {
         valid.setJars(List.of("a.jar"));
         when(gateway.generateClasspathForModule(
                 any(Path.class), any(Path.class), anyString(), any(MavenConfig.class),
-                anyLong(), any())).thenReturn(valid);
+                anyLong(), anyString(), any(AnalysisProgressListener.class))).thenReturn(valid);
 
         ClasspathResult result = resolver.resolve(moduleIndex, List.of("m1", "m2"), new MavenConfig());
 

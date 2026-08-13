@@ -1,8 +1,7 @@
 package com.argus.analyzer.service;
 
 import com.argus.analyzer.domain.AnalysisProgressListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.argus.analyzer.support.ProcessTreeKiller;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -20,8 +19,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 public class MavenProcessRegistry {
-
-    private static final Logger log = LoggerFactory.getLogger(MavenProcessRegistry.class);
 
     private final Map<AnalysisProgressListener, Set<Process>> registry = new ConcurrentHashMap<>();
 
@@ -53,20 +50,7 @@ public class MavenProcessRegistry {
             return;
         }
         for (Process process : procs) {
-            killProcessTree(process);
+            ProcessTreeKiller.kill(process);
         }
-    }
-
-    private static void killProcessTree(Process process) {
-        if (!process.isAlive()) {
-            return;
-        }
-        try {
-            process.descendants().forEach(ProcessHandle::destroyForcibly);
-        } catch (UnsupportedOperationException | SecurityException e) {
-            log.debug("ProcessHandle descendants unavailable: {}", e.getMessage());
-        }
-        process.destroyForcibly();
-        log.warn("已强制终止 Maven 进程树: pid={}", process.pid());
     }
 }

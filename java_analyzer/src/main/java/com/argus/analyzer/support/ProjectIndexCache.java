@@ -5,6 +5,7 @@ import com.argus.analyzer.domain.AnalysisResult;
 import com.argus.analyzer.domain.AnalysisScope;
 import com.argus.analyzer.domain.model.AnalyzerDiagnostics;
 import com.argus.analyzer.env.MavenConfig;
+import com.argus.analyzer.env.MavenConfigFingerprint;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
@@ -280,37 +281,15 @@ public class ProjectIndexCache {
      */
     private static AnalyzerDiagnostics defensiveDiagnostics(AnalyzerDiagnostics diag) {
         if (diag == null) return null;
-        AnalyzerDiagnostics copy = new AnalyzerDiagnostics();
-        copy.setTotalSourceFiles(diag.getTotalSourceFiles());
-        copy.setParsedFileCount(diag.getParsedFileCount());
-        copy.setFailedFileCount(diag.getFailedFileCount());
+        AnalyzerDiagnostics copy = new AnalyzerDiagnostics(diag);
+        // 标量字段由 copy 构造器统一复制；可变集合字段需额外不可变包装，
+        // 使缓存内的诊断数据与调用方实例完全隔离。
         copy.setFailedFiles(unmodifiableCopy(diag.getFailedFiles()));
-        copy.setTotalCalls(diag.getTotalCalls());
-        copy.setResolvedHigh(diag.getResolvedHigh());
-        copy.setResolvedMedium(diag.getResolvedMedium());
-        copy.setResolvedLow(diag.getResolvedLow());
-        copy.setUnresolved(diag.getUnresolved());
-        copy.setClasspathAvailable(diag.isClasspathAvailable());
-        copy.setJarCount(diag.getJarCount());
-        copy.setClasspathSource(diag.getClasspathSource());
         copy.setClasspathWarnings(unmodifiableCopy(diag.getClasspathWarnings()));
         copy.setClasspathErrors(unmodifiableCopy(diag.getClasspathErrors()));
-        copy.setClasspathCommand(diag.getClasspathCommand());
-        copy.setClasspathExitCode(diag.getClasspathExitCode());
-        copy.setClasspathDurationMs(diag.getClasspathDurationMs());
-        copy.setClasspathStdoutTail(diag.getClasspathStdoutTail());
-        copy.setClasspathStderrTail(diag.getClasspathStderrTail());
-        copy.setClasspathTimedOut(diag.isClasspathTimedOut());
-        copy.setRootPom(diag.getRootPom());
-        copy.setModuleCount(diag.getModuleCount());
-        copy.setSourceRootCount(diag.getSourceRootCount());
         copy.setModules(unmodifiableCopy(diag.getModules()));
         copy.setClasspathTargetModules(unmodifiableCopy(diag.getClasspathTargetModules()));
         copy.setClasspathFailedModules(unmodifiableCopy(diag.getClasspathFailedModules()));
-        copy.setApplicationModuleCount(diag.getApplicationModuleCount());
-        copy.setBusinessModuleCount(diag.getBusinessModuleCount());
-        copy.setLibraryModuleCount(diag.getLibraryModuleCount());
-        copy.setBomModuleCount(diag.getBomModuleCount());
         copy.setModuleTypes(unmodifiableCopy(diag.getModuleTypes()));
         copy.setPassFailures(unmodifiableCopy(diag.getPassFailures()));
         return copy;
@@ -482,37 +461,7 @@ public class ProjectIndexCache {
     }
 
     private String mavenSignature(MavenConfig config) {
-        MavenConfig resolved = config != null ? config : new MavenConfig();
-        return String.join("\u001f",
-                Boolean.toString(resolved.isAutoDetect()),
-                Boolean.toString(resolved.isGenerateClasspath()),
-                Objects.toString(resolved.getClasspathFile(), ""),
-                Objects.toString(resolved.getExecutable(), ""),
-                Objects.toString(resolved.getSettingsXml(), ""),
-                fileFingerprint(resolved.getSettingsXml()),
-                Objects.toString(resolved.getLocalRepository(), ""),
-                Boolean.toString(resolved.isOffline()),
-                Objects.toString(resolved.getDependencyPluginVersion(), ""),
-                Long.toString(resolved.getOfflineTimeoutSeconds()),
-                Long.toString(resolved.getOnlineTimeoutSeconds()),
-                Objects.toString(resolved.getClasspathMode(), ""),
-                Boolean.toString(resolved.isPrepareReactorArtifacts())
-        );
-    }
-
-    private String fileFingerprint(String rawPath) {
-        if (rawPath == null || rawPath.isBlank()) return "";
-        Path path = Path.of(rawPath).toAbsolutePath().normalize();
-        if (!Files.isRegularFile(path)) return "missing";
-        MessageDigest digest = newDigest();
-        try (InputStream input = Files.newInputStream(path)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (Exception error) {
-            throw new IllegalStateException("Failed to fingerprint Maven settings: " + path, error);
-        }
+        return MavenConfigFingerprint.fingerprint(config);
     }
 
     private MessageDigest newDigest() {

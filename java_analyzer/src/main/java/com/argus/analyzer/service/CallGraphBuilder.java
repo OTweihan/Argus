@@ -3,7 +3,6 @@ package com.argus.analyzer.service;
 import com.argus.analyzer.domain.AnalysisContribution;
 import com.argus.analyzer.domain.AnalysisContext;
 import com.argus.analyzer.domain.AnalysisPass;
-import com.argus.analyzer.domain.AnalysisPassException;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.Capability;
 import com.argus.analyzer.domain.JobCancelledException;
@@ -60,14 +59,11 @@ public class CallGraphBuilder implements AnalysisPass {
 
     @Override
     public AnalysisContribution run(AnalysisContext context) {
-        try {
-            BuildResult result = build(context.sourcePath(), context.classpathJars(), context.progress());
+        return guarded(context, () -> {
+            BuildResult result = buildFrom(sourceFileScanner.scanForContext(context),
+                    context.sourcePath(), context.progress());
             return new AnalysisContribution(Capability.CALL_GRAPH, result.graph(), result.diagnostics());
-        } catch (JobCancelledException cancelled) {
-            throw cancelled;
-        } catch (RuntimeException error) {
-            throw new AnalysisPassException(id(), error);
-        }
+        });
     }
 
     /**
@@ -86,7 +82,12 @@ public class CallGraphBuilder implements AnalysisPass {
      * {@code progress.isCancelled()}，取消时抛 {@link JobCancelledException}。
      */
     public BuildResult build(Path sourcePath, List<Path> classpathJars, AnalysisProgressListener progress) {
-        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars, progress);
+        return buildFrom(sourceFileScanner.scan(sourcePath, null, classpathJars, progress),
+                sourcePath, progress);
+    }
+
+    private BuildResult buildFrom(SourceFileScanner.ScanResult scanResult,
+                                  Path sourcePath, AnalysisProgressListener progress) {
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
 
         int totalCalls = 0;

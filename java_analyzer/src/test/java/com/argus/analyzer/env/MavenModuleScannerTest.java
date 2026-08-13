@@ -103,7 +103,9 @@ class MavenModuleScannerTest {
 
         MavenModuleIndex index = new MavenModuleScanner().scan(tempDir.resolve("pom.xml"));
 
-        assertThat(new ApplicationModuleDetector(new ModuleClassifier()).detect(index))
+        ModuleClassifier classifier = new ModuleClassifier();
+        classifier.classifyAll(index);
+        assertThat(classifier.selectTargets(index).stream().map(MavenModule::getDisplayName))
                 .containsExactly("han-modules/han-admin");
         // 聚合模块应被标记为 AGGREGATOR
         assertThat(index.findModule("WeaveHan")).isPresent();

@@ -3,7 +3,6 @@ package com.argus.analyzer.service;
 import com.argus.analyzer.domain.AnalysisContribution;
 import com.argus.analyzer.domain.AnalysisContext;
 import com.argus.analyzer.domain.AnalysisPass;
-import com.argus.analyzer.domain.AnalysisPassException;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.Capability;
 import com.argus.analyzer.domain.JobCancelledException;
@@ -48,7 +47,7 @@ public class ExecutionFlowTracer implements AnalysisPass {
 
     @Override
     public AnalysisContribution run(AnalysisContext context) {
-        try {
+        return guarded(context, () -> {
             Map<String, CallGraphNode> graph = context.get(Capability.CALL_GRAPH);
             List<EndpointInfo> endpoints = context.get(Capability.ENDPOINTS);
             if (graph == null || graph.isEmpty() || endpoints == null || endpoints.isEmpty()) {
@@ -56,11 +55,7 @@ public class ExecutionFlowTracer implements AnalysisPass {
             }
             return new AnalysisContribution(Capability.FLOWS,
                     trace(graph, endpoints, context.progress()));
-        } catch (JobCancelledException cancelled) {
-            throw cancelled;
-        } catch (RuntimeException error) {
-            throw new AnalysisPassException(id(), error);
-        }
+        });
     }
 
     public List<ExecutionFlow> trace(Map<String, CallGraphNode> callGraph, List<EndpointInfo> endpoints) {
@@ -96,11 +91,6 @@ public class ExecutionFlowTracer implements AnalysisPass {
         }
 
         return flows;
-    }
-
-    private void dfs(Map<String, CallGraphNode> callGraph, String currentKey,
-                     int depth, Set<String> visited, Set<String> pathNodes, List<FlowStep> steps) {
-        dfs(callGraph, currentKey, depth, visited, pathNodes, steps, AnalysisProgressListener.NOOP);
     }
 
     private void dfs(Map<String, CallGraphNode> callGraph, String currentKey,

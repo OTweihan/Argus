@@ -2,6 +2,7 @@ package com.argus.analyzer.support;
 
 import com.argus.analyzer.domain.model.ParseFailureDetail;
 import com.argus.analyzer.env.MavenModuleIndex;
+import com.argus.analyzer.domain.AnalysisContext;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.JobCancelledException;
 import com.github.javaparser.JavaParser;
@@ -65,6 +66,19 @@ public class SourceFileScanner {
      */
     public ScanResult scan(Path sourcePath, ParserConfiguration.LanguageLevel languageLevel, List<Path> classpathJars) {
         return scan(sourcePath, languageLevel, classpathJars, AnalysisProgressListener.NOOP);
+    }
+
+    /**
+     * 一次分析内共享的扫描入口（J1）：以 {@link AnalysisContext} 为惰性资源槽，
+     * 多个无依赖 pass（endpoints/callgraph/findings）并发调用时只扫描+解析一次，
+     * 其余复用同一份 {@link ScanResult}。资源与 context 同生命周期，不进入
+     * {@link SourceScannerCache} 的跨请求缓存（后者只缓存语言级别/源码目录/模块
+     * 索引，不缓存可变 AST）。
+     */
+    public ScanResult scanForContext(AnalysisContext context) {
+        return context.computeIfAbsent(
+                "source-index",
+                () -> scan(context.sourcePath(), null, context.classpathJars(), context.progress()));
     }
 
     /**

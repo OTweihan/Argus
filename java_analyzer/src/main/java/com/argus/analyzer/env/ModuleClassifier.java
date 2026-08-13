@@ -21,7 +21,6 @@ import java.util.stream.Stream;
  * Maven 模块分类器。
  *
  * <p>为每个模块确定 moduleType，并按类型筛选目标分析模块。
- * 取代 {@link ApplicationModuleDetector}。
  */
 @Component
 public class ModuleClassifier {
@@ -66,31 +65,38 @@ public class ModuleClassifier {
      */
     public void classifyAll(MavenModuleIndex index, AnalysisProgressListener progress) {
         _signalsCache.set(new HashMap<>());
-        for (MavenModule module : index.getModules()) {
-            if (progress.isCancelled()) {
-                throw new JobCancelledException("Module classification cancelled");
-            }
-            if (module.getModuleType() == ModuleType.AGGREGATOR) {
-                // 扫描阶段已标记，检查是否应转为 BOM
-                if (isBomModule(module)) {
-                    module.setModuleType(ModuleType.BOM);
+        try {
+            for (MavenModule module : index.getModules()) {
+                if (progress.isCancelled()) {
+                    throw new JobCancelledException("Module classification cancelled");
                 }
-                continue;
+                if (module.getModuleType() == ModuleType.AGGREGATOR) {
+                    // 扫描阶段已标记，检查是否应转为 BOM
+                    if (isBomModule(module)) {
+                        module.setModuleType(ModuleType.BOM);
+                    }
+                    continue;
+                }
+                // 先 scanSignals，结果缓存供后续 scoreModule() 复用
+                Signals signals = scanSignals(module, progress);
+                _signalsCache.get().put(module, signals);
+                ModuleType type = classifySingle(module, signals);
+                module.setModuleType(type);
+                log.debug("[CLASSIFIER] Module {}: classified as {}", module.getDisplayName(), type);
             }
-            // 先 scanSignals，结果缓存供后续 scoreModule() 复用
-            Signals signals = scanSignals(module, progress);
-            _signalsCache.get().put(module, signals);
-            ModuleType type = classifySingle(module, signals);
-            module.setModuleType(type);
-            log.debug("[CLASSIFIER] Module {}: classified as {}", module.getDisplayName(), type);
-        }
 
-        log.info("[CLASSIFIER] Classification complete: apps={} biz={} lib={} agg={} bom={}",
-                countByType(index, ModuleType.APPLICATION),
-                countByType(index, ModuleType.BUSINESS),
-                countByType(index, ModuleType.LIBRARY),
-                countByType(index, ModuleType.AGGREGATOR),
-                countByType(index, ModuleType.BOM));
+            log.info("[CLASSIFIER] Classification complete: apps={} biz={} lib={} agg={} bom={}",
+                    countByType(index, ModuleType.APPLICATION),
+                    countByType(index, ModuleType.BUSINESS),
+                    countByType(index, ModuleType.LIBRARY),
+                    countByType(index, ModuleType.AGGREGATOR),
+                    countByType(index, ModuleType.BOM));
+        } finally {
+            // ThreadLocal 信号缓存必须显式清理：作业线程池跨作业复用，若不 remove，
+            // 最后一个作业的 Map<MavenModule, Signals> 会一直挂在线程上（含模块对象
+            // 引用），且下一作业 set 前短暂可见旧数据。classifyAll 结束即失效。
+            _signalsCache.remove();
+        }
     }
 
     /**

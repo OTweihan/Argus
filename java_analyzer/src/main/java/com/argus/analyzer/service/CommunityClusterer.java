@@ -3,7 +3,6 @@ package com.argus.analyzer.service;
 import com.argus.analyzer.domain.AnalysisContribution;
 import com.argus.analyzer.domain.AnalysisContext;
 import com.argus.analyzer.domain.AnalysisPass;
-import com.argus.analyzer.domain.AnalysisPassException;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.Capability;
 import com.argus.analyzer.domain.JobCancelledException;
@@ -46,17 +45,13 @@ public class CommunityClusterer implements AnalysisPass {
 
     @Override
     public AnalysisContribution run(AnalysisContext context) {
-        try {
+        return guarded(context, () -> {
             Map<String, CallGraphNode> graph = context.get(Capability.CALL_GRAPH);
             if (graph == null || graph.isEmpty()) {
                 return new AnalysisContribution(Capability.CLUSTERS, List.<ClusterInfo>of());
             }
             return new AnalysisContribution(Capability.CLUSTERS, cluster(graph, context.progress()));
-        } catch (JobCancelledException cancelled) {
-            throw cancelled;
-        } catch (RuntimeException error) {
-            throw new AnalysisPassException(id(), error);
-        }
+        });
     }
 
     public List<ClusterInfo> cluster(Map<String, CallGraphNode> callGraph) {

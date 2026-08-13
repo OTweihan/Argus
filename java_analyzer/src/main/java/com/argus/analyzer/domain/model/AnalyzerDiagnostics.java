@@ -13,6 +13,8 @@ public class AnalyzerDiagnostics {
     private int totalCalls;
     private int resolvedHigh;
     private int resolvedMedium;
+    // 保留字段（wire 契约：Python _serialize_whitebox_result 读取 resolvedLow）。
+    // 当前调用解析不产出 LOW（见 CallGraphBuilder 注释），恒为 0，仅用于 API 兼容。
     private int resolvedLow;
     private int unresolved;
 
@@ -50,6 +52,46 @@ public class AnalyzerDiagnostics {
     private List<String> passFailures;
 
     public AnalyzerDiagnostics() {}
+
+    /**
+     * 深拷贝构造：用于防御性拷贝（缓存值隔离）与 enrich/merge 前的基准复制。
+     * 集中维护字段列表，避免在 ProjectIndexCache / PassExecutor /
+     * ProjectAnalyzerService 四处各自手工逐字段复制导致新增字段漏同步。
+     */
+    public AnalyzerDiagnostics(AnalyzerDiagnostics other) {
+        this.totalSourceFiles = other.totalSourceFiles;
+        this.parsedFileCount = other.parsedFileCount;
+        this.failedFileCount = other.failedFileCount;
+        this.failedFiles = other.failedFiles;
+        this.totalCalls = other.totalCalls;
+        this.resolvedHigh = other.resolvedHigh;
+        this.resolvedMedium = other.resolvedMedium;
+        this.resolvedLow = other.resolvedLow;
+        this.unresolved = other.unresolved;
+        this.classpathAvailable = other.classpathAvailable;
+        this.jarCount = other.jarCount;
+        this.classpathSource = other.classpathSource;
+        this.classpathWarnings = other.classpathWarnings;
+        this.classpathErrors = other.classpathErrors;
+        this.classpathCommand = other.classpathCommand;
+        this.classpathExitCode = other.classpathExitCode;
+        this.classpathDurationMs = other.classpathDurationMs;
+        this.classpathStdoutTail = other.classpathStdoutTail;
+        this.classpathStderrTail = other.classpathStderrTail;
+        this.classpathTimedOut = other.classpathTimedOut;
+        this.rootPom = other.rootPom;
+        this.moduleCount = other.moduleCount;
+        this.sourceRootCount = other.sourceRootCount;
+        this.modules = other.modules;
+        this.classpathTargetModules = other.classpathTargetModules;
+        this.classpathFailedModules = other.classpathFailedModules;
+        this.applicationModuleCount = other.applicationModuleCount;
+        this.businessModuleCount = other.businessModuleCount;
+        this.libraryModuleCount = other.libraryModuleCount;
+        this.bomModuleCount = other.bomModuleCount;
+        this.moduleTypes = other.moduleTypes;
+        this.passFailures = other.passFailures;
+    }
 
     public AnalyzerDiagnostics(int totalSourceFiles, int parsedFileCount, int failedFileCount,
                                List<ParseFailureDetail> failedFiles,

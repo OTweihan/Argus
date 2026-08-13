@@ -7,6 +7,7 @@ import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.AnalysisResult;
 import com.argus.analyzer.domain.JobCancelledException;
 import com.argus.analyzer.env.MavenConfig;
+import com.argus.analyzer.env.MavenConfigFingerprint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +33,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 @Service
 public class AnalysisJobService {
@@ -139,14 +142,16 @@ public class AnalysisJobService {
     @Scheduled(fixedDelayString = "${argus.analysis.jobs.cleanup-interval-ms:60000}")
     public void cleanupExpiredJobs() {
         Instant cutoff = Instant.now().minusSeconds(retentionSeconds);
-        jobs.entrySet().removeIf(entry -> {
-            if (entry.getValue().finishedBefore(cutoff)) {
-                // 同步清理幂等映射
-                idempotencyEntries.values().removeIf(item -> item.jobId().equals(entry.getKey()));
-                return true;
-            }
-            return false;
-        });
+        // 一次性收集到期 jobId，再对幂等映射做单次 removeIf，避免
+        // "对每个到期作业嵌套扫描 idempotencyEntries" 的 O(到期作业数 × 幂等条目数)。
+        Set<String> expiredIds = jobs.entrySet().stream()
+                .filter(entry -> entry.getValue().finishedBefore(cutoff))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+        if (!expiredIds.isEmpty()) {
+            jobs.keySet().removeAll(expiredIds);
+            idempotencyEntries.values().removeIf(item -> expiredIds.contains(item.jobId()));
+        }
         // 清理孤立幂等条目（作业已不存在或条目超时未关联有效作业）
         idempotencyEntries.entrySet().removeIf(entry -> {
             AnalysisJob job = jobs.get(entry.getValue().jobId());
@@ -305,38 +310,15 @@ public class AnalysisJobService {
         }
     }
 
-    private record MavenFingerprint(
-            boolean autoDetect,
-            boolean generateClasspath,
-            String classpathFile,
-            String executable,
-            String settingsXml,
-            String localRepository,
-            boolean offline,
-            String dependencyPluginVersion,
-            long offlineTimeoutSeconds,
-            long onlineTimeoutSeconds,
-            String classpathMode,
-            boolean prepareReactorArtifacts
-    ) {
+    private record MavenFingerprint(String fingerprint) {
         private static MavenFingerprint from(MavenConfig config) {
             if (config == null) {
                 return null;
             }
-            return new MavenFingerprint(
-                    config.isAutoDetect(),
-                    config.isGenerateClasspath(),
-                    config.getClasspathFile(),
-                    config.getExecutable(),
-                    config.getSettingsXml(),
-                    config.getLocalRepository(),
-                    config.isOffline(),
-                    config.getDependencyPluginVersion(),
-                    config.getOfflineTimeoutSeconds(),
-                    config.getOnlineTimeoutSeconds(),
-                    config.getClasspathMode() == null ? null : config.getClasspathMode().name(),
-                    config.isPrepareReactorArtifacts()
-            );
+            // 与 ProjectIndexCache 的缓存键共用同一份 MavenConfig 规范化指纹，
+            // 消除两处此前 settingsXml（内容哈希 vs 路径）与空值处理不一致导致的
+            // 「幂等判定为同请求却产生不同缓存键」矛盾。
+            return new MavenFingerprint(MavenConfigFingerprint.fingerprint(config));
         }
     }
 

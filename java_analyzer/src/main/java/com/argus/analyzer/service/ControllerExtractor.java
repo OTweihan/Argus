@@ -3,7 +3,6 @@ package com.argus.analyzer.service;
 import com.argus.analyzer.domain.AnalysisContribution;
 import com.argus.analyzer.domain.AnalysisContext;
 import com.argus.analyzer.domain.AnalysisPass;
-import com.argus.analyzer.domain.AnalysisPassException;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.Capability;
 import com.argus.analyzer.domain.JobCancelledException;
@@ -63,14 +62,8 @@ public class ControllerExtractor implements AnalysisPass {
 
     @Override
     public AnalysisContribution run(AnalysisContext context) {
-        try {
-            return new AnalysisContribution(Capability.ENDPOINTS,
-                    extract(context.sourcePath(), context.classpathJars(), context.progress()));
-        } catch (JobCancelledException cancelled) {
-            throw cancelled;
-        } catch (RuntimeException error) {
-            throw new AnalysisPassException(id(), error);
-        }
+        return guarded(context, () -> new AnalysisContribution(Capability.ENDPOINTS,
+                extractFrom(sourceFileScanner.scanForContext(context), context.progress())));
     }
 
     public List<EndpointInfo> extract(Path sourcePath) {
@@ -87,9 +80,13 @@ public class ControllerExtractor implements AnalysisPass {
      */
     public List<EndpointInfo> extract(Path sourcePath, List<Path> classpathJars,
                                       AnalysisProgressListener progress) {
+        return extractFrom(sourceFileScanner.scan(sourcePath, null, classpathJars, progress), progress);
+    }
+
+    private List<EndpointInfo> extractFrom(SourceFileScanner.ScanResult scanResult,
+                                           AnalysisProgressListener progress) {
         List<EndpointInfo> endpoints = new ArrayList<>();
 
-        var scanResult = sourceFileScanner.scan(sourcePath, null, classpathJars, progress);
         for (var entry : scanResult.parsedFiles()) {
             if (progress.isCancelled()) {
                 throw new JobCancelledException("Endpoint extraction cancelled");
@@ -134,17 +131,14 @@ public class ControllerExtractor implements AnalysisPass {
 
     private Optional<ClassOrInterfaceDeclaration> findControllerClass(CompilationUnit cu) {
         return cu.findAll(ClassOrInterfaceDeclaration.class).stream()
-                .filter(c -> c.getAnnotationByClass(org.springframework.web.bind.annotation.RestController.class).isPresent()
-                        || c.getAnnotationByName("RestController").isPresent())
+                .filter(c -> c.getAnnotationByName("RestController").isPresent())
                 .findFirst();
     }
 
     private String extractClassBasePath(ClassOrInterfaceDeclaration clazz) {
-        Optional<AnnotationExpr> mapping = clazz.getAnnotationByName("RequestMapping");
-        if (mapping.isEmpty()) {
-            mapping = clazz.getAnnotationByClass(org.springframework.web.bind.annotation.RequestMapping.class);
-        }
-        return mapping.map(this::extractPathValue).orElse("");
+        return clazz.getAnnotationByName("RequestMapping")
+                .map(this::extractPathValue)
+                .orElse("");
     }
 
     private AnnotationExpr findMappingAnnotation(MethodDeclaration method) {

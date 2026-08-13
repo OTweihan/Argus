@@ -53,21 +53,6 @@ public class MavenModuleIndex {
                 .collect(Collectors.toList());
     }
 
-    /** 所有非聚合模块的 baseDir。 */
-    public List<Path> getAllModuleDirs() {
-        return modules.stream()
-                .filter(m -> !m.isAggregator())
-                .map(MavenModule::getBaseDir)
-                .filter(Objects::nonNull)
-                .filter(Files::isDirectory)
-                .collect(Collectors.toList());
-    }
-
-    /** 按 artifactId 查找模块。 */
-    public Optional<MavenModule> findByArtifactId(String artifactId) {
-        return Optional.ofNullable(byArtifactId.get(artifactId));
-    }
-
     /** 按 artifactId、relative path 或 groupId:artifactId 查找模块。 */
     public Optional<MavenModule> findModule(String selector) {
         if (selector == null || selector.isBlank()) {
@@ -84,19 +69,6 @@ public class MavenModuleIndex {
         return modules.stream()
                 .filter(m -> selector.equals(m.getGroupId() + ":" + m.getArtifactId()))
                 .findFirst();
-    }
-
-    /** 判断某个 GAV 坐标是否为内部模块。 */
-    public boolean isInternalArtifact(String groupId, String artifactId, String version) {
-        return modules.stream().anyMatch(m ->
-                artifactId.equals(m.getArtifactId()) &&
-                (groupId == null || groupId.equals(m.getGroupId())) &&
-                (version == null || version.equals(m.getVersion())));
-    }
-
-    /** 判断某个 artifactId 是否为内部模块（宽松匹配，只比 artifactId）。 */
-    public boolean isInternalArtifactByArtifactId(String artifactId) {
-        return byArtifactId.containsKey(artifactId);
     }
 
     /** 模块数量（含聚合父 POM）。 */

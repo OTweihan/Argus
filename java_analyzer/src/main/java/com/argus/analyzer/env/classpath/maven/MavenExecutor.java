@@ -9,6 +9,7 @@ import com.argus.analyzer.env.classpath.parser.ClasspathFileReader;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.JobCancelledException;
 import com.argus.analyzer.service.MavenProcessRegistry;
+import com.argus.analyzer.support.ProcessTreeKiller;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -289,20 +290,11 @@ public class MavenExecutor {
     }
 
     private static void killProcessTree(Process process) {
-        try {
-            process.descendants().forEach(ProcessHandle::destroyForcibly);
-        } catch (UnsupportedOperationException | SecurityException e) {
-            log.debug("ProcessHandle descendants unavailable: {}", e.getMessage());
-        }
-        process.destroyForcibly();
+        ProcessTreeKiller.kill(process);
     }
 
     private enum ProcessOutcome {
         FINISHED, TIMED_OUT, CANCELLED
-    }
-
-    private String readStream(InputStream stream) {
-        return readStream(stream, null, AnalysisProgressListener.NOOP);
     }
 
     private String readStream(InputStream stream, String streamName, AnalysisProgressListener progress) {

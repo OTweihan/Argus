@@ -1,6 +1,7 @@
 package com.argus.analyzer.domain;
 
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * 分析 pass SPI（O-11）。
@@ -28,4 +29,20 @@ public interface AnalysisPass {
 
     /** 在给定上下文上执行，返回不可变 contribution。 */
     AnalysisContribution run(AnalysisContext context);
+
+    /**
+     * 统一的异常包装模板：协作取消原样传播，其余 RuntimeException 包装为
+     * {@link AnalysisPassException}（携带 pass ID）。各 pass 的 {@code run()}
+     * 只需委托 {@code guarded(context, () -> ...)}，避免重复 try/catch。
+     */
+    default AnalysisContribution guarded(
+            AnalysisContext context, Supplier<AnalysisContribution> body) {
+        try {
+            return body.get();
+        } catch (JobCancelledException cancelled) {
+            throw cancelled;
+        } catch (RuntimeException error) {
+            throw new AnalysisPassException(id(), error);
+        }
+    }
 }
