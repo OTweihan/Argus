@@ -50,7 +50,7 @@
         </div>
         <div class="meta-row">
           <span class="meta-label">生成时间</span>
-          <span class="meta-value">{{ formatDate(report.generatedAt) }}</span>
+          <span class="meta-value">{{ formatReportDate(report.generatedAt) }}</span>
         </div>
       </aside>
     </div>
@@ -61,7 +61,7 @@
 import { computed } from "vue";
 import type { ReportData } from "../../types";
 import { displayTaskName } from "../../utils";
-import { formatDate } from "../task/report/reportUtils";
+import { formatReportDate } from "../task/report/reportUtils";
 
 const props = defineProps<{
   report: ReportData;

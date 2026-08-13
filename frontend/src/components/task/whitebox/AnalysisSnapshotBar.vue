@@ -29,38 +29,13 @@
 import { computed } from "vue";
 import { formatDate } from "../../../utils";
 import type { AnalysisRunSummary } from "../../../api/task";
+import { runStatusLabel, runStatusTagType } from "./runStatus";
 
 const props = defineProps<{ summary: AnalysisRunSummary }>();
 
-const STATUS_LABELS: Record<string, string> = {
-  QUEUED: "排队中",
-  SUBMITTING: "提交中",
-  RUNNING: "运行中",
-  SUCCEEDED: "成功",
-  FAILED: "失败",
-  TIMED_OUT: "超时",
-  CANCELLED: "已取消",
-  STOPPED_WAITING: "已停止等待",
-};
+const statusLabel = computed(() => runStatusLabel(props.summary.runStatus));
 
-const statusLabel = computed(
-  () => STATUS_LABELS[props.summary.runStatus] || props.summary.runStatus,
-);
-
-const statusTagType = computed(() => {
-  switch (props.summary.runStatus) {
-    case "SUCCEEDED":
-      return "success";
-    case "FAILED":
-    case "TIMED_OUT":
-      return "danger";
-    case "RUNNING":
-    case "SUBMITTING":
-      return "warning";
-    default:
-      return "info";
-  }
-});
+const statusTagType = computed(() => runStatusTagType(props.summary.runStatus));
 
 const formattedTime = computed(() => {
   const start = props.summary.startedAt || props.summary.createdAt;

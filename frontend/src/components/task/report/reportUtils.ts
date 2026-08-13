@@ -1,7 +1,7 @@
 /**
  * 报告 / 任务详情视图共用的纯函数与常量。
  *
- * 与 `frontend/src/utils.ts` 的 `formatDate` 略有差异：此处使用
+ * 与 `frontend/src/utils.ts` 的 `formatDate` 命名区分：此处使用
  * `Intl.DateTimeFormat` + `zh-CN` locale 输出 `2026/05/14 09:46:00` 风格的串，
  * 与 ReportView / LLMDebugTab 历史输出保持一致，不与列表页的 `YYYY-MM-DD HH:mm:ss`
  * 共用以避免 UI 视觉漂移。
@@ -18,7 +18,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
   second: "2-digit",
 });
 
-export function formatDate(value: string | null): string {
+export function formatReportDate(value: string | null): string {
   if (!value) return "-";
   try {
     return DATE_FORMATTER.format(new Date(value));

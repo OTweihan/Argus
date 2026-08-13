@@ -75,7 +75,7 @@ export function nullableBoolean(value: "" | "true" | "false"): boolean | null {
 }
 
 /** HTTP 方法 → Element Plus tag type。GET=success, POST=primary, PUT/PATCH=warning, DELETE=danger。 */
-export type HttpMethodTagType = "success" | "info" | "danger" | "warning" | "primary";
+type HttpMethodTagType = "success" | "info" | "danger" | "warning" | "primary";
 
 export function httpMethodTag(method: string): HttpMethodTagType {
   switch (method.toUpperCase()) {

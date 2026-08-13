@@ -295,7 +295,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import {
   getCorrelationSummary,
   getCaptureQuality,
@@ -327,21 +327,31 @@ const subTab = ref("overview");
 
 // ── 初始化 ──
 
+// F7：首屏 IIFE 加 AbortController 守卫，组件卸载后中止在途请求，避免晚到响应
+// 写入已卸载组件。
+let initialLoadAbort: AbortController | null = null;
 (async () => {
+  const controller = new AbortController();
+  initialLoadAbort = controller;
   loading.value = true;
   try {
     const [s, q] = await Promise.all([
-      getCorrelationSummary(props.correlationRunId),
-      getCaptureQuality(props.correlationRunId).catch(() => null),
+      getCorrelationSummary(props.correlationRunId, { signal: controller.signal }),
+      getCaptureQuality(props.correlationRunId, { signal: controller.signal }).catch(() => null),
     ]);
+    if (controller.signal.aborted) return;
     summary.value = s;
     captureQuality.value = q;
   } catch (e) {
-    error.value = errorMessage(e);
+    if (!controller.signal.aborted) error.value = errorMessage(e);
   } finally {
-    loading.value = false;
+    if (!controller.signal.aborted) loading.value = false;
   }
 })();
+
+onUnmounted(() => {
+  initialLoadAbort?.abort();
+});
 
 // ── 状态展示 ──
 

@@ -106,9 +106,6 @@ export function getDashboardStats(recentLimit?: number): Promise<DashboardStats>
 
 export type AnalysisRunSummary = components["schemas"]["AnalysisRunSummaryResponse"];
 
-/** @deprecated Alias — use AnalysisRunSummary directly */
-export type AnalysisRunListItem = AnalysisRunSummary;
-
 export interface PageResponse<T> {
   items: T[];
   nextCursor?: string | null;
@@ -132,22 +129,26 @@ export function listAnalysisRuns(
   taskId: string,
   offset?: number,
   limit?: number,
-): Promise<PageResponse<AnalysisRunListItem>> {
+  options: { signal?: AbortSignal } = {},
+): Promise<PageResponse<AnalysisRunSummary>> {
   const params = new URLSearchParams();
   if (offset !== undefined) params.set("offset", String(offset));
   if (limit !== undefined) params.set("limit", String(limit));
   const query = params.toString();
-  return request<PageResponse<AnalysisRunListItem>>(
+  return request<PageResponse<AnalysisRunSummary>>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs${query ? `?${query}` : ""}`,
+    { signal: options.signal },
   );
 }
 
 export function getAnalysisRunSummary(
   taskId: string,
   analysisId: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<AnalysisRunSummary> {
   return request<AnalysisRunSummary>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}`,
+    { signal: options.signal },
   );
 }
 
@@ -191,6 +192,7 @@ export function listAnalysisCallEdges(
   entryNodeId?: string | null,
   cursor?: string | null,
   limit?: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PageResponse<CallEdgeInfo>> {
   const params = new URLSearchParams();
   if (entryNodeId) params.set("entryNodeId", entryNodeId);
@@ -199,6 +201,7 @@ export function listAnalysisCallEdges(
   const query = params.toString();
   return request<PageResponse<CallEdgeInfo>>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/call-graph${query ? `?${query}` : ""}`,
+    { signal: options.signal },
   );
 }
 

@@ -22,6 +22,7 @@
 <script setup lang="ts">
 import { formatDate } from "../../../utils";
 import type { AnalysisRunSummary } from "../../../api/task";
+import { runStatusLabel } from "./runStatus";
 
 defineProps<{
   runs: AnalysisRunSummary[];
@@ -33,20 +34,9 @@ defineEmits<{
   select: [analysisId: string];
 }>();
 
-const STATUS_LABELS: Record<string, string> = {
-  QUEUED: "排队中",
-  SUBMITTING: "提交中",
-  RUNNING: "运行中",
-  SUCCEEDED: "成功",
-  FAILED: "失败",
-  TIMED_OUT: "超时",
-  CANCELLED: "已取消",
-  STOPPED_WAITING: "已停止等待",
-};
-
 function formatOption(run: AnalysisRunSummary): string {
   const date = formatDate(run.createdAt);
-  const status = STATUS_LABELS[run.runStatus] || run.runStatus;
+  const status = runStatusLabel(run.runStatus);
   const sha = run.resolvedCommitSha ? run.resolvedCommitSha.slice(0, 8) : "";
   return `${date} — ${status}${sha ? ` (${sha})` : ""}`;
 }

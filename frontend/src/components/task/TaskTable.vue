@@ -74,7 +74,7 @@
         <el-button
           v-if="props.showEdit"
           size="large"
-          :disabled="!canEditTask(row)"
+          :disabled="!canStartTask(row)"
           @click="$emit('edit', row)"
         >
           编辑
@@ -83,7 +83,7 @@
           v-if="props.showDelete"
           size="large"
           type="danger"
-          :disabled="!canDeleteTask(row)"
+          :disabled="!canStartTask(row)"
           @click="$emit('delete', row)"
         >
           删除
@@ -164,13 +164,5 @@ function tagType(task: Task): ElTagType {
   if (status === "failed" || status === "timeout" || status === "cancelled") return "danger";
   if (status === "running" || status === "queued") return "warning";
   return "info";
-}
-
-function canEditTask(task: Task): boolean {
-  return task.status === "pending" && !task.schedulerStatus;
-}
-
-function canDeleteTask(task: Task): boolean {
-  return task.status === "pending" && !task.schedulerStatus;
 }
 </script>

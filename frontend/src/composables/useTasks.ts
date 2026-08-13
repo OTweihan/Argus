@@ -67,31 +67,6 @@ interface WhiteboxFormConfig {
   mavenPrepareReactorArtifacts: boolean;
 }
 
-/** 可辨识联合：通过 taskType 收窄 config 子类型。
- *
- * 注：当前表单使用 TaskFormState（同时持有黑白盒配置），
- * TaskForm 保留用于未来需要类型收窄的场景（如独立的白盒/黑盒表单组件）。
- */
-export type TaskForm =
-  | {
-      editingId: string | null;
-      goal: string;
-      name: string;
-      projectId: string;
-      modelConfigId: string;
-      taskType: "blackbox";
-      config: BlackboxFormConfig;
-    }
-  | {
-      editingId: string | null;
-      goal: string;
-      name: string;
-      projectId: string;
-      modelConfigId: string;
-      taskType: "whitebox";
-      config: WhiteboxFormConfig;
-    };
-
 /** 表单内部状态 — 同时持有两个子配置以便切换 taskType 时保留输入 */
 export interface TaskFormState {
   editingId: string | null;
@@ -221,7 +196,7 @@ function defaultWhiteboxConfig(): WhiteboxFormConfig {
   };
 }
 
-function defaultTaskFormState(projectId = ""): TaskFormState {
+export function defaultTaskFormState(projectId = ""): TaskFormState {
   return {
     editingId: null,
     goal: "",

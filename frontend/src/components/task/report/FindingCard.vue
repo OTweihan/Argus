@@ -36,7 +36,7 @@
         </div>
         <div class="fm-item">
           <span class="fm-label">时间</span>
-          <span class="fm-value">{{ formatDate(finding.createdAt) }}</span>
+          <span class="fm-value">{{ formatReportDate(finding.createdAt) }}</span>
         </div>
       </div>
       <div v-if="finding.screenshotPath" class="finding-extras">
@@ -78,7 +78,7 @@ import { ref } from "vue";
 import type { ReportFinding } from "../../../types";
 import { screenshotPath } from "../../../api";
 import AuthenticatedImage from "../../AuthenticatedImage.vue";
-import { formatDate } from "./reportUtils";
+import { formatReportDate } from "./reportUtils";
 
 defineProps<{
   finding: ReportFinding;

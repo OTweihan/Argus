@@ -105,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import type {
   AnalysisRunSummary,
   CallEdgeInfo,
@@ -155,22 +155,34 @@ const SCROLLABLE_TABS = new Set(["endpoints", "callgraph", "flows", "clusters", 
 const showBackTop = computed(() => SCROLLABLE_TABS.has(subTab.value));
 
 // 初始化：加载历史列表 + 默认选择最新（关联运行已由父级查询并传入）
+// F7：AbortController 守卫——组件卸载/切换时中止在途首屏请求，避免晚到响应写入
+// 已卸载组件或旧 taskId 覆盖新数据。
+let initialLoadAbort: AbortController | null = null;
+let selectRunAbort: AbortController | null = null;
+let calleeAbort: AbortController | null = null;
 (async () => {
+  const controller = new AbortController();
+  initialLoadAbort = controller;
   loading.value = true;
   try {
-    const page = await listAnalysisRuns(props.taskId);
+    const page = await listAnalysisRuns(props.taskId, undefined, undefined, {
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted) return;
     runs.value = page.items;
     if (page.items.length > 0) {
       const running = page.items.find((r: AnalysisRunSummary) => r.runStatus === "RUNNING");
       const succeeded = page.items.find((r: AnalysisRunSummary) => r.runStatus === "SUCCEEDED");
       const selected = running || succeeded || page.items[0];
       analysisId.value = selected.analysisId;
-      summary.value = await getAnalysisRunSummary(props.taskId, selected.analysisId);
+      summary.value = await getAnalysisRunSummary(props.taskId, selected.analysisId, {
+        signal: controller.signal,
+      });
     }
   } catch (e) {
-    error.value = errorMessage(e);
+    if (!controller.signal.aborted) error.value = errorMessage(e);
   } finally {
-    loading.value = false;
+    if (!controller.signal.aborted) loading.value = false;
   }
 })();
 
@@ -179,15 +191,27 @@ async function onSelectRun(aid: string): Promise<void> {
   analysisId.value = aid;
   // 始终调用详情接口获取完整的 completeness/severity/metrics 数据，
   // 列表接口只返回计数和严重级别分布，不含完整性指标与质量问题。
+  // F7：切换 run 时中止上一次详情请求，避免旧 run 的响应覆盖新 run。
+  selectRunAbort?.abort();
+  const controller = new AbortController();
+  selectRunAbort = controller;
   loading.value = true;
   try {
-    summary.value = await getAnalysisRunSummary(props.taskId, aid);
+    summary.value = await getAnalysisRunSummary(props.taskId, aid, {
+      signal: controller.signal,
+    });
   } catch (e) {
-    error.value = errorMessage(e);
+    if (!controller.signal.aborted) error.value = errorMessage(e);
   } finally {
-    loading.value = false;
+    if (!controller.signal.aborted) loading.value = false;
   }
 }
+
+onUnmounted(() => {
+  initialLoadAbort?.abort();
+  selectRunAbort?.abort();
+  calleeAbort?.abort();
+});
 
 // ── 分页子资源（usePagedList 统一管理 load/loadMore/cursor/loading） ──
 
@@ -293,16 +317,26 @@ async function selectCallNode(nodeId: string): Promise<void> {
     selectedCallNodeId.value = null;
     calleeItems.value = [];
     calleeLoading.value = false;
+    calleeAbort?.abort();
+    calleeAbort = null;
     return;
   }
   selectedCallNodeId.value = nodeId;
   calleeItems.value = [];
   calleeLoading.value = true;
+  // F8：切换节点时中止上一个 callee-edges 请求，避免浪费带宽（身份校验兜底仍在）。
+  calleeAbort?.abort();
+  const controller = new AbortController();
+  calleeAbort = controller;
   try {
-    const page = await listAnalysisCallEdges(props.taskId, aid, nodeId, null, 50);
+    const page = await listAnalysisCallEdges(props.taskId, aid, nodeId, null, 50, {
+      signal: controller.signal,
+    });
     if (selectedCallNodeId.value === nodeId) {
       calleeItems.value = page.items;
     }
+  } catch (caught) {
+    if (!controller.signal.aborted) console.warn("[WhiteboxReport] 调用边加载失败：", errorMessage(caught));
   } finally {
     if (selectedCallNodeId.value === nodeId) {
       calleeLoading.value = false;
@@ -337,6 +371,9 @@ function resetSubResources(): void {
   selectedCallNodeId.value = null;
   calleeItems.value = [];
   calleeLoading.value = false;
+  // 切 run 时中止在途 callee-edges 请求（身份校验已兜底，但这里显式释放请求）。
+  calleeAbort?.abort();
+  calleeAbort = null;
 }
 
 /** 按当前激活的 tab 懒加载对应子资源。

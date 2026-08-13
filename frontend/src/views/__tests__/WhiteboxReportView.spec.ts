@@ -106,7 +106,11 @@ describe("WhiteboxReportView", () => {
     mockRuns();
     const wrapper = await mountView("t-1");
 
-    expect(taskApi.getAnalysisRunSummary).toHaveBeenCalledWith("t-1", "an-1");
+    expect(taskApi.getAnalysisRunSummary).toHaveBeenCalledWith(
+      "t-1",
+      "an-1",
+      expect.any(Object),
+    );
     const text = wrapper.text();
     expect(text).toContain("白盒分析报告");
     expect(text).toContain("查看源码解析质量、调用关系与风险发现");
@@ -146,6 +150,10 @@ describe("WhiteboxReportView", () => {
     expect(selector.exists()).toBe(true);
     selector.vm.$emit("select", "an-2");
     await flushPromises();
-    expect(taskApi.getAnalysisRunSummary).toHaveBeenCalledWith("t-1", "an-2");
+    expect(taskApi.getAnalysisRunSummary).toHaveBeenCalledWith(
+      "t-1",
+      "an-2",
+      expect.any(Object),
+    );
   });
 });

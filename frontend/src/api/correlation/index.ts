@@ -12,13 +12,16 @@ export type CorrelationRunInfo = components["schemas"]["CorrelationRunResponse"]
 
 export type CorrelationSummaryInfo = components["schemas"]["CorrelationSummaryResponse"];
 
-export function getCorrelationSummary(runId: string): Promise<CorrelationSummaryInfo> {
-  return request<CorrelationSummaryInfo>(`/correlation-runs/${encodeURIComponent(runId)}/summary`);
+export function getCorrelationSummary(
+  runId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<CorrelationSummaryInfo> {
+  return request<CorrelationSummaryInfo>(`/correlation-runs/${encodeURIComponent(runId)}/summary`, {
+    signal: options.signal,
+  });
 }
 
 // ── 端点证据 ──
-
-export type EndpointEvidenceCandidateInfo = components["schemas"]["EndpointEvidenceCandidateResponse"];
 
 export type EndpointEvidenceInfo = components["schemas"]["EndpointEvidenceResponse"];
 
@@ -95,9 +98,13 @@ export function listUncoveredEndpoints(
 
 export type CaptureQualityInfo = components["schemas"]["CaptureQualityResponse"];
 
-export function getCaptureQuality(runId: string): Promise<CaptureQualityInfo> {
+export function getCaptureQuality(
+  runId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<CaptureQualityInfo> {
   return request<CaptureQualityInfo>(
     `/correlation-runs/${encodeURIComponent(runId)}/capture-quality`,
+    { signal: options.signal },
   );
 }
 

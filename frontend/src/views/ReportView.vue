@@ -123,15 +123,15 @@
                 </tr>
                 <tr>
                   <th>创建时间</th>
-                  <td>{{ formatDate(report.task.createdAt) }}</td>
+                  <td>{{ formatReportDate(report.task.createdAt) }}</td>
                 </tr>
                 <tr>
                   <th>开始时间</th>
-                  <td>{{ formatDate(report.task.startedAt) }}</td>
+                  <td>{{ formatReportDate(report.task.startedAt) }}</td>
                 </tr>
                 <tr>
                   <th>完成时间</th>
-                  <td>{{ formatDate(report.task.completedAt) }}</td>
+                  <td>{{ formatReportDate(report.task.completedAt) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -418,7 +418,7 @@ import StepCard from "../components/task/report/StepCard.vue";
 import FindingCard from "../components/task/report/FindingCard.vue";
 import {
   REPORT_NAV_ITEMS,
-  formatDate,
+  formatReportDate,
   getReportSummary,
   getStatusLabel,
   prettyJson,

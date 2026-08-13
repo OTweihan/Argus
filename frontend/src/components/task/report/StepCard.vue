@@ -40,7 +40,7 @@
         </div>
         <div class="step-detail-item">
           <span class="sdi-label">时间</span>
-          <span class="sdi-value">{{ formatDate(step.createdAt) }}</span>
+          <span class="sdi-value">{{ formatReportDate(step.createdAt) }}</span>
         </div>
         <div v-if="step.urlBefore" class="step-detail-item full-width">
           <span class="sdi-label">URL 跳转前</span>
@@ -124,7 +124,7 @@ import { ref } from "vue";
 import type { ReportTaskLog } from "../../../types";
 import { screenshotPath } from "../../../api";
 import AuthenticatedImage from "../../AuthenticatedImage.vue";
-import { formatDate, prettyJson } from "./reportUtils";
+import { formatReportDate, prettyJson } from "./reportUtils";
 
 defineProps<{
   step: ReportTaskLog;

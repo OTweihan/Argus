@@ -2,24 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import {
   REPORT_NAV_ITEMS,
-  formatDate,
+  formatReportDate,
   getReportSummary,
   getStatusLabel,
   prettyJson,
 } from "../reportUtils";
 
-describe("reportUtils.formatDate", () => {
+describe("reportUtils.formatReportDate", () => {
   it("空值返回 dash 占位", () => {
-    expect(formatDate(null)).toBe("-");
-    expect(formatDate("")).toBe("-");
+    expect(formatReportDate(null)).toBe("-");
+    expect(formatReportDate("")).toBe("-");
   });
 
   it("非法时间字符串原样返回", () => {
-    expect(formatDate("not-a-date")).toBe("not-a-date");
+    expect(formatReportDate("not-a-date")).toBe("not-a-date");
   });
 
   it("合法 ISO 时间返回 zh-CN 格式串", () => {
-    const out = formatDate("2026-05-15T08:30:00Z");
+    const out = formatReportDate("2026-05-15T08:30:00Z");
     // 不强校验具体 locale 渲染，但应当包含 2026 与冒号分隔；
     // 与单元运行环境 timezone 无关，仅验证函数走通格式化分支。
     expect(out).toMatch(/2026/);

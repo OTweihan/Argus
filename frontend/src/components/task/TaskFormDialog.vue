@@ -361,7 +361,7 @@ import {
   hasAnyExtension,
   type PromptExtensions,
 } from "../../promptExtensions";
-import type { TaskFormState } from "../../composables/useTasks";
+import { defaultTaskFormState, type TaskFormState } from "../../composables/useTasks";
 import { SENTINEL_DEFAULT } from "../../utils";
 const PromptExtensionEditor = defineAsyncComponent(
   () => import("../prompt/PromptExtensionEditor.vue"),
@@ -386,41 +386,7 @@ const emit = defineEmits<{
 const promptCollapseActive = ref<string[]>([]);
 const mavenExpanded = ref<string[]>([]);
 
-const localForm = reactive<TaskFormState>({
-  editingId: null,
-  goal: "",
-  name: "",
-  projectId: "",
-  modelConfigId: SENTINEL_DEFAULT,
-  taskType: "blackbox",
-  blackbox: {
-    startUrl: "",
-    maxSteps: null,
-    timeoutSeconds: null,
-    captureScreenshots: SENTINEL_DEFAULT,
-    parameters: [],
-    promptExtensions: emptyPromptExtensions(),
-  },
-  whitebox: {
-    sourceType: "local",
-    repoUrl: "",
-    sourcePath: "",
-    ref: "",
-    scope: "all",
-    targetModules: [],
-    mavenClasspathMode: "AUTO",
-    mavenOffline: false,
-    mavenAutoDetect: true,
-    mavenGenerateClasspath: true,
-    mavenClasspathFile: "",
-    mavenExecutable: "",
-    mavenSettingsXml: "",
-    mavenLocalRepository: "",
-    mavenOfflineTimeoutSeconds: null,
-    mavenOnlineTimeoutSeconds: null,
-    mavenPrepareReactorArtifacts: false,
-  },
-});
+const localForm = reactive<TaskFormState>(defaultTaskFormState());
 
 const hasExt = computed(() => {
   if (localForm.taskType !== "blackbox") return false;

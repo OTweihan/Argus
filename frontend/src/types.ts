@@ -56,12 +56,6 @@ export type Task = Omit<components["schemas"]["TaskResponse"], "logs" | "finding
   } | null;
 };
 
-/** @description 任务步骤日志响应 */
-export type TaskLog = components["schemas"]["TaskLogResponse"];
-
-/** @description 问题记录响应 */
-export type Finding = components["schemas"]["FindingResponse"];
-
 /** @description 轻量任务列表响应 */
 export type TaskListResponse = components["schemas"]["TaskSummaryListResponse"];
 
