@@ -98,6 +98,7 @@ def _make_correlation_run(
     analysis_id: str | None = None,
     bound_source_snapshot_id: str | None = None,
     analysis_projection_version: int | None = None,
+    created_at: str = "2024-01-01T00:00:00",
 ) -> CorrelationRun:
     """创建 CorrelationRun 并返回。"""
     cr = CorrelationRun(
@@ -112,7 +113,7 @@ def _make_correlation_run(
         bound_source_snapshot_id=bound_source_snapshot_id,
         analysis_projection_version=analysis_projection_version,
         status=status,
-        created_at="2024-01-01T00:00:00",
+        created_at=created_at,
     )
     storage.create_correlation_run(cr)
     return cr
@@ -199,6 +200,31 @@ class TestCorrelationRun:
         fetched = storage.get_correlation_run_by_blackbox("bb:base")
         assert fetched is not None
         assert fetched.correlation_run_id == cr.correlation_run_id
+
+    def test_list_by_blackbox_run_ids_returns_latest_per_run(self, base: tuple) -> None:
+        storage, _, project_id = base
+        # 同一 blackbox_run 对应两条 correlation_run（重算 supersede 场景）：
+        # 批量查询必须与 get_correlation_run_by_blackbox 语义一致，只返回最新一条。
+        _make_correlation_run(
+            storage,
+            "cr:old",
+            "bb:base",
+            project_id=project_id,
+            created_at="2024-01-01T00:00:00",
+        )
+        _make_correlation_run(
+            storage,
+            "cr:new",
+            "bb:base",
+            project_id=project_id,
+            status=CorrelationRunStatus.READY,
+            analysis_id="analysis:new",
+            bound_source_snapshot_id="abc123",
+            analysis_projection_version=1,
+            created_at="2024-01-02T00:00:00",
+        )
+        runs = storage.list_correlation_runs_by_blackbox_run_ids(["bb:base"])
+        assert [r.correlation_run_id for r in runs] == ["cr:new"]
 
     def test_set_status(self, base: tuple) -> None:
         storage, _, project_id = base

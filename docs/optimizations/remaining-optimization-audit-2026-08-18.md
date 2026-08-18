@@ -14,11 +14,12 @@
 
 | 批次 | 内容 | 验证 |
 |---|---|---|
-| 1 正确性 | Java 调用图重载键碰撞（`MethodKey`）、`MavenDetector` PATH 硬编码 `;`、`SourceFileScanner` `target` 子串过宽、Python CAS SQL 私有穿透收敛、bind 吞异常语义统一、前端 `ReportView` 全量 stringify、`TaskTimeline` 竞态、`usePagedList` 卸载清理 | Python 1417 passed；前端 227 passed |
+| 1 正确性 | Java 调用图重载键碰撞（`MethodKey`）、`MavenDetector` PATH 硬编码 `;`、`SourceFileScanner` `target` 子串过宽、Python CAS SQL 私有穿透收敛、bind 吞异常语义统一、前端 `ReportView` 全量 stringify、`TaskTimeline` 竞态、`usePagedList` 卸载清理 | Python 1418 passed；前端 227 passed |
 | 2 死代码 | Python `TaskQueue.is_known`/`DbPool.conn`/`with_conn`/`with_tx`/`ConnectFn`/`MatchResult.flows`/`TIMELINE_*`/browser 死回退；Java `ClasspathMode.MAVEN`/`ModuleType.isAggregating`/`MavenConfig` 7 参构造器/`MavenModule.getVersion/getPomFile`；前端 `useDialog.showDialog`/`debugBundleUrl` | 同上 |
 | 3 重复收敛 | Python `utc_now_iso`/`_build_task_where`/`_FINDING_RELATION_PRIORITY`/`_row_to_flow_step`；Java `Digests`/`MavenConfig` 拷贝构造器/`CommunityClusterer` 复用 Random；前端 `severity.ts`/`stringifyParamValue`/`shortSha`/`ElTagType` | 同上 |
 | 4 性能 | Java `FindingDetector` AST 遍历 4→1/`MavenExecutor` 有界缓冲；Python `get_summary` 单连接/`list_correlation_runs_by_task` 去 N+1/`recover_stale_attempts` 批量/执行流分页按页取 steps | 同上 |
-| 5 索引迁移 | 新增 `0006_correlation_analysis_index.sql` 部分索引，`EXPLAIN` 确认 `analysis_id IN (...)` 走索引 | 空库幂等 + EXPLAIN 已验证 |
+| 5 索引迁移 | 新增 `0006_correlation_analysis_index.sql` 部分索引，`EXPLAIN` 确认 `analysis_id IN (...)` 走索引；同步更新 `test_migrations.py` 迁移版本断言（[0..6]） | 空库幂等 + EXPLAIN + 全量测试通过 |
+| Review 修复 | ① `list_by_blackbox_run_ids` 用 ROW_NUMBER 保持「每 blackbox_run 最新一条」语义（修复 docstring 与实现不符 + supersede 场景行为变更），补回归测试；② `ReportView.reportJsonStr` 改为仅在 `reportTab === 'raw-json'` 时序列化（默认标签不再全量 stringify）；③ 删除 `count_eligible_requests`（get_summary 内联后准死代码），测试改为直接断言 `list_eligible_requests` 过滤 | Python 1418 passed；前端 227 passed |
 
 ---
 
@@ -186,4 +187,5 @@
 ## 附：本次已完成项速查（供快速确认不重复劳动）
 
 - **已做**：`MethodKey` 键统一、`File.pathSeparator`、`SourceFileScanner` target 段匹配、CAS SQL 公开方法（`requeue_stale_task`/`mark_stale_task_terminal`/`list_stale_whitebox_tasks`）、`_claim_and_execute_matching_sync`、`utc_now_iso`、`_build_task_where`、`Digests`、`MavenConfig` 拷贝构造器、`CommunityClusterer` Random 复用、`FindingDetector` 单遍历、`MavenExecutor` 有界缓冲、`get_summary` 单连接、`list_by_blackbox_run_ids`、`recover_stale_attempts` 批量、`list_flow_steps_by_flow_ids`、`0006` 迁移、前端 `severity.ts`/`stringifyParamValue`/`shortSha`/`ElTagType`/`usePagedList` 卸载守卫/`TaskTimeline` 竞态/`ReportView` memoized stringify。
+- **Review 修复（同日）**：`list_by_blackbox_run_ids` ROW_NUMBER 去重（每 blackbox_run 最新一条）+ 回归测试、`ReportView.reportJsonStr` 依赖 `reportTab` 门槛、删除 `count_eligible_requests`（get_summary 内联后准死代码）+ 测试改造、`test_migrations.py` 迁移版本断言更新为 [0..6]。
 - **未做（本清单）**：P1–P9、J1–J5、F1–F3。
