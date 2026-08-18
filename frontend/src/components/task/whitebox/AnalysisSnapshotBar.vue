@@ -6,7 +6,7 @@
     </div>
     <div v-if="summary.resolvedCommitSha" class="snapshot-row">
       <span class="snap-label">Commit</span>
-      <span class="snap-value mono">{{ summary.resolvedCommitSha.slice(0, 8) }}</span>
+      <span class="snap-value mono">{{ shortSha(summary.resolvedCommitSha) }}</span>
     </div>
     <div class="snapshot-row">
       <span class="snap-label">状态</span>
@@ -29,7 +29,7 @@
 import { computed } from "vue";
 import { formatDate } from "../../../utils";
 import type { AnalysisRunSummary } from "../../../api/task";
-import { runStatusLabel, runStatusTagType } from "./runStatus";
+import { runStatusLabel, runStatusTagType, shortSha } from "./runStatus";
 
 const props = defineProps<{ summary: AnalysisRunSummary }>();
 

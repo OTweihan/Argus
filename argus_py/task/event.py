@@ -13,42 +13,6 @@ from argus_py.task.storage import TaskSQLiteStorage
 
 TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
 
-# ── 时间线阶段与事件类型 ──────────────────────────────────
-
-TIMELINE_PHASES = {
-    "task": "任务生命周期",
-    "browser": "浏览器操作",
-    "planner": "Planner LLM 调用",
-    "executor": "动作执行",
-    "evaluator": "Evaluator LLM 调用",
-    "report": "报告生成",
-    "whitebox": "白盒分析",
-}
-
-TIMELINE_EVENT_TYPES = [
-    "start",
-    "open_url",
-    "snapshot",
-    "planner_start",
-    "planner_result",
-    "action",
-    "evaluator_start",
-    "evaluator_result",
-    "report",
-    "complete",
-    "fail",
-    # 白盒事件
-    "whitebox_source_resolved",
-    "whitebox_source_validated",
-    "whitebox_submitted",
-    "whitebox_progress",
-    "whitebox_succeeded",
-    "whitebox_failed",
-    "whitebox_cancelled",
-    "whitebox_timed_out",
-    "whitebox_interrupted",
-]
-
 
 @dataclass
 class TimelineEvent:
@@ -56,8 +20,8 @@ class TimelineEvent:
 
     event_id: str = ""
     task_id: str = ""
-    event_type: str = ""  # 见 TIMELINE_EVENT_TYPES
-    phase: str = ""  # 见 TIMELINE_PHASES key
+    event_type: str = ""  # 如 start/open_url/planner_result/whitebox_succeeded 等
+    phase: str = ""  # 如 task/browser/planner/executor/evaluator/report/whitebox
     step_number: int = 0
     summary: str = ""
     data: dict[str, Any] = field(default_factory=dict)

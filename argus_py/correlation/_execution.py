@@ -23,6 +23,14 @@ from argus_py.correlation.models import (
     FindingEvidenceLink,
 )
 
+# 关联类型优先级：DIRECT_HANDLER > FLOW_MEMBER > STATIC_REACHABLE > UNKNOWN。
+_FINDING_RELATION_PRIORITY: dict[FindingRelationType, int] = {
+    FindingRelationType.DIRECT_HANDLER: 0,
+    FindingRelationType.FLOW_MEMBER: 1,
+    FindingRelationType.STATIC_REACHABLE: 2,
+    FindingRelationType.UNKNOWN: 3,
+}
+
 
 def assess_capture_quality(cq: dict[str, Any] | None) -> tuple[bool, bool]:
     """从 CaptureQuality dict 提取截断和持久化失败标志。
@@ -679,16 +687,9 @@ def generate_finding_evidence(
 
         # 确定 best_relation_type（取最高优先级）
         if matched_eps:
-            # 优先级：DIRECT_HANDLER > FLOW_MEMBER > STATIC_REACHABLE > UNKNOWN
-            priority = {
-                FindingRelationType.DIRECT_HANDLER: 0,
-                FindingRelationType.FLOW_MEMBER: 1,
-                FindingRelationType.STATIC_REACHABLE: 2,
-                FindingRelationType.UNKNOWN: 3,
-            }
             best_rel = min(
                 (ep_relation[ep.get("endpoint_id", "")] for ep in matched_eps),
-                key=lambda r: priority.get(r, 99),
+                key=lambda r: _FINDING_RELATION_PRIORITY.get(r, 99),
             )
         else:
             best_rel = FindingRelationType.UNKNOWN

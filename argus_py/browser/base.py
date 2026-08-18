@@ -384,23 +384,9 @@ class BrowserSession:
         cap.finished_at = _utc_now_iso()
         cap.outcome = RequestOutcome.COMPLETED
         # response_status / response_from_service_worker are already set by _on_response,
-        # which fires before requestfinished in Playwright's event ordering.
-        # Fallback in case _on_response was not triggered (e.g. response body not received
-        # but request was still marked finished): response() is async and cannot be called
-        # from a sync event handler.
-        if cap.response_status is None:
-            try:
-                resp = request.response()
-                import asyncio as _asyncio
-
-                if _asyncio.iscoroutine(resp):
-                    # Cannot await in sync callback; _on_response should have captured it.
-                    pass
-                elif resp is not None:
-                    cap.response_status = resp.status
-                    cap.response_from_service_worker = bool(resp.from_service_worker)
-            except Exception:
-                pass
+        # which fires before requestfinished in Playwright's event ordering. 若 _on_response
+        # 因某种原因未触发，此处无法补救：response() 在 async API 下返回协程，同步事件
+        # handler 无法 await，故不设同步回退。
         _resolve_eligibility(cap)
         self._completed_requests.append(cap)
         self._flush_to_queue_if_needed()
@@ -485,10 +471,10 @@ class BrowserSession:
 
 
 def _utc_now_iso() -> str:
-    """返回 UTC ISO 8601 时间字符串。"""
-    from datetime import datetime, timezone
+    """返回 UTC ISO 8601 时间字符串（统一委托 core.constants.utc_now_iso）。"""
+    from argus_py.core.constants import utc_now_iso
 
-    return datetime.now(timezone.utc).isoformat()
+    return utc_now_iso()
 
 
 def _normalize_origin(url: str) -> str:

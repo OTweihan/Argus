@@ -525,12 +525,12 @@ async def list_analysis_execution_flows(
         cursor=cursor,
         limit=limit,
     )
-    # 一次取全所有 flow steps 后按 execution_flow_id 分组，避免对每个 flow 单独
-    # 查询（N+1）。steps 已按 execution_flow_id, step_index 排序（JOIN 查询）。
+    # 仅按当前页 flow_id 集合批量取 steps，避免每页全量载入后再内存过滤。
     steps_by_flow: dict[str, list[dict[str, Any]]] = {}
     if items:
-        all_steps = await run_in_thread(app.list_all_analysis_flow_steps, analysis_id)
-        for step in all_steps:
+        flow_ids = [flow["execution_flow_id"] for flow in items]
+        steps = await run_in_thread(app.list_analysis_flow_steps_for_flows, flow_ids)
+        for step in steps:
             steps_by_flow.setdefault(step["execution_flow_id"], []).append(step)
     flows = []
     for flow in items:

@@ -261,31 +261,22 @@ class TaskWorker:
             return
 
         now_iso = datetime.now(timezone.utc).isoformat()
-        pool = storage._tasks._pool
         rows = find_stale_whitebox_tasks(storage)
 
         for row in rows:
             task_id = row["task_id"]
             # CAS: 只有状态、worker_id、lease 全部匹配才更新
-            with pool.tx() as conn:
-                cursor = conn.execute(
-                    "UPDATE tasks SET status = ?, completed_at = ?, "
-                    "error_message = ? "
-                    "WHERE task_id = ? AND status = ? "
-                    "AND worker_id = ? AND worker_lease_expires_at = ?",
-                    (
-                        TaskStatus.FAILED.value,
-                        now_iso,
-                        f"Worker 重启，远端作业 {row['external_job_id']} "
-                        f"租约已过期（最后轮询: {row['lease']}）",
-                        task_id,
-                        TaskStatus.RUNNING.value,
-                        row["w_id"],
-                        row["lease"],
-                    ),
-                )
-                if cursor.rowcount == 0:
-                    continue  # 已被其他逻辑标记为终态
+            updated = storage.mark_stale_task_terminal(
+                task_id,
+                TaskStatus.FAILED,
+                now_iso,
+                f"Worker 重启，远端作业 {row['external_job_id']} "
+                f"租约已过期（最后轮询: {row['lease']}）",
+                expected_worker_id=row["w_id"],
+                expected_lease=row["lease"],
+            )
+            if not updated:
+                continue  # 已被其他逻辑标记为终态
 
             logger.warning(
                 "已标记中断任务: %s (job=%s, status=%s)",

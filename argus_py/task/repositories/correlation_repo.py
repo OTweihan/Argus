@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from argus_py.core.constants import utc_now_iso as _utc_now_iso
 from argus_py.correlation.enums import (
     AttemptStatus,
     BlackboxRunStatus,
@@ -32,10 +33,6 @@ from argus_py.correlation.models import (
     HttpRequestEvidence,
 )
 from argus_py.infra.db import DbPool
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _new_id(prefix: str) -> str:
@@ -382,6 +379,30 @@ class CorrelationRepository:
             ).fetchall()
         return [_row_to_correlation_run(dict(r)) for r in rows]
 
+    def list_by_blackbox_run_ids(self, blackbox_run_ids: list[str]) -> list[CorrelationRun]:
+        """通过黑盒 blackbox_run_id 列表批量查找关联运行（消除路径 1 的 N+1）。
+
+        每个 blackbox_run_id 只返回最新的一条（ROW_NUMBER 按 created_at DESC 取
+        rn=1），与原先逐条的 ``get_correlation_run_by_blackbox``（ORDER BY created_at
+        DESC LIMIT 1）语义一致——重算产生的 supersede 历史 run 不返回。
+        """
+        if not blackbox_run_ids:
+            return []
+        placeholders = ", ".join(["?"] * len(blackbox_run_ids))
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                f"""SELECT * FROM (
+                        SELECT *, ROW_NUMBER() OVER (
+                            PARTITION BY blackbox_run_id ORDER BY created_at DESC
+                        ) AS rn
+                        FROM correlation_runs
+                        WHERE blackbox_run_id IN ({placeholders})
+                    ) WHERE rn = 1
+                    ORDER BY created_at DESC""",
+                blackbox_run_ids,
+            ).fetchall()
+        return [_row_to_correlation_run(dict(r)) for r in rows]
+
     def set_status(self, correlation_run_id: str, status: CorrelationRunStatus) -> None:
         with self._pool.tx() as conn:
             conn.execute(
@@ -677,22 +698,6 @@ class CorrelationRepository:
             ).fetchall()
         return [_row_to_http_request(dict(r)) for r in rows]
 
-    def count_eligible_requests(self, blackbox_run_id: str) -> int:
-        """返回 CONFIRMED_ELIGIBLE 或 ATTEMPT_ONLY 的请求数（谓词与
-        ``list_eligible_requests`` 完全一致，但只 COUNT 不物化行）。
-
-        供 ``get_summary`` 计算 correlatable_request_count，避免为取长度而
-        加载最多 ``_max_requests_per_run``（10 万）行请求。
-        """
-        with self._pool.ro_conn() as conn:
-            row = conn.execute(
-                """SELECT COUNT(*) AS cnt FROM http_request_evidence
-                   WHERE blackbox_run_id = ?
-                     AND endpoint_match_eligibility IN ('CONFIRMED_ELIGIBLE', 'ATTEMPT_ONLY')""",
-                (blackbox_run_id,),
-            ).fetchone()
-        return row["cnt"] if row else 0
-
     def list_unmatched_requests(
         self,
         correlation_run_id: str,
@@ -867,6 +872,9 @@ class CorrelationRepository:
 
         bb_id = cr.blackbox_run_id
 
+        # 单连接合并：采集质量 / 请求总数 / 可关联请求数 / 端点证据 / 触达统计 /
+        # Finding 统计 / Attempt 完整性，全部在同一个只读连接内完成，避免此前
+        # 两段 ro_conn + 独立 eligible COUNT 的三次连接与多次表扫描往返。
         with self._pool.ro_conn() as conn:
             # ── 采集质量 ──
             cq = conn.execute(
@@ -892,15 +900,18 @@ class CorrelationRepository:
                 ).fetchone()
                 summary.captured_request_count = total_row["cnt"] if total_row else 0
 
-        # ── 可关联请求 ──
-        # 只 COUNT 合格请求，不物化全部行（list_eligible_requests 最多加载
-        # _max_requests_per_run=10 万行，此前仅为取 len()）。
-        summary.correlatable_request_count = self.count_eligible_requests(bb_id)
+            # ── 可关联请求（只 COUNT 合格请求，不物化行）──
+            eligible_row = conn.execute(
+                """SELECT COUNT(*) AS cnt FROM http_request_evidence
+                   WHERE blackbox_run_id = ?
+                     AND endpoint_match_eligibility IN ('CONFIRMED_ELIGIBLE', 'ATTEMPT_ONLY')""",
+                (bb_id,),
+            ).fetchone()
+            summary.correlatable_request_count = eligible_row["cnt"] if eligible_row else 0
 
-        if attempt_id is None:
-            return summary
+            if attempt_id is None:
+                return summary
 
-        with self._pool.ro_conn() as conn:
             # ── 端点证据分组计数 ──
             # ATTEMPT_ONLY 请求也参与匹配并生成证据，但不计入 confirmed 类统计
             ee_stats = conn.execute(
@@ -1348,29 +1359,41 @@ class CorrelationRepository:
     # ══════════════════════════════════════════════════════════
 
     def recover_stale_attempts(self) -> list[CorrelationAttempt]:
-        """将 lease 过期的 RUNNING Attempt 标记为 ABORTED，并回退 Run 状态。"""
+        """将 lease 过期的 RUNNING Attempt 标记为 ABORTED，并回退 Run 状态。
+
+        批量处理（替代逐 attempt 三次查询/事务）：一次 UPDATE 批量 ABORT，
+        再一次 UPDATE 回退受影响的 Run 状态（仅 RUNNING，按是否已绑定分析区分
+        READY / WAITING_ANALYSIS）。
+        """
         stale = self.list_running_attempts_with_expired_lease()
-        for attempt in stale:
-            self.abort_attempt(attempt.correlation_attempt_id)
-            # 检查重试资格
-            cr = self.get_correlation_run(attempt.correlation_run_id)
-            if cr is not None:
-                if cr.status in (CorrelationRunStatus.RUNNING,):
-                    new_status = (
-                        CorrelationRunStatus.READY
-                        if cr.analysis_id is not None
-                        else CorrelationRunStatus.WAITING_ANALYSIS
-                    )
-                    # 回退状态并清除 active_attempt_id 和 completed_at：
-                    # claim 不再设置 active_attempt_id，完成时才原子发布，
-                    # 因此恢复时必须清除旧的 active_attempt_id 避免指向 ABORTED attempt。
-                    # 同时清除 completed_at，避免 READY 状态下残留旧完成时间戳。
-                    with self._pool.tx() as conn:
-                        conn.execute(
-                            """UPDATE correlation_runs
-                               SET status = ?, active_attempt_id = NULL,
-                                   completed_at = NULL
-                               WHERE correlation_run_id = ?""",
-                            (new_status.value, cr.correlation_run_id),
-                        )
+        if not stale:
+            return []
+
+        attempt_ids = [a.correlation_attempt_id for a in stale]
+        placeholders = ",".join("?" for _ in attempt_ids)
+        now = _utc_now_iso()
+        with self._pool.tx() as conn:
+            conn.execute(
+                f"UPDATE correlation_attempts SET status = 'ABORTED', completed_at = ? "
+                f"WHERE correlation_attempt_id IN ({placeholders})",
+                (now, *attempt_ids),
+            )
+
+        # 回退 Run 状态并清除 active_attempt_id / completed_at：claim 不再设置
+        # active_attempt_id，完成时才原子发布，因此恢复时必须清除旧的
+        # active_attempt_id 避免指向 ABORTED attempt；同时清除 completed_at，
+        # 避免 READY 状态下残留旧完成时间戳。
+        run_ids = sorted({a.correlation_run_id for a in stale})
+        run_placeholders = ",".join("?" for _ in run_ids)
+        with self._pool.tx() as conn:
+            conn.execute(
+                f"""UPDATE correlation_runs
+                    SET status = CASE WHEN analysis_id IS NOT NULL THEN 'READY'
+                                      ELSE 'WAITING_ANALYSIS' END,
+                        active_attempt_id = NULL,
+                        completed_at = NULL
+                    WHERE correlation_run_id IN ({run_placeholders})
+                      AND status = 'RUNNING'""",
+                run_ids,
+            )
         return stale

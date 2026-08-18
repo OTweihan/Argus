@@ -19,7 +19,6 @@ from argus_py.correlation.enums import (
 from argus_py.correlation.models import (
     EndpointEvidence,
     EndpointEvidenceCandidate,
-    EndpointEvidenceFlow,
     HttpRequestEvidence,
     PathMapping,
 )
@@ -218,7 +217,6 @@ class MatchResult:
 
     evidence_list: list[EndpointEvidence] = field(default_factory=list)
     candidates: list[EndpointEvidenceCandidate] = field(default_factory=list)
-    flows: list[EndpointEvidenceFlow] = field(default_factory=list)
     diagnostics: list[AttemptDiagnosticCode] = field(default_factory=list)
 
 

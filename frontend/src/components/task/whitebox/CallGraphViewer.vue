@@ -101,6 +101,7 @@
 import { computed, ref, watch } from "vue";
 import type { CallEdgeInfo, CallNodeInfo } from "../../../api/task";
 import { useDebounceFn } from "../../../composables/useDebounceFn";
+import type { ElTagType } from "../../../utils";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{
@@ -157,8 +158,6 @@ function toggleNode(row: CallNodeInfo): void {
 function toggleExpandedNode(row: CallNodeInfo): void {
   emit("select-node", row.callNodeId);
 }
-
-type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
 
 function confidenceTag(c: string | null | undefined): ElTagType {
   if (!c) return "info";

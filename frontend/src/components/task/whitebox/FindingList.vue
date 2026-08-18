@@ -65,6 +65,7 @@
 import { computed } from "vue";
 import type { FindingInfo } from "../../../api/task";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
+import { severityRank } from "./severity";
 
 const props = defineProps<{
   items: FindingInfo[];
@@ -77,19 +78,9 @@ defineEmits<{
   (e: "load-more"): void;
 }>();
 
-const SEVERITY_ORDER: Readonly<Record<string, number>> = Object.freeze({
-  CRITICAL: 0,
-  HIGH: 1,
-  MEDIUM: 2,
-  LOW: 3,
-  INFO: 4,
-});
-
 const sortedItems = computed(() =>
   [...props.items].sort(
-    (left, right) =>
-      (SEVERITY_ORDER[left.severity.toUpperCase()] ?? Number.MAX_SAFE_INTEGER) -
-      (SEVERITY_ORDER[right.severity.toUpperCase()] ?? Number.MAX_SAFE_INTEGER),
+    (left, right) => severityRank(left.severity) - severityRank(right.severity),
   ),
 );
 </script>

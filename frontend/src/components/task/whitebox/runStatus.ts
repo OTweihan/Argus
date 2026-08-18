@@ -13,6 +13,11 @@ const STATUS_LABELS: Record<string, string> = {
 
 export type RunStatusTagType = "success" | "danger" | "warning" | "info";
 
+/** commit SHA 截断为 8 位短标识（无值时返回空串）。 */
+export function shortSha(sha: string | null | undefined): string {
+  return sha ? sha.slice(0, 8) : "";
+}
+
 export function runStatusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }

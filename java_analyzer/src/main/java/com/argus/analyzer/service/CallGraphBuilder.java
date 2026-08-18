@@ -10,6 +10,7 @@ import com.argus.analyzer.domain.model.AnalyzerDiagnostics;
 import com.argus.analyzer.domain.model.CallEdge;
 import com.argus.analyzer.domain.model.CallGraphNode;
 import com.argus.analyzer.domain.model.Confidence;
+import com.argus.analyzer.domain.model.MethodKey;
 import com.argus.analyzer.domain.model.ResolutionType;
 import com.argus.analyzer.support.SourceFileScanner;
 import com.github.javaparser.ast.CompilationUnit;
@@ -89,6 +90,9 @@ public class CallGraphBuilder implements AnalysisPass {
     private BuildResult buildFrom(SourceFileScanner.ScanResult scanResult,
                                   Path sourcePath, AnalysisProgressListener progress) {
         Map<String, CallGraphNode> graph = new LinkedHashMap<>();
+        // 每个「类#方法」名字键的命中次数：用于检测重载，首个重载保留名字键（名字键
+        // 是唯一稳定身份，供仅有方法名的消费方反查），后续重载改用签名键避免静默覆盖。
+        Map<String, Integer> overloadCounts = new HashMap<>();
 
         int totalCalls = 0;
         int resolvedHigh = 0;
@@ -108,7 +112,14 @@ public class CallGraphBuilder implements AnalysisPass {
                         .orElse(javaFile.getFileName().toString().replace(".java", ""));
 
                 for (MethodDeclaration method : clazz.getMethods()) {
-                    String nodeKey = className + "#" + method.getNameAsString();
+                    String nameKey = MethodKey.nameKey(className, method.getNameAsString());
+                    int seen = overloadCounts.merge(nameKey, 1, Integer::sum);
+                    String nodeKey = seen == 1
+                            ? nameKey
+                            : MethodKey.signatureKey(className, method.getNameAsString(),
+                                    method.getParameters().stream()
+                                            .map(p -> p.getType().asString())
+                                            .toList());
                     String signature = method.getType().toString() + " " + method.getNameAsString()
                             + "(" + String.join(", ", method.getParameters().stream()
                             .map(p -> p.getType().toString())
@@ -152,6 +163,11 @@ public class CallGraphBuilder implements AnalysisPass {
 
     /**
      * 三层解析链：SymbolSolver → ScopeFallback → Unresolved
+     *
+     * <p>边的 {@code to} 统一使用名字键（{@code className#methodName}）：解析到重载方法时
+     * 指向首个重载节点。签名级消歧不在边侧进行，因为 scope 回退与 unresolved 两层仅能拿到
+     * 方法名、端点入口（{@code EndpointInfo}）同样只有方法名；统一名字键保证这些消费方的
+     * 反查语义稳定。</p>
      */
     private CallEdge resolve(MethodCallExpr call, String sourceFile, int line) {
         // Layer 1: 精确解析

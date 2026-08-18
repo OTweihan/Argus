@@ -5,7 +5,7 @@ from __future__ import annotations
 import queue
 import sqlite3
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
 
@@ -13,9 +13,6 @@ from argus_py.core.paths import DATA_DIR
 from argus_py.infra.migrations import apply_migrations
 
 DEFAULT_DB_PATH = DATA_DIR / "argus.db"
-
-ConnectFn = Callable[[], sqlite3.Connection]
-"""无参连接工厂签名（通常为 ``lambda: connect(db_path)``）。"""
 
 # ── 进程级连接池 ───────────────────────────────────────────────────────────────
 
@@ -45,10 +42,6 @@ class DbPool:
         # 写入（自动 commit / rollback）
         with pool.tx() as conn:
             conn.execute("INSERT ...", row)
-
-        # 读写连接（非事务，极少使用）
-        with pool.conn() as conn:
-            ...
     """
 
     def __init__(self, db_path: str | Path, max_pool_size: int = 8) -> None:
@@ -64,15 +57,6 @@ class DbPool:
         self._closed = False
 
     # ── 公共接口 ────────────────────────────────────────────────────────────
-
-    @contextmanager
-    def conn(self) -> Iterator[sqlite3.Connection]:
-        """获取读写连接，退出时归还池中。"""
-        connection = self._acquire(self._rw_pool, "_rw_size", read_only=False)
-        try:
-            yield connection
-        finally:
-            self._release(connection, self._rw_pool, "_rw_size")
 
     @contextmanager
     def ro_conn(self) -> Iterator[sqlite3.Connection]:
@@ -402,42 +386,6 @@ def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     return connection
 
 
-@contextmanager
-def with_conn(connect_fn: ConnectFn) -> Iterator[sqlite3.Connection]:
-    """打开连接并在退出时关闭，用于纯读路径。
-
-    取代调用方反复编写的 ``with closing(connect_fn()) as connection:`` 模板：
-
-        with with_conn(self._connect) as conn:
-            row = conn.execute("SELECT ...").fetchone()
-    """
-    connection = connect_fn()
-    try:
-        yield connection
-    finally:
-        connection.close()
-
-
-@contextmanager
-def with_tx(connect_fn: ConnectFn) -> Iterator[sqlite3.Connection]:
-    """打开连接并在 ``with conn:`` 事务上下文里执行，退出时关闭连接。
-
-    SQLite Connection 自身的上下文协议在 ``__exit__`` 时根据是否抛异常自动
-    ``commit`` / ``rollback``；本 helper 在外层再加 try/finally 保证连接关闭。
-    用于一次或多次写操作：
-
-        with with_tx(self._connect) as conn:
-            conn.execute("INSERT ...", row)
-            conn.execute("UPDATE ...", row)
-    """
-    connection = connect_fn()
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
-
-
 _REQUIRED_TASK_COLUMNS: dict[str, str] = {
     "current_step": "INTEGER NOT NULL DEFAULT 0",
     "name": "TEXT",
@@ -519,7 +467,6 @@ class _DefaultDBProbe:
 
 __all__ = [
     "DEFAULT_DB_PATH",
-    "ConnectFn",
     "DbPool",
     "connect",
     "close_all_db_pools",

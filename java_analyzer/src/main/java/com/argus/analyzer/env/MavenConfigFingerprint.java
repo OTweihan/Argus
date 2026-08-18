@@ -1,13 +1,11 @@
 package com.argus.analyzer.env;
 
+import com.argus.analyzer.support.Digests;
+
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -52,7 +50,6 @@ public final class MavenConfigFingerprint {
                 Boolean.toString(resolved.isGenerateClasspath()),
                 Objects.toString(resolved.getClasspathFile(), ""),
                 Objects.toString(resolved.getExecutable(), ""),
-                Objects.toString(resolved.getSettingsXml(), ""),
                 settingsFingerprint(resolved.getSettingsXml()),
                 Objects.toString(resolved.getLocalRepository(), ""),
                 Boolean.toString(resolved.isOffline()),
@@ -78,31 +75,11 @@ public final class MavenConfigFingerprint {
             if (cached != null && cached.mtime() == mtime && cached.size() == size) {
                 return cached.fingerprint();
             }
-            String fingerprint = computeSha256(path);
+            String fingerprint = Digests.sha256Hex(path);
             SETTINGS_CACHE.put(path.toString(), new CachedSettings(fingerprint, mtime, size));
             return fingerprint;
         } catch (IOException error) {
             throw new IllegalStateException("Failed to fingerprint Maven settings: " + path, error);
-        }
-    }
-
-    private static String computeSha256(Path path) throws IOException {
-        MessageDigest digest = newDigest();
-        try (InputStream input = Files.newInputStream(path)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                digest.update(buffer, 0, read);
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        }
-    }
-
-    private static MessageDigest newDigest() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("SHA-256 is unavailable", error);
         }
     }
 }

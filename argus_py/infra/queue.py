@@ -207,7 +207,3 @@ class TaskQueue:
             for tid in self._queued_ids:
                 result[tid] = "queued"
             return result
-
-    async def is_known(self, task_id: str) -> bool:
-        """判断任务是否已入队或正在执行。"""
-        return (await self.scheduler_status(task_id)) is not None

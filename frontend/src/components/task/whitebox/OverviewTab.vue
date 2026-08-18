@@ -31,10 +31,9 @@
 import { computed } from "vue";
 import type { AnalysisRunSummary } from "../../../api/task";
 import MetricsSummary from "./MetricsSummary.vue";
+import { SEVERITY_ORDER } from "./severity";
 
 const props = defineProps<{ summary: AnalysisRunSummary }>();
-
-const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"];
 
 const severityEntries = computed(() => {
   const counts = props.summary.findingSeverityCounts || {};

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from argus_py.analysis.enums import AnalysisRunStatus
+from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskNotFoundError, TaskRetryConflictError
 from argus_py.core.paths import DATA_DIR, TEMP_DIR
 from argus_py.correlation.models import (
@@ -156,6 +157,46 @@ class TaskSQLiteStorage:
 
     def update_task(self, task_id: str, **fields: Any) -> None:
         self._tasks.update_task(task_id, **fields)
+
+    def requeue_stale_task(
+        self,
+        task_id: str,
+        external_job_status: str,
+        *,
+        expected_worker_id: str,
+        expected_lease: str,
+    ) -> bool:
+        """CAS：将租约过期的 RUNNING 任务重置为 PENDING 并清空 worker 租约。"""
+        return self._tasks.requeue_stale_task(
+            task_id,
+            external_job_status,
+            expected_worker_id=expected_worker_id,
+            expected_lease=expected_lease,
+        )
+
+    def mark_stale_task_terminal(
+        self,
+        task_id: str,
+        target_status: TaskStatus,
+        completed_at: str,
+        error_message: str,
+        *,
+        expected_worker_id: str,
+        expected_lease: str,
+    ) -> bool:
+        """CAS：将租约过期的 RUNNING 任务置为终态（FAILED/TIMEOUT）。"""
+        return self._tasks.mark_stale_task_terminal(
+            task_id,
+            target_status,
+            completed_at,
+            error_message,
+            expected_worker_id=expected_worker_id,
+            expected_lease=expected_lease,
+        )
+
+    def list_stale_whitebox_tasks(self, now_iso: str) -> list[dict[str, Any]]:
+        """扫描租约过期的 WHITEBOX+RUNNING 任务（启动恢复用）。"""
+        return self._tasks.list_stale_whitebox_tasks(now_iso)
 
     def load(self, task_id: str) -> Task:
         return self._tasks.load(task_id)
@@ -372,6 +413,12 @@ class TaskSQLiteStorage:
         """一次查询获取分析的所有 flow steps，避免 N+1 查询。"""
         return self._analysis.list_all_flow_steps_by_analysis(analysis_id)
 
+    def list_analysis_flow_steps_for_flows(
+        self, execution_flow_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """按 execution_flow_id 集合批量取 flow steps（执行流分页路由用）。"""
+        return self._analysis.list_flow_steps_by_flow_ids(execution_flow_ids)
+
     def get_analysis_diagnostics(self, analysis_id: str) -> dict[str, Any] | None:
         return self._analysis.get_diagnostics(analysis_id)
 
@@ -422,6 +469,12 @@ class TaskSQLiteStorage:
 
     def get_correlation_run_by_blackbox(self, blackbox_run_id: str) -> CorrelationRun | None:
         return self._correlation.get_correlation_run_by_blackbox(blackbox_run_id)
+
+    def list_correlation_runs_by_blackbox_run_ids(
+        self, blackbox_run_ids: list[str]
+    ) -> list[CorrelationRun]:
+        """批量查找多个 blackbox_run_id 的关联运行（消除逐条查询）。"""
+        return self._correlation.list_by_blackbox_run_ids(blackbox_run_ids)
 
     def find_waiting_correlations(
         self,
@@ -497,10 +550,6 @@ class TaskSQLiteStorage:
 
     def list_eligible_requests(self, bb_id: str) -> list[HttpRequestEvidence]:
         return self._correlation.list_eligible_requests(bb_id)
-
-    def count_eligible_requests(self, bb_id: str) -> int:
-        """返回合格请求数（COUNT 不物化行，供 get_summary 用）。"""
-        return self._correlation.count_eligible_requests(bb_id)
 
     def list_unmatched_requests(
         self,

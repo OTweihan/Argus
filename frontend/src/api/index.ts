@@ -1,7 +1,6 @@
 export {
   ApiError,
   debugBundlePath,
-  debugBundleUrl,
   loadObjectUrl,
   openAuthenticatedResource,
   reportPath,

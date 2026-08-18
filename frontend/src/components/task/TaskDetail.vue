@@ -99,6 +99,7 @@ import {
   splitParametersFromPromptExtensions,
 } from "../../promptExtensions";
 import { displayTaskName } from "../../utils";
+import { stringifyParamValue } from "../../params";
 import "../../styles/detail-grid.css";
 
 // 懒加载：markdown-it + dompurify 依赖随该组件异步加载，
@@ -168,6 +169,6 @@ const whiteboxModules = computed(() => {
 });
 
 function formatParamValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
+  return stringifyParamValue(value);
 }
 </script>

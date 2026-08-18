@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from argus_py.core.constants import KEYWORD_FIELDS, TASK_SEARCH_MIN_LENGTH
+from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.db import DbPool
 from argus_py.task.models import Task
@@ -21,6 +22,35 @@ def _sql_keyword_where(q: str) -> tuple[str, list[str]]:
     pattern = f"%{q}%"
     clause = "(" + " OR ".join(f"{f} LIKE ?" for f in KEYWORD_FIELDS) + ")"
     return clause, [pattern] * len(KEYWORD_FIELDS)
+
+
+def _build_task_where(
+    status: str | None,
+    project_id: str | None,
+    task_type: str | None,
+    q: str | None,
+) -> tuple[list[str], list[Any]]:
+    """构造 tasks 表过滤条件，返回 (where_clauses, params)。
+
+    收敛 list_tasks / count_tasks / list_task_summaries 三处逐字重复的
+    status / project_id / task_type / q 过滤构建。
+    """
+    where_clauses: list[str] = []
+    params: list[Any] = []
+    if status is not None:
+        where_clauses.append("status = ?")
+        params.append(status)
+    if project_id is not None:
+        where_clauses.append("project_id = ?")
+        params.append(project_id)
+    if task_type is not None:
+        where_clauses.append("task_type = ?")
+        params.append(task_type)
+    if q and len(q) >= TASK_SEARCH_MIN_LENGTH:
+        clause, kw_params = _sql_keyword_where(q)
+        where_clauses.append(clause)
+        params.extend(kw_params)
+    return where_clauses, params
 
 
 class TaskRepository:
@@ -216,6 +246,90 @@ class TaskRepository:
                 values,
             )
 
+    def requeue_stale_task(
+        self,
+        task_id: str,
+        external_job_status: str,
+        *,
+        expected_worker_id: str,
+        expected_lease: str,
+    ) -> bool:
+        """CAS：将租约过期的 RUNNING 任务重置为 PENDING 并清空 worker 租约。
+
+        仅当 status=RUNNING 且 worker_id / worker_lease_expires_at 精确匹配时更新，
+        防止与并发修改竞态。返回是否真正更新（False 表示已被并发修改）。
+        """
+        with self._pool.tx() as conn:
+            cursor = conn.execute(
+                "UPDATE tasks SET status = ?, worker_id = NULL, "
+                "worker_lease_expires_at = NULL, external_job_status = ? "
+                "WHERE task_id = ? AND status = ? AND worker_id = ? "
+                "AND worker_lease_expires_at = ?",
+                (
+                    TaskStatus.PENDING.value,
+                    external_job_status,
+                    task_id,
+                    TaskStatus.RUNNING.value,
+                    expected_worker_id,
+                    expected_lease,
+                ),
+            )
+        return cursor.rowcount > 0
+
+    def mark_stale_task_terminal(
+        self,
+        task_id: str,
+        target_status: TaskStatus,
+        completed_at: str,
+        error_message: str,
+        *,
+        expected_worker_id: str,
+        expected_lease: str,
+    ) -> bool:
+        """CAS：将租约过期的 RUNNING 任务置为终态（FAILED/TIMEOUT）。
+
+        仅当 status=RUNNING 且 worker_id / worker_lease_expires_at 精确匹配时更新。
+        返回是否真正更新（False 表示已被并发修改）。
+        """
+        with self._pool.tx() as conn:
+            cursor = conn.execute(
+                "UPDATE tasks SET status = ?, completed_at = ?, error_message = ? "
+                "WHERE task_id = ? AND status = ? AND worker_id = ? "
+                "AND worker_lease_expires_at = ?",
+                (
+                    target_status.value,
+                    completed_at,
+                    error_message,
+                    task_id,
+                    TaskStatus.RUNNING.value,
+                    expected_worker_id,
+                    expected_lease,
+                ),
+            )
+        return cursor.rowcount > 0
+
+    def list_stale_whitebox_tasks(self, now_iso: str) -> list[dict[str, Any]]:
+        """扫描租约过期的 WHITEBOX+RUNNING 任务（启动恢复用）。
+
+        安全条件：status=RUNNING / task_type=WHITEBOX / external_job_id 非空 /
+        worker_lease_expires_at 非空且已过期。
+        """
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                "SELECT task_id, external_job_id, external_job_status, "
+                "worker_id AS w_id, worker_lease_expires_at AS lease "
+                "FROM tasks WHERE status = ? AND task_type = ? "
+                "AND external_job_id IS NOT NULL "
+                "AND worker_lease_expires_at IS NOT NULL "
+                "AND worker_lease_expires_at < ?",
+                (
+                    TaskStatus.RUNNING.value,
+                    TaskType.WHITEBOX.value,
+                    now_iso,
+                ),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def list_tasks(
         self,
         offset: int = 0,
@@ -226,17 +340,7 @@ class TaskRepository:
     ) -> list[Task]:
         """列出任务（含完整日志和发现项），支持过滤和分页。"""
         with self._pool.ro_conn() as conn:
-            where_clauses: list[str] = []
-            params: list[Any] = []
-            if status is not None:
-                where_clauses.append("status = ?")
-                params.append(status)
-            if project_id is not None:
-                where_clauses.append("project_id = ?")
-                params.append(project_id)
-            if task_type is not None:
-                where_clauses.append("task_type = ?")
-                params.append(task_type)
+            where_clauses, params = _build_task_where(status, project_id, task_type, None)
 
             query = "SELECT * FROM tasks"
             if where_clauses:
@@ -294,22 +398,7 @@ class TaskRepository:
         """返回任务总数，支持按状态、项目、类型和关键词过滤。"""
         with self._pool.ro_conn() as conn:
             query = "SELECT COUNT(*) AS cnt FROM tasks"
-            params: list[Any] = []
-            where_clauses: list[str] = []
-            if status is not None:
-                where_clauses.append("status = ?")
-                params.append(status)
-            if project_id is not None:
-                where_clauses.append("project_id = ?")
-                params.append(project_id)
-            if task_type is not None:
-                where_clauses.append("task_type = ?")
-                params.append(task_type)
-            if q:
-                if len(q) >= TASK_SEARCH_MIN_LENGTH:
-                    clause, kw_params = _sql_keyword_where(q)
-                    where_clauses.append(clause)
-                    params.extend(kw_params)
+            where_clauses, params = _build_task_where(status, project_id, task_type, q)
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
             row = conn.execute(query, params).fetchone()
@@ -331,22 +420,7 @@ class TaskRepository:
         JOIN 膨胀，导致 total_count 不准确。
         """
         with self._pool.ro_conn() as conn:
-            where_clauses: list[str] = []
-            params: list[Any] = []
-            if status is not None:
-                where_clauses.append("status = ?")
-                params.append(status)
-            if project_id is not None:
-                where_clauses.append("project_id = ?")
-                params.append(project_id)
-            if task_type is not None:
-                where_clauses.append("task_type = ?")
-                params.append(task_type)
-            if q:
-                if len(q) >= TASK_SEARCH_MIN_LENGTH:
-                    clause, kw_params = _sql_keyword_where(q)
-                    where_clauses.append(clause)
-                    params.extend(kw_params)
+            where_clauses, params = _build_task_where(status, project_id, task_type, q)
 
             query = f"SELECT {task_summary_columns()}, COUNT(*) OVER() AS total_count FROM tasks"
             if where_clauses:

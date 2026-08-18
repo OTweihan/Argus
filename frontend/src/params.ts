@@ -5,6 +5,11 @@ export interface ParamEntry {
   value: string;
 }
 
+/** 非字符串参数值转 JSON 字符串（字符串原样返回）。 */
+export function stringifyParamValue(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 /** 将参数条目列表转换为 Record，检测重复键。 */
 export function parseParamEntries(entries: ParamEntry[]): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -23,6 +28,6 @@ export function parseParamEntries(entries: ParamEntry[]): Record<string, unknown
 export function dictToParamEntries(dict: Record<string, unknown>): ParamEntry[] {
   return Object.entries(dict).map(([key, value]) => ({
     key,
-    value: typeof value === "string" ? value : JSON.stringify(value),
+    value: stringifyParamValue(value),
   }));
 }

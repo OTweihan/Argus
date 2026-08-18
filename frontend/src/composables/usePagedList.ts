@@ -1,4 +1,4 @@
-import { ref, type Ref } from "vue";
+import { getCurrentScope, onScopeDispose, ref, type Ref } from "vue";
 import { errorMessage } from "../utils";
 
 /**
@@ -59,6 +59,17 @@ export function usePagedList<T, A extends unknown[]>(
   const limit = options.limit ?? 50;
   let cursor: string | null = null;
   let requestSeq = 0;
+  let disposed = false;
+
+  // 组件卸载 / 切 run 后丢弃后续写入：requestSeq 只防乱序，不防卸载后写死 ref。
+  // 需在 Vue effect scope（组件 setup / effectScope）内调用；纯函数调用场景跳过注册，
+  // 避免无活跃 scope 时抛错（与 useTaskList 一致）。
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      disposed = true;
+      requestSeq += 1;
+    });
+  }
 
   function handleError(caught: unknown): void {
     error.value = errorMessage(caught);
@@ -67,26 +78,27 @@ export function usePagedList<T, A extends unknown[]>(
 
   async function load(...args: A): Promise<void> {
     if (options.lazyOnce && items.value.length > 0) return;
+    if (disposed) return;
     const seq = ++requestSeq;
     error.value = "";
     loading.value = true;
     try {
       const page = await fetcher({ offset: 0, cursor: null, limit }, ...args);
-      if (seq !== requestSeq) return; // 已有更新的 load/reset，丢弃过期响应
+      if (seq !== requestSeq || disposed) return; // 已有更新的 load/reset/卸载，丢弃过期响应
       items.value = page.items;
       total.value = page.total ?? null;
       hasMore.value = page.hasMore;
       cursor = page.nextCursor ?? null;
     } catch (caught) {
-      if (seq !== requestSeq) return;
+      if (seq !== requestSeq || disposed) return;
       handleError(caught);
     } finally {
-      if (seq === requestSeq) loading.value = false;
+      if (seq === requestSeq && !disposed) loading.value = false;
     }
   }
 
   async function loadMore(...args: A): Promise<void> {
-    if (loading.value || !hasMore.value) return;
+    if (loading.value || !hasMore.value || disposed) return;
     if (options.cursor && cursor === null) return; // cursor 分页下无下一页
     const seq = requestSeq;
     const offset = items.value.length;
@@ -96,15 +108,15 @@ export function usePagedList<T, A extends unknown[]>(
         options.cursor ? { offset: 0, cursor, limit } : { offset, cursor: null, limit },
         ...args,
       );
-      if (seq !== requestSeq) return;
+      if (seq !== requestSeq || disposed) return;
       items.value = items.value.concat(page.items);
       hasMore.value = page.hasMore;
       cursor = page.nextCursor ?? null;
     } catch (caught) {
-      if (seq !== requestSeq) return;
+      if (seq !== requestSeq || disposed) return;
       handleError(caught);
     } finally {
-      if (seq === requestSeq) loading.value = false;
+      if (seq === requestSeq && !disposed) loading.value = false;
     }
   }
 

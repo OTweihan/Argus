@@ -119,7 +119,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getTaskEvents } from "../../api";
 import type { TaskEvent, TimelineEvent } from "../../types";
-import { errorMessage } from "../../utils";
+import { errorMessage, isAbortError } from "../../utils";
 import {
   eventTypeLabel,
   formatTimelineTime as formatTime,
@@ -194,18 +194,32 @@ watch(
 );
 
 async function loadEvents(): Promise<void> {
+  // 初始加载与 reloadTick 重拉并发时，旧请求不得覆盖新结果（请求代次 + abort）。
+  loadController?.abort();
+  const controller = new AbortController();
+  loadController = controller;
+  const generation = ++loadGeneration;
   loading.value = true;
   error.value = "";
   try {
-    events.value = await getTaskEvents(props.taskId);
+    const result = await getTaskEvents(props.taskId, { signal: controller.signal });
+    if (generation !== loadGeneration) return;
+    events.value = result;
   } catch (caught) {
+    if (generation !== loadGeneration || isAbortError(caught)) return;
     error.value = errorMessage(caught);
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) {
+      loading.value = false;
+    }
   }
 }
 
+let loadController: AbortController | null = null;
+let loadGeneration = 0;
+
 onUnmounted(() => {
+  loadController?.abort();
   unregisterWs?.();
 });
 </script>

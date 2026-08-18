@@ -22,7 +22,7 @@
 <script setup lang="ts">
 import { formatDate } from "../../../utils";
 import type { AnalysisRunSummary } from "../../../api/task";
-import { runStatusLabel } from "./runStatus";
+import { runStatusLabel, shortSha } from "./runStatus";
 
 defineProps<{
   runs: AnalysisRunSummary[];
@@ -37,7 +37,7 @@ defineEmits<{
 function formatOption(run: AnalysisRunSummary): string {
   const date = formatDate(run.createdAt);
   const status = runStatusLabel(run.runStatus);
-  const sha = run.resolvedCommitSha ? run.resolvedCommitSha.slice(0, 8) : "";
+  const sha = shortSha(run.resolvedCommitSha);
   return `${date} — ${status}${sha ? ` (${sha})` : ""}`;
 }
 </script>

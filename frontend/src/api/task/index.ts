@@ -79,8 +79,13 @@ export function getTaskReportJson(
   });
 }
 
-export function getTaskEvents(taskId: string): Promise<TimelineEvent[]> {
-  return request<TimelineEvent[]>(`/tasks/${encodeURIComponent(taskId)}/events`);
+export function getTaskEvents(
+  taskId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<TimelineEvent[]> {
+  return request<TimelineEvent[]>(`/tasks/${encodeURIComponent(taskId)}/events`, {
+    signal: options.signal,
+  });
 }
 
 export function getTaskTraces(taskId: string): Promise<LLMTraceRecord[]> {

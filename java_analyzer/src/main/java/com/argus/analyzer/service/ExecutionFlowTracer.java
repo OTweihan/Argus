@@ -11,6 +11,7 @@ import com.argus.analyzer.domain.model.CallGraphNode;
 import com.argus.analyzer.domain.model.EndpointInfo;
 import com.argus.analyzer.domain.model.ExecutionFlow;
 import com.argus.analyzer.domain.model.FlowStep;
+import com.argus.analyzer.domain.model.MethodKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,7 +77,7 @@ public class ExecutionFlowTracer implements AnalysisPass {
             if (progress.isCancelled()) {
                 throw new JobCancelledException("Execution flow tracing cancelled");
             }
-            String entryKey = ep.controllerClass() + "#" + ep.controllerMethod();
+            String entryKey = MethodKey.nameKey(ep.controllerClass(), ep.controllerMethod());
             if (!allKeys.contains(entryKey)) {
                 continue;
             }
@@ -123,9 +124,8 @@ public class ExecutionFlowTracer implements AnalysisPass {
                     dfs(callGraph, calleeKey, depth + 1, visited, pathNodes, steps, progress);
                 } else {
                     // External / unresolved call — record as leaf at next depth
-                    String[] parts = calleeKey.split("#", 2);
-                    String clazz = parts.length > 1 ? parts[0] : "";
-                    String method = parts.length > 1 ? parts[1] : calleeKey;
+                    String clazz = MethodKey.classNameOf(calleeKey);
+                    String method = MethodKey.methodNameOf(calleeKey);
                     steps.add(new FlowStep(depth + 1, calleeKey, clazz, method));
                 }
             }

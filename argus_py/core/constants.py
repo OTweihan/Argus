@@ -60,3 +60,12 @@ KEYWORD_FIELDS = ("name", "goal", "task_id", "start_url", "result_summary", "err
 def utc_now() -> datetime:
     """返回 UTC 当前时间。"""
     return datetime.now(timezone.utc)
+
+
+def utc_now_iso() -> str:
+    """返回 UTC 当前时间的 ISO 8601 字符串（含时区，如 ``2026-08-17T08:00:00+00:00``）。
+
+    全仓统一的时间戳序列化口径，取代散落在各模块的
+    ``datetime.now(timezone.utc).isoformat()`` 重复实现。
+    """
+    return datetime.now(timezone.utc).isoformat()

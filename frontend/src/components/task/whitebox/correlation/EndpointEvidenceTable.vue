@@ -119,6 +119,7 @@
 <script setup lang="ts">
 import type { EndpointEvidenceInfo } from "../../../../api/correlation";
 import { httpMethodTag } from "../../../../utils";
+import type { ElTagType } from "../../../../utils";
 import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
 
 defineProps<{
@@ -137,8 +138,6 @@ const emit = defineEmits<{
 function onFilterChange(val: string | number | boolean | object | undefined): void {
   emit("filter-change", String(val ?? ""));
 }
-
-type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
 
 function strategyTag(s: string): ElTagType {
   switch (s) {

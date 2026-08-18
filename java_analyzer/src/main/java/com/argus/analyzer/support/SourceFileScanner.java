@@ -111,7 +111,7 @@ public class SourceFileScanner {
         try (var files = Files.walk(sourcePath)) {
             javaFiles = files
                     .filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> !p.toString().contains("target"))
+                    .filter(p -> !isUnderBuildOutput(p))
                     .toList();
         } catch (IOException e) {
             log.error("Failed to walk source path: {}", sourcePath, e);
@@ -217,5 +217,20 @@ public class SourceFileScanner {
 
     public static String relativize(Path sourcePath, Path filePath) {
         return sourcePath.relativize(filePath).toString();
+    }
+
+    /**
+     * 判断路径是否位于构建输出目录（Maven {@code target/}）之下。
+     *
+     * <p>按路径段精确匹配 {@code target}，避免旧的子串匹配把 {@code TargetService.java}、
+     * {@code targeting/}、{@code retarget/} 等合法源码一并排除。</p>
+     */
+    private static boolean isUnderBuildOutput(Path path) {
+        for (Path segment : path) {
+            if ("target".equals(segment.toString())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

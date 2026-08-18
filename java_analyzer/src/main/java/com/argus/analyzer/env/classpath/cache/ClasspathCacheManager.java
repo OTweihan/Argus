@@ -2,17 +2,15 @@ package com.argus.analyzer.env.classpath.cache;
 
 import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.env.MavenModuleIndex;
+import com.argus.analyzer.support.Digests;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HexFormat;
 import java.util.Objects;
 
 /**
@@ -115,11 +113,8 @@ public class ClasspathCacheManager {
             return "";
         }
         try {
-            byte[] content = Files.readAllBytes(rootPom);
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(content);
-            return HexFormat.of().formatHex(hash);
-        } catch (IOException | NoSuchAlgorithmException e) {
+            return Digests.sha256Hex(Files.readAllBytes(rootPom));
+        } catch (IOException e) {
             return "";
         }
     }
@@ -133,11 +128,8 @@ public class ClasspathCacheManager {
             return "";
         }
         try {
-            byte[] content = Files.readAllBytes(settingsFile);
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(content);
-            return HexFormat.of().formatHex(hash);
-        } catch (IOException | NoSuchAlgorithmException e) {
+            return Digests.sha256Hex(Files.readAllBytes(settingsFile));
+        } catch (IOException e) {
             return "";
         }
     }

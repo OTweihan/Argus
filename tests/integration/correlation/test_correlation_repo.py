@@ -468,10 +468,10 @@ class TestHttpRequestEvidence:
         assert "hre:c2" not in eligible_ids
         assert "hre:c3" in eligible_ids
 
-    def test_count_eligible_requests_matches_listing(
+    def test_list_eligible_requests_filters_by_eligibility(
         self, storage: TaskSQLiteStorage, req_base: str
     ) -> None:
-        """count_eligible_requests 与 list_eligible_requests 谓词完全一致。"""
+        """list_eligible_requests 只返回 CONFIRMED_ELIGIBLE / ATTEMPT_ONLY，排除 SW 缓存。"""
         items = [
             HttpRequestEvidence(
                 request_evidence_id=f"hre:cnt{i}",
@@ -513,12 +513,13 @@ class TestHttpRequestEvidence:
         )
         storage.insert_http_request_batch(items)
 
-        assert storage.count_eligible_requests(req_base) == len(
-            storage.list_eligible_requests(req_base)
-        )
-        assert storage.count_eligible_requests(req_base) == 5
-        # 不存在的 run 返回 0
-        assert storage.count_eligible_requests("no-such-run") == 0
+        eligible = storage.list_eligible_requests(req_base)
+        # 5 个 eligible（CONFIRMED_ELIGIBLE / ATTEMPT_ONLY 交替）+ 1 个 excluded
+        assert len(eligible) == 5
+        eligible_ids = {r.request_evidence_id for r in eligible}
+        assert "hre:cnt6" not in eligible_ids
+        # 不存在的 run 返回空
+        assert storage.list_eligible_requests("no-such-run") == []
 
 
 # ── EndpointEvidence + Candidate + Flow ──────────────────────────────

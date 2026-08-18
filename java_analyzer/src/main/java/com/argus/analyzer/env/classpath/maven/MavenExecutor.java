@@ -38,6 +38,8 @@ public class MavenExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(MavenExecutor.class);
     private static final int MAVEN_OUTPUT_TAIL_CHARS = 4000;
+    /** 输出累积缓冲上限（保留末尾），防止大构建 OOM；远大于 tail 所需即可。 */
+    private static final int MAX_OUTPUT_BUFFER_CHARS = 16_384;
     private static final long PROCESS_POLL_MILLIS = 250;
 
     private final ClasspathFileReader fileReader = new ClasspathFileReader();
@@ -299,13 +301,15 @@ public class MavenExecutor {
 
     private String readStream(InputStream stream, String streamName, AnalysisProgressListener progress) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            // 有界缓冲：只保留末尾若干字符，避免大型构建把全量 stdout/stderr 累积进内存
+            // （`tail()` 最终也只会取末尾 MAVEN_OUTPUT_TAIL_CHARS 字符，中间部分无保留价值）。
             StringBuilder sb = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
-                if (!sb.isEmpty()) {
-                    sb.append("\n");
+                sb.append(line).append('\n');
+                if (sb.length() > MAX_OUTPUT_BUFFER_CHARS) {
+                    sb.delete(0, sb.length() - MAX_OUTPUT_BUFFER_CHARS);
                 }
-                sb.append(line);
                 if (streamName != null && shouldLogMavenLine(line)) {
                     log.info("[CLASSPATH][MAVEN {}] {}", streamName, line);
                     progress.onEvent("classpath", "INFO", streamName + ": " + line);

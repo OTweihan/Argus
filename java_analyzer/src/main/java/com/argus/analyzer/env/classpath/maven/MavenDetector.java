@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -191,7 +192,7 @@ public class MavenDetector {
         if (pathEnv == null) {
             return null;
         }
-        for (String dir : pathEnv.split(";")) {
+        for (String dir : pathEnv.split(File.pathSeparator)) {
             Path candidate = Paths.get(dir.trim(), name);
             if (Files.exists(candidate)) {
                 return candidate.toAbsolutePath().toString();

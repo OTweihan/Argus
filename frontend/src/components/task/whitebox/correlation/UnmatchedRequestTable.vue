@@ -53,6 +53,7 @@
 <script setup lang="ts">
 import type { HttpRequestEvidenceInfo } from "../../../../api/correlation";
 import { httpMethodTag } from "../../../../utils";
+import type { ElTagType } from "../../../../utils";
 import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
 
 defineProps<{
@@ -63,8 +64,6 @@ defineProps<{
 }>();
 
 defineEmits<{ "load-more": [] }>();
-
-type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
 
 function statusClass(code: number | null): string {
   if (code === null) return "status-na";

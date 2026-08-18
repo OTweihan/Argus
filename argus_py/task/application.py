@@ -589,6 +589,15 @@ class TaskApplicationService:
             return storage.list_all_analysis_flow_steps(analysis_id)
         return []
 
+    def list_analysis_flow_steps_for_flows(
+        self, execution_flow_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """按 execution_flow_id 集合批量返回 flow steps（执行流分页路由用）。"""
+        storage = self._read.storage
+        if isinstance(storage, TaskSQLiteStorage):
+            return storage.list_analysis_flow_steps_for_flows(execution_flow_ids)
+        return []
+
     def get_analysis_findings(
         self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
     ) -> tuple[list[Any], str | None, int | None, bool]:
@@ -612,13 +621,14 @@ class TaskApplicationService:
         seen: set[str] = set()
         result: list[dict[str, Any]] = []
 
-        # 路径 1：黑盒任务 → BlackboxRun → CorrelationRun
+        # 路径 1：黑盒任务 → BlackboxRun → CorrelationRun（批量，消除 N+1）
         bb_runs = storage._correlation.list_blackbox_runs_by_task(task_id)
-        for bb in bb_runs:
-            cr = storage.get_correlation_run_by_blackbox(bb.blackbox_run_id)
-            if cr is not None and cr.correlation_run_id not in seen:
-                seen.add(cr.correlation_run_id)
-                result.append(_correlation_run_to_dict(cr))
+        if bb_runs:
+            bb_ids = [bb.blackbox_run_id for bb in bb_runs]
+            for cr in storage.list_correlation_runs_by_blackbox_run_ids(bb_ids):
+                if cr.correlation_run_id not in seen:
+                    seen.add(cr.correlation_run_id)
+                    result.append(_correlation_run_to_dict(cr))
 
         # 路径 2：白盒任务 → AnalysisRun → CorrelationRun
         _MAX_ANALYSIS_RUNS = 200
@@ -918,26 +928,54 @@ class TaskApplicationService:
                 from argus_py.core.ids import generate_id
 
                 worker_id = generate_id("bind")
-                attempt = storage.claim_and_create_attempt(correlation_run_id, worker_id)
-                if attempt is not None:
-                    try:
-                        _execute_matching_sync(
-                            storage,
-                            updated_cr,
-                            attempt,
-                            on_completed=self._on_correlation_completed,
-                            path_mapping=self._correlation_path_mapping,
-                        )
-                    except Exception:
-                        from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
-
-                        storage.complete_and_activate_attempt(
-                            attempt.correlation_attempt_id,
-                            AttemptStatus.FAILED.value,
-                            EvidenceCompleteness.PARTIAL.value,
-                        )
+                # bind 的主意图（校验 + 绑定分析）已成功，匹配失败仅降级为 PARTIAL、
+                # 经 completeness 对外可见；此处吞异常，避免把「绑定成功但匹配降级」
+                # 误报为绑定失败。
+                self._claim_and_execute_matching_sync(
+                    storage,
+                    updated_cr,
+                    worker_id,
+                    re_raise=False,
+                )
         else:
             storage.set_correlation_status(correlation_run_id, "WAITING_BLACKBOX")
+
+    def _claim_and_execute_matching_sync(
+        self,
+        storage: TaskSQLiteStorage,
+        cr: Any,
+        worker_id: str,
+        *,
+        re_raise: bool,
+    ) -> Any | None:
+        """认领关联 attempt 并同步执行匹配；失败统一落 FAILED/PARTIAL。
+
+        ``re_raise=True`` 时把匹配异常向上传播（retry/recalc 的主操作即匹配，
+        调用方需感知失败）；``False`` 时吞掉（bind 已成功完成绑定，匹配降级
+        经 PARTIAL completeness 对外可见）。返回认领到的 attempt，未认领时为 None。
+        """
+        attempt = storage.claim_and_create_attempt(cr.correlation_run_id, worker_id)
+        if attempt is None:
+            return None
+        try:
+            _execute_matching_sync(
+                storage,
+                cr,
+                attempt,
+                on_completed=self._on_correlation_completed,
+                path_mapping=self._correlation_path_mapping,
+            )
+        except Exception:
+            from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
+
+            storage.complete_and_activate_attempt(
+                attempt.correlation_attempt_id,
+                AttemptStatus.FAILED.value,
+                EvidenceCompleteness.PARTIAL.value,
+            )
+            if re_raise:
+                raise
+        return attempt
 
     def list_uncovered_endpoints(
         self,
@@ -974,27 +1012,14 @@ class TaskApplicationService:
 
         worker_id = generate_id("retry")
         storage.set_correlation_status(correlation_run_id, "READY")
-        attempt = storage.claim_and_create_attempt(correlation_run_id, worker_id)
+        attempt = self._claim_and_execute_matching_sync(
+            storage,
+            cr,
+            worker_id,
+            re_raise=True,
+        )
         if attempt is None:
             raise ValueError("认领关联运行失败，可能已被其他 Worker 执行。")
-
-        try:
-            _execute_matching_sync(
-                storage,
-                cr,
-                attempt,
-                on_completed=self._on_correlation_completed,
-                path_mapping=self._correlation_path_mapping,
-            )
-        except Exception:
-            from argus_py.correlation.enums import AttemptStatus, EvidenceCompleteness
-
-            storage.complete_and_activate_attempt(
-                attempt.correlation_attempt_id,
-                AttemptStatus.FAILED.value,
-                EvidenceCompleteness.PARTIAL.value,
-            )
-            raise
 
         return attempt.correlation_attempt_id
 
@@ -1004,11 +1029,7 @@ class TaskApplicationService:
         from datetime import datetime as dt_mod
         from datetime import timezone
 
-        from argus_py.correlation.enums import (
-            AttemptStatus,
-            CorrelationRunStatus,
-            EvidenceCompleteness,
-        )
+        from argus_py.correlation.enums import CorrelationRunStatus
         from argus_py.correlation.models import CorrelationRun
         from argus_py.correlation.path_utils import compute_config_digest
 
@@ -1050,25 +1071,14 @@ class TaskApplicationService:
         from argus_py.core.ids import generate_id
 
         worker_id = generate_id("recalc")
-        attempt = storage.claim_and_create_attempt(new_cr.correlation_run_id, worker_id)
+        attempt = self._claim_and_execute_matching_sync(
+            storage,
+            new_cr,
+            worker_id,
+            re_raise=True,
+        )
         if attempt is None:
             raise ValueError("认领关联运行失败，可能已被其他 Worker 执行。")
-
-        try:
-            _execute_matching_sync(
-                storage,
-                new_cr,
-                attempt,
-                on_completed=self._on_correlation_completed,
-                path_mapping=self._correlation_path_mapping,
-            )
-        except Exception:
-            storage.complete_and_activate_attempt(
-                attempt.correlation_attempt_id,
-                AttemptStatus.FAILED.value,
-                EvidenceCompleteness.PARTIAL.value,
-            )
-            raise
 
         return _correlation_run_to_dict(new_cr)
 

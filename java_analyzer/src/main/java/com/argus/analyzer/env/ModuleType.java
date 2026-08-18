@@ -22,9 +22,4 @@ public enum ModuleType {
     public boolean isTarget() {
         return this == APPLICATION || this == BUSINESS;
     }
-
-    /** 是否为聚合类模块（不参与源码分析）。 */
-    public boolean isAggregating() {
-        return this == AGGREGATOR || this == BOM;
-    }
 }

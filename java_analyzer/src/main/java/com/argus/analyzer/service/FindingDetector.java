@@ -13,6 +13,7 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.TryStmt;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,17 +98,29 @@ public class FindingDetector implements AnalysisPass {
             CompilationUnit cu = entry.getValue();
             String relativePath = SourceFileScanner.relativize(sourcePath, javaFile);
 
-            detectEmptyCatches(cu, relativePath, findings);
-            detectHardcodedUrls(cu, relativePath, findings);
-            detectSystemOut(cu, relativePath, findings);
-            detectPrintStackTrace(cu, relativePath, findings);
+            // 单次 AST 遍历合并四类检测（此前分别 4 次 findAll：TryStmt /
+            // StringLiteralExpr / MethodCallExpr × 2），大项目下降为一次全树遍历。
+            cu.accept(new FindingVisitor(relativePath, findings), null);
         }
 
         return findings;
     }
 
-    private void detectEmptyCatches(CompilationUnit cu, String filePath, List<FindingItem> findings) {
-        for (TryStmt tryStmt : cu.findAll(TryStmt.class)) {
+    /**
+     * 单次遍历的四类缺陷检测访问器：空 catch、硬编码 URL、System.out、printStackTrace。
+     */
+    private static final class FindingVisitor extends VoidVisitorAdapter<Void> {
+
+        private final String filePath;
+        private final List<FindingItem> findings;
+
+        private FindingVisitor(String filePath, List<FindingItem> findings) {
+            this.filePath = filePath;
+            this.findings = findings;
+        }
+
+        @Override
+        public void visit(TryStmt tryStmt, Void arg) {
             for (CatchClause catchClause : tryStmt.getCatchClauses()) {
                 var body = catchClause.getBody();
                 if (body.getStatements() == null || body.getStatements().isEmpty()) {
@@ -121,11 +134,11 @@ public class FindingDetector implements AnalysisPass {
                     ));
                 }
             }
+            super.visit(tryStmt, arg);
         }
-    }
 
-    private void detectHardcodedUrls(CompilationUnit cu, String filePath, List<FindingItem> findings) {
-        for (StringLiteralExpr str : cu.findAll(StringLiteralExpr.class)) {
+        @Override
+        public void visit(StringLiteralExpr str, Void arg) {
             String value = str.asString();
             if (URL_PATTERN.matcher(value).matches()) {
                 int line = str.getBegin().map(p -> p.line).orElse(0);
@@ -137,12 +150,13 @@ public class FindingDetector implements AnalysisPass {
                         "SECURITY", "HIGH"
                 ));
             }
+            super.visit(str, arg);
         }
-    }
 
-    private void detectSystemOut(CompilationUnit cu, String filePath, List<FindingItem> findings) {
-        for (MethodCallExpr call : cu.findAll(MethodCallExpr.class)) {
-            if ("println".equals(call.getNameAsString()) || "print".equals(call.getNameAsString())) {
+        @Override
+        public void visit(MethodCallExpr call, Void arg) {
+            String name = call.getNameAsString();
+            if ("println".equals(name) || "print".equals(name)) {
                 call.getScope().ifPresent(scope -> {
                     if (scope.toString().equals("System.out") || scope.toString().equals("System.err")) {
                         int line = call.getBegin().map(p -> p.line).orElse(0);
@@ -155,13 +169,7 @@ public class FindingDetector implements AnalysisPass {
                         ));
                     }
                 });
-            }
-        }
-    }
-
-    private void detectPrintStackTrace(CompilationUnit cu, String filePath, List<FindingItem> findings) {
-        for (MethodCallExpr call : cu.findAll(MethodCallExpr.class)) {
-            if ("printStackTrace".equals(call.getNameAsString())) {
+            } else if ("printStackTrace".equals(name)) {
                 int line = call.getBegin().map(p -> p.line).orElse(0);
                 findings.add(new FindingItem(
                         "PRINT_STACKTRACE", "INFO",
@@ -171,6 +179,7 @@ public class FindingDetector implements AnalysisPass {
                         "ERROR_HANDLING", "HIGH"
                 ));
             }
+            super.visit(call, arg);
         }
     }
 }

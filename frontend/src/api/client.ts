@@ -225,10 +225,6 @@ export function screenshotPath(taskId: string, rawPath: string): string {
   return `/tasks/${encodeURIComponent(taskId)}/screenshots/${encodeURIComponent(filename)}`;
 }
 
-export function debugBundleUrl(taskId: string): string {
-  return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/debug-bundle`;
-}
-
 export function debugBundlePath(taskId: string): string {
   return `/tasks/${encodeURIComponent(taskId)}/debug-bundle`;
 }

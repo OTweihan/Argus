@@ -9,6 +9,7 @@ import com.argus.analyzer.domain.JobCancelledException;
 import com.argus.analyzer.domain.model.CallEdge;
 import com.argus.analyzer.domain.model.CallGraphNode;
 import com.argus.analyzer.domain.model.ClusterInfo;
+import com.argus.analyzer.domain.model.MethodKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,6 +90,10 @@ public class CommunityClusterer implements AnalysisPass {
             labels.put(key, key);
         }
 
+        // 固定种子但复用同一实例：每轮迭代产生不同的 shuffle 顺序（随机化生效），
+        // 跨次运行仍确定。此前每轮 new Random(42) 使每轮 shuffle 顺序相同，随机化失效。
+        Random random = new Random(42);
+
         boolean changed = true;
         int iterations = 0;
         while (changed && iterations < MAX_ITERATIONS) {
@@ -99,7 +104,7 @@ public class CommunityClusterer implements AnalysisPass {
             iterations++;
 
             List<String> nodes = new ArrayList<>(adjacency.keySet());
-            Collections.shuffle(nodes, new Random(42));
+            Collections.shuffle(nodes, random);
 
             for (String node : nodes) {
                 Set<String> neighbors = adjacency.get(node);
@@ -149,9 +154,8 @@ public class CommunityClusterer implements AnalysisPass {
         // Try to find a common package prefix
         Set<String> packages = new HashSet<>();
         for (String key : memberKeys) {
-            int hashIdx = key.lastIndexOf('#');
-            if (hashIdx > 0) {
-                String className = key.substring(0, hashIdx);
+            String className = MethodKey.classNameOf(key);
+            if (!className.isEmpty()) {
                 int dotIdx = className.lastIndexOf('.');
                 if (dotIdx > 0) {
                     packages.add(className.substring(0, dotIdx));
@@ -166,13 +170,10 @@ public class CommunityClusterer implements AnalysisPass {
 
         // Prefer controller-based naming
         for (String key : memberKeys) {
-            int hashIdx = key.lastIndexOf('#');
-            if (hashIdx > 0) {
-                String className = key.substring(0, hashIdx);
-                if (className.contains("Controller")) {
-                    return className.substring(className.lastIndexOf('.') + 1)
-                            .replace("Controller", "");
-                }
+            String className = MethodKey.classNameOf(key);
+            if (className.contains("Controller")) {
+                return className.substring(className.lastIndexOf('.') + 1)
+                        .replace("Controller", "");
             }
         }
 

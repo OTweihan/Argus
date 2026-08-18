@@ -456,9 +456,18 @@ const successCount = computed(
 );
 const findingCount = computed(() => props.report?.findings?.length ?? 0);
 const stepCount = computed(() => displaySteps.value.length);
-const reportJson = computed(() => (rawJsonOpen.value ? prettyJson(props.report) : ""));
+// 仅当用户切到「原始 JSON」标签时才做全量序列化：reportJsonSize 显示在
+// v-show="reportTab === 'raw-json'" 的分区里，但仍会被求值；用 reportTab
+// 而不是 rawJsonOpen 做门槛，保证概览/步骤/问题清单等默认标签下不触发
+// 数 MB 报告的 stringify，同时 raw-json 标签常显的 toolbar 能拿到真实大小。
+const reportJsonStr = computed(() =>
+  reportTab.value === "raw-json" ? prettyJson(props.report) : "",
+);
+const reportJson = computed(() => (rawJsonOpen.value ? reportJsonStr.value : ""));
 const reportJsonSize = computed(() => {
-  const bytes = new Blob([prettyJson(props.report)]).size;
+  const str = reportJsonStr.value;
+  if (!str) return "0 B";
+  const bytes = new Blob([str]).size;
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 });
 

@@ -17,16 +17,20 @@ public class MavenConfig {
 
     public MavenConfig() {}
 
-    public MavenConfig(boolean autoDetect, boolean generateClasspath,
-                       String classpathFile, String executable,
-                       String settingsXml, String localRepository, boolean offline) {
-        this.autoDetect = autoDetect;
-        this.generateClasspath = generateClasspath;
-        this.classpathFile = classpathFile;
-        this.executable = executable;
-        this.settingsXml = settingsXml;
-        this.localRepository = localRepository;
-        this.offline = offline;
+    /** 拷贝构造器：复制全部字段（新增字段只需在此同步，避免手工克隆遗漏）。 */
+    public MavenConfig(MavenConfig source) {
+        this.autoDetect = source.autoDetect;
+        this.generateClasspath = source.generateClasspath;
+        this.classpathFile = source.classpathFile;
+        this.executable = source.executable;
+        this.settingsXml = source.settingsXml;
+        this.localRepository = source.localRepository;
+        this.offline = source.offline;
+        this.dependencyPluginVersion = source.dependencyPluginVersion;
+        this.offlineTimeoutSeconds = source.offlineTimeoutSeconds;
+        this.onlineTimeoutSeconds = source.onlineTimeoutSeconds;
+        this.classpathMode = source.classpathMode;
+        this.prepareReactorArtifacts = source.prepareReactorArtifacts;
     }
 
     public boolean isAutoDetect() { return autoDetect; }
@@ -67,19 +71,8 @@ public class MavenConfig {
 
     /** 克隆当前配置并切换离线/在线模式。 */
     public MavenConfig withOffline(boolean offline) {
-        MavenConfig clone = new MavenConfig();
-        clone.autoDetect = this.autoDetect;
-        clone.generateClasspath = this.generateClasspath;
-        clone.classpathFile = this.classpathFile;
-        clone.executable = this.executable;
-        clone.settingsXml = this.settingsXml;
-        clone.localRepository = this.localRepository;
+        MavenConfig clone = new MavenConfig(this);
         clone.offline = offline;
-        clone.dependencyPluginVersion = this.dependencyPluginVersion;
-        clone.offlineTimeoutSeconds = this.offlineTimeoutSeconds;
-        clone.onlineTimeoutSeconds = this.onlineTimeoutSeconds;
-        clone.classpathMode = this.classpathMode;
-        clone.prepareReactorArtifacts = this.prepareReactorArtifacts;
         return clone;
     }
 }

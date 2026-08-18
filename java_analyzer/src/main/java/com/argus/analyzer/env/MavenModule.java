@@ -29,7 +29,6 @@ public class MavenModule {
     public String getArtifactId() { return artifactId; }
     public void setArtifactId(String artifactId) { this.artifactId = artifactId; }
 
-    public String getVersion() { return version; }
     public void setVersion(String version) { this.version = version; }
 
     public String getPackaging() { return packaging; }
@@ -41,7 +40,6 @@ public class MavenModule {
     public Path getBaseDir() { return baseDir; }
     public void setBaseDir(Path baseDir) { this.baseDir = baseDir; }
 
-    public Path getPomFile() { return pomFile; }
     public void setPomFile(Path pomFile) { this.pomFile = pomFile; }
 
     public List<Path> getSourceRoots() { return sourceRoots; }

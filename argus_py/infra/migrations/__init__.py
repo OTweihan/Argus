@@ -23,8 +23,9 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
+
+from argus_py.core.constants import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def _applied_versions(conn: sqlite3.Connection) -> set[int]:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return utc_now_iso()
 
 
 def _discover_migrations(migrations_dir: Path) -> list[tuple[int, str, Path]]:

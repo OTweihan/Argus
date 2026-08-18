@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from argus_py.core.enums import TaskStatus, TaskType
+from argus_py.core.enums import TaskStatus
 from argus_py.infra.queue import TaskQueue
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.storage import TaskSQLiteStorage
@@ -39,21 +39,7 @@ def find_stale_whitebox_tasks(storage: object) -> list[dict]:
     if not isinstance(storage, TaskSQLiteStorage):
         return []
     now_iso = datetime.now(timezone.utc).isoformat()
-    pool = storage._tasks._pool
-    with pool.ro_conn() as conn:
-        return conn.execute(
-            "SELECT task_id, external_job_id, external_job_status, "
-            "worker_id AS w_id, worker_lease_expires_at AS lease "
-            "FROM tasks WHERE status = ? AND task_type = ? "
-            "AND external_job_id IS NOT NULL "
-            "AND worker_lease_expires_at IS NOT NULL "
-            "AND worker_lease_expires_at < ?",
-            (
-                TaskStatus.RUNNING.value,
-                TaskType.WHITEBOX.value,
-                now_iso,
-            ),
-        ).fetchall()
+    return storage.list_stale_whitebox_tasks(now_iso)
 
 
 async def reconcile_orphan_whitebox_jobs(
@@ -158,26 +144,15 @@ async def _requeue_running(
     remote: str,
 ) -> None:
     """重新接管运行中作业：任务重置 PENDING 并重新入队（幂等复用远端 job）。"""
-    pool = storage._tasks._pool
-    with pool.tx() as conn:
-        cursor = conn.execute(
-            "UPDATE tasks SET status = ?, worker_id = ?, worker_lease_expires_at = ?, "
-            "external_job_status = ? "
-            "WHERE task_id = ? AND status = ? AND worker_id = ? AND worker_lease_expires_at = ?",
-            (
-                TaskStatus.PENDING.value,
-                None,
-                None,
-                remote,
-                row["task_id"],
-                TaskStatus.RUNNING.value,
-                row["w_id"],
-                row["lease"],
-            ),
-        )
-        if cursor.rowcount == 0:
-            logger.info("重入队被跳过（已被并发修改）: task=%s", row["task_id"])
-            return
+    updated = storage.requeue_stale_task(
+        row["task_id"],
+        remote,
+        expected_worker_id=row["w_id"],
+        expected_lease=row["lease"],
+    )
+    if not updated:
+        logger.info("重入队被跳过（已被并发修改）: task=%s", row["task_id"])
+        return
     enqueue = await queue.try_enqueue(row["task_id"])
     logger.info("启动恢复重新入队: task=%s enqueue=%s", row["task_id"], enqueue.scheduler_status)
 
@@ -192,25 +167,18 @@ async def _mark_terminal(
     storage = lifecycle.storage
     if not isinstance(storage, TaskSQLiteStorage):
         return
-    pool = storage._tasks._pool
     now_iso = datetime.now(timezone.utc).isoformat()
-    with pool.tx() as conn:
-        cursor = conn.execute(
-            "UPDATE tasks SET status = ?, completed_at = ?, error_message = ? "
-            "WHERE task_id = ? AND status = ? AND worker_id = ? AND worker_lease_expires_at = ?",
-            (
-                target.value,
-                now_iso,
-                message,
-                row["task_id"],
-                TaskStatus.RUNNING.value,
-                row["w_id"],
-                row["lease"],
-            ),
-        )
-        if cursor.rowcount == 0:
-            logger.info("终态标记被跳过（已被并发修改）: task=%s", row["task_id"])
-            return
+    updated = storage.mark_stale_task_terminal(
+        row["task_id"],
+        target,
+        now_iso,
+        message,
+        expected_worker_id=row["w_id"],
+        expected_lease=row["lease"],
+    )
+    if not updated:
+        logger.info("终态标记被跳过（已被并发修改）: task=%s", row["task_id"])
+        return
     logger.warning(
         "启动恢复落终态: task=%s status=%s msg=%s", row["task_id"], target.value, message
     )

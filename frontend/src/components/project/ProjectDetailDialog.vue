@@ -51,9 +51,7 @@
           <template v-if="Object.keys(restParameters).length">
             <div v-for="(val, key) in restParameters" :key="key" class="detail-param">
               <span class="detail-param-key">{{ key }}</span>
-              <span class="detail-param-val">{{
-                typeof val === "string" ? val : JSON.stringify(val)
-              }}</span>
+              <span class="detail-param-val">{{ stringifyParamValue(val) }}</span>
             </div>
           </template>
           <span v-else>-</span>
@@ -81,6 +79,7 @@
 import { computed, defineAsyncComponent } from "vue";
 import type { Project } from "../../types";
 import { formatDate } from "../../utils";
+import { stringifyParamValue } from "../../params";
 import {
   emptyPromptExtensions,
   hasAnyExtension,

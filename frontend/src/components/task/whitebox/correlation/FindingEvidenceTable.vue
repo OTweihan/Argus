@@ -70,6 +70,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { FindingEvidenceInfo } from "../../../../api/correlation";
+import type { ElTagType } from "../../../../utils";
 import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
 
 const props = defineProps<{
@@ -88,8 +89,6 @@ const confirmedCount = computed(
 const candidateCount = computed(
   () => props.items.filter((f) => f.candidateRequestCount > 0).length,
 );
-
-type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
 
 function relationTag(r: string): ElTagType {
   switch (r) {

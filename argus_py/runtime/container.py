@@ -9,13 +9,13 @@ import asyncio
 import logging
 import threading as _threading
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from argus_py.config.server_settings import ServerSettings, load_server_settings
 from argus_py.config.service import ModelConfigService
+from argus_py.core.constants import utc_now_iso
 from argus_py.core.enums import TaskType
 from argus_py.core.ids import generate_id
 from argus_py.infra.db import set_default_pool_max_size
@@ -181,7 +181,7 @@ def create_container() -> RuntimeContainer:
     storage = TaskSQLiteStorage()
 
     def _now_iso() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return utc_now_iso()
 
     lifecycle_service = TaskLifecycleService(storage, event_publisher=event_bus.publish)
     log_service = TaskLogService(storage, event_publisher=event_bus.publish)

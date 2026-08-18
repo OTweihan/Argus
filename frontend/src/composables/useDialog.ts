@@ -1,4 +1,4 @@
-import { computed, nextTick, ref } from "vue";
+import { computed, ref } from "vue";
 
 type DialogTone = "success" | "error" | "info";
 
@@ -18,16 +18,9 @@ export function useDialog() {
     },
   });
 
-  function showDialog(title: string, message: string, tone: DialogTone): void {
-    dialog.value = { title, message, tone };
-    void nextTick(() => {
-      document.querySelector<HTMLButtonElement>(".dialog-actions button")?.focus();
-    });
-  }
-
   function closeDialog(): void {
     dialog.value = null;
   }
 
-  return { dialog, dialogVisible, showDialog, closeDialog };
+  return { dialog, dialogVisible, closeDialog };
 }

@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -424,7 +423,7 @@ public class ProjectIndexCache {
     }
 
     private String sourceFingerprint(Path sourcePath) {
-        MessageDigest digest = newDigest();
+        MessageDigest digest = Digests.newSha256();
         List<Path> relevant = new ArrayList<>();
         try (var paths = Files.walk(sourcePath)) {
             paths.filter(Files::isRegularFile)
@@ -462,14 +461,6 @@ public class ProjectIndexCache {
 
     private String mavenSignature(MavenConfig config) {
         return MavenConfigFingerprint.fingerprint(config);
-    }
-
-    private MessageDigest newDigest() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("SHA-256 is unavailable", error);
-        }
     }
 
     private static String firstNonBlank(String first, String second) {

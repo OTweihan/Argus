@@ -120,6 +120,7 @@ import {
   formatDate,
   taskDisplayStatus,
 } from "../../utils";
+import type { ElTagType } from "../../utils";
 
 const props = withDefaults(
   defineProps<{
@@ -156,8 +157,6 @@ function projectName(projectId: string | null): string {
 }
 
 // el-tag :type 形参类型为字面量联合，宽 string 会触发 vue-tsc TS2322。
-type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
-
 function tagType(task: Task): ElTagType {
   const status = taskDisplayStatus(task);
   if (status === "completed") return "success";

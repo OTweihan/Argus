@@ -74,10 +74,11 @@ export function nullableBoolean(value: "" | "true" | "false"): boolean | null {
   return value === "true";
 }
 
-/** HTTP 方法 → Element Plus tag type。GET=success, POST=primary, PUT/PATCH=warning, DELETE=danger。 */
-type HttpMethodTagType = "success" | "info" | "danger" | "warning" | "primary";
+/** Element Plus el-tag 的 type 联合类型（跨组件共用口径）。 */
+export type ElTagType = "success" | "info" | "danger" | "warning" | "primary";
 
-export function httpMethodTag(method: string): HttpMethodTagType {
+/** HTTP 方法 → Element Plus tag type。GET=success, POST=primary, PUT/PATCH=warning, DELETE=danger。 */
+export function httpMethodTag(method: string): ElTagType {
   switch (method.toUpperCase()) {
     case "GET":
       return "success";

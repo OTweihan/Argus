@@ -273,21 +273,18 @@ def _flow_step_to_row(fid: str, step: dict[str, Any]) -> tuple:
 
 
 def _row_to_flow_step(row: dict[str, Any]) -> dict[str, Any]:
-    # 兼容 sqlite3.Row（无 .get()）和 dict
-    keys = row.keys()
-
-    def _g(k: str, default: Any = None) -> Any:
-        return row[k] if k in keys else default
-
+    # sqlite3.Row 没有 .get()，统一转 dict 后再读取（与其它 _row_to_* 一致）
+    if not isinstance(row, dict):
+        row = dict(row)
     return {
-        "flow_step_id": _g("flow_step_id"),
-        "execution_flow_id": _g("execution_flow_id"),
-        "step_index": _g("step_index"),
-        "depth": _g("depth", 0),
-        "method_key": _g("method_key"),
-        "class_name": _g("class_name"),
-        "method_name": _g("method_name"),
-        "call_node_id": _g("call_node_id"),
+        "flow_step_id": row.get("flow_step_id"),
+        "execution_flow_id": row.get("execution_flow_id"),
+        "step_index": row.get("step_index"),
+        "depth": row.get("depth", 0),
+        "method_key": row.get("method_key"),
+        "class_name": row.get("class_name"),
+        "method_name": row.get("method_name"),
+        "call_node_id": row.get("call_node_id"),
     }
 
 
@@ -813,6 +810,24 @@ class AnalysisRunRepository:
                    WHERE aef.analysis_id = ?
                    ORDER BY afs.execution_flow_id, afs.step_index""",
                 (analysis_id,),
+            ).fetchall()
+        return [_row_to_flow_step(r) for r in rows]
+
+    def list_flow_steps_by_flow_ids(self, execution_flow_ids: list[str]) -> list[dict[str, Any]]:
+        """按当前页 execution_flow_id 集合批量取 flow steps。
+
+        供执行流分页路由用：只取当前页 flow 的 steps，避免每页全量载入后再内存
+        过滤（大分析下 memory/IO 均降低）。
+        """
+        if not execution_flow_ids:
+            return []
+        placeholders = ",".join("?" for _ in execution_flow_ids)
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM analysis_flow_steps "
+                f"WHERE execution_flow_id IN ({placeholders}) "
+                f"ORDER BY execution_flow_id, step_index",
+                execution_flow_ids,
             ).fetchall()
         return [_row_to_flow_step(r) for r in rows]
 
