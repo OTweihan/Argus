@@ -163,6 +163,17 @@
 
 ## 四、未完成 —— 前端
 
+> ✅ **2026-08-24 校验更新：F1–F3 已全部在代码中落地（含 F3-1～F3-5，见下文 F3 批注）。**
+> F1：`WhiteboxReportView.vue` 新增局部工厂 `makeCursorList(fetcher, limit)`，返回
+> `reactive` 包装的 `{items,total,hasMore,loading,load,loadMore,reset}`，五个子资源
+> （endpoints/callNodes/flows/findings/clusters）各收敛为一行声明，删除约 70 行重复样板，
+> 「未选中 run 不发请求」守卫语义保留在工厂内。
+> F2：新增共享子组件 `report/ExtrasSection.vue`（折叠开关 + chevron + 内容插槽）与
+> `report/ReportScreenshot.vue`（截图展开 + 路径 code + AuthenticatedImage + lightbox
+> 事件透传），`StepCard`/`FindingCard` 删除各自近乎逐字相同的
+> `.extras-toggle/.chevron/.extras-content/.screenshot/.screenshot-path` 模板与 scoped 样式；
+> 卡片内 meta 网格仍在使用的 `code{}` 与 `.url-text` 因 scoped 样式无法跨组件生效而保留在两卡片内。
+
 ### F1. WhiteboxReportView 五段 usePagedList 样板（7）
 
 - 【文件:行号】`frontend/src/components/task/WhiteboxReportView.vue:218-306`
@@ -178,6 +189,22 @@
 - 【预期收益】消除双份 CSS 漂移，减少 scoped 样式体积。
 
 ### F3. 大组件拆分（11，批次 6.5）
+
+> ✅ **2026-08-24 校验更新：F3-1～F3-5 已全部在代码中落地。**
+> ① `useTasks.ts`（545→67 行薄装配）：拆出 `useTaskForm.ts`（表单状态/payload 构造/校验/
+> autoFillLimits 推断防抖/对话框开关）与 `useTaskActions.ts`（start/retry/delete），
+> `useTasks` 仅做组合并 re-export `TaskFormState`/`defaultTaskFormState` 保持旧导入路径；
+> ② `useConsoleApp.ts`（273→205 行）：抽 `useTopBar.ts`（viewTitle 计算 + error/message
+> 节流 toast），WS 重连编排内聚为 `useRuntimeEvents.watchEventStream`；
+> ③ `TaskFormDialog.vue`：移除 3 个薄 watch 直接写父表单与 `vue/no-mutating-props` 豁免，
+> goal/taskType/startUrl 改经 `infer-inputs` 显式事件回传父级驱动推断
+> （`useTaskForm.applyInferInputs`），保存改为单一快照事件 `save(snapshot)` 由
+> TasksView 合入父表单后再走统一校验提交；add/remove 参数行改弹窗本地处理，
+> 死代码 addParam/removeParam 从 useTaskForm/useConsoleApp 删除；
+> ④ 新增通用 `common/StatCard.vue`（含 confirmed 强调/hint 提示/el-tag/note/show 配置项），
+> CorrelationTab 总览 4 卡片 + 数据质量 15 行统计全部改配置数组驱动，删除约 130 行手写模板与样式；
+> ⑤ 新增 `whitebox/WhiteboxBuildLog.vue`，TaskTimeline（668→415 行）只保留数据加载、
+> WS 订阅、reloadTick 权威重拉与时间线渲染分支。
 
 - `frontend/src/composables/useTasks.ts`（545 行）：拆 `useTaskForm`（表单+payload+校验+autoFillLimits）与 `useTaskActions`（start/retry/delete/save）。
 - `frontend/src/composables/useConsoleApp.ts`（273 行）：result 暴露约 60 个键；可抽 `useTopBar`（viewTitle/toast 节流监听）与独立 WS 编排函数。
@@ -218,4 +245,5 @@
 
 - **已做**：`MethodKey` 键统一、`File.pathSeparator`、`SourceFileScanner` target 段匹配、CAS SQL 公开方法（`requeue_stale_task`/`mark_stale_task_terminal`/`list_stale_whitebox_tasks`）、`_claim_and_execute_matching_sync`、`utc_now_iso`、`_build_task_where`、`Digests`、`MavenConfig` 拷贝构造器、`CommunityClusterer` Random 复用、`FindingDetector` 单遍历、`MavenExecutor` 有界缓冲、`get_summary` 单连接、`list_by_blackbox_run_ids`、`recover_stale_attempts` 批量、`list_flow_steps_by_flow_ids`、`0006` 迁移、前端 `severity.ts`/`stringifyParamValue`/`shortSha`/`ElTagType`/`usePagedList` 卸载守卫/`TaskTimeline` 竞态/`ReportView` memoized stringify。
 - **Review 修复（同日）**：`list_by_blackbox_run_ids` ROW_NUMBER 去重（每 blackbox_run 最新一条）+ 回归测试、`ReportView.reportJsonStr` 依赖 `reportTab` 门槛、删除 `count_eligible_requests`（get_summary 内联后准死代码）+ 测试改造、`test_migrations.py` 迁移版本断言更新为 [0..6]。
-- **未做（本清单）**：F1–F3（P1–P9 已于 2026-08-24 完成并归档，见第二节批注；J1–J5 已于 2026-08-24 完成，见第三节批注）。
+- **未做（本清单）**：无——P1–P9 已于 2026-08-24 完成并归档（见第二节批注）；J1–J5 已于
+  2026-08-24 完成（见第三节批注）；F1–F3 已于 2026-08-24 完成（见第四节批注）。
