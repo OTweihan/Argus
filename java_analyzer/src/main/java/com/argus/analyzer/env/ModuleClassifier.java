@@ -130,10 +130,6 @@ public class ModuleClassifier {
 
     // ====== 单模块分类 ======
 
-    ModuleType classifySingle(MavenModule module) {
-        return classifySingle(module, scanSignals(module));
-    }
-
     ModuleType classifySingle(MavenModule module, Signals signals) {
         if (module.isPomPackaging() && module.getSourceRoots().isEmpty()) {
             return isBomModule(module) ? ModuleType.BOM : ModuleType.AGGREGATOR;
@@ -183,10 +179,6 @@ public class ModuleClassifier {
     }
 
     // ====== 信号扫描 ======
-
-    Signals scanSignals(MavenModule module) {
-        return scanSignals(module, AnalysisProgressListener.NOOP);
-    }
 
     Signals scanSignals(MavenModule module, AnalysisProgressListener progress) {
         Signals signals = new Signals();
@@ -242,10 +234,6 @@ public class ModuleClassifier {
     }
 
     // ====== 评分（用于排序） ======
-
-    int scoreModule(MavenModule module) {
-        return scoreModule(module, AnalysisProgressListener.NOOP);
-    }
 
     int scoreModule(MavenModule module, AnalysisProgressListener progress) {
         if (module.getModuleType() == ModuleType.APPLICATION) {

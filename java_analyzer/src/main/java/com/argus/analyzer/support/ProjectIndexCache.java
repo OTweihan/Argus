@@ -12,17 +12,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -403,7 +397,7 @@ public class ProjectIndexCache {
 
     private String timedSourceFingerprint(Path sourcePath) {
         long start = System.nanoTime();
-        String fp = sourceFingerprint(sourcePath);
+        String fp = SourceFingerprint.compute(sourcePath);
         fingerprintNanos.addAndGet(System.nanoTime() - start);
         fingerprintComputations.incrementAndGet();
         return fp;
@@ -420,43 +414,6 @@ public class ProjectIndexCache {
                 iterator.remove();
             }
         }
-    }
-
-    private String sourceFingerprint(Path sourcePath) {
-        MessageDigest digest = Digests.newSha256();
-        List<Path> relevant = new ArrayList<>();
-        try (var paths = Files.walk(sourcePath)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(this::isFingerprintInput)
-                    .forEach(relevant::add);
-            relevant.sort(Comparator.comparing(path -> sourcePath.relativize(path).toString()));
-            byte[] buffer = new byte[8192];
-            for (Path path : relevant) {
-                String relative = sourcePath.relativize(path).toString().replace('\\', '/');
-                digest.update(relative.getBytes(StandardCharsets.UTF_8));
-                digest.update((byte) 0);
-                try (InputStream input = Files.newInputStream(path)) {
-                    int read;
-                    while ((read = input.read(buffer)) >= 0) {
-                        digest.update(buffer, 0, read);
-                    }
-                }
-                digest.update((byte) 0);
-            }
-        } catch (Exception error) {
-            throw new IllegalStateException("Failed to fingerprint source tree: " + sourcePath, error);
-        }
-        return HexFormat.of().formatHex(digest.digest());
-    }
-
-    private boolean isFingerprintInput(Path path) {
-        String name = path.getFileName().toString();
-        return name.endsWith(".java")
-                || name.equals("pom.xml")
-                || name.equals("build.gradle")
-                || name.equals("build.gradle.kts")
-                || name.equals("settings.gradle")
-                || name.equals("settings.gradle.kts");
     }
 
     private String mavenSignature(MavenConfig config) {

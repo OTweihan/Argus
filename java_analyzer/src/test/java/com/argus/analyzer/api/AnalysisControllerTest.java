@@ -3,6 +3,7 @@ package com.argus.analyzer.api;
 import com.argus.analyzer.api.dto.AnalysisJobStatusResponse;
 import com.argus.analyzer.api.dto.AnalyzeRequest;
 import com.argus.analyzer.api.dto.ValidateSourceRequest;
+import com.argus.analyzer.application.JobStatus;
 import com.argus.analyzer.domain.AnalysisCommand;
 import com.argus.analyzer.service.AnalysisJobService;
 import com.argus.analyzer.service.ProjectAnalyzerService;
@@ -10,7 +11,6 @@ import com.argus.analyzer.support.SourceLocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,6 +42,7 @@ class AnalysisControllerTest {
                 .thenThrow(new RejectedExecutionException("full"));
         AnalysisController controller = controllerWith(analyzer, jobs);
 
+        // 异常映射统一在 AnalysisExceptionHandler（J3）；Controller 原样向上传播。
         assertThatThrownBy(() -> controller.submitJob(request))
                 .isInstanceOf(RejectedExecutionException.class);
     }
@@ -56,43 +57,56 @@ class AnalysisControllerTest {
     }
 
     @Test
-    void shouldMapIdempotencyConflictToConflict(@TempDir Path sourceDir) {
-        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
-        AnalysisJobService jobs = mock(AnalysisJobService.class);
-        AnalyzeRequest request = new AnalyzeRequest(
-                sourceDir.toString(), "all", null, null, "task-1:1");
-        when(jobs.submit(any(AnalysisCommand.class), any()))
-                .thenThrow(new AnalysisJobService.IdempotencyConflictException("task-1:1"));
-        AnalysisController controller = controllerWith(analyzer, jobs);
+    void shouldMapIdempotencyConflictToConflict() {
+        var detail = new AnalysisExceptionHandler().handleIdempotencyConflict(
+                new AnalysisJobService.IdempotencyConflictException("task-1:1"));
 
-        assertThatThrownBy(() -> controller.submitJob(request))
-                .isInstanceOfSatisfying(ResponseStatusException.class,
-                        error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        assertThat(detail.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
+        assertThat(detail.getDetail()).contains("task-1:1");
+    }
+
+    @Test
+    void shouldMapMissingJobToNotFound() {
+        var detail = new AnalysisExceptionHandler().handleNotFound(
+                new NoSuchElementException("Analysis job not found: gone"));
+
+        assertThat(detail.getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
+        assertThat(detail.getDetail()).contains("gone");
+    }
+
+    @Test
+    void shouldMapIncompleteJobResultToConflict() {
+        var detail = new AnalysisExceptionHandler().handleJobNotComplete(
+                new AnalysisJobService.JobNotCompleteException("Analysis job is not complete: CANCELLED"));
+
+        assertThat(detail.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
+        assertThat(detail.getDetail()).contains("CANCELLED");
     }
 
     @Test
     void shouldCancelJob() {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
         AnalysisJobService jobs = mock(AnalysisJobService.class);
-        AnalysisJobStatusResponse cancelled = new AnalysisJobStatusResponse(
+        JobStatus cancelled = new JobStatus(
                 "job-1", "CANCELLED", "cancelled",
                 Instant.now(), Instant.now(), Instant.now(), null, List.of());
         when(jobs.cancel("job-1")).thenReturn(cancelled);
         AnalysisController controller = controllerWith(analyzer, jobs);
 
-        assertThat(controller.cancelJob("job-1")).isEqualTo(cancelled);
+        // Controller 负责把应用层状态映射为 wire DTO（J1）
+        AnalysisJobStatusResponse expected = AnalysisJobStatusMapper.map(cancelled);
+        assertThat(controller.cancelJob("job-1")).isEqualTo(expected);
     }
 
     @Test
-    void shouldMapCancelMissingToNotFound() {
+    void shouldPropagateCancelMissingToGlobalHandler() {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
         AnalysisJobService jobs = mock(AnalysisJobService.class);
         when(jobs.cancel("gone")).thenThrow(new NoSuchElementException("not found"));
         AnalysisController controller = controllerWith(analyzer, jobs);
 
         assertThatThrownBy(() -> controller.cancelJob("gone"))
-                .isInstanceOfSatisfying(ResponseStatusException.class,
-                        error -> assertThat(error.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+                .isInstanceOf(NoSuchElementException.class);
     }
 
     @Test

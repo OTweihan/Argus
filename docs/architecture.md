@@ -214,7 +214,8 @@ PassExecutor/ClasspathResolver 端口）已存在并被包依赖架构测试约�
   替换前必须证明收益覆盖 HTTP、校验、调度、健康检查和运维能力的重建成本。
 - Domain、application 和 pass 单元测试必须可以脱离 Spring Context 直接实例化；
   `DependencyRuleTest`（ArchUnit）阻止 domain/application 依赖 Spring、`api` DTO 与具体
-  Maven gateway，阻止引擎 pass 依赖 HTTP DTO。
+  Maven gateway，阻止引擎 pass 依赖 HTTP DTO，阻止 service 编排层（含作业状态/事件
+  模型，经 `application.JobStatus`/`JobEvent` 表达）依赖 `api` wire DTO。
 
 ## 5. 契约与跨服务通信
 

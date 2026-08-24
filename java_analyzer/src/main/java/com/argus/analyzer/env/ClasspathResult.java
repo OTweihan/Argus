@@ -1,6 +1,5 @@
 package com.argus.analyzer.env;
 
-import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 
@@ -40,14 +39,6 @@ public class ClasspathResult {
     public static ClasspathResult unavailable(String reason) {
         return new ClasspathResult(false, false, true, List.of(), "none",
                 List.of(reason), List.of(reason), null, null);
-    }
-
-    public static ClasspathResult fromJars(List<Path> jarPaths, String source) {
-        List<String> jarStrs = jarPaths.stream()
-                .map(Path::toString)
-                .toList();
-        return new ClasspathResult(true, false, false, jarStrs, source,
-                List.of(), List.of(), null, null);
     }
 
     public boolean isAvailable() { return available; }

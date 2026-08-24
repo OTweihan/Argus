@@ -102,6 +102,26 @@
 
 ## 三、未完成 —— Java
 
+> ✅ **2026-08-24 校验更新：J1–J5 已全部在代码中落地。**
+> J1：新增 `application.JobStatus`/`JobEvent` 应用层模型，`AnalysisJobService` 只产出领域
+> 状态（`snapshot()`），`api.AnalysisJobStatusMapper` 负责拷贝为 wire DTO；wire JSON 字段
+> 不变；ArchUnit 新增 `serviceOrchestrationMustNotDependOnHttpDtos` 门禁，并同步更新
+> `docs/architecture.md` 边界描述。
+> J2：删除 `MavenClasspathResolver`/`LegacyClasspathResolver`/`MavenExecutor` 无 progress
+> 重载、`ModuleClassifier` 三个 1 参包私有方法；`ClasspathResult.fromJars` 下移为
+> `ProjectAnalyzerServiceTest.classpathFromJars`。
+> J3：作业相关异常（`NoSuchElementException`→404、`IdempotencyConflictException`→409、
+> 新增类型 `JobNotCompleteException`→409）收编到 `AnalysisExceptionHandler`，全部返回
+> ProblemDetail 统一响应体；Controller 移除逐条 try/catch。基础设施层的
+> `IllegalStateException` 不受影响仍走 500。
+> J4：新增 `MavenDetectorTest`（探测链 + 注入 env + `;`/`:` 分隔符）、
+> `ClasspathFileReaderTest`（`;` vs `:`、存在性过滤、空/缺失文件降级）、
+> `JavaVersionDetectorTest`（pom release/source/java.version 优先级、gradle 三种写法、默认值）。
+> J5：`AnalysisJobService`（529 行）拆出包内独立类 `AnalysisJob`（CAS 状态机，198 行）与
+> `JobProgress`（25 行），service 降至 334 行只留编排与幂等；`ProjectIndexCache` 抽出
+> `SourceFingerprint`（含 isFingerprintInput 规则与规范化摘要），缓存类降至 436 行聚焦
+> LRU/权重/单飞。均为等价重构，无行为变更。
+
 ### J1. AnalysisJobService 依赖 HTTP wire DTO（M4，批次 6 架构边界）
 
 - 【文件:行号】`java_analyzer/src/main/java/com/argus/analyzer/service/AnalysisJobService.java:3-4`、`:467`、`:473-484`
@@ -198,4 +218,4 @@
 
 - **已做**：`MethodKey` 键统一、`File.pathSeparator`、`SourceFileScanner` target 段匹配、CAS SQL 公开方法（`requeue_stale_task`/`mark_stale_task_terminal`/`list_stale_whitebox_tasks`）、`_claim_and_execute_matching_sync`、`utc_now_iso`、`_build_task_where`、`Digests`、`MavenConfig` 拷贝构造器、`CommunityClusterer` Random 复用、`FindingDetector` 单遍历、`MavenExecutor` 有界缓冲、`get_summary` 单连接、`list_by_blackbox_run_ids`、`recover_stale_attempts` 批量、`list_flow_steps_by_flow_ids`、`0006` 迁移、前端 `severity.ts`/`stringifyParamValue`/`shortSha`/`ElTagType`/`usePagedList` 卸载守卫/`TaskTimeline` 竞态/`ReportView` memoized stringify。
 - **Review 修复（同日）**：`list_by_blackbox_run_ids` ROW_NUMBER 去重（每 blackbox_run 最新一条）+ 回归测试、`ReportView.reportJsonStr` 依赖 `reportTab` 门槛、删除 `count_eligible_requests`（get_summary 内联后准死代码）+ 测试改造、`test_migrations.py` 迁移版本断言更新为 [0..6]。
-- **未做（本清单）**：J1–J5、F1–F3（P1–P9 已于 2026-08-24 全部完成并归档，见第二节批注）。
+- **未做（本清单）**：F1–F3（P1–P9 已于 2026-08-24 完成并归档，见第二节批注；J1–J5 已于 2026-08-24 完成，见第三节批注）。

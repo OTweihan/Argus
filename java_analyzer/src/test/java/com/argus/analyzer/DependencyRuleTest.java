@@ -61,4 +61,13 @@ class DependencyRuleTest {
                 .should().dependOnClassesThat().resideInAPackage("org.springframework..");
         rule.check(classes);
     }
+
+    @Test
+    void serviceOrchestrationMustNotDependOnHttpDtos() {
+        // J1：应用编排层（service）不得依赖 HTTP wire DTO（api.dto）。作业状态/事件
+        // 使用 application 层模型（JobStatus/JobEvent），由 api 包的 Mapper 拷贝。
+        ArchRule rule = noClasses().that().resideInAPackage("com.argus.analyzer.service..")
+                .should().dependOnClassesThat().resideInAPackage("com.argus.analyzer.api..");
+        rule.check(classes);
+    }
 }

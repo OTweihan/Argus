@@ -29,16 +29,8 @@ public class MavenClasspathResolver implements ClasspathResolver {
         this.moduleResolver = moduleResolver;
     }
 
-    public ClasspathResult resolve(Path sourcePath, MavenConfig config) {
-        return legacyResolver.resolve(sourcePath, config, AnalysisProgressListener.NOOP);
-    }
-
     public ClasspathResult resolve(Path sourcePath, MavenConfig config, AnalysisProgressListener progress) {
         return legacyResolver.resolve(sourcePath, config, progress);
-    }
-
-    public ClasspathResult resolve(MavenModuleIndex moduleIndex, List<String> targetModules, MavenConfig config) {
-        return moduleResolver.resolve(moduleIndex, targetModules, config, AnalysisProgressListener.NOOP);
     }
 
     public ClasspathResult resolve(MavenModuleIndex moduleIndex, List<String> targetModules,

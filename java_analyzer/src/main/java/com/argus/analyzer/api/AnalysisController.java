@@ -11,7 +11,6 @@ import com.argus.analyzer.service.AnalysisJobService;
 import com.argus.analyzer.service.ProjectAnalyzerService;
 import com.argus.analyzer.support.SourceLocator;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,12 +18,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/argus/api")
@@ -68,22 +65,15 @@ public class AnalysisController {
     @PostMapping("/analyze/jobs")
     public AnalysisJobStatusResponse submitJob(@Valid @RequestBody AnalyzeRequest request) {
         // 提交时即做 real-path 边界校验，非法路径快速失败（400），不进入作业队列。
+        // 异常→HTTP 状态映射统一由 AnalysisExceptionHandler 承担（J3）。
         Path sourcePath = sourceLocator.resolveForAnalysis(request.sourcePath());
         AnalysisCommand command = AnalysisCommandMapper.map(request, sourcePath);
-        try {
-            return jobService.submit(command, request.maven());
-        } catch (AnalysisJobService.IdempotencyConflictException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
-        }
+        return AnalysisJobStatusMapper.map(jobService.submit(command, request.maven()));
     }
 
     @GetMapping("/analyze/jobs/{jobId}")
     public AnalysisJobStatusResponse getJob(@PathVariable String jobId) {
-        try {
-            return jobService.getStatus(jobId);
-        } catch (NoSuchElementException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
-        }
+        return AnalysisJobStatusMapper.map(jobService.getStatus(jobId));
     }
 
     /**
@@ -91,21 +81,11 @@ public class AnalysisController {
      */
     @DeleteMapping("/analyze/jobs/{jobId}")
     public AnalysisJobStatusResponse cancelJob(@PathVariable String jobId) {
-        try {
-            return jobService.cancel(jobId);
-        } catch (NoSuchElementException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
-        }
+        return AnalysisJobStatusMapper.map(jobService.cancel(jobId));
     }
 
     @GetMapping("/analyze/jobs/{jobId}/result")
     public AnalyzeResponse getJobResult(@PathVariable String jobId) {
-        try {
-            return AnalysisResultMapper.map(jobService.getResult(jobId));
-        } catch (NoSuchElementException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage(), e);
-        } catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
-        }
+        return AnalysisResultMapper.map(jobService.getResult(jobId));
     }
 }

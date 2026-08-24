@@ -89,7 +89,7 @@ class ProjectAnalyzerServiceTest {
         moduleClassifier = mock(ModuleClassifier.class);
         when(classpathResolver.resolve(any(Path.class), any(MavenConfig.class),
                 any(com.argus.analyzer.domain.AnalysisProgressListener.class)))
-                .thenReturn(ClasspathResult.fromJars(List.of(), "mock-source"));
+                .thenReturn(classpathFromJars(List.of(), "mock-source"));
 
         service = new ProjectAnalyzerService(
                 planRegistry,
@@ -98,6 +98,15 @@ class ProjectAnalyzerServiceTest {
                 classpathResolver,
                 sourceFileScanner,
                 moduleClassifier);
+    }
+
+    /** 原 {@code ClasspathResult.fromJars}（仅测试用，已从生产代码下移到此处）。 */
+    private static ClasspathResult classpathFromJars(List<Path> jarPaths, String source) {
+        List<String> jarStrs = jarPaths.stream()
+                .map(Path::toString)
+                .toList();
+        return new ClasspathResult(true, false, false, jarStrs, source,
+                List.of(), List.of(), null, null);
     }
 
     @AfterEach

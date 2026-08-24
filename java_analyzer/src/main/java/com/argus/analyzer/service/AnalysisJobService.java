@@ -1,7 +1,6 @@
 package com.argus.analyzer.service;
 
-import com.argus.analyzer.api.dto.AnalysisJobEvent;
-import com.argus.analyzer.api.dto.AnalysisJobStatusResponse;
+import com.argus.analyzer.application.JobStatus;
 import com.argus.analyzer.domain.AnalysisCommand;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.AnalysisResult;
@@ -17,9 +16,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -28,17 +24,19 @@ import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
+/**
+ * 分析作业编排：提交/幂等/cleanup/deadline 兜底与执行边界（J5）。
+ *
+ * <p>作业状态机见 {@link AnalysisJob}，进度桥接见 {@link JobProgress}；
+ * 本类只保留编排与幂等逻辑。</p>
+ */
 @Service
 public class AnalysisJobService {
 
-    private static final int MAX_EVENTS = 200;
     private static final Logger log = LoggerFactory.getLogger(AnalysisJobService.class);
 
     private final ProjectAnalyzerService analyzerService;
@@ -75,7 +73,7 @@ public class AnalysisJobService {
                 new MavenProcessRegistry(), 1800, 3600);
     }
 
-    public AnalysisJobStatusResponse submit(AnalysisCommand command, MavenConfig mavenConfig) {
+    public JobStatus submit(AnalysisCommand command, MavenConfig mavenConfig) {
         // cleanupExpiredJobs 在 synchronized 外执行——jobs/idempotencyEntries
         // 均为 ConcurrentHashMap，removeIf 自身线程安全；避免锁内遍历阻塞提交
         cleanupExpiredJobs();
@@ -93,7 +91,7 @@ public class AnalysisJobService {
                             throw new IdempotencyConflictException(requestId);
                         }
                         log.info("幂等命中 clientRequestId={} → 复用已有作业 {}", requestId, entry.jobId());
-                        return existingJob.toStatusResponse();
+                        return existingJob.snapshot();
                     }
                     // 作业已过期清理，移除失效映射
                     idempotencyEntries.remove(requestId);
@@ -128,7 +126,7 @@ public class AnalysisJobService {
                 }
                 throw error;
             }
-            return job.toStatusResponse();
+            return job.snapshot();
         }
     }
 
@@ -180,8 +178,8 @@ public class AnalysisJobService {
         });
     }
 
-    public AnalysisJobStatusResponse getStatus(String jobId) {
-        return getJob(jobId).toStatusResponse();
+    public JobStatus getStatus(String jobId) {
+        return getJob(jobId).snapshot();
     }
 
     public AnalysisResult getResult(String jobId) {
@@ -197,12 +195,12 @@ public class AnalysisJobService {
      *   <li>已终态：no-op，返回当前状态（重复取消返回同一终态）。</li>
      * </ul>
      */
-    public AnalysisJobStatusResponse cancel(String jobId) {
+    public JobStatus cancel(String jobId) {
         AnalysisJob job = getJob(jobId);
         job.requestCancel();
         // 立即终止该作业名下所有 Maven 进程树（PENDING 时无进程，无害）
         mavenProcessRegistry.destroyFor(job.progress());
-        return job.toStatusResponse();
+        return job.snapshot();
     }
 
     private void runJob(AnalysisJob job, AnalysisCommand command, MavenConfig mavenConfig) {
@@ -284,6 +282,18 @@ public class AnalysisJobService {
         }
     }
 
+    /**
+     * 结果未就绪：作业未到 SUCCEEDED 即请求结果（J3）。
+     * 继承 {@link IllegalStateException} 保持既有捕获语义，同时让全局异常
+     * 处理器能把它与基础设施层的 IllegalStateException（应映射 500）区分开，
+     * 精确映射为 409。
+     */
+    public static class JobNotCompleteException extends IllegalStateException {
+        public JobNotCompleteException(String message) {
+            super(message);
+        }
+    }
+
     private record IdempotencyEntry(String jobId, RequestFingerprint fingerprint, Instant createdAt) {
         IdempotencyEntry(String jobId, RequestFingerprint fingerprint) {
             this(jobId, fingerprint, Instant.now());
@@ -319,198 +329,6 @@ public class AnalysisJobService {
             // 消除两处此前 settingsXml（内容哈希 vs 路径）与空值处理不一致导致的
             // 「幂等判定为同请求却产生不同缓存键」矛盾。
             return new MavenFingerprint(MavenConfigFingerprint.fingerprint(config));
-        }
-    }
-
-    /**
-     * 作业状态机：终态由 {@link #status} 的 CAS 单向前进决定。
-     * 取消/完成/超时并发时，先抢占到终态者生效，其余 no-op——
-     * 由此定义“完成先发生”与“取消先发生”的确定结果。
-     */
-    private static class AnalysisJob {
-
-        private final String jobId;
-        private final Instant createdAt = Instant.now();
-        private final Instant deadline;
-        private final Deque<AnalysisJobEvent> events = new ArrayDeque<>();
-        private final AtomicReference<String> status = new AtomicReference<>("PENDING");
-        private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
-        private final AnalysisProgressListener progress = new JobProgress(this);
-
-        private volatile String stage = "queued";
-        private volatile Instant startedAt;
-        private volatile Instant finishedAt;
-        private volatile String error;
-        private volatile AnalysisResult result;
-        private volatile Future<?> future;
-
-        private AnalysisJob(String jobId, Instant deadline) {
-            this.jobId = jobId;
-            this.deadline = deadline;
-        }
-
-        String jobId() {
-            return jobId;
-        }
-
-        String status() {
-            return status.get();
-        }
-
-        boolean isActive() {
-            String s = status.get();
-            return "PENDING".equals(s) || "RUNNING".equals(s);
-        }
-
-        boolean isCancelRequested() {
-            return cancelRequested.get();
-        }
-
-        AnalysisProgressListener progress() {
-            return progress;
-        }
-
-        /**
-         * 幂等请求取消（供 cancel() / enforceDeadlines() 调用）。
-         *
-         * @return this（链式便于 cancel() 返回状态）
-         */
-        AnalysisJob requestCancel() {
-            cancelRequested.set(true);
-            String current = status.get();
-            if ("PENDING".equals(current)) {
-                Future<?> f = future;
-                if (f != null) {
-                    // 不 interrupt：避免与“刚启动”竞态时 interrupt 被误吞成 markFailed
-                    f.cancel(false);
-                }
-                markCancelled();
-            } else if ("RUNNING".equals(current)) {
-                // 协作取消：不 interrupt（JavaParser 不能安全强杀），工作线程在安全边界
-                // 自省 isCancelled() 并落 CANCELLED；Maven 进程树由调用方
-                // （cancel()/enforceDeadlines()）经 mavenProcessRegistry 立即终止。
-                addEvent("analysis", "INFO", "Cancellation requested; stopping at next safe boundary");
-            } else {
-                // 已终态：no-op，重复取消返回同一终态
-            }
-            return this;
-        }
-
-        /**
-         * deadline 到期：设置协作取消令牌，并由 TIMED_OUT 直接抢占终态。
-         *
-         * <p>不能复用 {@link #requestCancel()}：它会把 PENDING 先推进到
-         * CANCELLED，导致后续无法再落 TIMED_OUT。排队 Future 同样需要取消，
-         * 确保执行器随后取出该 Future 时不会再运行分析逻辑。</p>
-         */
-        AnalysisJob requestTimeout() {
-            cancelRequested.set(true);
-            if ("PENDING".equals(status.get())) {
-                Future<?> f = future;
-                if (f != null) {
-                    f.cancel(false);
-                }
-            }
-            if (markTimedOut()) {
-                addEvent("analysis", "WARN", "Job exceeded server deadline");
-            }
-            return this;
-        }
-
-        boolean markRunning() {
-            return status.compareAndSet("PENDING", "RUNNING");
-        }
-
-        boolean markSucceeded() {
-            if (status.compareAndSet("RUNNING", "SUCCEEDED")) {
-                stage = "complete";
-                finishedAt = Instant.now();
-                return true;
-            }
-            return false;
-        }
-
-        boolean markFailed(Throwable t) {
-            if (status.compareAndSet("PENDING", "FAILED") || status.compareAndSet("RUNNING", "FAILED")) {
-                stage = "failed";
-                error = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
-                finishedAt = Instant.now();
-                return true;
-            }
-            return false;
-        }
-
-        boolean markCancelled() {
-            if (status.compareAndSet("PENDING", "CANCELLED") || status.compareAndSet("RUNNING", "CANCELLED")) {
-                stage = "cancelled";
-                finishedAt = Instant.now();
-                return true;
-            }
-            return false;
-        }
-
-        boolean markTimedOut() {
-            if (status.compareAndSet("PENDING", "TIMED_OUT") || status.compareAndSet("RUNNING", "TIMED_OUT")) {
-                stage = "timed_out";
-                finishedAt = Instant.now();
-                return true;
-            }
-            return false;
-        }
-
-        private int eventSequence = 0;
-
-        private synchronized void addEvent(String stage, String level, String message) {
-            this.stage = stage;
-            int seq = eventSequence++;
-            String eventId = UUID.randomUUID().toString();
-            events.addLast(new AnalysisJobEvent(Instant.now(), stage, level, message, seq, eventId));
-            while (events.size() > MAX_EVENTS) {
-                events.removeFirst();
-            }
-        }
-
-        private synchronized AnalysisJobStatusResponse toStatusResponse() {
-            return new AnalysisJobStatusResponse(
-                    jobId,
-                    status.get(),
-                    stage,
-                    createdAt,
-                    startedAt,
-                    finishedAt,
-                    error,
-                    new ArrayList<>(events)
-            );
-        }
-
-        private synchronized AnalysisResult getResult() {
-            if (!"SUCCEEDED".equals(status.get())) {
-                throw new IllegalStateException("Analysis job is not complete: " + status.get());
-            }
-            return result;
-        }
-
-        private boolean finishedBefore(Instant cutoff) {
-            return finishedAt != null && finishedAt.isBefore(cutoff);
-        }
-    }
-
-    /** 把作业级取消状态桥接到 AnalysisProgressListener 的 isCancelled()。 */
-    private static class JobProgress implements AnalysisProgressListener {
-        private final AnalysisJob job;
-
-        JobProgress(AnalysisJob job) {
-            this.job = job;
-        }
-
-        @Override
-        public void onEvent(String stage, String level, String message) {
-            job.addEvent(stage, level, message);
-        }
-
-        @Override
-        public boolean isCancelled() {
-            return job.isCancelRequested();
         }
     }
 }

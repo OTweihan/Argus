@@ -52,14 +52,6 @@ public class MavenExecutor {
         this.processRegistry = processRegistry;
     }
 
-    /**
-     * Legacy single-module classpath generation (no target module selector).
-     */
-    public ClasspathResult generateClasspath(Path sourcePath, String mvnExec, MavenConfig config,
-                                              long timeoutSeconds) {
-        return generateClasspath(sourcePath, mvnExec, config, timeoutSeconds, AnalysisProgressListener.NOOP);
-    }
-
     public ClasspathResult generateClasspath(Path sourcePath, String mvnExec, MavenConfig config,
                                               long timeoutSeconds, AnalysisProgressListener progress) {
         Path outputDir = sourcePath.resolve(".argus");
@@ -76,12 +68,6 @@ public class MavenExecutor {
     /**
      * Generates classpath for a specific module via {@code maven-dependency-plugin:build-classpath}.
      */
-    public ClasspathResult generateClasspathForModule(Path workDir, Path outputFile, String mvnExec,
-                                                       MavenConfig config, long timeoutSeconds, String targetModule) {
-        return generateClasspathForModule(workDir, outputFile, mvnExec, config, timeoutSeconds, targetModule,
-                AnalysisProgressListener.NOOP);
-    }
-
     public ClasspathResult generateClasspathForModule(Path workDir, Path outputFile, String mvnExec,
                                                        MavenConfig config, long timeoutSeconds, String targetModule,
                                                        AnalysisProgressListener progress) {

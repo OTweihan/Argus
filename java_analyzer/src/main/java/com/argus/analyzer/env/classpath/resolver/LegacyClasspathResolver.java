@@ -36,10 +36,6 @@ public class LegacyClasspathResolver {
         this.gateway = gateway;
     }
 
-    public ClasspathResult resolve(Path sourcePath, MavenConfig config) {
-        return resolve(sourcePath, config, AnalysisProgressListener.NOOP);
-    }
-
     public ClasspathResult resolve(Path sourcePath, MavenConfig config, AnalysisProgressListener progress) {
         // 1. 用户显式传入 classpath 文件
         if (config.getClasspathFile() != null && !config.getClasspathFile().isEmpty()) {

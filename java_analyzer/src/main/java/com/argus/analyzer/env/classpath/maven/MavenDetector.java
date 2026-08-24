@@ -179,7 +179,7 @@ public class MavenDetector {
         }
     }
 
-    private String getEnv(String name) {
+    String getEnv(String name) {
         try {
             return System.getenv(name);
         } catch (Exception e) {
@@ -188,11 +188,15 @@ public class MavenDetector {
     }
 
     private String findOnPath(String name) {
-        String pathEnv = getEnv("PATH");
-        if (pathEnv == null) {
+        return findOnPath(getEnv("PATH"), File.pathSeparator, name);
+    }
+
+    /** 纯函数形式（包私有，供测试覆盖 {@code ;} 与 {@code :} 两种平台分隔符）。 */
+    static String findOnPath(String pathEnv, String separator, String name) {
+        if (pathEnv == null || separator == null) {
             return null;
         }
-        for (String dir : pathEnv.split(File.pathSeparator)) {
+        for (String dir : pathEnv.split(separator)) {
             Path candidate = Paths.get(dir.trim(), name);
             if (Files.exists(candidate)) {
                 return candidate.toAbsolutePath().toString();
