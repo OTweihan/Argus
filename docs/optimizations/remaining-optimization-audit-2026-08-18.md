@@ -25,6 +25,16 @@
 
 ## 二、未完成 —— Python
 
+> ✅ **2026-08-24 校验更新：P1–P9 已全部在代码中落地，本节归档为历史记录。**
+> 逐项证据：P1 共享 `task/repositories/pagination.py::cursor_paginate`（finding_repo 已迁移）；
+> P2 `whitebox/config.py::load_execution_config` runner/recovery 共用；P3 matcher 编译复用 +
+> specificity 缓存排序；P4 服务构造器已单型化为 `TaskSQLiteStorage`；P5 project/config 服务
+> 参数必填、组合根注入；P6 Runner 装配期创建一次 + `report_generator` 必填；P7 container.py
+> 285 行纯装配、编排移入 `correlation/application.py`；P8 四文件均降至 <1000 行（775/855/587/790）；
+> P9 `_MAX_ANALYSIS_RUNS` 已删、引擎走全量查询、聚合接口改分页 + total。
+> 同日清理 P4 残留的 `task/log.py` 与 `whitebox/runner.py` 两处防御性 isinstance 分支
+> （依赖文件后端即时落盘的两个单测已迁移为 SQLite 注入 + 显式 flush）。
+
 ### P1. 游标分页逻辑统一（M2）
 
 - 【文件:行号】`argus_py/task/repositories/analysis_repo.py::_paginated_query` vs `argus_py/task/repositories/finding_repo.py:67-120`
@@ -188,4 +198,4 @@
 
 - **已做**：`MethodKey` 键统一、`File.pathSeparator`、`SourceFileScanner` target 段匹配、CAS SQL 公开方法（`requeue_stale_task`/`mark_stale_task_terminal`/`list_stale_whitebox_tasks`）、`_claim_and_execute_matching_sync`、`utc_now_iso`、`_build_task_where`、`Digests`、`MavenConfig` 拷贝构造器、`CommunityClusterer` Random 复用、`FindingDetector` 单遍历、`MavenExecutor` 有界缓冲、`get_summary` 单连接、`list_by_blackbox_run_ids`、`recover_stale_attempts` 批量、`list_flow_steps_by_flow_ids`、`0006` 迁移、前端 `severity.ts`/`stringifyParamValue`/`shortSha`/`ElTagType`/`usePagedList` 卸载守卫/`TaskTimeline` 竞态/`ReportView` memoized stringify。
 - **Review 修复（同日）**：`list_by_blackbox_run_ids` ROW_NUMBER 去重（每 blackbox_run 最新一条）+ 回归测试、`ReportView.reportJsonStr` 依赖 `reportTab` 门槛、删除 `count_eligible_requests`（get_summary 内联后准死代码）+ 测试改造、`test_migrations.py` 迁移版本断言更新为 [0..6]。
-- **未做（本清单）**：P1–P9、J1–J5、F1–F3。
+- **未做（本清单）**：J1–J5、F1–F3（P1–P9 已于 2026-08-24 全部完成并归档，见第二节批注）。
