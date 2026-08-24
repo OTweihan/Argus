@@ -20,113 +20,12 @@
         <!-- 关联总览 -->
         <el-tab-pane lazy label="关联总览" name="overview">
           <div class="overview-grid">
-            <!-- 请求级 -->
-            <div class="card">
-              <div class="card-title">请求证据</div>
-              <div class="stat-row">
-                <span class="stat-k">采集总数</span>
-                <span class="stat-v">{{ summary.capturedRequestCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">可关联</span>
-                <span class="stat-v">{{ summary.correlatableRequestCount }}</span>
-              </div>
-              <div class="stat-row confirmed">
-                <span class="stat-k">已确认命中</span>
-                <span class="stat-v">{{ summary.confirmedMatchedRequestCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">歧义</span>
-                <span class="stat-v">{{ summary.ambiguousRequestCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">方法不一致候选</span>
-                <span class="stat-v">{{ summary.methodMismatchCandidateCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">未匹配</span>
-                <span class="stat-v">{{ summary.unmatchedRequestCount }}</span>
-              </div>
-            </div>
-
-            <!-- 端点级 -->
-            <div class="card">
-              <div class="card-title">端点覆盖</div>
-              <div class="stat-row">
-                <span class="stat-k">白盒端点总数</span
-                ><span class="stat-v">{{ summary.totalEndpointCount }}</span>
-              </div>
-              <div class="stat-row confirmed">
-                <span class="stat-k">已确认触达</span
-                ><span class="stat-v">{{ summary.confirmedTouchedEndpointCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">候选触达</span
-                ><span class="stat-v">{{ summary.candidateTouchedEndpointCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">尝试触达</span
-                ><span class="stat-v">{{ summary.attemptedEvidenceCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">未触达</span
-                ><span class="stat-v">{{ summary.uncoveredEndpointCount }}</span>
-              </div>
-              <div v-if="summary.totalEndpointCount > 0" class="stat-row">
-                <span class="stat-k">触达率</span>
-                <span class="stat-v">{{ coveragePercent }}%</span>
-              </div>
-            </div>
-
-            <!-- Finding 级 -->
-            <div class="card">
-              <div class="card-title">发现项关联</div>
-              <div class="stat-row">
-                <span class="stat-k">白盒发现项</span
-                ><span class="stat-v">{{ summary.totalFindingCount }}</span>
-              </div>
-              <div class="stat-row confirmed">
-                <span class="stat-k" title="被黑盒实际触达（confirmed_request_count > 0）的发现项"
-                  >已确认关联</span
-                >
-                <span class="stat-v">{{ summary.confirmedRelatedFindingCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k" title="有静态关联但未被黑盒请求触达的发现项">候选关联</span>
-                <span class="stat-v">{{ summary.candidateRelatedFindingCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k" title="无任何关联证据的发现项">未关联</span>
-                <span class="stat-v">{{ summary.unrelatedFindingCount }}</span>
-              </div>
-            </div>
-
-            <!-- 采集质量 -->
-            <div class="card">
-              <div class="card-title">采集质量</div>
-              <div class="stat-row">
-                <span class="stat-k">跨域过滤</span
-                ><span class="stat-v">{{ summary.crossOriginFilteredCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">资源类型过滤</span
-                ><span class="stat-v">{{ summary.resourceFilteredCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">丢弃</span
-                ><span class="stat-v">{{ summary.droppedRequestCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">采集失败</span
-                ><span class="stat-v">{{ summary.failedCaptureCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">完整性</span>
-                <el-tag size="small" :type="completenessTag">
-                  {{ summary.evidenceCompleteness }}
-                </el-tag>
-              </div>
-            </div>
+            <StatCard
+              v-for="card in overviewCards"
+              :key="card.title"
+              :title="card.title"
+              :items="card.items"
+            />
           </div>
         </el-tab-pane>
 
@@ -216,74 +115,12 @@
         <!-- 数据质量 -->
         <el-tab-pane lazy label="数据质量" name="quality">
           <div v-if="captureQuality" class="quality-section">
-            <div class="card">
-              <div class="card-title">采集详细统计</div>
-              <div class="stat-row">
-                <span class="stat-k">观察总数</span>
-                <span class="stat-v">{{ captureQuality.totalObserved }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">接受并采集</span>
-                <span class="stat-v">{{ captureQuality.acceptedStarted }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">已持久化</span>
-                <span class="stat-v">{{ captureQuality.persistedCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">跨域过滤</span>
-                <span class="stat-v">{{ captureQuality.filteredCrossOrigin }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">资源类型过滤</span>
-                <span class="stat-v">{{ captureQuality.filteredByResourceType }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">方法过滤</span>
-                <span class="stat-v">{{ captureQuality.filteredByMethod }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">WebSocket 过滤</span>
-                <span class="stat-v">{{ captureQuality.filteredWebsocketCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">路径超长过滤</span>
-                <span class="stat-v">{{ captureQuality.filteredPathTooLong }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">Pending 满丢弃</span>
-                <span class="stat-v">{{ captureQuality.droppedPendingLimit }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">Run 上限丢弃</span>
-                <span class="stat-v">{{ captureQuality.droppedRunLimit }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">Writer 队列满丢弃</span>
-                <span class="stat-v">{{ captureQuality.droppedWriterQueueLimit }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">Writer 重试次数</span>
-                <span class="stat-v">{{ captureQuality.writerRetryCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">Writer 失败批次</span>
-                <span class="stat-v">{{ captureQuality.writerFailedBatchCount }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">持久化失败</span>
-                <span class="stat-v">{{ captureQuality.persistenceFailed }}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-k">截断</span>
-                <el-tag size="small" :type="captureQuality.truncated ? 'danger' : 'success'">
-                  {{ captureQuality.truncated ? "是" : "否" }}
-                </el-tag>
-                <span v-if="captureQuality.truncationReason" class="trunc-reason">{{
-                  captureQuality.truncationReason
-                }}</span>
-              </div>
-            </div>
+            <StatCard
+              v-for="card in qualityCards"
+              :key="card.title"
+              :title="card.title"
+              :items="card.items"
+            />
           </div>
           <el-empty v-else description="暂无采集质量数据" />
         </el-tab-pane>
@@ -316,6 +153,7 @@ import EndpointEvidenceTable from "./correlation/EndpointEvidenceTable.vue";
 import FindingEvidenceTable from "./correlation/FindingEvidenceTable.vue";
 import UnmatchedRequestTable from "./correlation/UnmatchedRequestTable.vue";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
+import StatCard, { type StatCardConfig } from "../../common/StatCard.vue";
 
 const props = defineProps<{ correlationRunId: string }>();
 
@@ -395,6 +233,144 @@ const coveragePercent = computed(() => {
 
 const completenessTag = computed(() => {
   return summary.value?.evidenceCompleteness === "COMPLETE" ? "success" : "warning";
+});
+
+// ── 总览 / 数据质量卡片（F3-4：数据驱动 StatCard，替代手写 stat 行模板） ──
+
+const overviewCards = computed<StatCardConfig[]>(() => {
+  const s = summary.value;
+  if (!s) return [];
+  return [
+    {
+      title: "请求证据",
+      items: [
+        { key: "captured", label: "采集总数", value: s.capturedRequestCount },
+        { key: "correlatable", label: "可关联", value: s.correlatableRequestCount },
+        {
+          key: "confirmedMatched",
+          label: "已确认命中",
+          value: s.confirmedMatchedRequestCount,
+          confirmed: true,
+        },
+        { key: "ambiguous", label: "歧义", value: s.ambiguousRequestCount },
+        {
+          key: "methodMismatch",
+          label: "方法不一致候选",
+          value: s.methodMismatchCandidateCount,
+        },
+        { key: "unmatchedRequests", label: "未匹配", value: s.unmatchedRequestCount },
+      ],
+    },
+    {
+      title: "端点覆盖",
+      items: [
+        { key: "totalEndpoints", label: "白盒端点总数", value: s.totalEndpointCount },
+        {
+          key: "confirmedTouched",
+          label: "已确认触达",
+          value: s.confirmedTouchedEndpointCount,
+          confirmed: true,
+        },
+        { key: "candidateTouched", label: "候选触达", value: s.candidateTouchedEndpointCount },
+        { key: "attemptedEvidence", label: "尝试触达", value: s.attemptedEvidenceCount },
+        { key: "uncoveredEndpoints", label: "未触达", value: s.uncoveredEndpointCount },
+        {
+          key: "coverage",
+          label: "触达率",
+          value: coveragePercent.value,
+          suffix: "%",
+          show: s.totalEndpointCount > 0,
+        },
+      ],
+    },
+    {
+      title: "发现项关联",
+      items: [
+        { key: "totalFindings", label: "白盒发现项", value: s.totalFindingCount },
+        {
+          key: "confirmedRelated",
+          label: "已确认关联",
+          value: s.confirmedRelatedFindingCount,
+          confirmed: true,
+          hint: "被黑盒实际触达（confirmed_request_count > 0）的发现项",
+        },
+        {
+          key: "candidateRelated",
+          label: "候选关联",
+          value: s.candidateRelatedFindingCount,
+          hint: "有静态关联但未被黑盒请求触达的发现项",
+        },
+        {
+          key: "unrelatedFindings",
+          label: "未关联",
+          value: s.unrelatedFindingCount,
+          hint: "无任何关联证据的发现项",
+        },
+      ],
+    },
+    {
+      title: "采集质量",
+      items: [
+        { key: "crossOriginFiltered", label: "跨域过滤", value: s.crossOriginFilteredCount },
+        { key: "resourceFiltered", label: "资源类型过滤", value: s.resourceFilteredCount },
+        { key: "droppedRequests", label: "丢弃", value: s.droppedRequestCount },
+        { key: "failedCapture", label: "采集失败", value: s.failedCaptureCount },
+        {
+          key: "completeness",
+          label: "完整性",
+          tag: { type: completenessTag.value, text: s.evidenceCompleteness },
+        },
+      ],
+    },
+  ];
+});
+
+const qualityCards = computed<StatCardConfig[]>(() => {
+  const q = captureQuality.value;
+  if (!q) return [];
+  return [
+    {
+      title: "采集详细统计",
+      items: [
+        { key: "totalObserved", label: "观察总数", value: q.totalObserved },
+        { key: "acceptedStarted", label: "接受并采集", value: q.acceptedStarted },
+        { key: "persisted", label: "已持久化", value: q.persistedCount },
+        { key: "filteredCrossOrigin", label: "跨域过滤", value: q.filteredCrossOrigin },
+        {
+          key: "filteredByResourceType",
+          label: "资源类型过滤",
+          value: q.filteredByResourceType,
+        },
+        { key: "filteredByMethod", label: "方法过滤", value: q.filteredByMethod },
+        {
+          key: "filteredWebsocket",
+          label: "WebSocket 过滤",
+          value: q.filteredWebsocketCount,
+        },
+        { key: "filteredPathTooLong", label: "路径超长过滤", value: q.filteredPathTooLong },
+        { key: "droppedPendingLimit", label: "Pending 满丢弃", value: q.droppedPendingLimit },
+        { key: "droppedRunLimit", label: "Run 上限丢弃", value: q.droppedRunLimit },
+        {
+          key: "droppedWriterQueueLimit",
+          label: "Writer 队列满丢弃",
+          value: q.droppedWriterQueueLimit,
+        },
+        { key: "writerRetry", label: "Writer 重试次数", value: q.writerRetryCount },
+        {
+          key: "writerFailedBatch",
+          label: "Writer 失败批次",
+          value: q.writerFailedBatchCount,
+        },
+        { key: "persistenceFailed", label: "持久化失败", value: q.persistenceFailed },
+        {
+          key: "truncated",
+          label: "截断",
+          tag: { type: q.truncated ? "danger" : "success", text: q.truncated ? "是" : "否" },
+          note: q.truncationReason || undefined,
+        },
+      ],
+    },
+  ];
 });
 
 // ── 端点证据分页 ──
@@ -545,51 +521,8 @@ watch(subTab, (tab) => {
   padding: 4px 0;
 }
 
-.card {
-  background: var(--surface-glass-strong, #ffffff);
-  border: 1px solid var(--line-soft, #e5e7eb);
-  border-radius: var(--radius-md);
-  padding: 16px 18px;
-  box-shadow: var(--shadow-xs);
-}
-
-.card-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-strong);
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--line-soft, #e5e7eb);
-}
-
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 3px 0;
-  font-size: 13px;
-}
-
-.stat-k {
-  color: var(--text-faint);
-}
-
-.stat-v {
-  font-weight: 600;
-  color: var(--text-strong);
-}
-
-.stat-row.confirmed .stat-v {
-  color: #059669;
-}
-
 .quality-section {
   padding: 4px 0;
-}
-
-.trunc-reason {
-  font-size: 12px;
-  color: var(--text-faint);
-  margin-left: 8px;
 }
 
 .list-wrap {

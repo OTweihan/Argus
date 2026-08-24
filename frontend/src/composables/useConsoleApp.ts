@@ -1,7 +1,6 @@
 import {
   computed,
   inject,
-  nextTick,
   onMounted,
   provide,
   reactive,
@@ -10,9 +9,8 @@ import {
   type InjectionKey,
 } from "vue";
 
-import { ElMessage } from "element-plus";
 import type { ModelConfig, Project, Task } from "../types";
-import { compact, displayTaskName, errorMessage } from "../utils";
+import { errorMessage } from "../utils";
 import { useDashboardStats } from "./useDashboardStats";
 import { useDialog } from "./useDialog";
 import { useModels } from "./useModels";
@@ -21,6 +19,7 @@ import { useProjects } from "./useProjects";
 import { useRuntimeEvents } from "./useRuntimeEvents";
 import { useTaskEvents } from "./useTaskEvents";
 import { useTasks } from "./useTasks";
+import { useTopBar } from "./useTopBar";
 
 import type { ViewKey } from "./useNavigation";
 export type { ViewKey };
@@ -83,27 +82,17 @@ export function useConsoleApp() {
 
   /* ── 视图与 WebSocket 编排 ──
    *
-   * 之前 `useTasks → useTaskSelection.selectTask` 主动回调 `connectEventStream`，
-   * 而 `connectEventStream` 闭包又需要 `taskDomain.selectedTaskId`，形成"鸡生蛋"，
-   * 用 holder ref 后期填充绕过。现在反向：让 useTasks 只更新状态，编排层 watch
-   * `[view, selectedTaskId]` 任一变化都触发 WS 重连，Vue 批量更新机制保证两者
-   * 同 tick 变化时只触发一次。
+   * WS 重连编排已内聚到 useRuntimeEvents.watchEventStream：
+   * watch `[view, selectedTaskId]` 任一变化都触发重连，Vue 批量更新机制保证
+   * 两者同 tick 变化时只触发一次。
    */
-  function connectEventStream(): void {
-    events.connectEventStream(nav.view, taskDomain.selectedTaskId);
-  }
-
-  watch([nav.view, taskDomain.selectedTaskId], () => {
-    // nextTick 确保视图切换渲染完成后再重连 WebSocket，
-    // 避免 event replay 触发 allTasks 更新导致 el-table 闪烁。
-    nextTick(() => connectEventStream());
-  });
+  events.watchEventStream(nav.view, taskDomain.selectedTaskId);
 
   function changeView(nextView: ViewKey): void {
     nav.changeView(nextView);
     error.value = "";
     message.value = "";
-    // 不再主动调 connectEventStream：watch(view) 已经接管。
+    // 不再主动调 connectEventStream：watchEventStream 已经接管。
   }
 
   /* ── 计算属性 ── */
@@ -112,23 +101,12 @@ export function useConsoleApp() {
   // findingCount / recentTasks），下面只保留 useConsoleApp 自己需要的派生项。
   const enabledModels = computed(() => models.value.filter((model) => model.enabled));
 
-  const viewTitle = computed(() => {
-    if (nav.view.value === "task-detail") {
-      const task = taskDomain.selectedTask.value;
-      if (!task) return "报告详情";
-      // 顶部标题优先使用任务名（含重试次数），与任务列表口径一致；
-      // 旧任务缺失 name 时回落到目标文案。
-      const name = task.name?.trim();
-      return name ? displayTaskName(task) : compact(task.goal, 60);
-    }
-    return (
-      {
-        dashboard: "仪表盘",
-        projects: "项目管理",
-        tasks: "任务管理",
-        models: "模型配置",
-      }[nav.view.value] ?? ""
-    );
+  // 顶栏标题与全局节流 toast 抽到 useTopBar（F3-2）。
+  const topBar = useTopBar({
+    view: nav.view,
+    selectedTask: taskDomain.selectedTask,
+    error,
+    message,
   });
 
   /* ── 监听器 ── */
@@ -142,31 +120,11 @@ export function useConsoleApp() {
     },
   );
 
-  let _lastErrorToast = 0;
-  watch(error, (val) => {
-    if (val) {
-      const now = Date.now();
-      if (now - _lastErrorToast < 2000) return;
-      _lastErrorToast = now;
-      ElMessage({ message: val, type: "error", duration: 5000 });
-    }
-  });
-
-  let _lastMessageToast = 0;
-  watch(message, (val) => {
-    if (val) {
-      const now = Date.now();
-      if (now - _lastMessageToast < 2000) return;
-      _lastMessageToast = now;
-      ElMessage({ message: val, type: "success", duration: 3000 });
-    }
-  });
-
   /* ── 生命周期 ── */
 
   onMounted(async () => {
     await loadAll();
-    connectEventStream();
+    events.connectEventStream(nav.view, taskDomain.selectedTaskId);
     // 刷新后自动恢复任务详情视图
     if (nav.initialDetailTaskId.value && taskDomain.selectTask) {
       taskDomain.selectTask(nav.initialDetailTaskId.value);
@@ -191,8 +149,8 @@ export function useConsoleApp() {
   }
 
   const result = {
-    addParam: taskDomain.addParam,
     allTasks,
+    applyInferInputs: taskDomain.applyInferInputs,
     dashboardStats: dashboard.dashboardStats,
     tasksTotal: dashboard.tasksTotal,
     changeView,
@@ -229,7 +187,6 @@ export function useConsoleApp() {
     projectLoading: projectDomain.projectLoading,
     projects,
     recentTasks: dashboard.recentTasks,
-    removeParam: taskDomain.removeParam,
     reportData: taskDomain.reportData,
     reportLoading: taskDomain.reportLoading,
     resetModelForm: modelDomain.resetModelForm,
@@ -259,7 +216,7 @@ export function useConsoleApp() {
     timelineReloadTick,
     total: taskDomain.total,
     view: nav.view,
-    viewTitle,
+    viewTitle: topBar.viewTitle,
   };
 
   provide(ConsoleAppKey, result);

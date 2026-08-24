@@ -62,68 +62,26 @@
         </div>
       </div>
 
-      <div v-if="step.params && Object.keys(step.params).length" class="step-extras">
-        <button class="extras-toggle" @click="paramsOpen = !paramsOpen">
-          <svg
-            :class="['chevron', { open: paramsOpen }]"
-            viewBox="0 0 16 16"
-            fill="none"
-            width="12"
-            height="12"
-          >
-            <path
-              d="M6 4l4 4-4 4"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-            />
-          </svg>
-          步骤参数
-        </button>
-        <div v-if="paramsOpen" class="extras-content">
-          <pre class="code-block">{{ prettyJson(step.params) }}</pre>
-        </div>
-      </div>
+      <ExtrasSection v-if="step.params && Object.keys(step.params).length" label="步骤参数">
+        <pre class="code-block">{{ prettyJson(step.params) }}</pre>
+      </ExtrasSection>
 
-      <div v-if="step.screenshotPath" class="step-extras">
-        <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
-          <svg
-            :class="['chevron', { open: screenshotOpen }]"
-            viewBox="0 0 16 16"
-            fill="none"
-            width="12"
-            height="12"
-          >
-            <path
-              d="M6 4l4 4-4 4"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-            />
-          </svg>
-          步骤截图
-        </button>
-        <div v-if="screenshotOpen" class="extras-content">
-          <p class="screenshot-path">
-            截图：<code>{{ step.screenshotPath }}</code>
-          </p>
-          <AuthenticatedImage
-            class="screenshot"
-            :path="screenshotPath(taskId, step.screenshotPath)"
-            :alt="'步骤 ' + step.stepNumber + ' 截图'"
-            @click="$emit('open-lightbox', step.screenshotPath)"
-          />
-        </div>
-      </div>
+      <ReportScreenshot
+        v-if="step.screenshotPath"
+        label="步骤截图"
+        :task-id="taskId"
+        :path="step.screenshotPath"
+        :alt="'步骤 ' + step.stepNumber + ' 截图'"
+        @open-lightbox="$emit('open-lightbox', $event)"
+      />
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
 import type { ReportTaskLog } from "../../../types";
-import { screenshotPath } from "../../../api";
-import AuthenticatedImage from "../../AuthenticatedImage.vue";
+import ExtrasSection from "./ExtrasSection.vue";
+import ReportScreenshot from "./ReportScreenshot.vue";
 import { formatReportDate, prettyJson } from "./reportUtils";
 
 defineProps<{
@@ -134,9 +92,6 @@ defineProps<{
 defineEmits<{
   (e: "open-lightbox", path: string): void;
 }>();
-
-const paramsOpen = ref(false);
-const screenshotOpen = ref(false);
 </script>
 
 <style scoped>
@@ -311,54 +266,6 @@ const screenshotOpen = ref(false);
   overflow-wrap: anywhere;
 }
 
-.step-extras {
-  margin-top: 2px;
-  width: 100%;
-}
-
-.step-extras .extras-toggle,
-.step-extras .extras-content {
-  width: 100%;
-}
-
-.extras-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid var(--rp-line);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--rp-muted);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition);
-  font-family: inherit;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.extras-toggle:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--brand-200);
-  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.12);
-}
-
-.chevron {
-  transition: transform var(--transition);
-}
-
-.chevron.open {
-  transform: rotate(90deg);
-}
-
-.extras-content {
-  margin-top: 10px;
-  animation: fadeIn 0.2s ease;
-}
-
 .code-block {
   margin: 0;
   padding: 13px;
@@ -370,29 +277,6 @@ const screenshotOpen = ref(false);
   line-height: 1.7;
   overflow-x: auto;
   white-space: pre-wrap;
-}
-
-.screenshot-path {
-  margin: 12px 0;
-  color: var(--rp-muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.screenshot {
-  display: block;
-  width: 100%;
-  max-height: 520px;
-  object-fit: contain;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--rp-line);
-  box-shadow: var(--shadow-sm);
-  cursor: zoom-in;
-  transition: box-shadow var(--transition);
-}
-
-.screenshot:hover {
-  box-shadow: var(--shadow-md);
 }
 
 .error-text {

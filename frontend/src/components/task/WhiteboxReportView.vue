@@ -29,32 +29,32 @@
         </el-tab-pane>
         <el-tab-pane lazy label="端点" name="endpoints">
           <EndpointList
-            :items="endpointItems"
-            :total="endpointTotal"
-            :has-more="endpointHasMore"
-            :loading="endpointLoading"
-            @load-more="loadMoreEndpoints"
+            :items="endpoints.items"
+            :total="endpoints.total"
+            :has-more="endpoints.hasMore"
+            :loading="endpoints.loading"
+            @load-more="endpoints.loadMore"
           />
         </el-tab-pane>
         <el-tab-pane lazy label="调用关系" name="callgraph">
           <CallGraphViewer
-            :items="callNodeItems"
-            :total="callNodeTotal"
-            :has-more="callNodeHasMore"
-            :loading="callNodeLoading"
+            :items="callNodes.items"
+            :total="callNodes.total"
+            :has-more="callNodes.hasMore"
+            :loading="callNodes.loading"
             :callee-items="calleeItems"
             :callee-loading="calleeLoading"
             :selected-node-id="selectedCallNodeId"
-            @load-more="loadMoreCallNodes"
+            @load-more="callNodes.loadMore"
             @select-node="selectCallNode"
           />
         </el-tab-pane>
         <el-tab-pane lazy label="执行流" name="flows">
           <ExecutionFlowList
-            :items="flowItems"
-            :has-more="flowHasMore"
-            :loading="flowLoading"
-            @load-more="loadMoreFlows"
+            :items="flows.items"
+            :has-more="flows.hasMore"
+            :loading="flows.loading"
+            @load-more="flows.loadMore"
           />
         </el-tab-pane>
         <el-tab-pane lazy label="诊断" name="diagnostics" class="diagnostics-pane">
@@ -62,20 +62,20 @@
         </el-tab-pane>
         <el-tab-pane lazy label="聚类" name="clusters">
           <ClusterList
-            :items="clusterItems"
-            :total="clusterTotal"
-            :has-more="clusterHasMore"
-            :loading="clusterLoading"
-            @load-more="loadMoreClusters"
+            :items="clusters.items"
+            :total="clusters.total"
+            :has-more="clusters.hasMore"
+            :loading="clusters.loading"
+            @load-more="clusters.loadMore"
           />
         </el-tab-pane>
         <el-tab-pane lazy label="发现项" name="findings">
           <FindingList
-            :items="findingItems"
-            :total="findingTotal"
-            :has-more="findingHasMore"
-            :loading="findingLoading"
-            @load-more="loadMoreFindings"
+            :items="findings.items"
+            :total="findings.total"
+            :has-more="findings.hasMore"
+            :loading="findings.loading"
+            @load-more="findings.loadMore"
           />
         </el-tab-pane>
         <el-tab-pane v-if="correlationRunId" lazy label="关联证据" name="correlation">
@@ -105,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import type {
   AnalysisRunSummary,
   CallEdgeInfo,
@@ -128,7 +128,7 @@ import {
   listAnalysisRuns,
 } from "../../api/task";
 import { errorMessage } from "../../utils";
-import { usePagedList } from "../../composables/usePagedList";
+import { usePagedList, type PagedResult } from "../../composables/usePagedList";
 import OverviewTab from "./whitebox/OverviewTab.vue";
 import AnalysisRunSelector from "./whitebox/AnalysisRunSelector.vue";
 import AnalysisSnapshotBar from "./whitebox/AnalysisSnapshotBar.vue";
@@ -215,95 +215,51 @@ onUnmounted(() => {
 
 // ── 分页子资源（usePagedList 统一管理 load/loadMore/cursor/loading） ──
 
-const endpointsList = usePagedList<EndpointInfo, [string]>(
-  (p, aid) => listAnalysisEndpoints(props.taskId, aid, p.cursor, p.limit),
-  { limit: 100, cursor: true },
-);
-const {
-  items: endpointItems,
-  total: endpointTotal,
-  hasMore: endpointHasMore,
-  loading: endpointLoading,
-} = endpointsList;
-function loadEndpoints(): void {
-  const aid = analysisId.value;
-  if (aid) void endpointsList.load(aid);
-}
-function loadMoreEndpoints(): void {
-  const aid = analysisId.value;
-  if (aid) void endpointsList.loadMore(aid);
-}
-
-const callNodesList = usePagedList<CallNodeInfo, [string]>(
-  (p, aid) => listAnalysisCallNodes(props.taskId, aid, null, null, p.cursor, p.limit),
-  { limit: 100, cursor: true },
-);
-const {
-  items: callNodeItems,
-  total: callNodeTotal,
-  hasMore: callNodeHasMore,
-  loading: callNodeLoading,
-} = callNodesList;
-function loadCallNodes(): void {
-  const aid = analysisId.value;
-  if (aid) void callNodesList.load(aid);
-}
-function loadMoreCallNodes(): void {
-  const aid = analysisId.value;
-  if (aid) void callNodesList.loadMore(aid);
+// F1：五个子资源列表仅 fetcher 与 limit 不同，抽工厂收敛「usePagedList + 解构 +
+// load/loadMore wrapper」样板；reactive 包装让模板可直接访问解包后的 items 等。
+function makeCursorList<T>(
+  fetcher: (p: { cursor: string | null; limit: number }, aid: string) => Promise<PagedResult<T>>,
+  limit: number,
+) {
+  const list = usePagedList<T, [string]>(
+    (pagination, aid) => fetcher({ cursor: pagination.cursor, limit }, aid),
+    { limit, cursor: true },
+  );
+  const guarded = (action: (aid: string) => Promise<void>) => (): void => {
+    const aid = analysisId.value;
+    if (aid) void action(aid);
+  };
+  return reactive({
+    items: list.items,
+    total: list.total,
+    hasMore: list.hasMore,
+    loading: list.loading,
+    load: guarded((aid) => list.load(aid)),
+    loadMore: guarded((aid) => list.loadMore(aid)),
+    reset: list.reset,
+  });
 }
 
-const flowsList = usePagedList<ExecutionFlowInfo, [string]>(
-  (p, aid) => listAnalysisExecutionFlows(props.taskId, aid, p.cursor, p.limit),
-  { limit: 50, cursor: true },
+const endpoints = makeCursorList<EndpointInfo>(
+  ({ cursor, limit }, aid) => listAnalysisEndpoints(props.taskId, aid, cursor, limit),
+  100,
 );
-const { items: flowItems, hasMore: flowHasMore, loading: flowLoading } = flowsList;
-function loadFlows(): void {
-  const aid = analysisId.value;
-  if (aid) void flowsList.load(aid);
-}
-function loadMoreFlows(): void {
-  const aid = analysisId.value;
-  if (aid) void flowsList.loadMore(aid);
-}
-
-const findingsList = usePagedList<FindingInfo, [string]>(
-  (p, aid) => listAnalysisFindings(props.taskId, aid, p.cursor, p.limit),
-  { limit: 50, cursor: true },
+const callNodes = makeCursorList<CallNodeInfo>(
+  ({ cursor, limit }, aid) => listAnalysisCallNodes(props.taskId, aid, null, null, cursor, limit),
+  100,
 );
-const {
-  items: findingItems,
-  total: findingTotal,
-  hasMore: findingHasMore,
-  loading: findingLoading,
-} = findingsList;
-function loadFindings(): void {
-  const aid = analysisId.value;
-  if (aid) void findingsList.load(aid);
-}
-function loadMoreFindings(): void {
-  const aid = analysisId.value;
-  if (aid) void findingsList.loadMore(aid);
-}
-
-const clustersList = usePagedList<ClusterInfo, [string]>(
-  (p, aid) => listAnalysisClusters(props.taskId, aid, p.cursor, p.limit),
-  { limit: 50, cursor: true },
+const flows = makeCursorList<ExecutionFlowInfo>(
+  ({ cursor, limit }, aid) => listAnalysisExecutionFlows(props.taskId, aid, cursor, limit),
+  50,
 );
-const {
-  items: clusterItems,
-  total: clusterTotal,
-  hasMore: clusterHasMore,
-  loading: clusterLoading,
-} = clustersList;
-function loadClusters(): void {
-  const aid = analysisId.value;
-  if (aid) void clustersList.load(aid);
-}
-function loadMoreClusters(): void {
-  const aid = analysisId.value;
-  if (aid) void clustersList.loadMore(aid);
-}
+const findings = makeCursorList<FindingInfo>(
+  ({ cursor, limit }, aid) => listAnalysisFindings(props.taskId, aid, cursor, limit),
+  50,
+);
+const clusters = makeCursorList<ClusterInfo>(
+  ({ cursor, limit }, aid) => listAnalysisClusters(props.taskId, aid, cursor, limit),
+  50,
+);
 
 // Callee edges（选中调用节点的下一层，非分页列表，保留手写）
 const selectedCallNodeId = ref<string | null>(null);
@@ -361,11 +317,11 @@ async function loadDiagnostics(): Promise<void> {
 }
 
 function resetSubResources(): void {
-  endpointsList.reset();
-  callNodesList.reset();
-  flowsList.reset();
-  findingsList.reset();
-  clustersList.reset();
+  endpoints.reset();
+  callNodes.reset();
+  flows.reset();
+  findings.reset();
+  clusters.reset();
   diagnostics.value = null;
   diagLoaded = false;
   selectedCallNodeId.value = null;
@@ -384,12 +340,12 @@ function resetSubResources(): void {
  */
 function loadCurrentTabResources(): void {
   if (!analysisId.value) return;
-  if (subTab.value === "endpoints" && endpointItems.value.length === 0) loadEndpoints();
-  if (subTab.value === "callgraph" && callNodeItems.value.length === 0) loadCallNodes();
-  if (subTab.value === "flows" && flowItems.value.length === 0) loadFlows();
+  if (subTab.value === "endpoints" && endpoints.items.length === 0) endpoints.load();
+  if (subTab.value === "callgraph" && callNodes.items.length === 0) callNodes.load();
+  if (subTab.value === "flows" && flows.items.length === 0) flows.load();
   if (subTab.value === "diagnostics") loadDiagnostics();
-  if (subTab.value === "findings" && findingItems.value.length === 0) loadFindings();
-  if (subTab.value === "clusters" && clusterItems.value.length === 0) loadClusters();
+  if (subTab.value === "findings" && findings.items.length === 0) findings.load();
+  if (subTab.value === "clusters" && clusters.items.length === 0) clusters.load();
 }
 
 // analysisId 变化（含初始化与切 run）→ 加载当前 tab 资源

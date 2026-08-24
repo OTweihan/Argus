@@ -1,4 +1,4 @@
-import { computed, onUnmounted, ref, type Ref } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch, type Ref } from "vue";
 
 import type { TaskEvent } from "../types";
 import { TaskEventStream, type ReplayGapInfo } from "../ws";
@@ -85,6 +85,21 @@ export function useRuntimeEvents() {
     }
   }
 
+  /** 视图 / 选中任务变化时自动重连事件流。
+   *
+   * 之前 `useTaskSelection.selectTask` 主动回调 `connectEventStream`，而闭包又需要
+   * `selectedTaskId`，形成"鸡生蛋"。现在反向：状态层只更新状态，这里 watch
+   * `[view, selectedTaskId]` 任一变化都触发重连，Vue 批量更新机制保证两者同
+   * tick 变化时只触发一次。
+   */
+  function watchEventStream(view: Ref<ViewKey>, selectedTaskId: Ref<string | null>): void {
+    watch([view, selectedTaskId], () => {
+      // nextTick 确保视图切换渲染完成后再重连 WebSocket，
+      // 避免 event replay 触发 allTasks 更新导致 el-table 闪烁。
+      nextTick(() => connectEventStream(view, selectedTaskId));
+    });
+  }
+
   onUnmounted(() => {
     eventStream.close();
   });
@@ -96,5 +111,6 @@ export function useRuntimeEvents() {
     onReconnect,
     onReplayGap,
     connectEventStream,
+    watchEventStream,
   };
 }

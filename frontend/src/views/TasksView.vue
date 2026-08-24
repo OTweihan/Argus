@@ -196,10 +196,9 @@
     :form-errors="formErrors"
     :projects="projects"
     :enabled-models="enabledModels"
-    @save="saveTask"
+    @save="onSaveTaskForm"
+    @infer-inputs="applyInferInputs"
     @close="showTaskDialog = false"
-    @add-param="addParam()"
-    @remove-param="removeParam($event)"
   />
 
   <TaskDetailDialog
@@ -218,6 +217,7 @@ import TaskTable from "../components/task/TaskTable.vue";
 import TaskFormDialog from "../components/task/TaskFormDialog.vue";
 import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
 import { injectConsoleApp } from "../composables/useConsoleApp";
+import type { TaskFormState } from "../composables/useTasks";
 import { useTaskViewActions } from "../composables/useTaskViewActions";
 import { listCorrelationRunsByTask } from "../api/correlation";
 import type { Task } from "../types";
@@ -259,10 +259,9 @@ const {
   deleteTask,
   goBackToTasks,
   saveTask,
+  applyInferInputs,
   openNewTaskDialog,
   openEditTaskDialog,
-  addParam,
-  removeParam,
   onPageChange,
   onPageSizeChange,
   onTaskEvent,
@@ -282,6 +281,12 @@ const {
 
 async function showTaskReport(taskId: string): Promise<void> {
   await selectTask(taskId, "report");
+}
+
+/** F3-3：弹窗保存时以单一快照合入父表单，再走统一校验与提交。 */
+function onSaveTaskForm(snapshot: TaskFormState): void {
+  Object.assign(taskForm, snapshot);
+  saveTask();
 }
 
 function editTask(task: Task): void {

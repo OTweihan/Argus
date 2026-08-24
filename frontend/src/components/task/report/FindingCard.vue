@@ -39,45 +39,21 @@
           <span class="fm-value">{{ formatReportDate(finding.createdAt) }}</span>
         </div>
       </div>
-      <div v-if="finding.screenshotPath" class="finding-extras">
-        <button class="extras-toggle" @click="screenshotOpen = !screenshotOpen">
-          <svg
-            :class="['chevron', { open: screenshotOpen }]"
-            viewBox="0 0 16 16"
-            fill="none"
-            width="12"
-            height="12"
-          >
-            <path
-              d="M6 4l4 4-4 4"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-            />
-          </svg>
-          问题截图
-        </button>
-        <div v-if="screenshotOpen" class="extras-content">
-          <p class="screenshot-path">
-            截图：<code>{{ finding.screenshotPath }}</code>
-          </p>
-          <AuthenticatedImage
-            class="screenshot"
-            :path="screenshotPath(taskId, finding.screenshotPath)"
-            :alt="finding.title + ' 截图'"
-            @click="$emit('open-lightbox', finding.screenshotPath!)"
-          />
-        </div>
-      </div>
+      <ReportScreenshot
+        v-if="finding.screenshotPath"
+        label="问题截图"
+        :task-id="taskId"
+        :path="finding.screenshotPath"
+        :alt="finding.title + ' 截图'"
+        @open-lightbox="$emit('open-lightbox', $event)"
+      />
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
 import type { ReportFinding } from "../../../types";
-import { screenshotPath } from "../../../api";
-import AuthenticatedImage from "../../AuthenticatedImage.vue";
+import ReportScreenshot from "./ReportScreenshot.vue";
 import { formatReportDate } from "./reportUtils";
 
 defineProps<{
@@ -89,8 +65,6 @@ defineProps<{
 defineEmits<{
   (e: "open-lightbox", path: string): void;
 }>();
-
-const screenshotOpen = ref(false);
 </script>
 
 <style scoped>
@@ -257,77 +231,6 @@ const screenshotOpen = ref(false);
   font-size: 14px;
   color: var(--rp-text);
   overflow-wrap: anywhere;
-}
-
-.finding-extras {
-  margin-top: 2px;
-  width: 100%;
-}
-
-.finding-extras .extras-toggle,
-.finding-extras .extras-content {
-  width: 100%;
-}
-
-.extras-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid var(--rp-line);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--rp-muted);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition);
-  font-family: inherit;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.extras-toggle:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--brand-200);
-  box-shadow: 0 4px 12px rgba(10, 186, 181, 0.12);
-}
-
-.chevron {
-  transition: transform var(--transition);
-}
-
-.chevron.open {
-  transform: rotate(90deg);
-}
-
-.extras-content {
-  margin-top: 10px;
-  animation: fadeIn 0.2s ease;
-}
-
-.screenshot-path {
-  margin: 12px 0;
-  color: var(--rp-muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.screenshot {
-  display: block;
-  width: 100%;
-  max-height: 520px;
-  object-fit: contain;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--rp-line);
-  box-shadow: var(--shadow-sm);
-  cursor: zoom-in;
-  transition: box-shadow var(--transition);
-}
-
-.screenshot:hover {
-  box-shadow: var(--shadow-md);
 }
 
 .url-text {

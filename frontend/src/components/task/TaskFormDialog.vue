@@ -151,13 +151,9 @@
                 @input="clearError('taskParameters')"
               />
               <el-input v-model="entry.value" placeholder="值（字符串）" class="param-value" />
-              <el-button size="large" type="danger" circle @click="$emit('remove-param', index)">
-                ×
-              </el-button>
+              <el-button size="large" type="danger" circle @click="removeParam(index)">×</el-button>
             </div>
-            <el-button size="large" class="param-add-btn" @click="$emit('add-param')">
-              + 添加参数
-            </el-button>
+            <el-button size="large" class="param-add-btn" @click="addParam()"> + 添加参数 </el-button>
           </div>
         </el-form-item>
       </template>
@@ -378,9 +374,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  save: [];
-  "add-param": [];
-  "remove-param": [index: number];
+  save: [snapshot: TaskFormState];
+  "infer-inputs": [
+    inputs: { goal: string; taskType: TaskFormState["taskType"]; startUrl: string },
+  ];
 }>();
 
 const promptCollapseActive = ref<string[]>([]);
@@ -425,35 +422,34 @@ watch(
   },
 );
 
-// 父级 autoFillLimits 需要实时读到 goal / startUrl / taskType 做参数推断：
-// 单独薄同步这几个标量，避免每按键触发整表 deep 遍历 + 两次 Object.assign。
-// props.form 是父级 useTasks 的 reactive taskForm，此处是显式的双向写回
-// （与 onSave 的 Object.assign 同属既定模式），故关闭 vue/no-mutating-props。
-/* eslint-disable vue/no-mutating-props */
+// F3-3：弹窗内编辑不再直接写回父表单（移除薄 watch 双向同步与 eslint 豁免）。
+// goal/taskType/startUrl 经 infer-inputs 显式事件回传父级，仅供 autoFillLimits
+// 推断；startUrl 在白盒态按旧口径回传空串。其余字段在保存时随单一快照合入父表单。
 watch(
-  () => localForm.goal,
-  (goal) => {
-    props.form.goal = goal;
-  },
+  () => ({
+    goal: localForm.goal,
+    taskType: localForm.taskType,
+    startUrl: localForm.taskType === "blackbox" ? localForm.blackbox.startUrl : "",
+  }),
+  (inputs) => emit("infer-inputs", inputs),
 );
-watch(
-  () => localForm.taskType,
-  (taskType) => {
-    props.form.taskType = taskType;
-  },
-);
-watch(
-  () => (localForm.taskType === "blackbox" ? localForm.blackbox.startUrl : ""),
-  (startUrl) => {
-    props.form.blackbox.startUrl = startUrl;
-  },
-);
-/* eslint-enable vue/no-mutating-props */
 
-// 保存时统一把顶层标量写回父表单（嵌套对象因引用共享已是最新）。
 function onSave(): void {
-  Object.assign(props.form, localForm);
-  emit("save");
+  emit("save", { ...localForm });
+}
+
+/* ── 参数行编辑：直接操作弹窗本地表单 ── */
+
+function addParam(): void {
+  if (localForm.taskType === "blackbox") {
+    localForm.blackbox.parameters.push({ key: "", value: "" });
+  }
+}
+
+function removeParam(index: number): void {
+  if (localForm.taskType === "blackbox") {
+    localForm.blackbox.parameters.splice(index, 1);
+  }
 }
 
 const resolvedProjectExtensions = computed<PromptExtensions>(() => {
