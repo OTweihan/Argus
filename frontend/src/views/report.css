@@ -841,13 +841,7 @@ code {
   white-space: pre-wrap;
 }
 
-.json-block {
-  max-height: 520px;
-  overflow: auto;
-}
-
 /* screenshot / screenshot-path 已迁至子组件；ReportView 自身不直接渲染截图。 */
-
 /* ===== Failure Summary ===== */
 .failure-summary {
   border: 1px solid #fecdd3;
@@ -977,6 +971,13 @@ code {
   font-size: 11px;
 }
 
+.json-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .json-toggle {
   display: inline-flex;
   align-items: center;
@@ -1003,13 +1004,23 @@ code {
   outline-offset: 2px;
 }
 
+.json-toggle.copied {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: #a7f3d0;
+}
+
 .json-content {
-  border-top: 1px solid #273449;
+  border-top: 1px solid var(--rp-line);
   animation: fadeIn 0.2s ease;
 }
 
 .json-content .json-block {
+  max-height: clamp(320px, 52vh, 560px);
+  overflow: auto;
   border-radius: 0;
+  background: #ffffff;
+  color: var(--rp-text);
 }
 
 /* finding-card / sev-tag-* / finding-meta-grid 等已迁至 components/task/report/FindingCard.vue。 */
@@ -1185,7 +1196,12 @@ code {
     flex-direction: column;
   }
 
-  .json-toggle {
+  .json-actions {
+    width: 100%;
+  }
+
+  .json-actions .json-toggle {
+    flex: 1;
     justify-content: center;
   }
 }

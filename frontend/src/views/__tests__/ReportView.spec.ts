@@ -116,12 +116,13 @@ describe("ReportView", () => {
     expect(wrapper.text()).toContain("执行步骤");
   });
 
-  it("原始 JSON 折叠按钮存在", () => {
+  it("原始 JSON 区域默认展开并提供复制按钮", () => {
     const wrapper = shallowMount(ReportView, {
       props: { report: sampleReport, loading: false, taskId: "t1" },
     });
     const text = wrapper.text();
     expect(text).toContain("原始 JSON");
-    expect(text).toContain("查看内容");
+    expect(text).toContain("复制");
+    expect(wrapper.find(".json-block").exists()).toBe(true);
   });
 });

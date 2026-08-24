@@ -269,9 +269,10 @@ defineEmits<{
 .code-block {
   margin: 0;
   padding: 13px;
+  border: 1px solid var(--rp-line);
   border-radius: var(--radius-md);
-  background: #0f172a;
-  color: #e2e8f0;
+  background: #ffffff;
+  color: var(--rp-text);
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
   line-height: 1.7;

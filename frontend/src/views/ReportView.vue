@@ -349,34 +349,39 @@
                 <span class="json-file-type">JSON</span>
                 <div>
                   <strong>report.json</strong>
-                  <span>{{ reportJsonSize }} · UTF-8</span>
+                  <span>{{ reportJsonSize }} · UTF-8 · {{ reportJsonLines }} 行</span>
                 </div>
               </div>
-              <button
-                type="button"
-                class="json-toggle"
-                :aria-expanded="rawJsonOpen"
-                @click="rawJsonOpen = !rawJsonOpen"
-              >
-                <svg
-                  :class="['chevron', { open: rawJsonOpen }]"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  width="12"
-                  height="12"
+              <div class="json-actions">
+                <button
+                  type="button"
+                  class="json-toggle"
+                  :class="{ copied: rawJsonCopied }"
+                  @click="copyRawJson"
                 >
-                  <path
-                    d="M6 4l4 4-4 4"
-                    stroke="currentColor"
-                    stroke-width="1.4"
-                    stroke-linecap="round"
-                  />
-                </svg>
-                {{ rawJsonOpen ? "收起内容" : "查看内容" }}
-              </button>
+                  <svg viewBox="0 0 16 16" fill="none" width="12" height="12">
+                    <rect
+                      x="5.5"
+                      y="5.5"
+                      width="8"
+                      height="8"
+                      rx="1.5"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                    />
+                    <path
+                      d="M10.5 3h-6a1.5 1.5 0 0 0-1.5 1.5v6"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                  {{ rawJsonCopied ? "已复制" : "复制" }}
+                </button>
+              </div>
             </div>
-            <div v-if="rawJsonOpen" class="json-content">
-              <pre class="code-block json-block">{{ reportJson }}</pre>
+            <div class="json-content">
+              <pre class="code-block json-block">{{ reportJsonStr }}</pre>
             </div>
           </div>
         </section>
@@ -435,7 +440,8 @@ const props = defineProps<{
 const reportTab = ref("overview");
 const reportContainer = ref<HTMLElement | null>(null);
 const reportTabs = ref<HTMLElement | null>(null);
-const rawJsonOpen = ref(false);
+const rawJsonCopied = ref(false);
+let rawJsonCopyTimer: number | undefined;
 const lightboxSrc = ref<string | null>(null);
 
 // --- nav items ---
@@ -456,20 +462,21 @@ const successCount = computed(
 );
 const findingCount = computed(() => props.report?.findings?.length ?? 0);
 const stepCount = computed(() => displaySteps.value.length);
-// 仅当用户切到「原始 JSON」标签时才做全量序列化：reportJsonSize 显示在
+// 仅当用户切到「原始 JSON」标签时才做全量序列化：尺寸/行数显示在
 // v-show="reportTab === 'raw-json'" 的分区里，但仍会被求值；用 reportTab
-// 而不是 rawJsonOpen 做门槛，保证概览/步骤/问题清单等默认标签下不触发
-// 数 MB 报告的 stringify，同时 raw-json 标签常显的 toolbar 能拿到真实大小。
+// 做门槛，保证概览/步骤/问题清单等默认标签下不触发数 MB 报告的 stringify。
 const reportJsonStr = computed(() =>
   reportTab.value === "raw-json" ? prettyJson(props.report) : "",
 );
-const reportJson = computed(() => (rawJsonOpen.value ? reportJsonStr.value : ""));
 const reportJsonSize = computed(() => {
   const str = reportJsonStr.value;
   if (!str) return "0 B";
   const bytes = new Blob([str]).size;
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 });
+const reportJsonLines = computed(() =>
+  reportJsonStr.value ? reportJsonStr.value.split("\n").length : 0,
+);
 
 // --- functions ---
 function scrollTo(id: string): void {
@@ -479,13 +486,37 @@ function scrollTo(id: string): void {
   }
 }
 
-async function selectReportTab(id: string): Promise<void> {
-  reportTab.value = id;
+// offsetTop 相对 offsetParent 而非本滚动容器（.report-container 未定位），
+// 跨层级测量会偏大并被 scrollTo clamp 到最底部；改用 rect 差值换算容器内坐标。
+// 页签栏已 sticky 常驻：仅当视口滚过页签栏时回滚到面板开头，
+// 不把停在顶部的用户强行拽离 Hero。
+async function revealPanelTop(): Promise<void> {
   await nextTick();
   const container = reportContainer.value;
   const tabs = reportTabs.value;
-  if (container && tabs) {
-    container.scrollTo({ top: tabs.offsetTop, behavior: "smooth" });
+  if (!container || !tabs) return;
+  const target =
+    tabs.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+  if (container.scrollTop > target) {
+    container.scrollTo({ top: target, behavior: "smooth" });
+  }
+}
+
+async function selectReportTab(id: string): Promise<void> {
+  reportTab.value = id;
+  await revealPanelTop();
+}
+
+async function copyRawJson(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(reportJsonStr.value);
+    rawJsonCopied.value = true;
+    window.clearTimeout(rawJsonCopyTimer);
+    rawJsonCopyTimer = window.setTimeout(() => {
+      rawJsonCopied.value = false;
+    }, 2000);
+  } catch {
+    rawJsonCopied.value = false;
   }
 }
 
