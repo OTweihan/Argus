@@ -1,4 +1,8 @@
-"""黑白盒关联 Repository — blackbox_runs, correlation_runs, attempts, evidence 等表读写。"""
+"""correlation_runs 与 correlation_attempts 表读写（含 CAS 认领与崩溃恢复）。
+
+证据侧表（http_request_evidence / endpoint_evidence / finding_evidence 等）
+见 ``evidence_repo``；blackbox_runs 与采集质量见 ``blackbox_repo``。
+"""
 
 from __future__ import annotations
 
@@ -9,30 +13,21 @@ from typing import Any
 from argus_py.core.constants import utc_now_iso as _utc_now_iso
 from argus_py.correlation.enums import (
     AttemptStatus,
-    BlackboxRunStatus,
-    CorrelationEligibility,
     CorrelationRunStatus,
     EvidenceCompleteness,
-    RequestOutcome,
-    RequestOwner,
-    SourceAlignmentStatus,
 )
 from argus_py.correlation.models import (
-    BlackboxRun,
-    CaptureQuality,
     CorrelationAttempt,
-    CorrelationAttemptDiagnostic,
-    CorrelationAttemptReason,
     CorrelationRun,
     CorrelationSummary,
-    EndpointEvidence,
-    EndpointEvidenceCandidate,
-    EndpointEvidenceFlow,
-    FindingEvidence,
-    FindingEvidenceLink,
-    HttpRequestEvidence,
 )
 from argus_py.infra.db import DbPool
+from argus_py.task.repositories.mappers import (
+    attempt_to_row,
+    correlation_run_to_row,
+    row_to_attempt,
+    row_to_correlation_run,
+)
 
 
 def _new_id(prefix: str) -> str:
@@ -46,282 +41,11 @@ def _lease_expiry() -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=_LEASE_DURATION_SECONDS)).isoformat()
 
 
-# ── BlackboxRun 行映射 ─────────────────────────────────────
-
-
-def _blackbox_run_to_row(run: BlackboxRun) -> tuple:
-    return (
-        run.blackbox_run_id,
-        run.task_id,
-        run.attempt,
-        run.status.value,
-        run.started_at,
-        run.completed_at,
-    )
-
-
-def _row_to_blackbox_run(row: dict[str, Any]) -> BlackboxRun:
-    return BlackboxRun(
-        blackbox_run_id=row["blackbox_run_id"],
-        task_id=row["task_id"],
-        attempt=row["attempt"],
-        status=BlackboxRunStatus(row["status"]),
-        started_at=row["started_at"],
-        completed_at=row.get("completed_at"),
-    )
-
-
-# ── CorrelationRun 行映射 ──────────────────────────────────
-
-
-def _correlation_run_to_row(run: CorrelationRun) -> tuple:
-    return (
-        run.correlation_run_id,
-        run.project_id,
-        run.blackbox_run_id,
-        run.desired_source_snapshot_id,
-        run.desired_analysis_config_digest,
-        run.required_analyzer_version,
-        int(run.allow_partial_analysis),
-        run.analysis_id,
-        run.bound_source_snapshot_id,
-        run.analysis_projection_version,
-        run.correlation_config_digest,
-        run.matcher_version,
-        run.normalization_version,
-        run.supersedes_correlation_run_id,
-        run.source_alignment_status.value,
-        run.status.value,
-        run.active_attempt_id,
-        int(run.source_mismatch_overridden),
-        run.source_mismatch_override_by,
-        run.source_mismatch_override_at,
-        run.source_mismatch_override_reason,
-        run.started_at,
-        run.completed_at,
-        run.error_code,
-        run.error_message,
-        run.created_at or _utc_now_iso(),
-    )
-
-
-def _row_to_correlation_run(row: dict[str, Any]) -> CorrelationRun:
-    return CorrelationRun(
-        correlation_run_id=row["correlation_run_id"],
-        project_id=row["project_id"],
-        blackbox_run_id=row["blackbox_run_id"],
-        desired_source_snapshot_id=row["desired_source_snapshot_id"],
-        desired_analysis_config_digest=row.get("desired_analysis_config_digest", ""),
-        required_analyzer_version=row.get("required_analyzer_version", ""),
-        allow_partial_analysis=bool(row.get("allow_partial_analysis", 0)),
-        analysis_id=row.get("analysis_id"),
-        bound_source_snapshot_id=row.get("bound_source_snapshot_id"),
-        analysis_projection_version=row.get("analysis_projection_version"),
-        correlation_config_digest=row.get("correlation_config_digest", ""),
-        matcher_version=row.get("matcher_version", "v1"),
-        normalization_version=row.get("normalization_version", "v1"),
-        supersedes_correlation_run_id=row.get("supersedes_correlation_run_id"),
-        source_alignment_status=SourceAlignmentStatus(
-            row.get("source_alignment_status", "UNVERIFIED")
-        ),
-        status=CorrelationRunStatus(row.get("status", "WAITING_ANALYSIS")),
-        active_attempt_id=row.get("active_attempt_id"),
-        source_mismatch_overridden=bool(row.get("source_mismatch_overridden", 0)),
-        source_mismatch_override_by=row.get("source_mismatch_override_by"),
-        source_mismatch_override_at=row.get("source_mismatch_override_at"),
-        source_mismatch_override_reason=row.get("source_mismatch_override_reason"),
-        started_at=row.get("started_at"),
-        completed_at=row.get("completed_at"),
-        error_code=row.get("error_code"),
-        error_message=row.get("error_message"),
-        created_at=row.get("created_at", ""),
-    )
-
-
-# ── CorrelationAttempt 行映射 ──────────────────────────────
-
-
-def _attempt_to_row(attempt: CorrelationAttempt) -> tuple:
-    return (
-        attempt.correlation_attempt_id,
-        attempt.correlation_run_id,
-        attempt.attempt_number,
-        attempt.analysis_id,
-        attempt.source_snapshot_id,
-        attempt.analysis_projection_version,
-        attempt.matcher_version,
-        attempt.normalization_version,
-        attempt.correlation_config_digest,
-        attempt.status.value,
-        attempt.evidence_completeness.value,
-        attempt.lease_owner,
-        attempt.heartbeat_at,
-        attempt.lease_expires_at,
-        attempt.started_at,
-        attempt.completed_at,
-        attempt.error_code,
-        attempt.error_message,
-        attempt.created_at or _utc_now_iso(),
-    )
-
-
-def _row_to_attempt(row: dict[str, Any]) -> CorrelationAttempt:
-    return CorrelationAttempt(
-        correlation_attempt_id=row["correlation_attempt_id"],
-        correlation_run_id=row["correlation_run_id"],
-        attempt_number=row["attempt_number"],
-        analysis_id=row["analysis_id"],
-        source_snapshot_id=row["source_snapshot_id"],
-        analysis_projection_version=row["analysis_projection_version"],
-        matcher_version=row.get("matcher_version", "v1"),
-        normalization_version=row.get("normalization_version", "v1"),
-        correlation_config_digest=row.get("correlation_config_digest", ""),
-        status=AttemptStatus(row.get("status", "RUNNING")),
-        evidence_completeness=EvidenceCompleteness(row.get("evidence_completeness", "COMPLETE")),
-        lease_owner=row.get("lease_owner"),
-        heartbeat_at=row.get("heartbeat_at"),
-        lease_expires_at=row.get("lease_expires_at"),
-        started_at=row.get("started_at", ""),
-        completed_at=row.get("completed_at"),
-        error_code=row.get("error_code"),
-        error_message=row.get("error_message"),
-        created_at=row.get("created_at", ""),
-    )
-
-
-# ── HttpRequestEvidence 行映射 ─────────────────────────────
-
-
-def _http_request_to_row(req: HttpRequestEvidence) -> tuple:
-    return (
-        req.request_evidence_id,
-        req.blackbox_run_id,
-        req.task_id,
-        req.step_execution_id,
-        req.step_attempt,
-        req.request_sequence,
-        req.http_method,
-        req.normalized_path,
-        req.display_path,
-        req.origin,
-        req.resource_type,
-        req.endpoint_match_eligibility.value,
-        req.response_status,
-        req.outcome.value,
-        req.failure_code,
-        req.request_owner.value,
-        int(req.response_from_service_worker),
-        req.page_sequence,
-        req.captured_at,
-        req.finished_at,
-    )
-
-
-def _row_to_http_request(row: dict[str, Any]) -> HttpRequestEvidence:
-    return HttpRequestEvidence(
-        request_evidence_id=row["request_evidence_id"],
-        blackbox_run_id=row["blackbox_run_id"],
-        task_id=row["task_id"],
-        step_execution_id=row.get("step_execution_id"),
-        step_attempt=row.get("step_attempt", 1),
-        request_sequence=row["request_sequence"],
-        http_method=row["http_method"],
-        normalized_path=row["normalized_path"],
-        display_path=row["display_path"],
-        origin=row["origin"],
-        resource_type=row.get("resource_type", "other"),
-        endpoint_match_eligibility=CorrelationEligibility(
-            row.get("endpoint_match_eligibility", "CONFIRMED_ELIGIBLE")
-        ),
-        response_status=row.get("response_status"),
-        outcome=RequestOutcome(row.get("outcome", "COMPLETED")),
-        failure_code=row.get("failure_code"),
-        request_owner=RequestOwner(row.get("request_owner", "FRAME")),
-        response_from_service_worker=bool(row.get("response_from_service_worker", 0)),
-        page_sequence=row.get("page_sequence", 0),
-        captured_at=row["captured_at"],
-        finished_at=row.get("finished_at"),
-    )
-
-
-# ── EndpointEvidence 行映射 ────────────────────────────────
-
-
-def _ee_to_row(ee: EndpointEvidence) -> tuple:
-    return (
-        ee.endpoint_evidence_id,
-        ee.correlation_run_id,
-        ee.correlation_attempt_id,
-        ee.request_evidence_id,
-        ee.resolution_status.value,
-        ee.match_strategy.value,
-        ee.confidence.value,
-        ee.matched_endpoint_id,
-        ee.matcher_version,
-        ee.normalization_version,
-        ee.candidate_count,
-        ee.created_at or _utc_now_iso(),
-    )
-
-
-# ── Repository ─────────────────────────────────────────────
-
-
 class CorrelationRepository:
-    """blackbox_runs, correlation_runs, correlation_attempts 及证据表读写。"""
+    """correlation_runs 与 correlation_attempts 及 CAS 状态机读写。"""
 
     def __init__(self, pool: DbPool) -> None:
         self._pool = pool
-
-    # ══════════════════════════════════════════════════════════
-    # BlackboxRun
-    # ══════════════════════════════════════════════════════════
-
-    def create_blackbox_run(self, run: BlackboxRun) -> BlackboxRun:
-        with self._pool.tx() as conn:
-            conn.execute(
-                """INSERT INTO blackbox_runs (
-                    blackbox_run_id, task_id, attempt, status, started_at, completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?)""",
-                _blackbox_run_to_row(run),
-            )
-        return run
-
-    def get_blackbox_run(self, blackbox_run_id: str) -> BlackboxRun | None:
-        with self._pool.ro_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM blackbox_runs WHERE blackbox_run_id = ?",
-                (blackbox_run_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return _row_to_blackbox_run(dict(row))
-
-    def list_blackbox_runs_by_task(self, task_id: str) -> list[BlackboxRun]:
-        with self._pool.ro_conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM blackbox_runs WHERE task_id = ? ORDER BY started_at DESC",
-                (task_id,),
-            ).fetchall()
-        return [_row_to_blackbox_run(dict(r)) for r in rows]
-
-    def update_blackbox_run_status(
-        self,
-        blackbox_run_id: str,
-        status: str,
-        completed_at: str | None = None,
-    ) -> None:
-        sets = ["status = ?"]
-        values: list[Any] = [status]
-        if completed_at is not None:
-            sets.append("completed_at = ?")
-            values.append(completed_at)
-        values.append(blackbox_run_id)
-        with self._pool.tx() as conn:
-            conn.execute(
-                f"UPDATE blackbox_runs SET {', '.join(sets)} WHERE blackbox_run_id = ?",
-                values,
-            )
 
     # ══════════════════════════════════════════════════════════
     # CorrelationRun
@@ -342,7 +66,7 @@ class CorrelationRepository:
                     source_mismatch_override_at, source_mismatch_override_reason,
                     started_at, completed_at, error_code, error_message, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _correlation_run_to_row(run),
+                correlation_run_to_row(run),
             )
         return run
 
@@ -354,7 +78,7 @@ class CorrelationRepository:
             ).fetchone()
         if row is None:
             return None
-        return _row_to_correlation_run(dict(row))
+        return row_to_correlation_run(dict(row))
 
     def get_correlation_run_by_blackbox(self, blackbox_run_id: str) -> CorrelationRun | None:
         with self._pool.ro_conn() as conn:
@@ -364,7 +88,7 @@ class CorrelationRepository:
             ).fetchone()
         if row is None:
             return None
-        return _row_to_correlation_run(dict(row))
+        return row_to_correlation_run(dict(row))
 
     def list_by_analysis_ids(self, analysis_ids: list[str]) -> list[CorrelationRun]:
         """通过白盒 analysis_id 列表查找关联运行（白盒任务→关联证据入口）。"""
@@ -377,7 +101,7 @@ class CorrelationRepository:
                 "ORDER BY created_at DESC",
                 analysis_ids,
             ).fetchall()
-        return [_row_to_correlation_run(dict(r)) for r in rows]
+        return [row_to_correlation_run(dict(r)) for r in rows]
 
     def list_by_blackbox_run_ids(self, blackbox_run_ids: list[str]) -> list[CorrelationRun]:
         """通过黑盒 blackbox_run_id 列表批量查找关联运行（消除路径 1 的 N+1）。
@@ -401,7 +125,7 @@ class CorrelationRepository:
                     ORDER BY created_at DESC""",
                 blackbox_run_ids,
             ).fetchall()
-        return [_row_to_correlation_run(dict(r)) for r in rows]
+        return [row_to_correlation_run(dict(r)) for r in rows]
 
     def set_status(self, correlation_run_id: str, status: CorrelationRunStatus) -> None:
         with self._pool.tx() as conn:
@@ -437,7 +161,7 @@ class CorrelationRepository:
                 + " ORDER BY created_at"
             )
             rows = conn.execute(query, params).fetchall()
-        return [_row_to_correlation_run(dict(r)) for r in rows]
+        return [row_to_correlation_run(dict(r)) for r in rows]
 
     def bind_analysis(
         self,
@@ -494,7 +218,7 @@ class CorrelationRepository:
                     lease_owner, heartbeat_at, lease_expires_at,
                     started_at, completed_at, error_code, error_message, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _attempt_to_row(attempt),
+                attempt_to_row(attempt),
             )
         return attempt
 
@@ -506,7 +230,7 @@ class CorrelationRepository:
             ).fetchone()
         if row is None:
             return None
-        return _row_to_attempt(dict(row))
+        return row_to_attempt(dict(row))
 
     def list_attempts_by_run(self, correlation_run_id: str) -> list[CorrelationAttempt]:
         with self._pool.ro_conn() as conn:
@@ -515,7 +239,7 @@ class CorrelationRepository:
                 "ORDER BY attempt_number DESC",
                 (correlation_run_id,),
             ).fetchall()
-        return [_row_to_attempt(dict(r)) for r in rows]
+        return [row_to_attempt(dict(r)) for r in rows]
 
     def list_running_attempts_with_expired_lease(self) -> list[CorrelationAttempt]:
         now = _utc_now_iso()
@@ -524,7 +248,7 @@ class CorrelationRepository:
                 "SELECT * FROM correlation_attempts WHERE status = 'RUNNING' AND lease_expires_at < ?",
                 (now,),
             ).fetchall()
-        return [_row_to_attempt(dict(r)) for r in rows]
+        return [row_to_attempt(dict(r)) for r in rows]
 
     def abort_attempt(self, attempt_id: str) -> None:
         with self._pool.tx() as conn:
@@ -559,13 +283,14 @@ class CorrelationRepository:
             ).fetchone()
             if run_row is None:
                 return None
-            run = _row_to_correlation_run(dict(run_row))
+            run = row_to_correlation_run(dict(run_row))
 
             existing = conn.execute(
-                "SELECT MAX(attempt_number) FROM correlation_attempts WHERE correlation_run_id = ?",
+                "SELECT MAX(attempt_number) AS max_num FROM correlation_attempts "
+                "WHERE correlation_run_id = ?",
                 (correlation_run_id,),
             ).fetchone()
-            attempt_number = (existing[0] or 0) + 1
+            attempt_number = (existing["max_num"] or 0) + 1 if existing else 1
 
             attempt_id = _new_id("ca")
             attempt = CorrelationAttempt(
@@ -594,7 +319,7 @@ class CorrelationRepository:
                     lease_owner, heartbeat_at, lease_expires_at,
                     started_at, completed_at, error_code, error_message, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _attempt_to_row(attempt),
+                attempt_to_row(attempt),
             )
 
             return attempt
@@ -646,218 +371,11 @@ class CorrelationRepository:
                 )
 
     # ══════════════════════════════════════════════════════════
-    # HttpRequestEvidence
+    # 汇总读模型（跨 evidence/投影表的聚合查询）
     # ══════════════════════════════════════════════════════════
-
-    def insert_request_batch(self, items: list[HttpRequestEvidence]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT OR IGNORE INTO http_request_evidence (
-                    request_evidence_id, blackbox_run_id, task_id, step_execution_id,
-                    step_attempt, request_sequence, http_method,
-                    normalized_path, display_path, origin, resource_type,
-                    endpoint_match_eligibility, response_status, outcome, failure_code,
-                    request_owner, response_from_service_worker, page_sequence,
-                    captured_at, finished_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                [_http_request_to_row(item) for item in items],
-            )
-
-    def list_requests_by_blackbox_run(
-        self,
-        blackbox_run_id: str,
-        *,
-        offset: int = 0,
-        limit: int = 100,
-    ) -> tuple[list[HttpRequestEvidence], int]:
-        with self._pool.ro_conn() as conn:
-            total_row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM http_request_evidence WHERE blackbox_run_id = ?",
-                (blackbox_run_id,),
-            ).fetchone()
-            total = total_row["cnt"] if total_row else 0
-            rows = conn.execute(
-                "SELECT * FROM http_request_evidence WHERE blackbox_run_id = ? "
-                "ORDER BY request_sequence LIMIT ? OFFSET ?",
-                (blackbox_run_id, limit, offset),
-            ).fetchall()
-        return [_row_to_http_request(dict(r)) for r in rows], total
-
-    def list_eligible_requests(
-        self,
-        blackbox_run_id: str,
-    ) -> list[HttpRequestEvidence]:
-        """获取 CONFIRMED_ELIGIBLE 或 ATTEMPT_ONLY 的请求。"""
-        with self._pool.ro_conn() as conn:
-            rows = conn.execute(
-                """SELECT * FROM http_request_evidence
-                   WHERE blackbox_run_id = ?
-                     AND endpoint_match_eligibility IN ('CONFIRMED_ELIGIBLE', 'ATTEMPT_ONLY')
-                   ORDER BY request_sequence""",
-                (blackbox_run_id,),
-            ).fetchall()
-        return [_row_to_http_request(dict(r)) for r in rows]
-
-    def list_unmatched_requests(
-        self,
-        correlation_run_id: str,
-        *,
-        offset: int = 0,
-        limit: int = 100,
-    ) -> tuple[list[HttpRequestEvidence], int]:
-        """获取 resolution_status='UNMATCHED' 的请求（通过 endpoint_evidence 状态过滤）。
-
-        限定 active_attempt_id，避免重试/重算后混入旧 Attempt 的记录。
-        """
-        cr = self.get_correlation_run(correlation_run_id)
-        if cr is None:
-            return [], 0
-        bb_id = cr.blackbox_run_id
-        active_attempt_id = cr.active_attempt_id
-        if active_attempt_id is None:
-            return [], 0
-        with self._pool.ro_conn() as conn:
-            total_row = conn.execute(
-                """SELECT COUNT(*) AS cnt FROM http_request_evidence hre
-                   INNER JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
-                     AND ee.correlation_attempt_id = ?
-                   WHERE hre.blackbox_run_id = ? AND ee.resolution_status = 'UNMATCHED'""",
-                (active_attempt_id, bb_id),
-            ).fetchone()
-            total = total_row["cnt"] if total_row else 0
-            rows = conn.execute(
-                """SELECT hre.* FROM http_request_evidence hre
-                   INNER JOIN endpoint_evidence ee ON ee.request_evidence_id = hre.request_evidence_id
-                     AND ee.correlation_attempt_id = ?
-                   WHERE hre.blackbox_run_id = ? AND ee.resolution_status = 'UNMATCHED'
-                   ORDER BY hre.request_sequence LIMIT ? OFFSET ?""",
-                (active_attempt_id, bb_id, limit, offset),
-            ).fetchall()
-        return [_row_to_http_request(dict(r)) for r in rows], total
-
-    # ══════════════════════════════════════════════════════════
-    # EndpointEvidence + 关系表
-    # ══════════════════════════════════════════════════════════
-
-    def insert_evidence_batch(self, items: list[EndpointEvidence]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT INTO endpoint_evidence (
-                    endpoint_evidence_id, correlation_run_id, correlation_attempt_id,
-                    request_evidence_id, resolution_status, match_strategy, confidence,
-                    matched_endpoint_id, matcher_version,
-                    normalization_version, candidate_count, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                [_ee_to_row(item) for item in items],
-            )
-
-    def insert_candidates_batch(self, items: list[EndpointEvidenceCandidate]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT OR IGNORE INTO endpoint_evidence_candidates (
-                    endpoint_evidence_id, endpoint_id, candidate_rank,
-                    match_strategy, confidence, selected
-                ) VALUES (?, ?, ?, ?, ?, ?)""",
-                [
-                    (
-                        c.endpoint_evidence_id,
-                        c.endpoint_id,
-                        c.candidate_rank,
-                        c.match_strategy.value,
-                        c.confidence.value,
-                        int(c.selected),
-                    )
-                    for c in items
-                ],
-            )
-
-    def insert_flows_batch(self, items: list[EndpointEvidenceFlow]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT OR IGNORE INTO endpoint_evidence_flows (
-                    endpoint_evidence_id, execution_flow_id, relation_type,
-                    endpoint_method_snapshot, endpoint_path_snapshot,
-                    controller_snapshot, flow_name_snapshot, source_location_snapshot
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                [
-                    (
-                        f.endpoint_evidence_id,
-                        f.execution_flow_id,
-                        f.relation_type,
-                        f.endpoint_method_snapshot,
-                        f.endpoint_path_snapshot,
-                        f.controller_snapshot,
-                        f.flow_name_snapshot,
-                        f.source_location_snapshot,
-                    )
-                    for f in items
-                ],
-            )
-
-    def list_evidence_by_attempt(
-        self,
-        attempt_id: str,
-        *,
-        resolution_status: str | None = None,
-        match_strategy: str | None = None,
-        offset: int = 0,
-        limit: int = 100,
-    ) -> tuple[list[dict[str, Any]], int]:
-        with self._pool.ro_conn() as conn:
-            where = ["ee.correlation_attempt_id = ?"]
-            params: list[Any] = [attempt_id]
-            if resolution_status is not None:
-                where.append("ee.resolution_status = ?")
-                params.append(resolution_status)
-            if match_strategy is not None:
-                where.append("ee.match_strategy = ?")
-                params.append(match_strategy)
-            clause = " AND ".join(where)
-            total_row = conn.execute(
-                f"SELECT COUNT(*) AS cnt FROM endpoint_evidence ee WHERE {clause}",
-                params,
-            ).fetchone()
-            total = total_row["cnt"] if total_row else 0
-            rows = conn.execute(
-                f"""SELECT ee.*, hre.http_method, hre.normalized_path AS request_path,
-                           hre.display_path, hre.origin, hre.resource_type
-                    FROM endpoint_evidence ee
-                    JOIN http_request_evidence hre ON hre.request_evidence_id = ee.request_evidence_id
-                    WHERE {clause}
-                    ORDER BY ee.created_at LIMIT ? OFFSET ?""",
-                params + [limit, offset],
-            ).fetchall()
-        return [dict(r) for r in rows], total
-
-    def list_confirmed_touched_endpoints(self, attempt_id: str) -> list[dict[str, Any]]:
-        """按端点分组的确认触达证据（UNIQUE + EXACT/TEMPLATE，排除 ATTEMPT_ONLY）。
-
-        返回 rows: {endpoint_id, http_method, confirmed_request_count, evidence_ids}
-        evidence_ids 为逗号分隔的 endpoint_evidence_id 列表（报告重生成聚合调用流用）。
-        """
-        with self._pool.ro_conn() as conn:
-            rows = conn.execute(
-                """SELECT ee.matched_endpoint_id AS endpoint_id,
-                          hre.http_method,
-                          COUNT(*) AS confirmed_request_count,
-                          GROUP_CONCAT(ee.endpoint_evidence_id) AS evidence_ids
-                   FROM endpoint_evidence ee
-                   JOIN http_request_evidence hre
-                     ON hre.request_evidence_id = ee.request_evidence_id
-                   WHERE ee.correlation_attempt_id = ?
-                     AND ee.resolution_status = 'UNIQUE'
-                     AND ee.match_strategy IN ('EXACT', 'TEMPLATE')
-                     AND ee.matched_endpoint_id IS NOT NULL
-                     AND hre.endpoint_match_eligibility != 'ATTEMPT_ONLY'
-                   GROUP BY ee.matched_endpoint_id, hre.http_method
-                   ORDER BY ee.matched_endpoint_id""",
-                (attempt_id,),
-            ).fetchall()
-        return [dict(r) for r in rows]
 
     def get_summary(self, correlation_run_id: str) -> CorrelationSummary:
         cr = self.get_correlation_run(correlation_run_id)
-        attempt_id = cr.active_attempt_id if cr else None
 
         summary = CorrelationSummary(
             correlation_run_id=correlation_run_id,
@@ -871,6 +389,7 @@ class CorrelationRepository:
             return summary
 
         bb_id = cr.blackbox_run_id
+        active_attempt_id = cr.active_attempt_id
 
         # 单连接合并：采集质量 / 请求总数 / 可关联请求数 / 端点证据 / 触达统计 /
         # Finding 统计 / Attempt 完整性，全部在同一个只读连接内完成，避免此前
@@ -909,7 +428,7 @@ class CorrelationRepository:
             ).fetchone()
             summary.correlatable_request_count = eligible_row["cnt"] if eligible_row else 0
 
-            if attempt_id is None:
+            if active_attempt_id is None:
                 return summary
 
             # ── 端点证据分组计数 ──
@@ -924,7 +443,7 @@ class CorrelationRepository:
                      ON hre.request_evidence_id = ee.request_evidence_id
                    WHERE ee.correlation_attempt_id = ?
                    GROUP BY ee.resolution_status, ee.match_strategy""",
-                (attempt_id,),
+                (active_attempt_id,),
             ).fetchall()
             for row in ee_stats:
                 rs = row["resolution_status"]
@@ -952,7 +471,7 @@ class CorrelationRepository:
                      AND ee.match_strategy IN ('EXACT', 'TEMPLATE')
                      AND hre.endpoint_match_eligibility != 'ATTEMPT_ONLY'
                      AND ee.matched_endpoint_id IS NOT NULL""",
-                (attempt_id,),
+                (active_attempt_id,),
             ).fetchone()
             summary.confirmed_touched_endpoint_count = (
                 confirmed_touch["cnt"] if confirmed_touch else 0
@@ -963,7 +482,7 @@ class CorrelationRepository:
                    FROM endpoint_evidence_candidates eec
                    JOIN endpoint_evidence ee ON ee.endpoint_evidence_id = eec.endpoint_evidence_id
                    WHERE ee.correlation_attempt_id = ?""",
-                (attempt_id,),
+                (active_attempt_id,),
             ).fetchone()
             summary.candidate_touched_endpoint_count = (
                 candidate_touch["cnt"] if candidate_touch else 0
@@ -992,11 +511,7 @@ class CorrelationRepository:
             summary.attempted_evidence_count = attempted["cnt"] if attempted else 0
 
             # ── Finding 统计 ──
-            # 三桶按请求证据切分，保证 confirmed + candidate + unrelated == total：
-            # - confirmed  = confirmed_request_count > 0（黑盒实际触达端点）
-            # - candidate  = 静态关联但无任何触达请求（confirmed_request_count == 0
-            #                且 candidate_request_count > 0）
-            # - unrelated  = 其余（无静态关联或无数值）
+            # 三桶互斥切分：confirmed + candidate + unrelated == total。
             fe_stats = conn.execute(
                 """SELECT best_relation_type,
                           COUNT(*) AS cnt,
@@ -1006,7 +521,7 @@ class CorrelationRepository:
                    FROM finding_evidence
                    WHERE correlation_attempt_id = ?
                    GROUP BY best_relation_type""",
-                (attempt_id,),
+                (active_attempt_id,),
             ).fetchall()
             for row in fe_stats:
                 cnt = row["cnt"] or 0
@@ -1020,339 +535,12 @@ class CorrelationRepository:
             # Attempt 完整性
             attempt = conn.execute(
                 "SELECT evidence_completeness FROM correlation_attempts WHERE correlation_attempt_id = ?",
-                (attempt_id,),
+                (active_attempt_id,),
             ).fetchone()
             if attempt:
                 summary.evidence_completeness = attempt["evidence_completeness"]
 
         return summary
-
-    # ══════════════════════════════════════════════════════════
-    # FindingEvidence
-    # ══════════════════════════════════════════════════════════
-
-    def insert_finding_evidence_batch(self, items: list[FindingEvidence]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT OR REPLACE INTO finding_evidence (
-                    finding_evidence_id, correlation_attempt_id, finding_id,
-                    best_relation_type, minimum_call_distance,
-                    confirmed_request_count, candidate_request_count,
-                    finding_rule_id_snapshot, finding_location_snapshot
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                [
-                    (
-                        fe.finding_evidence_id,
-                        fe.correlation_attempt_id,
-                        fe.finding_id,
-                        fe.best_relation_type.value,
-                        fe.minimum_call_distance,
-                        fe.confirmed_request_count,
-                        fe.candidate_request_count,
-                        fe.finding_rule_id_snapshot,
-                        fe.finding_location_snapshot,
-                    )
-                    for fe in items
-                ],
-            )
-
-    def insert_finding_links_batch(self, items: list[FindingEvidenceLink]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT OR IGNORE INTO finding_evidence_links (
-                    finding_evidence_id, correlation_attempt_id, endpoint_evidence_id,
-                    endpoint_id, execution_flow_id, relation_type, call_distance
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                [
-                    (
-                        fl.finding_evidence_id,
-                        fl.correlation_attempt_id,
-                        fl.endpoint_evidence_id,
-                        fl.endpoint_id,
-                        fl.execution_flow_id,
-                        fl.relation_type.value
-                        if hasattr(fl.relation_type, "value")
-                        else str(fl.relation_type),
-                        fl.call_distance,
-                    )
-                    for fl in items
-                ],
-            )
-
-    def list_finding_evidence(
-        self,
-        correlation_run_id: str,
-        *,
-        offset: int = 0,
-        limit: int = 100,
-    ) -> tuple[list[dict[str, Any]], int]:
-        cr = self.get_correlation_run(correlation_run_id)
-        if cr is None or cr.active_attempt_id is None:
-            return [], 0
-        attempt_id = cr.active_attempt_id
-        with self._pool.ro_conn() as conn:
-            total_row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM finding_evidence WHERE correlation_attempt_id = ?",
-                (attempt_id,),
-            ).fetchone()
-            total = total_row["cnt"] if total_row else 0
-            rows = conn.execute(
-                "SELECT * FROM finding_evidence WHERE correlation_attempt_id = ? "
-                "ORDER BY confirmed_request_count DESC LIMIT ? OFFSET ?",
-                (attempt_id, limit, offset),
-            ).fetchall()
-        return [dict(r) for r in rows], total
-
-    # ══════════════════════════════════════════════════════════
-    # Attempt 明细表
-    # ══════════════════════════════════════════════════════════
-
-    def insert_attempt_reasons_batch(self, items: list[CorrelationAttemptReason]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT OR IGNORE INTO correlation_attempt_reasons (
-                    correlation_attempt_id, reason_code, detail
-                ) VALUES (?, ?, ?)""",
-                [(r.correlation_attempt_id, r.reason_code.value, r.detail) for r in items],
-            )
-
-    def insert_attempt_diagnostics_batch(self, items: list[CorrelationAttemptDiagnostic]) -> None:
-        with self._pool.tx() as conn:
-            conn.executemany(
-                """INSERT OR IGNORE INTO correlation_attempt_diagnostics (
-                    correlation_attempt_id, diagnostic_code, detail
-                ) VALUES (?, ?, ?)""",
-                [(d.correlation_attempt_id, d.diagnostic_code.value, d.detail) for d in items],
-            )
-
-    # ══════════════════════════════════════════════════════════
-    # CaptureQuality
-    # ══════════════════════════════════════════════════════════
-
-    def upsert_capture_quality(self, quality: CaptureQuality) -> None:
-        with self._pool.tx() as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO http_capture_quality (
-                    blackbox_run_id, total_observed, accepted_started, persisted_count,
-                    filtered_by_resource_type, filtered_cross_origin, filtered_by_method,
-                    filtered_websocket_count, filtered_path_too_long,
-                    dropped_pending_limit, dropped_run_limit, dropped_writer_queue_limit,
-                    writer_retry_count, writer_failed_batch_count, persistence_failed,
-                    truncated, truncation_reason, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    quality.blackbox_run_id,
-                    quality.total_observed,
-                    quality.accepted_started,
-                    quality.persisted_count,
-                    quality.filtered_by_resource_type,
-                    quality.filtered_cross_origin,
-                    quality.filtered_by_method,
-                    quality.filtered_websocket_count,
-                    quality.filtered_path_too_long,
-                    quality.dropped_pending_limit,
-                    quality.dropped_run_limit,
-                    quality.dropped_writer_queue_limit,
-                    quality.writer_retry_count,
-                    quality.writer_failed_batch_count,
-                    quality.persistence_failed,
-                    int(quality.truncated),
-                    quality.truncation_reason,
-                    quality.updated_at or _utc_now_iso(),
-                ),
-            )
-
-    def get_capture_quality(self, blackbox_run_id: str) -> dict[str, Any] | None:
-        """读取采集质量快照（供 storage 层复用，避免跨层访问 _pool）。"""
-        with self._pool.ro_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM http_capture_quality WHERE blackbox_run_id = ?",
-                (blackbox_run_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return dict(row)
-
-    # ══════════════════════════════════════════════════════════
-    # Uncovered Endpoints
-    # ══════════════════════════════════════════════════════════
-
-    def list_uncovered_endpoints(
-        self,
-        correlation_run_id: str,
-        *,
-        offset: int = 0,
-        limit: int = 100,
-    ) -> tuple[list[dict[str, Any]], int]:
-        """获取未被确认触达的端点（无 UNIQUE+EXACT/TEMPLATE 证据）。"""
-        cr = self.get_correlation_run(correlation_run_id)
-        if cr is None or cr.analysis_id is None or cr.active_attempt_id is None:
-            return [], 0
-
-        with self._pool.ro_conn() as conn:
-            total_row = conn.execute(
-                """SELECT COUNT(*) AS cnt FROM analysis_endpoints ae
-                   WHERE ae.analysis_id = ?
-                     AND ae.endpoint_id NOT IN (
-                         SELECT ee.matched_endpoint_id FROM endpoint_evidence ee
-                         WHERE ee.correlation_attempt_id = ?
-                           AND ee.resolution_status = 'UNIQUE'
-                           AND ee.match_strategy IN ('EXACT', 'TEMPLATE')
-                           AND ee.matched_endpoint_id IS NOT NULL
-                     )""",
-                (cr.analysis_id, cr.active_attempt_id),
-            ).fetchone()
-            total = total_row["cnt"] if total_row else 0
-            rows = conn.execute(
-                """SELECT * FROM analysis_endpoints ae
-                   WHERE ae.analysis_id = ?
-                     AND ae.endpoint_id NOT IN (
-                         SELECT ee.matched_endpoint_id FROM endpoint_evidence ee
-                         WHERE ee.correlation_attempt_id = ?
-                           AND ee.resolution_status = 'UNIQUE'
-                           AND ee.match_strategy IN ('EXACT', 'TEMPLATE')
-                           AND ee.matched_endpoint_id IS NOT NULL
-                     )
-                   ORDER BY ae.normalized_path_template ASC, ae.http_method ASC
-                   LIMIT ? OFFSET ?""",
-                (cr.analysis_id, cr.active_attempt_id, limit, offset),
-            ).fetchall()
-        return [dict(r) for r in rows], total
-
-    # ══════════════════════════════════════════════════════════
-    # 批量查询辅助（供 application 层组装 API 响应）
-    # ══════════════════════════════════════════════════════════
-
-    # SQLite 默认编译期参数上限 999，留安全余量
-    _BATCH_QUERY_MAX_IDS = 900
-
-    def _check_batch_ids(self, ids: list[str], label: str) -> None:
-        if len(ids) > self._BATCH_QUERY_MAX_IDS:
-            raise ValueError(
-                f"{label} 批量查询 ID 数量超出限制: "
-                f"{len(ids)} > {CorrelationRepository._BATCH_QUERY_MAX_IDS}"
-            )
-
-    def batch_get_candidates(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        """按 evidence_id 批量查询候选端点。"""
-        if not evidence_ids:
-            return {}
-        self._check_batch_ids(evidence_ids, "candidates")
-        with self._pool.ro_conn() as conn:
-            placeholders = ",".join("?" for _ in evidence_ids)
-            rows = conn.execute(
-                f"SELECT * FROM endpoint_evidence_candidates "
-                f"WHERE endpoint_evidence_id IN ({placeholders}) "
-                f"ORDER BY candidate_rank",
-                evidence_ids,
-            ).fetchall()
-        result: dict[str, list[dict[str, Any]]] = {}
-        for r in rows:
-            d = dict(r)
-            eid = d["endpoint_evidence_id"]
-            result.setdefault(eid, []).append(d)
-        return result
-
-    def batch_get_flows(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        """按 evidence_id 批量查询调用流关联，返回完整 ExecutionFlowResponse 结构。
-
-        旧实现直接把 endpoint_evidence_flows 的 snapshot 行塞进响应：这些行缺
-        entry_point / call_depth / steps，导致 EndpointEvidenceResponse 嵌套校验
-        失败（API 500），且与前端表格读取的 executionFlowId / entryPoint /
-        callDepth / steps 不匹配，「调用流」列恒为空。
-
-        这里经 execution_flow_id 关联 analysis_execution_flows + analysis_flow_steps
-        组装完整执行流（键与 ExecutionFlowResponse 的 camelCase alias 对齐）；
-        对 analysis 侧已清理的孤儿 flow_id 直接跳过，避免产生残缺条目。
-        """
-        if not evidence_ids:
-            return {}
-        self._check_batch_ids(evidence_ids, "flows")
-        with self._pool.ro_conn() as conn:
-            ev_placeholders = ",".join("?" for _ in evidence_ids)
-            links = conn.execute(
-                f"SELECT endpoint_evidence_id, execution_flow_id "
-                f"FROM endpoint_evidence_flows "
-                f"WHERE endpoint_evidence_id IN ({ev_placeholders})",
-                evidence_ids,
-            ).fetchall()
-            if not links:
-                return {}
-
-            # flow_ids 的数量不受 evidence_ids 上限约束（一条证据可关联多条流），
-            # 分片查询以避免单个 IN 子句超过 SQLite 变量数上限（3.46 为 32766）。
-            flows: dict[str, dict[str, Any]] = {}
-            steps_by_flow: dict[str, list[dict[str, Any]]] = {}
-            flow_ids = sorted({r["execution_flow_id"] for r in links})
-            for start in range(0, len(flow_ids), self._BATCH_QUERY_MAX_IDS):
-                chunk = flow_ids[start : start + self._BATCH_QUERY_MAX_IDS]
-                placeholders = ",".join("?" for _ in chunk)
-                for row in conn.execute(
-                    f"SELECT * FROM analysis_execution_flows "
-                    f"WHERE execution_flow_id IN ({placeholders})",
-                    chunk,
-                ).fetchall():
-                    flows[row["execution_flow_id"]] = dict(row)
-                for row in conn.execute(
-                    f"SELECT * FROM analysis_flow_steps "
-                    f"WHERE execution_flow_id IN ({placeholders}) "
-                    f"ORDER BY execution_flow_id, step_index",
-                    chunk,
-                ).fetchall():
-                    steps_by_flow.setdefault(row["execution_flow_id"], []).append(dict(row))
-
-        result: dict[str, list[dict[str, Any]]] = {}
-        for link in links:
-            eid = link["endpoint_evidence_id"]
-            flow = flows.get(link["execution_flow_id"])
-            if flow is None:
-                continue  # 孤儿引用：analysis 侧执行流已清理，跳过
-            result.setdefault(eid, []).append(
-                {
-                    "executionFlowId": flow["execution_flow_id"],
-                    "entryPoint": flow["entry_point"],
-                    "callDepth": flow["call_depth"],
-                    "steps": [
-                        {
-                            "flowStepId": s["flow_step_id"],
-                            "stepIndex": s["step_index"],
-                            "depth": s["depth"],
-                            "methodKey": s["method_key"],
-                            "className": s["class_name"],
-                            "methodName": s["method_name"],
-                            "callNodeId": s["call_node_id"],
-                        }
-                        for s in steps_by_flow.get(link["execution_flow_id"], [])
-                    ],
-                }
-            )
-        return result
-
-    def batch_get_endpoint_details(self, endpoint_ids: list[str]) -> dict[str, dict[str, Any]]:
-        """按 endpoint_id 批量查询端点详情。"""
-        if not endpoint_ids:
-            return {}
-        self._check_batch_ids(endpoint_ids, "endpoint_details")
-        with self._pool.ro_conn() as conn:
-            placeholders = ",".join("?" for _ in endpoint_ids)
-            rows = conn.execute(
-                f"SELECT * FROM analysis_endpoints WHERE endpoint_id IN ({placeholders})",
-                endpoint_ids,
-            ).fetchall()
-        return {r["endpoint_id"]: dict(r) for r in rows}
-
-    def batch_get_finding_details(self, finding_ids: list[str]) -> dict[str, dict[str, Any]]:
-        """按 finding_id 批量查询发现项详情。"""
-        if not finding_ids:
-            return {}
-        self._check_batch_ids(finding_ids, "finding_details")
-        with self._pool.ro_conn() as conn:
-            placeholders = ",".join("?" for _ in finding_ids)
-            rows = conn.execute(
-                f"SELECT * FROM findings WHERE finding_id IN ({placeholders})",
-                finding_ids,
-            ).fetchall()
-        return {r["finding_id"]: dict(r) for r in rows}
 
     # ══════════════════════════════════════════════════════════
     # 崩溃恢复

@@ -255,11 +255,12 @@ class EndpointMatcher:
             first_static = (ep.get("static_prefix") or "").lstrip("/")
             template_path = ep.get("normalized_path_template", "")
 
-            # 精确匹配索引
+            # 精确匹配索引 + 仅路径精确索引（忽略 method）
             if not is_templated and path:
                 idx.exact[(method, path)].append(ep)
+                idx.path_only_exact[path].append(ep)
 
-            # 模板索引
+            # 模板索引 + 仅路径模板索引（模板段编译两处索引复用，避免重复 re.compile）
             if is_templated and template_path:
                 compiled = [_SegmentMatcher.parse(s) for s in template_path.split("/") if s]
                 has_dw = any(s.seg_type == SegmentType.DOUBLE_WILDCARD for s in compiled)
@@ -268,20 +269,10 @@ class EndpointMatcher:
                     # min_seg_count = 非 ** 段的数量（** 可匹配 0..N 段）
                     min_seg = sum(1 for s in compiled if s.seg_type != SegmentType.DOUBLE_WILDCARD)
                     idx.double_wildcard[(method, min_seg)].append((ep, compiled))
+                    idx.path_only_double_wildcard[min_seg].append((ep, compiled))
                 else:
                     first_static = first_static.split("/")[0] if first_static else ""
                     idx.fixed_template[(method, seg_count, first_static)].append((ep, compiled))
-
-            # 仅路径索引（忽略 method）
-            if not is_templated and path:
-                idx.path_only_exact[path].append(ep)
-            elif is_templated and template_path:
-                compiled = [_SegmentMatcher.parse(s) for s in template_path.split("/") if s]
-                has_dw = any(s.seg_type == SegmentType.DOUBLE_WILDCARD for s in compiled)
-                if has_dw:
-                    min_seg = sum(1 for s in compiled if s.seg_type != SegmentType.DOUBLE_WILDCARD)
-                    idx.path_only_double_wildcard[min_seg].append((ep, compiled))
-                else:
                     idx.path_only_fixed[(seg_count, first_static)].append((ep, compiled))
 
         self._index = idx
@@ -445,13 +436,16 @@ class EndpointMatcher:
                 )
             )
 
-        # 多个候选 → 按 specificity 排序
-        matched.sort(key=lambda x: _compute_specificity(x[0], x[1]), reverse=True)
-        best_spec = _compute_specificity(matched[0][0], matched[0][1])
-        ties = [m for m in matched if _compute_specificity(m[0], m[1]) == best_spec]
+        # 多个候选 → 按 specificity 排序（每个候选只算一次，tie 比较直接取缓存）
+        scored: list[tuple[tuple[int, ...], dict[str, Any], list[_SegmentMatcher]]] = [
+            (_compute_specificity(ep, compiled), ep, compiled) for ep, compiled in matched
+        ]
+        scored.sort(key=lambda item: item[0], reverse=True)
+        best_spec = scored[0][0]
+        ties = [item for item in scored if item[0] == best_spec]
 
         if len(ties) == 1:
-            ep, compiled = ties[0]
+            _, ep, compiled = ties[0]
             confidence = self._template_confidence(compiled)
             return _SingleMatchResult(
                 evidence=self._build_evidence(
@@ -462,13 +456,13 @@ class EndpointMatcher:
         return _SingleMatchResult(
             evidence=self._build_evidence(
                 req,
-                ties[0][0],
+                ties[0][1],
                 ResolutionStatus.AMBIGUOUS,
                 MatchStrategy.TEMPLATE,
                 MatchConfidence.MEDIUM,
                 len(matched),
             ),
-            candidate_endpoints=[ep for ep, _ in matched],
+            candidate_endpoints=[ep for _, ep, _ in scored],
         )
 
     def _match_path_only(

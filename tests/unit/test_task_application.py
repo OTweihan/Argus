@@ -21,7 +21,8 @@ from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.correlation.enums import BlackboxRunStatus, CorrelationRunStatus
 from argus_py.correlation.models import BlackboxRun
-from argus_py.task.application import TaskAppError, _chunked_batch
+from argus_py.correlation.report_data import chunked_batch
+from argus_py.task.application import TaskAppError
 from argus_py.task.models import Task
 from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.whitebox.config import SourceType, WhiteboxTaskConfig
@@ -283,7 +284,7 @@ def test_bind_analysis_rejects_missing_analysis(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="分析执行不存在"):
-        stack.app.bind_analysis("cr-1", "analysis-missing")
+        stack.correlation.bind_analysis("cr-1", "analysis-missing")
 
 
 def test_bind_analysis_rejects_non_succeeded_analysis(tmp_path: Path) -> None:
@@ -294,7 +295,7 @@ def test_bind_analysis_rejects_non_succeeded_analysis(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="只有成功的分析可以绑定"):
-        stack.app.bind_analysis("cr-1", "analysis-1")
+        stack.correlation.bind_analysis("cr-1", "analysis-1")
 
 
 def test_bind_analysis_rejects_missing_correlation_run(tmp_path: Path) -> None:
@@ -302,7 +303,7 @@ def test_bind_analysis_rejects_missing_correlation_run(tmp_path: Path) -> None:
     _seed_analysis_run(stack, "analysis-1")
 
     with pytest.raises(ValueError, match="关联运行不存在"):
-        stack.app.bind_analysis("cr-missing", "analysis-1")
+        stack.correlation.bind_analysis("cr-missing", "analysis-1")
 
 
 def test_bind_analysis_rejects_already_bound(tmp_path: Path) -> None:
@@ -313,7 +314,7 @@ def test_bind_analysis_rejects_already_bound(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="已绑定分析"):
-        stack.app.bind_analysis("cr-1", "analysis-1")
+        stack.correlation.bind_analysis("cr-1", "analysis-1")
 
 
 def test_bind_analysis_rejects_snapshot_mismatch_without_override(tmp_path: Path) -> None:
@@ -334,13 +335,13 @@ def test_bind_analysis_rejects_snapshot_mismatch_without_override(tmp_path: Path
     )
 
     with pytest.raises(ValueError, match="不一致"):
-        stack.app.bind_analysis("cr-1", "analysis-1")
+        stack.correlation.bind_analysis("cr-1", "analysis-1")
 
 
 def test_retry_correlation_rejects_missing_run(tmp_path: Path) -> None:
     stack = make_app_stack(tmp_path)
     with pytest.raises(ValueError, match="关联运行不存在"):
-        stack.app.retry_correlation("cr-missing")
+        stack.correlation.retry_correlation("cr-missing")
 
 
 def test_retry_correlation_rejects_non_failed_partial(tmp_path: Path) -> None:
@@ -350,7 +351,7 @@ def test_retry_correlation_rejects_non_failed_partial(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="只有失败或部分完成"):
-        stack.app.retry_correlation("cr-1")
+        stack.correlation.retry_correlation("cr-1")
 
 
 def test_retry_correlation_rejects_unbound(tmp_path: Path) -> None:
@@ -358,12 +359,12 @@ def test_retry_correlation_rejects_unbound(tmp_path: Path) -> None:
     _seed_correlation_run(stack, "cr-1", analysis_id=None, status=CorrelationRunStatus.FAILED)
 
     with pytest.raises(ValueError, match="尚未绑定白盒分析"):
-        stack.app.retry_correlation("cr-1")
+        stack.correlation.retry_correlation("cr-1")
 
 
 def test_recalculate_correlation_returns_none_for_missing_run(tmp_path: Path) -> None:
     stack = make_app_stack(tmp_path)
-    assert stack.app.recalculate_correlation("cr-missing") is None
+    assert stack.correlation.recalculate_correlation("cr-missing") is None
 
 
 def test_recalculate_correlation_rejects_unbound(tmp_path: Path) -> None:
@@ -371,7 +372,7 @@ def test_recalculate_correlation_rejects_unbound(tmp_path: Path) -> None:
     _seed_correlation_run(stack, "cr-1", analysis_id=None, status=CorrelationRunStatus.READY)
 
     with pytest.raises(ValueError, match="尚未绑定白盒分析"):
-        stack.app.recalculate_correlation("cr-1")
+        stack.correlation.recalculate_correlation("cr-1")
 
 
 def test_retry_correlation_marks_attempt_failed_and_reraises(
@@ -388,7 +389,7 @@ def test_retry_correlation_marks_attempt_failed_and_reraises(
     def boom(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("match exploded")
 
-    monkeypatch.setattr("argus_py.task.application._execute_matching_sync", boom)
+    monkeypatch.setattr("argus_py.correlation.application._execute_matching_sync", boom)
 
     complete_calls: list[tuple[str, str, str]] = []
     original = storage.complete_and_activate_attempt
@@ -400,19 +401,19 @@ def test_retry_correlation_marks_attempt_failed_and_reraises(
     monkeypatch.setattr(storage, "complete_and_activate_attempt", spy)
 
     with pytest.raises(RuntimeError, match="match exploded"):
-        stack.app.retry_correlation("cr-1")
+        stack.correlation.retry_correlation("cr-1")
 
     assert complete_calls
     assert complete_calls[-1][1] == "FAILED"
     assert complete_calls[-1][2] == "PARTIAL"
 
 
-# ── _chunked_batch 分片边界 ───────────────────────────────────────────────────
+# ── chunked_batch 分片边界 ───────────────────────────────────────────────────
 
 
 def test_chunked_batch_empty_ids_no_calls() -> None:
     batch_fn = Mock(return_value={})
-    assert _chunked_batch(Mock(), batch_fn, []) == {}
+    assert chunked_batch(batch_fn, []) == {}
     batch_fn.assert_not_called()
 
 
@@ -420,7 +421,7 @@ def test_chunked_batch_single_chunk() -> None:
     def batch_fn(ids: list[str]) -> dict[str, Any]:
         return {i: int(i) * 2 for i in ids}
 
-    assert _chunked_batch(Mock(), batch_fn, ["1", "2", "3"], chunk_size=800) == {
+    assert chunked_batch(batch_fn, ["1", "2", "3"], chunk_size=800) == {
         "1": 2,
         "2": 4,
         "3": 6,
@@ -435,7 +436,7 @@ def test_chunked_batch_crosses_boundary_and_merges() -> None:
         return {i: i for i in ids}
 
     ids = [str(i) for i in range(5)]
-    result = _chunked_batch(Mock(), batch_fn, ids, chunk_size=2)
+    result = chunked_batch(batch_fn, ids, chunk_size=2)
 
     assert calls == [["0", "1"], ["2", "3"], ["4"]]
     assert result == {str(i): str(i) for i in range(5)}
@@ -448,5 +449,5 @@ def test_chunked_batch_exact_multiple_of_chunk_size() -> None:
         calls.append(ids)
         return {}
 
-    _chunked_batch(Mock(), batch_fn, ["a", "b", "c", "d"], chunk_size=2)
+    chunked_batch(batch_fn, ["a", "b", "c", "d"], chunk_size=2)
     assert calls == [["a", "b"], ["c", "d"]]

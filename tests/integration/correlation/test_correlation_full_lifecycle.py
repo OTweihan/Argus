@@ -33,7 +33,7 @@ from argus_py.correlation.models import (
     HttpRequestEvidence,
 )
 from argus_py.task.models import Task
-from argus_py.task.repositories.analysis_repo import _endpoint_to_row
+from argus_py.task.repositories.mappers import endpoint_to_row
 from argus_py.task.storage import TaskSQLiteStorage
 
 pytestmark = [pytest.mark.integration]
@@ -190,7 +190,7 @@ def _write_analysis_endpoints(storage: TaskSQLiteStorage, analysis_id: str) -> N
                     source_end_line, source_end_column,
                     entry_call_node_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _endpoint_to_row(analysis_id, ep),
+                endpoint_to_row(analysis_id, ep),
             )
 
 

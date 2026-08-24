@@ -77,10 +77,18 @@ class TaskWorker:
         self._reader = reader
         self._handlers = handlers
         self._model_config_service = model_config_service
-        self._report_generator = report_generator
+        self._report_generator = report_generator or ReportGenerator()
         self._worker_id = worker_id
         # O-04 启动恢复：非空时接管孤儿白盒作业；为空回退原 FAILED 语义。
         self._whitebox_client = whitebox_client
+        # Runner 在装配期创建一次、跨任务复用；handlers 为共享 dict，
+        # register_handler 的后续注册仍然生效。
+        self._runner = TaskRunner(
+            lifecycle=lifecycle,
+            handlers=handlers,
+            report_generator=self._report_generator,
+            worker_id=worker_id,
+        )
         self.concurrency = max(1, concurrency)
         self._tasks: list[asyncio.Task[None]] = []
         self._started = False
@@ -213,14 +221,8 @@ class TaskWorker:
         if task.status is not TaskStatus.PENDING:
             return
 
-        runner = TaskRunner(
-            lifecycle=self._lifecycle,
-            handlers=self._handlers,
-            report_generator=self._report_generator,
-            worker_id=self._worker_id,
-        )
         try:
-            await runner.run(task)
+            await self._runner.run(task)
         except TaskError:
             logger.warning("任务执行失败: %s", task_id)
             return
@@ -244,12 +246,7 @@ class TaskWorker:
         （SUCCEEDED 拉结果落 COMPLETED / RUNNING 重置 PENDING 重入队 / 终态落对应
         终态），不再静默遗留孤儿作业。未配置（测试/最小配置）回退原 FAILED 语义。
         """
-        # 使用 lifecycle 关联的 storage 获取 pool
-        from argus_py.task.storage import TaskSQLiteStorage
-
         storage = self._lifecycle.storage
-        if not isinstance(storage, TaskSQLiteStorage):
-            return
 
         if self._whitebox_client is not None:
             await reconcile_orphan_whitebox_jobs(

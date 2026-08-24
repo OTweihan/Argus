@@ -17,15 +17,15 @@ from argus_py.whitebox.models import (
     WhiteboxFinding,
     WhiteboxResult,
 )
-from argus_py.whitebox.runner import (
-    _build_diag_summary,
-    _build_projection_data,
-    _compute_fingerprint,
-    _evaluate_completeness,
-    _map_finding_type,
-    _map_findings,
-    _map_severity,
+from argus_py.whitebox.projection import (
+    build_projection_data,
+    compute_fingerprint,
+    evaluate_completeness,
+    map_finding_type,
+    map_findings,
+    map_severity,
 )
+from argus_py.whitebox.runner import _build_diag_summary
 
 # ── _map_severity ─────────────────────────────────
 
@@ -43,10 +43,10 @@ class TestMapSeverity:
         ],
     )
     def test_known_values(self, raw: str, expected: FindingSeverity) -> None:
-        assert _map_severity(raw) == expected
+        assert map_severity(raw) == expected
 
     def test_unknown_falls_back_to_info(self) -> None:
-        assert _map_severity("UNKNOWN_LEVEL") == FindingSeverity.INFO
+        assert map_severity("UNKNOWN_LEVEL") == FindingSeverity.INFO
 
 
 # ── _map_finding_type ─────────────────────────────
@@ -65,16 +65,16 @@ class TestMapFindingType:
         ],
     )
     def test_known_values(self, raw: str, expected: FindingType) -> None:
-        assert _map_finding_type(raw) == expected
+        assert map_finding_type(raw) == expected
 
     def test_none_returns_unknown(self) -> None:
-        assert _map_finding_type(None) == FindingType.UNKNOWN
+        assert map_finding_type(None) == FindingType.UNKNOWN
 
     def test_empty_string_returns_unknown(self) -> None:
-        assert _map_finding_type("") == FindingType.UNKNOWN
+        assert map_finding_type("") == FindingType.UNKNOWN
 
     def test_random_string_returns_unknown(self) -> None:
-        assert _map_finding_type("RANDOM") == FindingType.UNKNOWN
+        assert map_finding_type("RANDOM") == FindingType.UNKNOWN
 
 
 # ── _compute_fingerprint ─────────────────────────
@@ -82,19 +82,19 @@ class TestMapFindingType:
 
 class TestComputeFingerprint:
     def test_deterministic(self) -> None:
-        fp1 = _compute_fingerprint("R1", "file.java", 10, "Title")
-        fp2 = _compute_fingerprint("R1", "file.java", 10, "Title")
+        fp1 = compute_fingerprint("R1", "file.java", 10, "Title")
+        fp2 = compute_fingerprint("R1", "file.java", 10, "Title")
         assert fp1 == fp2
         assert len(fp1) == 64
 
     def test_different_inputs_produce_different(self) -> None:
-        fp1 = _compute_fingerprint("R1", "file.java", 10, "Title")
-        fp2 = _compute_fingerprint("R2", "file.java", 10, "Title")
+        fp1 = compute_fingerprint("R1", "file.java", 10, "Title")
+        fp2 = compute_fingerprint("R2", "file.java", 10, "Title")
         assert fp1 != fp2
 
     def test_whitespace_in_title_normalized(self) -> None:
-        fp1 = _compute_fingerprint("R1", "f.java", 1, "  Title  ")
-        fp2 = _compute_fingerprint("R1", "f.java", 1, "Title")
+        fp1 = compute_fingerprint("R1", "f.java", 1, "  Title  ")
+        fp2 = compute_fingerprint("R1", "f.java", 1, "Title")
         assert fp1 == fp2
 
 
@@ -121,7 +121,7 @@ class TestMapFindings:
                 line_number=10,
             ),
         ]
-        result = _map_findings(wfs)
+        result = map_findings(wfs)
         assert len(result) == 1
 
     def test_analysis_id_propagated(self) -> None:
@@ -135,7 +135,7 @@ class TestMapFindings:
                 line_number=10,
             ),
         ]
-        result = _map_findings(wfs, analysis_id="aid-123")
+        result = map_findings(wfs, analysis_id="aid-123")
         assert result[0].analysis_id == "aid-123"
 
     def test_snippet_propagated(self) -> None:
@@ -150,7 +150,7 @@ class TestMapFindings:
                 snippet="catch (Exception e) {}",
             ),
         ]
-        result = _map_findings(wfs)
+        result = map_findings(wfs)
         assert result[0].snippet == "catch (Exception e) {}"
 
     def test_invalid_location_still_included(self) -> None:
@@ -166,7 +166,7 @@ class TestMapFindings:
                 line_number=0,
             ),
         ]
-        result = _map_findings(wfs)
+        result = map_findings(wfs)
         assert len(result) == 1
         assert result[0].location == "a.java"
 
@@ -217,7 +217,7 @@ class TestBuildDiagSummary:
 
 class TestEvaluateCompleteness:
     def test_none_diagnostics_not_evaluated(self) -> None:
-        status, issues = _evaluate_completeness(None)
+        status, issues = evaluate_completeness(None)
         assert status == "NOT_EVALUATED"
         assert issues == []
 
@@ -232,13 +232,13 @@ class TestEvaluateCompleteness:
             unresolved=0,
             classpath_available=True,
         )
-        status, issues = _evaluate_completeness(d)
+        status, issues = evaluate_completeness(d)
         assert status == "COMPLETE"
         assert issues == []
 
     def test_no_eligible_source_unavailable(self) -> None:
         d = AnalyzerDiagnostics(total_source_files=0)
-        status, issues = _evaluate_completeness(d)
+        status, issues = evaluate_completeness(d)
         assert status == "UNAVAILABLE"
         assert issues[0]["code"] == "NO_ELIGIBLE_SOURCE_FILES"
 
@@ -249,7 +249,7 @@ class TestEvaluateCompleteness:
             failed_file_count=2,
             classpath_available=True,
         )
-        status, issues = _evaluate_completeness(d)
+        status, issues = evaluate_completeness(d)
         assert status == "DEGRADED"
         codes = [i["code"] for i in issues]
         assert "MODULE_PARSE_PARTIAL_FAILURE" in codes
@@ -263,7 +263,7 @@ class TestEvaluateCompleteness:
             resolved_high=5,
             classpath_available=False,
         )
-        status, issues = _evaluate_completeness(d)
+        status, issues = evaluate_completeness(d)
         assert status == "DEGRADED"
         codes = [i["code"] for i in issues]
         assert "CLASSPATH_UNAVAILABLE" in codes
@@ -281,7 +281,7 @@ class TestEvaluateCompleteness:
             classpath_available=True,
             jar_count=5,
         )
-        status, issues = _evaluate_completeness(d)
+        status, issues = evaluate_completeness(d)
         assert status == "DEGRADED"
         codes = [i["code"] for i in issues]
         assert "CALL_RESOLUTION_LOW" in codes
@@ -297,7 +297,7 @@ class TestEvaluateCompleteness:
             classpath_available=True,
             pass_failures=["flows: tracer bug", "clusters: npe"],
         )
-        status, issues = _evaluate_completeness(d)
+        status, issues = evaluate_completeness(d)
         assert status == "DEGRADED"
         codes = [i["code"] for i in issues]
         assert "ANALYSIS_PASS_FAILED" in codes
@@ -312,7 +312,7 @@ class TestEvaluateCompleteness:
 
 class TestSerializeWhiteboxResult:
     def test_serializes_completeness_and_quality_issues(self) -> None:
-        from argus_py.whitebox.runner import _serialize_whitebox_result
+        from argus_py.whitebox.projection import serialize_whitebox_result
 
         d = AnalyzerDiagnostics(
             total_source_files=10,
@@ -321,16 +321,16 @@ class TestSerializeWhiteboxResult:
             classpath_available=False,
         )
         result = WhiteboxResult(diagnostics=d)
-        data = _serialize_whitebox_result(result, 0, 0, "all")
+        data = serialize_whitebox_result(result, 0, 0, "all")
         assert data["completeness"] == "DEGRADED"
         codes = [i["code"] for i in data["qualityIssues"]]
         assert "MODULE_PARSE_PARTIAL_FAILURE" in codes
         assert "CLASSPATH_UNAVAILABLE" in codes
 
     def test_serializes_not_evaluated_without_diagnostics(self) -> None:
-        from argus_py.whitebox.runner import _serialize_whitebox_result
+        from argus_py.whitebox.projection import serialize_whitebox_result
 
-        data = _serialize_whitebox_result(WhiteboxResult(), 0, 0, "all")
+        data = serialize_whitebox_result(WhiteboxResult(), 0, 0, "all")
         assert data["completeness"] == "NOT_EVALUATED"
         assert data["qualityIssues"] == []
 
@@ -341,7 +341,7 @@ class TestSerializeWhiteboxResult:
 class TestBuildProjectionData:
     def test_empty_result(self) -> None:
         result = WhiteboxResult()
-        data = _build_projection_data(result, analysis_id="aid-1")
+        data = build_projection_data(result, analysis_id="aid-1")
         assert data["call_nodes"] == []
         assert data["call_edges"] == []
         assert data["execution_flows"] == []
@@ -362,7 +362,7 @@ class TestBuildProjectionData:
                 }
             ),
         )
-        data = _build_projection_data(result, analysis_id="aid-1")
+        data = build_projection_data(result, analysis_id="aid-1")
         assert len(data["call_nodes"]) == 1
         assert data["call_edges"] == []
 
@@ -383,7 +383,7 @@ class TestBuildProjectionData:
                 }
             ),
         )
-        data = _build_projection_data(result, analysis_id="aid-1")
+        data = build_projection_data(result, analysis_id="aid-1")
         node = data["call_nodes"][0]
         assert node["source_file"] is None
         assert node["source_start_line"] is None
@@ -422,7 +422,7 @@ class TestBuildProjectionData:
                 ),
             ],
         )
-        data = _build_projection_data(result, analysis_id="aid-1")
+        data = build_projection_data(result, analysis_id="aid-1")
         assert len(data["execution_flows"]) == 2
         fingerprints = [f["execution_flow_fingerprint"] for f in data["execution_flows"]]
         assert len(fingerprints) == len(set(fingerprints))

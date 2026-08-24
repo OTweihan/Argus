@@ -102,9 +102,9 @@ def test_complete_result_roundtrip() -> None:
     data = _load("analysis-result-complete.json")
     result = WhiteboxResult.from_dict(data)
 
-    from argus_py.whitebox.runner import _serialize_whitebox_result
+    from argus_py.whitebox.projection import serialize_whitebox_result
 
-    serialized = _serialize_whitebox_result(
+    serialized = serialize_whitebox_result(
         result, len(result.endpoints), len(result.findings), "all"
     )
     diag = serialized.get("diagnostics", {})
@@ -118,9 +118,9 @@ def test_complete_result_re_parse_after_roundtrip() -> None:
     data = _load("analysis-result-complete.json")
     result1 = WhiteboxResult.from_dict(data)
 
-    from argus_py.whitebox.runner import _serialize_whitebox_result
+    from argus_py.whitebox.projection import serialize_whitebox_result
 
-    serialized = _serialize_whitebox_result(
+    serialized = serialize_whitebox_result(
         result1, len(result1.endpoints), len(result1.findings), "all"
     )
 

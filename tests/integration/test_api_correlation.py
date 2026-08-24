@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from argus_py.analysis.models import AnalysisRun
 from argus_py.api.dependencies import (
+    get_correlation_service,
     get_debug_bundle_builder,
     get_event_bus,
     get_model_config_service,
@@ -101,6 +102,7 @@ def _build_correlation_test_app(tmp_path: Path) -> tuple[FastAPI, AppStack]:
         get_project_service: lambda: stack.project_service,
         get_task_queue: lambda: stack.queue,
         get_task_app_service: lambda: stack.app,
+        get_correlation_service: lambda: stack.correlation,
         get_model_config_service: lambda: model_cfg_service,
         get_task_read_service: lambda: stack.reader,
         get_trace_reader_service: lambda: stack.trace_reader,

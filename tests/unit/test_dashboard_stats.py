@@ -18,7 +18,7 @@ from argus_py.task.storage import TaskSQLiteStorage
 
 
 def _make_stack(tmp_path) -> TaskApplicationService:
-    # dashboard 需要 count_findings，仅 SQLite 后端支持；TaskFileStorage 不行。
+    # dashboard 聚合走 COUNT/窗口函数，使用 SQLite 后端对齐生产环境。
     storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=None)
     reader = TaskReadService(storage)

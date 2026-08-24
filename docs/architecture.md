@@ -100,7 +100,7 @@ Python 包按职责理解，不要求为追求形式立即重排目录：
 | 层 | 主要位置 | 职责 |
 |----|----------|------|
 | 接口适配 | `argus_py/api/`、`argus_py/cli/` | 参数解析、认证、协议转换、错误映射和调用应用服务 |
-| 应用编排 | `argus_py/task/application.py`、`argus_py/execution/` | 用例编排、任务 handler 分派、超时和生命周期协调 |
+| 应用编排 | `argus_py/task/application.py`、`argus_py/correlation/application.py`、`argus_py/execution/` | 用例编排、任务 handler 分派、关联状态推进、超时和生命周期协调 |
 | 领域能力 | `task/`、`project/`、`blackbox/`、`whitebox/`、`report/` | 业务规则、状态转换和测试/分析能力 |
 | 基础设施 | `infra/`、`browser/`、`llm/`、`observability/` | DB、队列、事件、外部 HTTP、浏览器、日志和文件适配 |
 | 组合根 | `runtime/container.py` | 创建共享实例、注入依赖、统一关闭资源 |

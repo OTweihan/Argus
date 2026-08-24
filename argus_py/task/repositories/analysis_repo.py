@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 from collections.abc import Iterable
 from itertools import islice
@@ -11,8 +10,25 @@ from typing import Any
 from argus_py.analysis.enums import (
     AnalysisRunStatus,
 )
-from argus_py.analysis.models import AnalysisRun, QualityIssue
+from argus_py.analysis.models import AnalysisRun
 from argus_py.infra.db import DbPool
+from argus_py.task.repositories.mappers import (
+    analysis_run_to_row,
+    call_edge_to_row,
+    call_node_to_row,
+    cluster_to_row,
+    endpoint_to_row,
+    flow_step_to_row,
+    flow_to_row,
+    row_to_analysis_run,
+    row_to_call_edge,
+    row_to_call_node,
+    row_to_cluster,
+    row_to_endpoint,
+    row_to_flow,
+    row_to_flow_step,
+)
+from argus_py.task.repositories.pagination import cursor_paginate
 
 # mark_terminal 仅允许的非失败终态（取消/超时）；真实失败一律走 mark_failed。
 # SUCCEEDED 必须由 complete_projection 事务写入（同时构建投影与完整性结论），
@@ -54,263 +70,6 @@ def _executemany_batched(
         conn.executemany(sql, chunk)
 
 
-# ── 行映射 ──────────────────────────────────────────────────────────
-
-
-def _analysis_run_to_row(run: AnalysisRun) -> tuple:
-    return (
-        run.analysis_id,
-        run.task_id,
-        run.source_snapshot_id,
-        run.resolved_commit_sha,
-        run.run_status,
-        run.completeness_status,
-        run.external_job_id,
-        run.external_job_status,
-        run.failure_code,
-        run.failure_message,
-        run.stop_reason,
-        run.result_schema_version,
-        run.result_digest,
-        run.config_json,
-        run.raw_result_json,
-        run.quality_policy_version,
-        json.dumps([qi.to_dict() for qi in run.quality_issues], ensure_ascii=False),
-        run.started_at,
-        run.completed_at,
-        run.projection_completed_at,
-        run.created_at or _utc_now(),
-        run.updated_at or _utc_now(),
-    )
-
-
-def _row_to_analysis_run(row: dict[str, Any]) -> AnalysisRun:
-    # sqlite3.Row 没有 .get()，统一转 dict 后再读取
-    if not isinstance(row, dict):
-        row = dict(row)
-    quality_issues_raw = row.get("quality_issues_json") or "[]"
-    quality_issues = [QualityIssue.from_dict(qi) for qi in json.loads(quality_issues_raw)]
-    return AnalysisRun(
-        analysis_id=row["analysis_id"],
-        task_id=row["task_id"],
-        source_snapshot_id=row["source_snapshot_id"],
-        resolved_commit_sha=row.get("resolved_commit_sha"),
-        run_status=row["run_status"],
-        completeness_status=row["completeness_status"],
-        external_job_id=row.get("external_job_id"),
-        external_job_status=row.get("external_job_status"),
-        failure_code=row.get("failure_code"),
-        failure_message=row.get("failure_message"),
-        stop_reason=row.get("stop_reason"),
-        result_schema_version=row.get("result_schema_version", 1),
-        result_digest=row.get("result_digest"),
-        config_json=row.get("config_json"),
-        raw_result_json=row.get("raw_result_json"),
-        quality_policy_version=row.get("quality_policy_version", 1),
-        quality_issues=quality_issues,
-        started_at=row.get("started_at"),
-        completed_at=row.get("completed_at"),
-        projection_completed_at=row.get("projection_completed_at"),
-        created_at=row.get("created_at"),
-        updated_at=row.get("updated_at"),
-    )
-
-
-# ── 投影行映射 ────────────────────────────────────────────────────────
-
-
-def _endpoint_to_row(aid: str, ep: dict[str, Any]) -> tuple:
-    return (
-        ep["endpoint_id"],
-        aid,
-        ep["endpoint_fingerprint"],
-        ep["http_method"],
-        ep["raw_path"],
-        ep.get("normalized_exact_path"),
-        ep["normalized_path_template"],
-        int(ep.get("is_templated", False)),
-        ep.get("path_normalization_version", 1),
-        ep.get("path_segment_count", 0),
-        ep.get("static_prefix"),
-        ep.get("canonical_path_shape"),
-        ep.get("controller_class"),
-        ep.get("controller_method"),
-        ep.get("controller_method_signature"),
-        json.dumps(ep.get("parameters", []), ensure_ascii=False),
-        ep.get("return_type"),
-        ep.get("source_file"),
-        ep.get("source_start_line"),
-        ep.get("source_start_column"),
-        ep.get("source_end_line"),
-        ep.get("source_end_column"),
-        ep.get("entry_call_node_id"),
-    )
-
-
-def _row_to_endpoint(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "endpoint_id": row["endpoint_id"],
-        "endpoint_fingerprint": row["endpoint_fingerprint"],
-        "http_method": row["http_method"],
-        "raw_path": row["raw_path"],
-        "normalized_exact_path": row.get("normalized_exact_path"),
-        "normalized_path_template": row["normalized_path_template"],
-        "is_templated": bool(row.get("is_templated", False)),
-        "path_normalization_version": row.get("path_normalization_version", 1),
-        "path_segment_count": row.get("path_segment_count", 0),
-        "static_prefix": row.get("static_prefix"),
-        "canonical_path_shape": row.get("canonical_path_shape"),
-        "controller_class": row.get("controller_class"),
-        "controller_method": row.get("controller_method"),
-        "controller_method_signature": row.get("controller_method_signature"),
-        "parameters": json.loads(row.get("parameters") or "[]"),
-        "return_type": row.get("return_type"),
-        "source_file": row.get("source_file"),
-        "source_start_line": row.get("source_start_line"),
-        "source_start_column": row.get("source_start_column"),
-        "source_end_line": row.get("source_end_line"),
-        "source_end_column": row.get("source_end_column"),
-        "entry_call_node_id": row.get("entry_call_node_id"),
-    }
-
-
-def _call_node_to_row(aid: str, cn: dict[str, Any]) -> tuple:
-    return (
-        cn["call_node_id"],
-        aid,
-        cn["call_node_fingerprint"],
-        cn["class_name"],
-        cn["method_name"],
-        cn.get("method_signature"),
-        cn.get("source_file"),
-        cn.get("source_start_line"),
-        cn.get("source_start_column"),
-        cn.get("source_end_line"),
-        cn.get("source_end_column"),
-    )
-
-
-def _row_to_call_node(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "call_node_id": row["call_node_id"],
-        "call_node_fingerprint": row["call_node_fingerprint"],
-        "class_name": row["class_name"],
-        "method_name": row["method_name"],
-        "method_signature": row.get("method_signature"),
-        "source_file": row.get("source_file"),
-        "source_start_line": row.get("source_start_line"),
-        "source_start_column": row.get("source_start_column"),
-        "source_end_line": row.get("source_end_line"),
-        "source_end_column": row.get("source_end_column"),
-    }
-
-
-def _call_edge_to_row(aid: str, ce: dict[str, Any]) -> tuple:
-    return (
-        ce["call_edge_id"],
-        aid,
-        ce["from_node_id"],
-        ce["to_node_id"],
-        ce.get("to_class_name"),
-        ce.get("to_method_name"),
-        ce.get("resolution_type"),
-        ce.get("confidence"),
-        ce.get("source_file"),
-        ce.get("source_start_line"),
-        ce.get("source_start_column"),
-        ce.get("source_end_line"),
-        ce.get("source_end_column"),
-    )
-
-
-def _row_to_call_edge(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "call_edge_id": row["call_edge_id"],
-        "from_node_id": row["from_node_id"],
-        "to_node_id": row["to_node_id"],
-        "to_class_name": row.get("to_class_name"),
-        "to_method_name": row.get("to_method_name"),
-        "resolution_type": row.get("resolution_type"),
-        "confidence": row.get("confidence"),
-        "source_file": row.get("source_file"),
-        "source_start_line": row.get("source_start_line"),
-        "source_start_column": row.get("source_start_column"),
-        "source_end_line": row.get("source_end_line"),
-        "source_end_column": row.get("source_end_column"),
-    }
-
-
-def _flow_to_row(aid: str, flow: dict[str, Any]) -> tuple:
-    return (
-        flow["execution_flow_id"],
-        aid,
-        flow.get("execution_flow_fingerprint", ""),
-        flow["entry_point"],
-        flow.get("call_depth", 0),
-    )
-
-
-def _row_to_flow(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "execution_flow_id": row["execution_flow_id"],
-        "execution_flow_fingerprint": row.get("execution_flow_fingerprint", ""),
-        "entry_point": row["entry_point"],
-        "call_depth": row.get("call_depth", 0),
-    }
-
-
-def _flow_step_to_row(fid: str, step: dict[str, Any]) -> tuple:
-    return (
-        step["flow_step_id"],
-        fid,
-        step["step_index"],
-        step.get("depth", 0),
-        step["method_key"],
-        step.get("class_name"),
-        step.get("method_name"),
-        step.get("call_node_id"),
-    )
-
-
-def _row_to_flow_step(row: dict[str, Any]) -> dict[str, Any]:
-    # sqlite3.Row 没有 .get()，统一转 dict 后再读取（与其它 _row_to_* 一致）
-    if not isinstance(row, dict):
-        row = dict(row)
-    return {
-        "flow_step_id": row.get("flow_step_id"),
-        "execution_flow_id": row.get("execution_flow_id"),
-        "step_index": row.get("step_index"),
-        "depth": row.get("depth", 0),
-        "method_key": row.get("method_key"),
-        "class_name": row.get("class_name"),
-        "method_name": row.get("method_name"),
-        "call_node_id": row.get("call_node_id"),
-    }
-
-
-# ── 聚类行映射 ──
-
-
-def _cluster_to_row(aid: str, cluster: dict[str, Any]) -> tuple:
-    return (
-        cluster["cluster_id"],
-        aid,
-        cluster.get("suggested_label", ""),
-        json.dumps(cluster.get("member_keys", []), ensure_ascii=False),
-        cluster.get("member_count", 0),
-    )
-
-
-def _row_to_cluster(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "cluster_id": row["cluster_id"],
-        "analysis_id": row["analysis_id"],
-        "suggested_label": row.get("suggested_label", ""),
-        "member_keys": json.loads(row.get("member_keys_json") or "[]"),
-        "member_count": row.get("member_count", 0),
-    }
-
-
 # ── Repository ────────────────────────────────────────────────────────
 
 
@@ -335,7 +94,7 @@ class AnalysisRunRepository:
                     started_at, completed_at, projection_completed_at,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _analysis_run_to_row(run),
+                analysis_run_to_row(run),
             )
         return run
 
@@ -346,7 +105,7 @@ class AnalysisRunRepository:
             ).fetchone()
         if row is None:
             return None
-        return _row_to_analysis_run(row)
+        return row_to_analysis_run(row)
 
     def list_by_task(
         self,
@@ -367,7 +126,17 @@ class AnalysisRunRepository:
                 "LIMIT ? OFFSET ?",
                 (task_id, limit, offset),
             ).fetchall()
-        return [_row_to_analysis_run(r) for r in rows], total
+        return [row_to_analysis_run(r) for r in rows], total
+
+    def list_all_by_task(self, task_id: str) -> list[AnalysisRun]:
+        """返回任务的全部分析运行（无分页钳制，关联运行聚合入口用）。"""
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analysis_runs WHERE task_id = ? "
+                "ORDER BY created_at DESC, analysis_id DESC",
+                (task_id,),
+            ).fetchall()
+        return [row_to_analysis_run(r) for r in rows]
 
     def get_latest(self, task_id: str) -> AnalysisRun | None:
         with self._pool.ro_conn() as conn:
@@ -377,7 +146,7 @@ class AnalysisRunRepository:
             ).fetchone()
         if row is None:
             return None
-        return _row_to_analysis_run(row)
+        return row_to_analysis_run(row)
 
     def get_latest_succeeded_by_project(
         self,
@@ -405,7 +174,7 @@ class AnalysisRunRepository:
             row = conn.execute(query, params).fetchone()
         if row is None:
             return None
-        return _row_to_analysis_run(dict(row))
+        return row_to_analysis_run(dict(row))
 
     def update_status(
         self,
@@ -566,7 +335,7 @@ class AnalysisRunRepository:
                 source_file, source_start_line, source_start_column,
                 source_end_line, source_end_column
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (_call_node_to_row(analysis_id, cn) for cn in projection_data.get("call_nodes", [])),
+            (call_node_to_row(analysis_id, cn) for cn in projection_data.get("call_nodes", [])),
         )
 
         # Endpoint
@@ -585,7 +354,7 @@ class AnalysisRunRepository:
                 source_end_line, source_end_column,
                 entry_call_node_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (_endpoint_to_row(analysis_id, ep) for ep in projection_data.get("endpoints", [])),
+            (endpoint_to_row(analysis_id, ep) for ep in projection_data.get("endpoints", [])),
         )
 
         # CallEdge
@@ -598,7 +367,7 @@ class AnalysisRunRepository:
                 source_file, source_start_line, source_start_column,
                 source_end_line, source_end_column
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (_call_edge_to_row(analysis_id, ce) for ce in projection_data.get("call_edges", [])),
+            (call_edge_to_row(analysis_id, ce) for ce in projection_data.get("call_edges", [])),
         )
 
         # ExecutionFlow
@@ -608,10 +377,7 @@ class AnalysisRunRepository:
                 execution_flow_id, analysis_id, execution_flow_fingerprint,
                 entry_point, call_depth
             ) VALUES (?, ?, ?, ?, ?)""",
-            (
-                _flow_to_row(analysis_id, flow)
-                for flow in projection_data.get("execution_flows", [])
-            ),
+            (flow_to_row(analysis_id, flow) for flow in projection_data.get("execution_flows", [])),
         )
 
         # FlowStep
@@ -622,7 +388,7 @@ class AnalysisRunRepository:
                 method_key, class_name, method_name, call_node_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                _flow_step_to_row(step.get("execution_flow_id", ""), step)
+                flow_step_to_row(step.get("execution_flow_id", ""), step)
                 for step in projection_data.get("flow_steps", [])
             ),
         )
@@ -670,7 +436,7 @@ class AnalysisRunRepository:
                 member_keys_json, member_count
             ) VALUES (?, ?, ?, ?, ?)""",
             (
-                _cluster_to_row(analysis_id, cluster)
+                cluster_to_row(analysis_id, cluster)
                 for cluster in projection_data.get("clusters", [])
             ),
         )
@@ -687,7 +453,7 @@ class AnalysisRunRepository:
             cursor=cursor,
             limit=limit,
         )
-        return [_row_to_endpoint(r) for r in items], next_cursor, total, has_more
+        return [row_to_endpoint(r) for r in items], next_cursor, total, has_more
 
     def list_call_nodes(
         self,
@@ -715,7 +481,7 @@ class AnalysisRunRepository:
             limit=limit,
         )
         return (
-            [_row_to_call_node(r) for r in items],
+            [row_to_call_node(r) for r in items],
             next_cursor,
             total,
             has_more,
@@ -744,7 +510,7 @@ class AnalysisRunRepository:
             limit=limit,
         )
         return (
-            [_row_to_call_edge(r) for r in items],
+            [row_to_call_edge(r) for r in items],
             next_cursor,
             total,
             has_more,
@@ -760,7 +526,7 @@ class AnalysisRunRepository:
             cursor=cursor,
             limit=limit,
         )
-        return [_row_to_flow(r) for r in items], next_cursor, total, has_more
+        return [row_to_flow(r) for r in items], next_cursor, total, has_more
 
     # ── 非分页"取全部"查询（关联匹配引擎专用）─────────────────────────
     #
@@ -778,7 +544,7 @@ class AnalysisRunRepository:
                 "ORDER BY normalized_path_template ASC, http_method ASC, endpoint_id ASC",
                 (analysis_id,),
             ).fetchall()
-        return [_row_to_endpoint(dict(r)) for r in rows]
+        return [row_to_endpoint(dict(r)) for r in rows]
 
     def list_all_call_nodes(self, analysis_id: str) -> list[dict[str, Any]]:
         """返回分析的全部调用节点（无 200 行钳制，关联匹配用）。"""
@@ -788,7 +554,7 @@ class AnalysisRunRepository:
                 "ORDER BY class_name ASC, method_name ASC, call_node_id ASC",
                 (analysis_id,),
             ).fetchall()
-        return [_row_to_call_node(dict(r)) for r in rows]
+        return [row_to_call_node(dict(r)) for r in rows]
 
     def list_all_execution_flows(self, analysis_id: str) -> list[dict[str, Any]]:
         """返回分析的全部执行流（无 200 行钳制，关联匹配用）。"""
@@ -798,7 +564,7 @@ class AnalysisRunRepository:
                 "ORDER BY entry_point ASC, execution_flow_id ASC",
                 (analysis_id,),
             ).fetchall()
-        return [_row_to_flow(dict(r)) for r in rows]
+        return [row_to_flow(dict(r)) for r in rows]
 
     def list_all_flow_steps_by_analysis(self, analysis_id: str) -> list[dict[str, Any]]:
         """一次查询获取分析的所有 flow steps（JOIN execution_flows），避免 N+1。"""
@@ -811,7 +577,7 @@ class AnalysisRunRepository:
                    ORDER BY afs.execution_flow_id, afs.step_index""",
                 (analysis_id,),
             ).fetchall()
-        return [_row_to_flow_step(r) for r in rows]
+        return [row_to_flow_step(r) for r in rows]
 
     def list_flow_steps_by_flow_ids(self, execution_flow_ids: list[str]) -> list[dict[str, Any]]:
         """按当前页 execution_flow_id 集合批量取 flow steps。
@@ -829,7 +595,7 @@ class AnalysisRunRepository:
                 f"ORDER BY execution_flow_id, step_index",
                 execution_flow_ids,
             ).fetchall()
-        return [_row_to_flow_step(r) for r in rows]
+        return [row_to_flow_step(r) for r in rows]
 
     def get_diagnostics(self, analysis_id: str) -> dict[str, Any] | None:
         with self._pool.ro_conn() as conn:
@@ -872,7 +638,7 @@ class AnalysisRunRepository:
             cursor=cursor,
             limit=limit,
         )
-        return [_row_to_cluster(r) for r in items], next_cursor, total, has_more
+        return [row_to_cluster(r) for r in items], next_cursor, total, has_more
 
     def get_counts(self, analysis_id: str) -> dict[str, int]:
         """返回各投影表的记录数（含 findings 表按 analysis_id 过滤）。"""
@@ -1005,71 +771,17 @@ class AnalysisRunRepository:
         if params is None:
             raise ValueError("where_clause path must provide params")
 
-        # 游标编码：base64(json({"k": [sort_key_values]}))。解码或校验失败
-        # （非列表 / 键数与排序列不符）时回退为首页请求：仍计算 total。
-        order_cols = [c.strip().split()[0] for c in order.split(",")]
-        cursor_keys: list[Any] | None = None
-        if cursor:
-            try:
-                decoded = json.loads(base64.urlsafe_b64decode(cursor).decode())
-                keys = decoded["k"]
-                if not isinstance(keys, list) or len(keys) != len(order_cols):
-                    raise ValueError("cursor keys must match order columns")
-                # 键元素必须为标量（str/int/float，显式排除 bool/None/容器），否则
-                # 长度合规但元素非标量的游标会在 SQLite 参数绑定时抛 500，而不是回退首页。
-                if any(not isinstance(k, (str, int, float)) or isinstance(k, bool) for k in keys):
-                    raise ValueError("cursor keys must be scalar")
-                cursor_keys = keys
-            except Exception:
-                cursor = None
-                cursor_keys = None
-
-        sql = f"SELECT * FROM {table} WHERE {where_clause}"
         with self._pool.ro_conn() as conn:
-            # total 仅在首屏请求（无有效 cursor）时计算；后续 cursor 页返回
-            # None，由客户端复用首屏 total，避免每页执行全表/索引 COUNT。
-            total: int | None = None
-            if cursor is None:
-                row = conn.execute(
-                    f"SELECT COUNT(*) AS cnt FROM {table} WHERE {where_clause}",
-                    params,
-                ).fetchone()
-                total = row["cnt"] if row else 0
-
-            limit = min(limit, 200)
-            if cursor_keys is not None:
-                # 游标过滤：排序键 > 游标值
-                # 简化实现：按 order 提取列名构造 WHERE 子句
-                cursor_conds = []
-                cursor_params = list(params)
-                for i, col in enumerate(order_cols):
-                    prefix_cols = order_cols[:i]
-                    prefix_cond = (
-                        " AND ".join(f"{pc} = ?" for pc in prefix_cols) if prefix_cols else ""
-                    )
-                    if prefix_cond:
-                        cursor_conds.append(f"({prefix_cond} AND {col} > ?)")
-                        cursor_params.extend(cursor_keys[:i])
-                        cursor_params.append(cursor_keys[i])
-                    else:
-                        cursor_conds.append(f"{col} > ?")
-                        cursor_params.append(cursor_keys[i])
-                sql += f" AND ({' OR '.join(cursor_conds)})"
-                params = cursor_params
-
-            sql += f" ORDER BY {order} LIMIT ?"
-            params_with_limit = list(params) + [limit + 1]
-            rows = conn.execute(sql, params_with_limit).fetchall()
-
-        has_more = len(rows) > limit
-        items = [dict(r) for r in rows[:limit]]
-        next_cursor = None
-        if has_more and items:
-            # 游标编码最后一行的排序键
-            last = items[-1]
-            cursor_payload = {"k": [last[col] for col in order_cols]}
-            next_cursor = base64.urlsafe_b64encode(json.dumps(cursor_payload).encode()).decode()
-        return items, next_cursor, total, has_more
+            rows, next_cursor, total, has_more = cursor_paginate(
+                conn,
+                table,
+                order=order,
+                where=where_clause,
+                params=params,
+                cursor=cursor,
+                limit=limit,
+            )
+        return [dict(r) for r in rows], next_cursor, total, has_more
 
 
 def _utc_now() -> str:

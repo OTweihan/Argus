@@ -27,8 +27,10 @@ from argus_py.correlation.models import (
 )
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.repositories.analysis_repo import AnalysisRunRepository
+from argus_py.task.repositories.blackbox_repo import BlackboxRunRepository
 from argus_py.task.repositories.correlation_repo import CorrelationRepository
 from argus_py.task.repositories.event_repo import EventRepository
+from argus_py.task.repositories.evidence_repo import EvidenceRepository
 from argus_py.task.repositories.finding_repo import FindingRepository
 from argus_py.task.repositories.log_repo import LogRepository
 from argus_py.task.repositories.task_repo import TaskRepository
@@ -66,8 +68,15 @@ class TaskFileStorage:
         """列出已保存任务 ID（按文件名字母序，即大致按创建时间排序）。"""
         return sorted(path.stem for path in self.base_dir.glob("*.json"))
 
-    def list_tasks(self, offset: int = 0, limit: int | None = None) -> list[Task]:
-        """列出已保存任务，支持分页以减轻磁盘 I/O。"""
+    def list_tasks(
+        self,
+        offset: int = 0,
+        limit: int | None = None,
+        status: str | None = None,
+        project_id: str | None = None,
+        task_type: str | None = None,
+    ) -> list[Task]:
+        """列出已保存任务，支持分页与可选过滤（与 SQLite 后端签名对齐）。"""
         ids = self.list_ids()
         ids.reverse()
         if offset:
@@ -75,11 +84,30 @@ class TaskFileStorage:
         if limit is not None:
             ids = ids[:limit]
         tasks = [self.load(task_id) for task_id in ids]
+        if status is not None:
+            tasks = [t for t in tasks if t.status.value == status]
+        if project_id is not None:
+            tasks = [t for t in tasks if t.project_id == project_id]
+        if task_type is not None:
+            tasks = [t for t in tasks if t.task_type.value == task_type]
         return sorted(tasks, key=lambda item: item.created_at, reverse=True)
 
-    def count_tasks(self) -> int:
-        """快速返回任务总数（仅列文件名，不反序列化）。"""
-        return len(self.list_ids())
+    def count_tasks(
+        self,
+        status: str | None = None,
+        project_id: str | None = None,
+        q: str | None = None,
+        task_type: str | None = None,
+    ) -> int:
+        """返回任务总数（可按状态/项目/类型过滤；q 忽略——文件后端无全文索引）。"""
+        tasks = self.list_tasks()
+        if status is not None:
+            tasks = [t for t in tasks if t.status.value == status]
+        if project_id is not None:
+            tasks = [t for t in tasks if t.project_id == project_id]
+        if task_type is not None:
+            tasks = [t for t in tasks if t.task_type.value == task_type]
+        return len(tasks)
 
     def has_retry_child(self, task_id: str) -> bool:
         """是否存在以 ``task_id`` 为直接前驱的重试子任务。
@@ -87,6 +115,149 @@ class TaskFileStorage:
         文件存储仅用于测试/开发路径：无唯一索引兜底，这里遍历任务列表过滤。
         """
         return any(task.retry_parent_task_id == task_id for task in self.list_tasks())
+
+    def get_task_status(self, task_id: str) -> str | None:
+        """读取任务状态值（文件不存在时为 None）。"""
+        if not self.exists(task_id):
+            return None
+        return self.load(task_id).status.value
+
+    def get_report_path(self, task_id: str) -> str | None:
+        """读取任务报告路径（文件不存在时为 None）。"""
+        if not self.exists(task_id):
+            return None
+        return self.load(task_id).report_path
+
+    def load_task_header(self, task_id: str) -> dict | None:
+        """读取任务头字段 dict（不含日志/发现项大字段）。"""
+        if not self.exists(task_id):
+            return None
+        data = self.load_raw(task_id)
+        return {
+            "task_id": data.get("task_id"),
+            "status": data.get("status"),
+            "project_id": data.get("project_id"),
+            "task_type": data.get("task_type"),
+            "goal": data.get("goal"),
+        }
+
+    def count_findings(self) -> int:
+        """返回全部任务的发现项数量。"""
+        return sum(len(t.findings) for t in self.list_tasks())
+
+    def list_task_summaries(
+        self,
+        offset: int = 0,
+        limit: int | None = None,
+        status: str | None = None,
+        project_id: str | None = None,
+        q: str | None = None,
+        task_type: str | None = None,
+    ) -> tuple[list[Task], int]:
+        """按 created_at DESC 返回任务摘要（复用 list_tasks 过滤语义）。"""
+        tasks = [t for t in self.list_tasks()]
+        if status is not None:
+            tasks = [t for t in tasks if t.status.value == status]
+        if project_id is not None:
+            tasks = [t for t in tasks if t.project_id == project_id]
+        if task_type is not None:
+            tasks = [t for t in tasks if t.task_type.value == task_type]
+        if q:
+            needle = q.lower()
+            tasks = [
+                t
+                for t in tasks
+                if needle in (t.goal or "").lower() or needle in (t.name or "").lower()
+            ]
+        total = len(tasks)
+        if offset:
+            tasks = tasks[offset:]
+        if limit is not None:
+            tasks = tasks[:limit]
+        return tasks, total
+
+    def insert_findings_batch(self, task_id: str, findings: list[Finding]) -> None:
+        """批量替换写入发现项并回写计数（语义对齐 SQLite 批量插入）。"""
+        data = self.load_raw(task_id)
+        data["findings"] = [to_jsonable(f) for f in findings]
+        data["finding_count"] = len(findings)
+        self.save(Task.from_dict(data))
+
+    def delete_findings_by_analysis_id(self, analysis_id: str) -> None:
+        """删除指定分析执行的所有发现项（幂等清理）。"""
+        removed = False
+        for task in self.list_tasks():
+            kept = [f for f in task.findings if f.analysis_id != analysis_id]
+            if len(kept) != len(task.findings):
+                data = self.load_raw(task.task_id)
+                data["findings"] = [to_jsonable(f) for f in kept]
+                data["finding_count"] = len(kept)
+                self.save(Task.from_dict(data))
+                removed = True
+        if not removed:
+            pass  # 幂等：无匹配时静默返回
+
+    # ── 窄更新桥接 ───────────────────────────────────────────
+
+    def update_task(self, task_id: str, **fields: Any) -> None:
+        """窄更新：合并字段后重写快照（文件后端无 SQL 级窄 UPDATE）。
+
+        供 ``TaskLifecycleService._persist_status`` 等窄字段写入方复用；
+        字段名与 tasks 表列一致，经 ``Task.from_dict`` 还原校验。
+        """
+        data = self.load_raw(task_id)
+        data.update(fields)
+        self.save(Task.from_dict(data))
+
+    def append_log_batch(self, entries: list[tuple[str, TaskLog]]) -> None:
+        """批量追加步骤日志（逐任务合并重写，语义对齐 SQLite 批量插入）。"""
+        by_task: dict[str, list[TaskLog]] = {}
+        for task_id, log in entries:
+            by_task.setdefault(task_id, []).append(log)
+        for task_id, logs in by_task.items():
+            task = self.load(task_id)
+            task.logs.extend(logs)
+            if logs:
+                task.current_step = max(task.current_step, max(log.step_number for log in logs))
+            self.save(task)
+
+    def append_finding(self, task_id: str, finding: Finding) -> None:
+        """追加问题记录（合并重写快照，语义对齐 SQLite 插入）。"""
+        data = self.load_raw(task_id)
+        findings = data.get("findings") or []
+        findings.append(to_jsonable(finding))
+        data["findings"] = findings
+        if "finding_count" in data:
+            data["finding_count"] = len(findings)
+        self.save(Task.from_dict(data))
+
+    def append_event(self, event: Any) -> None:
+        """追加时间线事件到所属任务快照（文件后端无独立事件表）。"""
+        task_id = getattr(event, "task_id", None)
+        if not task_id or not self.exists(task_id):
+            return
+        task = self.load(task_id)
+        task.logs.append(
+            TaskLog(
+                step_number=task.current_step,
+                action=f"event:{getattr(event, 'event_type', '')}",
+                message=None,
+            )
+        )
+        self.save(task)
+
+    def append_event_batch(self, events: list[Any]) -> None:
+        """批量追加时间线事件（逐事件走单条路径）。"""
+        for event in events:
+            self.append_event(event)
+
+    def load_events(self, task_id: str) -> list[Any]:
+        """文件后端无独立事件存储，返回空列表（时间线仅 SQLite 支持）。"""
+        return []
+
+    def delete_events(self, task_id: str) -> None:
+        """文件后端无独立事件存储，无需清理。"""
+        return None
 
     def delete(self, task_id: str) -> None:
         """删除任务快照。"""
@@ -111,6 +282,8 @@ class TaskSQLiteStorage:
         self._events = EventRepository(pool)
         self._analysis = AnalysisRunRepository(pool)
         self._correlation = CorrelationRepository(pool)
+        self._blackbox = BlackboxRunRepository(pool)
+        self._evidence = EvidenceRepository(pool)
 
     # ── 任务 CRUD ───────────────────────────────────────────
 
@@ -294,6 +467,10 @@ class TaskSQLiteStorage:
     ) -> tuple[list[Any], int]:
         return self._analysis.list_by_task(task_id, offset=offset, limit=limit)
 
+    def list_all_analysis_runs(self, task_id: str) -> list[Any]:
+        """返回任务的全部分析运行（无分页钳制，关联运行聚合入口用）。"""
+        return self._analysis.list_all_by_task(task_id)
+
     def get_latest_analysis_run(self, task_id: str) -> Any:
         return self._analysis.get_latest(task_id)
 
@@ -447,10 +624,28 @@ class TaskSQLiteStorage:
 
     # BlackboxRun
     def create_blackbox_run(self, run: BlackboxRun) -> BlackboxRun:
-        return self._correlation.create_blackbox_run(run)
+        return self._blackbox.create(run)
 
     def get_blackbox_run(self, blackbox_run_id: str) -> BlackboxRun | None:
-        return self._correlation.get_blackbox_run(blackbox_run_id)
+        return self._blackbox.get(blackbox_run_id)
+
+    def list_blackbox_runs_by_task(self, task_id: str) -> list[BlackboxRun]:
+        """按任务 ID 列出黑盒运行（started_at DESC）。"""
+        return self._blackbox.list_by_task(task_id)
+
+    def list_correlation_runs_by_analysis_ids(
+        self, analysis_ids: list[str]
+    ) -> list[CorrelationRun]:
+        """按 analysis_id 批量查找关联运行（白盒任务→关联证据入口）。"""
+        return self._correlation.list_by_analysis_ids(analysis_ids)
+
+    def list_correlation_attempts_by_run(self, correlation_run_id: str) -> list[CorrelationAttempt]:
+        """列出关联运行的尝试记录（attempt_number DESC）。"""
+        return self._correlation.list_attempts_by_run(correlation_run_id)
+
+    def get_correlation_attempt(self, attempt_id: str) -> CorrelationAttempt | None:
+        """按 ID 获取关联尝试记录。"""
+        return self._correlation.get_attempt(attempt_id)
 
     def update_blackbox_run_status(
         self,
@@ -458,7 +653,7 @@ class TaskSQLiteStorage:
         status: str,
         completed_at: str | None = None,
     ) -> None:
-        self._correlation.update_blackbox_run_status(blackbox_run_id, status, completed_at)
+        self._blackbox.update_status(blackbox_run_id, status, completed_at)
 
     # CorrelationRun
     def create_correlation_run(self, run: CorrelationRun) -> CorrelationRun:
@@ -537,7 +732,7 @@ class TaskSQLiteStorage:
 
     # HttpRequestEvidence
     def insert_http_request_batch(self, items: list[HttpRequestEvidence]) -> None:
-        self._correlation.insert_request_batch(items)
+        self._evidence.insert_request_batch(items)
 
     def list_http_requests(
         self,
@@ -546,10 +741,10 @@ class TaskSQLiteStorage:
         offset: int = 0,
         limit: int = 100,
     ) -> tuple[list[HttpRequestEvidence], int]:
-        return self._correlation.list_requests_by_blackbox_run(bb_id, offset=offset, limit=limit)
+        return self._evidence.list_requests_by_blackbox_run(bb_id, offset=offset, limit=limit)
 
     def list_eligible_requests(self, bb_id: str) -> list[HttpRequestEvidence]:
-        return self._correlation.list_eligible_requests(bb_id)
+        return self._evidence.list_eligible_requests(bb_id)
 
     def list_unmatched_requests(
         self,
@@ -558,7 +753,11 @@ class TaskSQLiteStorage:
         offset: int = 0,
         limit: int = 100,
     ) -> tuple[list[HttpRequestEvidence], int]:
-        return self._correlation.list_unmatched_requests(cr_id, offset=offset, limit=limit)
+        return self._evidence.list_unmatched_requests(cr_id, offset=offset, limit=limit)
+
+    def list_all_unmatched_requests(self, cr_id: str) -> list[HttpRequestEvidence]:
+        """返回全部 UNMATCHED 请求（无分页钳制，关联报告聚合用）。"""
+        return self._evidence.list_all_unmatched_requests(cr_id)
 
     def list_uncovered_endpoints(
         self,
@@ -567,17 +766,17 @@ class TaskSQLiteStorage:
         offset: int = 0,
         limit: int = 100,
     ) -> tuple[list[dict[str, Any]], int]:
-        return self._correlation.list_uncovered_endpoints(cr_id, offset=offset, limit=limit)
+        return self._evidence.list_uncovered_endpoints(cr_id, offset=offset, limit=limit)
 
     # EndpointEvidence + 关系表
     def insert_endpoint_evidence_batch(self, items: list[EndpointEvidence]) -> None:
-        self._correlation.insert_evidence_batch(items)
+        self._evidence.insert_evidence_batch(items)
 
     def insert_candidates_batch(self, items: list[EndpointEvidenceCandidate]) -> None:
-        self._correlation.insert_candidates_batch(items)
+        self._evidence.insert_candidates_batch(items)
 
     def insert_flows_batch(self, items: list[EndpointEvidenceFlow]) -> None:
-        self._correlation.insert_flows_batch(items)
+        self._evidence.insert_flows_batch(items)
 
     def list_endpoint_evidence(
         self,
@@ -588,7 +787,7 @@ class TaskSQLiteStorage:
         offset: int = 0,
         limit: int = 100,
     ) -> tuple[list[dict[str, Any]], int]:
-        return self._correlation.list_evidence_by_attempt(
+        return self._evidence.list_evidence_by_attempt(
             attempt_id,
             resolution_status=resolution_status,
             match_strategy=match_strategy,
@@ -601,10 +800,10 @@ class TaskSQLiteStorage:
 
     # FindingEvidence
     def insert_finding_evidence_batch(self, items: list[FindingEvidence]) -> None:
-        self._correlation.insert_finding_evidence_batch(items)
+        self._evidence.insert_finding_evidence_batch(items)
 
     def insert_finding_links_batch(self, items: list[FindingEvidenceLink]) -> None:
-        self._correlation.insert_finding_links_batch(items)
+        self._evidence.insert_finding_links_batch(items)
 
     def list_finding_evidence(
         self,
@@ -613,37 +812,41 @@ class TaskSQLiteStorage:
         offset: int = 0,
         limit: int = 100,
     ) -> tuple[list[dict[str, Any]], int]:
-        return self._correlation.list_finding_evidence(cr_id, offset=offset, limit=limit)
+        return self._evidence.list_finding_evidence(cr_id, offset=offset, limit=limit)
+
+    def list_all_finding_evidence(self, cr_id: str) -> list[dict[str, Any]]:
+        """返回全部 Finding 关联证据行（无分页钳制，关联报告聚合用）。"""
+        return self._evidence.list_all_finding_evidence(cr_id)
 
     # 批量查询辅助
     def batch_get_candidates(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        return self._correlation.batch_get_candidates(evidence_ids)
+        return self._evidence.batch_get_candidates(evidence_ids)
 
     def batch_get_flows(self, evidence_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        return self._correlation.batch_get_flows(evidence_ids)
+        return self._evidence.batch_get_flows(evidence_ids)
 
     def batch_get_endpoint_details(self, endpoint_ids: list[str]) -> dict[str, dict[str, Any]]:
-        return self._correlation.batch_get_endpoint_details(endpoint_ids)
+        return self._evidence.batch_get_endpoint_details(endpoint_ids)
 
     def batch_get_finding_details(self, finding_ids: list[str]) -> dict[str, dict[str, Any]]:
-        return self._correlation.batch_get_finding_details(finding_ids)
+        return self._evidence.batch_get_finding_details(finding_ids)
 
     # Attempt 明细
     def list_confirmed_touched_endpoints(self, attempt_id: str) -> list[dict[str, Any]]:
-        return self._correlation.list_confirmed_touched_endpoints(attempt_id)
+        return self._evidence.list_confirmed_touched_endpoints(attempt_id)
 
     def insert_attempt_reasons_batch(self, items: list[CorrelationAttemptReason]) -> None:
-        self._correlation.insert_attempt_reasons_batch(items)
+        self._evidence.insert_attempt_reasons_batch(items)
 
     def insert_attempt_diagnostics_batch(self, items: list[CorrelationAttemptDiagnostic]) -> None:
-        self._correlation.insert_attempt_diagnostics_batch(items)
+        self._evidence.insert_attempt_diagnostics_batch(items)
 
     # CaptureQuality
     def upsert_capture_quality(self, quality: CaptureQuality) -> None:
-        self._correlation.upsert_capture_quality(quality)
+        self._blackbox.upsert_capture_quality(quality)
 
     def get_capture_quality(self, blackbox_run_id: str) -> dict[str, Any] | None:
-        return self._correlation.get_capture_quality(blackbox_run_id)
+        return self._blackbox.get_capture_quality(blackbox_run_id)
 
     # 崩溃恢复
     def recover_stale_attempts(self) -> list[CorrelationAttempt]:

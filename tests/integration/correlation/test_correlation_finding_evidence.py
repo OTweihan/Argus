@@ -28,10 +28,7 @@ from argus_py.correlation.models import (
     EndpointEvidence,
 )
 from argus_py.task.models import Task
-from argus_py.task.repositories.analysis_repo import (
-    _call_node_to_row,
-    _endpoint_to_row,
-)
+from argus_py.task.repositories.mappers import call_node_to_row, endpoint_to_row
 from argus_py.task.storage import TaskSQLiteStorage
 
 pytestmark = [pytest.mark.integration]
@@ -131,7 +128,7 @@ def _seed_analysis_data(
                     source_end_line, source_end_column,
                     entry_call_node_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _endpoint_to_row(analysis_id, ep),
+                endpoint_to_row(analysis_id, ep),
             )
 
     # 写入调用节点（2 个）
@@ -167,7 +164,7 @@ def _seed_analysis_data(
                     source_file, source_start_line, source_start_column,
                     source_end_line, source_end_column
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _call_node_to_row(analysis_id, cn),
+                call_node_to_row(analysis_id, cn),
             )
 
     # 写入执行流（1 条）

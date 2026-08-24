@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 
-from argus_py.api.dependencies import get_task_app_service
+from argus_py.api.dependencies import get_correlation_service, get_task_app_service
 from argus_py.api.schemas.correlation import (
     BindAnalysisRequest,
     CaptureQualityResponse,
@@ -22,6 +24,9 @@ from argus_py.api.schemas.correlation import (
 )
 from argus_py.observability.context import run_in_thread
 from argus_py.task.application import TaskApplicationService
+
+if TYPE_CHECKING:
+    from argus_py.correlation.application import CorrelationService
 
 router = APIRouter(prefix="/correlation-runs", tags=["correlation"])
 
@@ -271,12 +276,12 @@ async def list_correlation_runs_by_task(
 async def bind_analysis(
     correlation_run_id: str = Path(..., description="关联运行 ID"),
     body: BindAnalysisRequest = Body(...),
-    app: TaskApplicationService = Depends(get_task_app_service),
+    correlation: "CorrelationService" = Depends(get_correlation_service),
 ) -> None:
     """绑定白盒分析到关联运行。"""
     try:
         await run_in_thread(
-            app.bind_analysis,
+            correlation.bind_analysis,
             correlation_run_id,
             body.analysis_id,
             expected_projection_version=body.expected_projection_version,
@@ -293,11 +298,11 @@ async def bind_analysis(
 @router.post("/{correlation_run_id}/retry", status_code=status.HTTP_202_ACCEPTED)
 async def retry_correlation(
     correlation_run_id: str = Path(..., description="关联运行 ID"),
-    app: TaskApplicationService = Depends(get_task_app_service),
+    correlation: "CorrelationService" = Depends(get_correlation_service),
 ) -> dict[str, str]:
     """重试关联（相同输入，创建新 Attempt）。"""
     try:
-        attempt_id = await run_in_thread(app.retry_correlation, correlation_run_id)
+        attempt_id = await run_in_thread(correlation.retry_correlation, correlation_run_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -309,11 +314,11 @@ async def retry_correlation(
 @router.post("/{correlation_run_id}/recalculate", status_code=status.HTTP_201_CREATED)
 async def recalculate_correlation(
     correlation_run_id: str = Path(..., description="关联运行 ID"),
-    app: TaskApplicationService = Depends(get_task_app_service),
+    correlation: "CorrelationService" = Depends(get_correlation_service),
 ) -> CorrelationRunResponse:
     """重算关联（输入变化，创建新 CorrelationRun）。"""
     try:
-        data = await run_in_thread(app.recalculate_correlation, correlation_run_id)
+        data = await run_in_thread(correlation.recalculate_correlation, correlation_run_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -9,7 +9,7 @@ from argus_py.core.enums import FindingSeverity, FindingType, StepResult
 from argus_py.redaction import redact_finding_entry, redact_log_entry
 from argus_py.task._base import TaskEventPublisher, _StorageEventBase
 from argus_py.task.models import Finding, Task, TaskLog
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
 
 __all__ = ["TaskEventPublisher", "TaskLogService"]
@@ -22,7 +22,7 @@ class TaskLogService(_StorageEventBase):
 
     def __init__(
         self,
-        storage: TaskFileStorage | TaskSQLiteStorage,
+        storage: TaskSQLiteStorage,
         event_publisher: TaskEventPublisher | None = None,
     ) -> None:
         super().__init__(storage, event_publisher)
@@ -69,12 +69,14 @@ class TaskLogService(_StorageEventBase):
                 "currentStep": resolved.current_step,
             },
         )
-        # FileStorage 无增量追加，立即保存全量 task；SQLite 走缓冲批量写入
-        if not isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.save(resolved)
-        elif len(self._pending_logs) >= self._LOG_BUFFER_THRESHOLD:
-            self.flush_logs()
+        # 日志走缓冲批量写入（BlackboxEvents 每步 flush，阈值兜底）；
+        # 测试中读取持久化日志前需显式 flush_logs()。
+        self._flush_logs_if_needed()
         return resolved
+
+    def _flush_logs_if_needed(self) -> None:
+        if len(self._pending_logs) >= self._LOG_BUFFER_THRESHOLD:
+            self.flush_logs()
 
     def flush_logs(self) -> None:
         """将缓冲的日志批量写入存储（单事务 executemany）。"""
@@ -83,8 +85,7 @@ class TaskLogService(_StorageEventBase):
                 return
             entries = self._pending_logs[:]
             self._pending_logs.clear()
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.append_log_batch(entries)
+        self.storage.append_log_batch(entries)
 
     def append_finding(
         self,
@@ -111,10 +112,7 @@ class TaskLogService(_StorageEventBase):
         )
         resolved.findings.append(finding)
         resolved.finding_count = previous_count + 1
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.append_finding(resolved.task_id, finding)
-        else:
-            self.storage.save(resolved)
+        self.storage.append_finding(resolved.task_id, finding)
         self._publish(
             "task.finding",
             resolved,

@@ -32,12 +32,12 @@ from argus_py.browser import BrowserSession
 from argus_py.core.enums import ActionType, StepResult, TaskStatus
 from argus_py.core.exceptions import TaskError
 from argus_py.report.generator import ReportGenerator
-from argus_py.task.event import _NullTimelineService
+from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task
 from argus_py.task.read import TaskReadService
-from argus_py.task.storage import TaskFileStorage
+from argus_py.task.storage import TaskSQLiteStorage
 
 # ── Stubs ────────────────────────────────────────────────────────────────────
 
@@ -177,15 +177,15 @@ def _build_loop(
     max_recovery_attempts: int = 2,
     check_cancelled_fn=None,
 ) -> tuple[BlackboxExecutionLoop, TaskLifecycleService, TaskReadService, StubActionExecutor]:
-    storage = TaskFileStorage(tmp_path / "tasks")
+    storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=None)
     reader = TaskReadService(storage)
     log_service = TaskLogService(storage, event_publisher=None)
-    timeline = _NullTimelineService()
+    timeline = TaskTimelineService(storage)
     executor = StubActionExecutor(log_service, action_responses)
     finalizer = Finalizer(log_service, lifecycle, reader, ReportGenerator(tmp_path / "reports"))
     evidence = EvidenceCollector()
-    events = BlackboxEvents(timeline, log_service)  # type: ignore[arg-type]
+    events = BlackboxEvents(timeline, log_service)
     policy = RecoveryPolicy(max_attempts=max_recovery_attempts)
     loop = BlackboxExecutionLoop(
         lifecycle=lifecycle,

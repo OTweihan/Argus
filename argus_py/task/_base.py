@@ -2,7 +2,7 @@
 
 `TaskLifecycleService` 与 `TaskLogService` 都需要：
 
-1. 持有 ``storage``（``TaskFileStorage | TaskSQLiteStorage``）；
+1. 持有 ``storage``（``TaskSQLiteStorage``）；
 2. 接受可选的 ``event_publisher`` 用于推送任务事件；
 3. 接受 ``Task`` 对象或 task_id，统一还原为 ``Task``；
 4. 在 publisher 存在时通过 ``to_jsonable`` 序列化后转发事件。
@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from argus_py.task.models import Task
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
 
 TaskEventPublisher = Callable[[str, str, dict[str, Any]], None]
@@ -28,7 +28,7 @@ class _StorageEventBase:
 
     def __init__(
         self,
-        storage: TaskFileStorage | TaskSQLiteStorage,
+        storage: TaskSQLiteStorage,
         event_publisher: TaskEventPublisher | None,
     ) -> None:
         self.storage = storage

@@ -7,6 +7,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from argus_py.cli.io import cli_error, cli_info, cli_print
+from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
 from argus_py.llm import LLMClient
 
@@ -31,7 +32,7 @@ def build_parser(subparsers: "SubParserAdder") -> None:
 
 async def run_check(args: argparse.Namespace) -> int:
     """运行 LLM 连接检查。"""
-    service = ModelConfigService()
+    service = ModelConfigService(ModelConfigSQLiteStorage())
     config = service.get_default_model_config()
     if config is None:
         cli_error(

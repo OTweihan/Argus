@@ -18,10 +18,11 @@ from argus_py.observability.debug_bundle import DebugBundleBuilder
 from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.runtime.container import create_container, create_task_application_service
-from argus_py.task.event import TaskTimelineService, _NullTimelineService
+from argus_py.task.event import TaskTimelineService
 from argus_py.task.read import TaskReadService
 
 if TYPE_CHECKING:
+    from argus_py.correlation.application import CorrelationService
     from argus_py.task.application import TaskApplicationService
 
 
@@ -61,7 +62,13 @@ def get_task_app_service() -> "TaskApplicationService":
 
 
 @lru_cache
-def get_task_timeline_service() -> TaskTimelineService | _NullTimelineService:
+def get_correlation_service() -> "CorrelationService":
+    """返回关联编排服务（从容器直接提取）。"""
+    return create_container().correlation_service
+
+
+@lru_cache
+def get_task_timeline_service() -> TaskTimelineService:
     """返回 TaskTimelineService（从容器直接提取）。"""
     return create_container().timeline_service
 
@@ -113,6 +120,7 @@ def reset_all_dependencies() -> None:
     get_task_read_service.cache_clear()
     get_trace_reader_service.cache_clear()
     get_debug_bundle_builder.cache_clear()
+    get_correlation_service.cache_clear()
     get_task_app_service.cache_clear()
     # 运行时容器与 LLM 信号量同样需要在测试间重置，防止 asyncio.Semaphore
     # 跨 event loop 复用导致 ``RuntimeError``。

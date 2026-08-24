@@ -76,6 +76,8 @@ class BlackboxExecutionLoop:
 
         while executed_steps < task_input.max_steps:
             if await self._check_cancelled(task):
+                # 重载快照前先冲刷缓冲日志，避免丢失此前步骤的记录
+                await self.events.flush()
                 return await self.finalizer.finalize(
                     self._reader.get_latest_task(task), owns_status
                 )
@@ -209,6 +211,10 @@ class BlackboxExecutionLoop:
                 recovery_attempts = 0
                 last_error = None
             except TaskError as exc:
+                # 失败路径随后要从存储重载快照（REPLAN）或向上传播终止
+                # （ABORT）；先冲刷缓冲日志，保证重载/收尾包含本步日志，
+                # 与写穿型存储后端的时序语义保持一致。
+                await self.events.flush()
                 task = self._reader.get_latest_task(task)
                 last_error = {
                     "action": action_step.action.value,

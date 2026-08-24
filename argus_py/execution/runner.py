@@ -65,20 +65,20 @@ _LIFECYCLE_FIELDS: frozenset[str] = frozenset(
 class TaskRunner:
     """单进程任务执行器 — 属 execution 层，跨模块编排。
 
-    Handlers 由组合根注入（必需）。TaskRunner 是任务终态的唯一写入者。
-    Handler 通过类型化异常表达结果。
+    Handlers 与报告生成器由组合根注入（必需），实例可跨任务复用。
+    TaskRunner 是任务终态的唯一写入者。Handler 通过类型化异常表达结果。
     """
 
     def __init__(
         self,
         lifecycle: TaskLifecycleService,
         handlers: dict[TaskType, TaskHandler],
-        report_generator: ReportGenerator | None = None,
+        report_generator: ReportGenerator,
         worker_id: str = "",
     ) -> None:
         self.lifecycle = lifecycle
         self.handlers = handlers
-        self.report_generator = report_generator or ReportGenerator()
+        self.report_generator = report_generator
         self._worker_id = worker_id
 
     def register_handler(self, task_type: TaskType, handler: TaskHandler) -> None:

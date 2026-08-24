@@ -22,14 +22,20 @@ def _worker(
     reader: Any = None,
     lifecycle: Any = None,
 ) -> TaskWorker:
-    """构造测试 Worker。lifecycle 用 Mock 使 reconcile 走"非 SQLite storage"早退。"""
-    return TaskWorker(
+    """构造测试 Worker。reconcile 需要真实 SQLite storage，与本组测试无关，替换为空操作。"""
+    worker = TaskWorker(
         queue=queue if queue is not None else TaskQueue(),
         lifecycle=lifecycle if lifecycle is not None else Mock(),
         reader=reader,
         handlers={},
         concurrency=concurrency,
     )
+
+    async def _noop_reconcile() -> None:
+        return None
+
+    worker._reconcile_stale_tasks = _noop_reconcile  # type: ignore[method-assign]
+    return worker
 
 
 class TestHealthSnapshotBasics:

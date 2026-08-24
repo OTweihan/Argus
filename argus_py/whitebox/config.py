@@ -10,10 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from argus_py.task.models import Task
 
 # ── 枚举 ──────────────────────────────────────────────────────────────────────
 
@@ -286,3 +290,23 @@ class ExecutionWhiteboxConfig:
     scope: str = "all"
     target_modules: list[str] = dc_field(default_factory=list)
     maven: WhiteboxMavenConfig | None = None
+
+
+# ── 任务配置恢复（runner 与 recovery 共用）───────────────────────────────────
+
+
+def load_persisted_config(task: Task) -> PersistedWhiteboxConfig:
+    """从任务记录还原持久化白盒配置。
+
+    新格式 ``task.whitebox_config_json`` 优先；缺失时回退旧 ``parameters``
+    dict 解析（走完整校验后转持久化格式）。runner 与 recovery 必须共用此
+    实现，避免两处还原逻辑行为分化。
+    """
+    if task.whitebox_config_json:
+        return PersistedWhiteboxConfig.model_validate_json(task.whitebox_config_json)
+    return WhiteboxTaskConfig.from_legacy_parameters(task.parameters).to_persisted()
+
+
+def load_execution_config(task: Task) -> ExecutionWhiteboxConfig:
+    """从任务记录还原执行时白盒配置（见 :func:`load_persisted_config`）。"""
+    return load_persisted_config(task).to_execution_config()

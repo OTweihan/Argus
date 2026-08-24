@@ -19,11 +19,13 @@ async def test_runner_register_handler(app_stack) -> None:
     """验证任务处理器注册。"""
     from argus_py.blackbox.runner import BlackboxRunner
     from argus_py.execution.runner import TaskRunner
+    from argus_py.report.generator import ReportGenerator
     from argus_py.whitebox.client import WhiteboxClient
     from argus_py.whitebox.runner import WhiteboxRunner
 
     runner = TaskRunner(
         lifecycle=app_stack.lifecycle,
+        report_generator=ReportGenerator(),
         handlers={
             TaskType.BLACKBOX: BlackboxRunner(
                 lifecycle=app_stack.lifecycle,
@@ -49,6 +51,7 @@ async def test_runner_register_handler(app_stack) -> None:
 async def test_runner_whitebox_no_source(app_stack) -> None:
     """验证未提供源码路径时 runner 报错。"""
     from argus_py.execution.runner import TaskRunner
+    from argus_py.report.generator import ReportGenerator
     from argus_py.whitebox.client import WhiteboxClient
     from argus_py.whitebox.runner import WhiteboxRunner
 
@@ -62,6 +65,7 @@ async def test_runner_whitebox_no_source(app_stack) -> None:
 
     runner = TaskRunner(
         lifecycle=app_stack.lifecycle,
+        report_generator=ReportGenerator(),
         handlers={
             TaskType.WHITEBOX: WhiteboxRunner(
                 client=AsyncMock(spec=WhiteboxClient),
@@ -348,9 +352,11 @@ async def test_runner_blackbox_not_affected(app_stack) -> None:
     """验证白盒注册不破坏黑盒任务执行。"""
     from argus_py.blackbox.runner import BlackboxRunner
     from argus_py.execution.runner import TaskRunner
+    from argus_py.report.generator import ReportGenerator
 
     runner = TaskRunner(
         lifecycle=app_stack.lifecycle,
+        report_generator=ReportGenerator(),
         handlers={
             TaskType.BLACKBOX: BlackboxRunner(
                 lifecycle=app_stack.lifecycle,

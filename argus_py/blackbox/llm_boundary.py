@@ -7,6 +7,7 @@ from typing import Any
 
 from argus_py.blackbox.evaluator import BlackboxEvaluator
 from argus_py.blackbox.planner import BlackboxPlanner
+from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import ProjectNotFoundError
 from argus_py.llm.client import LLMClient
@@ -42,7 +43,9 @@ class LLMBoundaryFactory:
         self._default_planner = default_planner
         self._default_evaluator = default_evaluator
         self._project_storage = project_storage
-        self._model_config_service = model_config_service or ModelConfigService()
+        self._model_config_service = model_config_service or ModelConfigService(
+            ModelConfigSQLiteStorage()
+        )
         self._owned_clients: dict[str, list[LLMClient]] = {}
 
     def resolve(self, task: Task) -> tuple[BlackboxPlanner, BlackboxEvaluator]:

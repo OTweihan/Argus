@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from argus_py.blackbox import BlackboxRunner
 from argus_py.browser import BrowserSession
@@ -20,7 +20,6 @@ from argus_py.task.models import Task
 if TYPE_CHECKING:
     from argus_py.cli._types import SubParserAdder
     from argus_py.runtime.container import RuntimeContainer
-    from argus_py.task.event import TaskTimelineService
 
 
 def build_parser(subparsers: "SubParserAdder") -> None:
@@ -172,13 +171,14 @@ def _build_runner(
         lifecycle=c.lifecycle_service,
         reader=c.task_read_service,
         log_service=c.log_service,
-        timeline_service=cast("TaskTimelineService", c.timeline_service),
+        timeline_service=c.timeline_service,
         browser_session_factory=browser_session_factory,
         model_config_service=model_config,
     )
     return TaskRunner(
         lifecycle=c.lifecycle_service,
         handlers={TaskType.BLACKBOX: blackbox_runner.run},
+        report_generator=c.report_generator,
     )
 
 

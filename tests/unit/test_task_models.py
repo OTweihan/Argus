@@ -9,7 +9,7 @@ from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task, TaskLog
 from argus_py.task.read import TaskReadService
 from argus_py.task.status import can_transition
-from argus_py.task.storage import TaskFileStorage
+from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
 
 
@@ -85,7 +85,7 @@ def test_model_config_from_dict_uses_bool_defaults():
 
 
 def test_task_service_can_save_and_query_history(tmp_path):
-    storage = TaskFileStorage(tmp_path)
+    storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=None)
     log = TaskLogService(storage, event_publisher=None)
     reader = TaskReadService(storage)
@@ -93,6 +93,8 @@ def test_task_service_can_save_and_query_history(tmp_path):
 
     log.append_log(task, action="goto", url_after="https://example.com")
     log.append_finding(task.task_id, title="观察项", description="页面可访问")
+    # 日志为缓冲写入，查询持久化状态前显式 flush（对齐生产 BlackboxEvents 每步 flush）
+    log.flush_logs()
     loaded = reader.get_task(task.task_id)
 
     assert loaded.current_step == 1

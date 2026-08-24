@@ -17,7 +17,7 @@ from argus_py.task._base import TaskEventPublisher, _StorageEventBase
 from argus_py.task.models import Task, normalize_task_name
 from argus_py.task.policies import can_delete, can_edit, can_retry
 from argus_py.task.status import assert_transition
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from argus_py.task.storage import TaskSQLiteStorage
 
 __all__ = ["TaskEventPublisher", "TaskLifecycleService"]
 
@@ -37,7 +37,7 @@ class TaskLifecycleService(_StorageEventBase):
 
     def __init__(
         self,
-        storage: TaskFileStorage | TaskSQLiteStorage,
+        storage: TaskSQLiteStorage,
         event_publisher: TaskEventPublisher | None,
     ) -> None:
         super().__init__(storage, event_publisher)
@@ -177,20 +177,17 @@ class TaskLifecycleService(_StorageEventBase):
 
     def _persist_status(self, task: Task) -> None:
         """持久化状态变更（仅更新状态与租约相关字段，不做全量覆盖）。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.update_task(
-                task.task_id,
-                status=task.status.value,
-                started_at=task.started_at.isoformat() if task.started_at else None,
-                completed_at=task.completed_at.isoformat() if task.completed_at else None,
-                error_message=task.error_message,
-                result_summary=task.result_summary,
-                report_path=task.report_path,
-                worker_id=task.worker_id,
-                worker_lease_expires_at=task.worker_lease_expires_at,
-            )
-        else:
-            self.storage.save(task)
+        self.storage.update_task(
+            task.task_id,
+            status=task.status.value,
+            started_at=task.started_at.isoformat() if task.started_at else None,
+            completed_at=task.completed_at.isoformat() if task.completed_at else None,
+            error_message=task.error_message,
+            result_summary=task.result_summary,
+            report_path=task.report_path,
+            worker_id=task.worker_id,
+            worker_lease_expires_at=task.worker_lease_expires_at,
+        )
 
     def _status_event_payload(
         self, task: Task, previous_status: TaskStatus, error_message: str | None
@@ -360,28 +357,26 @@ class TaskLifecycleService(_StorageEventBase):
         result_schema_version: int = 1,
         config_json: str | None = None,
     ) -> Any:
-        """创建分析执行记录（SQLite 后端；FileStorage 返回 None）。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            from argus_py.analysis.models import AnalysisRun
-            from argus_py.core.constants import utc_now as _utc_now
+        """创建分析执行记录。"""
+        from argus_py.analysis.models import AnalysisRun
+        from argus_py.core.constants import utc_now as _utc_now
 
-            now = _utc_now().isoformat()
-            run = AnalysisRun(
-                analysis_id=analysis_id,
-                task_id=task_id,
-                source_snapshot_id=source_snapshot_id,
-                resolved_commit_sha=resolved_commit_sha,
-                run_status="QUEUED",
-                completeness_status="NOT_EVALUATED",
-                external_job_id=external_job_id,
-                result_schema_version=result_schema_version,
-                config_json=config_json or "{}",
-                created_at=now,
-                updated_at=now,
-            )
-            self.storage.create_analysis_run(run)
-            return run
-        return None
+        now = _utc_now().isoformat()
+        run = AnalysisRun(
+            analysis_id=analysis_id,
+            task_id=task_id,
+            source_snapshot_id=source_snapshot_id,
+            resolved_commit_sha=resolved_commit_sha,
+            run_status="QUEUED",
+            completeness_status="NOT_EVALUATED",
+            external_job_id=external_job_id,
+            result_schema_version=result_schema_version,
+            config_json=config_json or "{}",
+            created_at=now,
+            updated_at=now,
+        )
+        self.storage.create_analysis_run(run)
+        return run
 
     def start_analysis_run(self, analysis_id: str) -> None:
         """分析执行：QUEUED → RUNNING。
@@ -389,10 +384,9 @@ class TaskLifecycleService(_StorageEventBase):
         SUBMITTING 状态不存在可观察窗口（紧随其后的 RUNNING 立即写入），
         直接落 RUNNING 减少一次不必要的事务更新。
         """
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.update_analysis_run_status(
-                analysis_id, "RUNNING", started_at=utc_now().isoformat()
-            )
+        self.storage.update_analysis_run_status(
+            analysis_id, "RUNNING", started_at=utc_now().isoformat()
+        )
 
     def reset_analysis_run(self, analysis_id: str) -> None:
         """重新接管时复位非终态 analysis_run 供再次执行（O-04 启动恢复）。
@@ -400,23 +394,21 @@ class TaskLifecycleService(_StorageEventBase):
         复用同一 analysis_id（避免 UNIQUE 冲突重复插入），清空上次运行的
         失败/完成痕迹，回到 QUEUED 由新一次执行驱动。
         """
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.update_analysis_run_status(
-                analysis_id,
-                "QUEUED",
-                completeness_status="NOT_EVALUATED",
-                failure_code=None,
-                failure_message=None,
-                stop_reason=None,
-                started_at=None,
-                completed_at=None,
-                projection_completed_at=None,
-            )
+        self.storage.update_analysis_run_status(
+            analysis_id,
+            "QUEUED",
+            completeness_status="NOT_EVALUATED",
+            failure_code=None,
+            failure_message=None,
+            stop_reason=None,
+            started_at=None,
+            completed_at=None,
+            projection_completed_at=None,
+        )
 
     def save_analysis_raw_result(self, analysis_id: str, raw_json: str, digest: str) -> None:
         """事务 1：独立保存 Java 原始响应（审计留存）。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.save_analysis_raw_result(analysis_id, raw_json, digest)
+        self.storage.save_analysis_raw_result(analysis_id, raw_json, digest)
 
     def complete_analysis_projection(
         self,
@@ -428,21 +420,19 @@ class TaskLifecycleService(_StorageEventBase):
         projection_data: dict[str, Any],
     ) -> None:
         """事务 2：投影写入 + 标记 SUCCEEDED，同一事务。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.complete_analysis_projection(
-                analysis_id,
-                completeness=completeness,
-                quality_issues_json=quality_issues_json,
-                result_digest=result_digest,
-                projection_data=projection_data,
-            )
+        self.storage.complete_analysis_projection(
+            analysis_id,
+            completeness=completeness,
+            quality_issues_json=quality_issues_json,
+            result_digest=result_digest,
+            projection_data=projection_data,
+        )
 
     def mark_analysis_failed(
         self, analysis_id: str, failure_code: str, failure_message: str
     ) -> None:
         """事务 3：投影失败标记。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.mark_analysis_failed(analysis_id, failure_code, failure_message)
+        self.storage.mark_analysis_failed(analysis_id, failure_code, failure_message)
 
     def mark_analysis_terminal(
         self,
@@ -452,23 +442,19 @@ class TaskLifecycleService(_StorageEventBase):
         failure_message: str,
     ) -> None:
         """将 analysis_runs 置为取消/超时等非失败终态（STOPPED_WAITING / CANCELLED / TIMED_OUT）。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            self.storage.mark_analysis_terminal(
-                analysis_id, run_status, failure_code, failure_message
-            )
+        self.storage.mark_analysis_terminal(analysis_id, run_status, failure_code, failure_message)
 
     def save_task_findings(self, task: Task) -> None:
         """持久化任务的 findings 列表（含 snippet / analysis_id）。
 
         先删除同 analysis_id 的已有记录（幂等），再写入新 findings，
         避免同一任务重复执行时 findings 表累积历史数据。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            # 从第一条 finding 提取 analysis_id（同批次 findings 的 analysis_id 一致）
-            if task.findings:
-                first_aid = task.findings[0].analysis_id
-                if first_aid:
-                    self.storage.delete_findings_by_analysis_id(first_aid)
-            self.storage.insert_findings_batch(task.task_id, task.findings)
+        # 从第一条 finding 提取 analysis_id（同批次 findings 的 analysis_id 一致）
+        if task.findings:
+            first_aid = task.findings[0].analysis_id
+            if first_aid:
+                self.storage.delete_findings_by_analysis_id(first_aid)
+        self.storage.insert_findings_batch(task.task_id, task.findings)
 
 
 def _task_summary(task: Task) -> dict[str, Any]:

@@ -8,11 +8,13 @@ from typing import Callable
 
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
+from argus_py.correlation.application import CorrelationService
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.debug_bundle import DebugBundleBuilder
 from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
+from argus_py.report.generator import ReportGenerator
 from argus_py.task.application import TaskApplicationService
 from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
@@ -33,6 +35,7 @@ class AppStack:
     debug_builder: DebugBundleBuilder
     timeline: TaskTimelineService
     project_service: ProjectService
+    correlation: CorrelationService
     queue: TaskQueue
 
 
@@ -60,6 +63,11 @@ def make_app_stack(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
         task_read_service=reader,
     )
+    correlation = CorrelationService(
+        storage=storage,
+        report_generator=ReportGenerator(tmp_path / "reports"),
+        save_task=lifecycle.save_task,
+    )
     queue = TaskQueue(max_size=queue_max_size)
     app = TaskApplicationService(
         lifecycle=lifecycle,
@@ -77,5 +85,6 @@ def make_app_stack(
         debug_builder=debug_builder,
         timeline=timeline,
         project_service=project_service,
+        correlation=correlation,
         queue=queue,
     )

@@ -17,6 +17,7 @@ from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.lifecycle import TaskLifecycleService
+from argus_py.task.read import TaskReadService
 from argus_py.task.storage import TaskSQLiteStorage
 
 
@@ -27,7 +28,10 @@ def tmp_db(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def project_service(tmp_db: Path) -> ProjectService:
-    return ProjectService(ProjectSQLiteStorage(tmp_db))
+    return ProjectService(
+        ProjectSQLiteStorage(tmp_db),
+        task_read_service=TaskReadService(TaskSQLiteStorage(tmp_db)),
+    )
 
 
 @pytest.fixture

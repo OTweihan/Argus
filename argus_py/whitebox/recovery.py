@@ -22,6 +22,7 @@ from argus_py.infra.queue import TaskQueue
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.whitebox.client import WhiteboxClient, WhiteboxJobNotFoundError
+from argus_py.whitebox.config import load_execution_config
 from argus_py.whitebox.runner import _find_reusable_analysis_id, _persist_success_result
 
 logger = logging.getLogger(__name__)
@@ -29,15 +30,13 @@ logger = logging.getLogger(__name__)
 _REMOTE_QUERY_TIMEOUT = 15.0
 
 
-def find_stale_whitebox_tasks(storage: object) -> list[dict]:
+def find_stale_whitebox_tasks(storage: TaskSQLiteStorage) -> list[dict]:
     """扫描租约过期的 WHITEBOX+RUNNING 任务。
 
     安全条件（与原 Worker reconciliation 一致）：
     1. status=RUNNING / task_type=WHITEBOX / external_job_id IS NOT NULL
     2. worker_lease_expires_at < now（租约已过期）
     """
-    if not isinstance(storage, TaskSQLiteStorage):
-        return []
     now_iso = datetime.now(timezone.utc).isoformat()
     return storage.list_stale_whitebox_tasks(now_iso)
 
@@ -165,8 +164,6 @@ async def _mark_terminal(
 ) -> None:
     """CAS 标记终态（FAILED/TIMEOUT），防止与并发修改竞态。"""
     storage = lifecycle.storage
-    if not isinstance(storage, TaskSQLiteStorage):
-        return
     now_iso = datetime.now(timezone.utc).isoformat()
     updated = storage.mark_stale_task_terminal(
         row["task_id"],
@@ -187,22 +184,7 @@ async def _mark_terminal(
 def _resolve_scope(task) -> str:
     """从任务配置解析 scope（复用 runner 配置恢复逻辑）。"""
     try:
-        if task.whitebox_config_json:
-            from argus_py.whitebox.config import PersistedWhiteboxConfig
-
-            return (
-                PersistedWhiteboxConfig.model_validate_json(task.whitebox_config_json)
-                .to_execution_config()
-                .scope
-            )
-        from argus_py.whitebox.config import WhiteboxTaskConfig
-
-        return (
-            WhiteboxTaskConfig.from_legacy_parameters(task.parameters)
-            .to_persisted()
-            .to_execution_config()
-            .scope
-        )
+        return load_execution_config(task).scope
     except Exception:
         logger.exception("解析任务 scope 失败: task=%s", task.task_id)
         return "all"

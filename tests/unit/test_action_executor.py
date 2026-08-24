@@ -5,7 +5,8 @@
 - ``FakeBrowserSession`` 模拟 ``BrowserSession`` 在测试场景下需要的最小子集
 - ``FakeBrowserActions`` 模拟 ``session.require_actions()`` 返回的对象
 - ``EvidenceCollector`` 直接复用真实实现（其内部对失败完全静默）
-- ``TaskService`` + ``TaskFileStorage`` 走真实文件后端，验证 step 日志确实落到任务上
+- ``TaskService`` + ``TaskSQLiteStorage`` 走真实 SQLite 后端，验证 step 日志确实落到任务上
+  （读取持久化日志前显式 ``flush_logs()``，对齐生产 BlackboxEvents 每步 flush 契约）
 
 不依赖 Playwright / 网络，纯本地。
 """
@@ -30,7 +31,7 @@ from argus_py.core.exceptions import TaskError
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.read import TaskReadService
-from argus_py.task.storage import TaskFileStorage
+from argus_py.task.storage import TaskSQLiteStorage
 
 # ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -106,13 +107,15 @@ def _browser_session(session: FakeBrowserSession) -> BrowserSession:
     return cast(BrowserSession, session)
 
 
-def _build_executor(tmp_path: Path) -> tuple[ActionExecutor, TaskLifecycleService, TaskReadService]:
-    storage = TaskFileStorage(tmp_path / "tasks")
+def _build_executor(
+    tmp_path: Path,
+) -> tuple[ActionExecutor, TaskLifecycleService, TaskReadService, TaskLogService]:
+    storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=None)
     reader = TaskReadService(storage)
     log_service = TaskLogService(storage, event_publisher=None)
     executor = ActionExecutor(log_service=log_service, evidence_collector=EvidenceCollector())
-    return executor, lifecycle, reader
+    return executor, lifecycle, reader, log_service
 
 
 # ── resolve_error_code ──────────────────────────────────────────────────────
@@ -163,7 +166,7 @@ async def test_dispatch_action_validation_errors(
     tmp_path: Path, step: ActionStep, expected_code: str
 ) -> None:
     """各 handler 缺参数时直接抛 ``TaskError`` 携带预期 error_code。"""
-    executor, lifecycle, _ = _build_executor(tmp_path)
+    executor, lifecycle, _, _ = _build_executor(tmp_path)
     task = lifecycle.create_task(goal="g", start_url="https://example.com")
     session = FakeBrowserSession(tmp_path)
 
@@ -175,7 +178,7 @@ async def test_dispatch_action_validation_errors(
 
 async def test_dispatch_action_unsupported_type(tmp_path: Path) -> None:
     """未注册的 action 类型抛 TaskError（不带 error_code）。"""
-    executor, lifecycle, _ = _build_executor(tmp_path)
+    executor, lifecycle, _, _ = _build_executor(tmp_path)
     task = lifecycle.create_task(goal="g", start_url="https://example.com")
     session = FakeBrowserSession(tmp_path)
 
@@ -192,7 +195,7 @@ async def test_dispatch_action_unsupported_type(tmp_path: Path) -> None:
 
 async def test_execute_action_success_appends_log(tmp_path: Path) -> None:
     """成功执行后在任务日志中追加 ``StepResult.SUCCESS`` 记录。"""
-    executor, lifecycle, _ = _build_executor(tmp_path)
+    executor, lifecycle, _, _ = _build_executor(tmp_path)
     task = lifecycle.create_task(goal="g", start_url="https://example.com")
     session = FakeBrowserSession(tmp_path)
     step = ActionStep(action=ActionType.GOTO, url="https://example.com", reason="open page")
@@ -211,7 +214,7 @@ async def test_execute_action_success_appends_log(tmp_path: Path) -> None:
 
 async def test_execute_action_screenshot_skipped_when_disabled(tmp_path: Path) -> None:
     """task.capture_screenshots=False 时 _screenshot 直接返回跳过消息。"""
-    executor, lifecycle, _ = _build_executor(tmp_path)
+    executor, lifecycle, _, _ = _build_executor(tmp_path)
     task = lifecycle.create_task(
         goal="g", start_url="https://example.com", capture_screenshots=False
     )
@@ -230,7 +233,7 @@ async def test_execute_action_screenshot_skipped_when_disabled(tmp_path: Path) -
 
 async def test_execute_action_failure_logs_and_raises_with_error_code(tmp_path: Path) -> None:
     """动作内部异常 → 写 FAILED 日志，并抛 TaskError 带映射后的 error_code。"""
-    executor, lifecycle, reader = _build_executor(tmp_path)
+    executor, lifecycle, reader, log_service = _build_executor(tmp_path)
     task = lifecycle.create_task(goal="g", start_url="https://example.com")
     session = FailingClickSession(tmp_path)
     step = ActionStep(action=ActionType.CLICK, selector="#missing", reason="点击")
@@ -239,7 +242,8 @@ async def test_execute_action_failure_logs_and_raises_with_error_code(tmp_path: 
         await executor.execute_action(task, _browser_session(session), step)
 
     assert exc_info.value.error_code == "element_not_found"
-    # 失败路径写入了 FAILED 日志并填了 error_code
+    # 失败路径写入了 FAILED 日志并填了 error_code（日志为缓冲写入，先显式 flush）
+    log_service.flush_logs()
     latest = reader.get_task(task.task_id)
     assert len(latest.logs) == 1
     assert latest.logs[0].result is StepResult.FAILED
@@ -252,7 +256,7 @@ async def test_execute_action_failure_logs_and_raises_with_error_code(tmp_path: 
 
 def test_step_params_serialization_includes_extra_params(tmp_path: Path) -> None:
     """``_step_params`` 把 step 主字段 + ``params`` 字典合并为可 JSON 化的扁平 dict。"""
-    executor, _, _ = _build_executor(tmp_path)
+    executor, _, _, _ = _build_executor(tmp_path)
     step = ActionStep(
         action=ActionType.SELECT,
         selector="#country",

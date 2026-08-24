@@ -5,20 +5,14 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from argus_py.core.constants import KEYWORD_FIELDS, TASK_SEARCH_MIN_LENGTH
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError, TaskNotFoundError
 from argus_py.core.paths import REPORTS_DIR, SCREENSHOTS_DIR
 from argus_py.observability.events import log_event
 from argus_py.task.models import Task
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from argus_py.task.storage import TaskSQLiteStorage
 
 logger = logging.getLogger(__name__)
-
-
-def _task_matches_keyword(task: Task, kw: str) -> bool:
-    """Python 端 6 字段关键词匹配（FileStorage 回退）。"""
-    return any(kw in (getattr(task, f, None) or "").lower() for f in KEYWORD_FIELDS)
 
 
 class TaskReadService:
@@ -26,7 +20,7 @@ class TaskReadService:
 
     def __init__(
         self,
-        storage: TaskFileStorage | TaskSQLiteStorage,
+        storage: TaskSQLiteStorage,
     ) -> None:
         self.storage = storage
 
@@ -36,13 +30,8 @@ class TaskReadService:
 
     def get_task_status(self, task_id: str) -> TaskStatus | None:
         """轻量查询任务当前状态，不加载日志/发现项。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            raw = self.storage.get_task_status(task_id)
-            return TaskStatus(raw) if raw else None
-        try:
-            return self.storage.load(task_id).status
-        except TaskNotFoundError:
-            return None
+        raw = self.storage.get_task_status(task_id)
+        return TaskStatus(raw) if raw else None
 
     def get_task(self, task_id: str) -> Task:
         """按 ID 获取任务。"""
@@ -73,39 +62,17 @@ class TaskReadService:
         limit: int | None = None,
     ) -> list[Task]:
         """列出任务，可按状态、项目和类型过滤，支持分页。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.list_tasks(
-                offset=offset,
-                limit=limit,
-                status=status.value if status else None,
-                project_id=project_id,
-                task_type=task_type.value if task_type else None,
-            )
-        has_filter = status is not None or project_id is not None or task_type is not None
-        if has_filter:
-            tasks = self.storage.list_tasks()
-            if status is not None:
-                tasks = [task for task in tasks if task.status is status]
-            if project_id is not None:
-                tasks = [task for task in tasks if task.project_id == project_id]
-            if task_type is not None:
-                tasks = [task for task in tasks if task.task_type is task_type]
-            if offset:
-                tasks = tasks[offset:]
-            if limit is not None:
-                tasks = tasks[:limit]
-            return tasks
-        return self.storage.list_tasks(offset=offset, limit=limit)
+        return self.storage.list_tasks(
+            offset=offset,
+            limit=limit,
+            status=status.value if status else None,
+            project_id=project_id,
+            task_type=task_type.value if task_type else None,
+        )
 
     def count_findings(self) -> int:
-        """返回所有任务的发现项总数（仪表盘聚合统计）。
-
-        仅支持 SQLite 后端。文件后端没有跨任务索引，O(N) IO 遍历不适合
-        仪表盘高频聚合，调用方应切换到 SQLite 后端。
-        """
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.count_findings()
-        raise RuntimeError("count_findings 仅支持 SQLite 后端。请配置 SQLite 存储后重试。")
+        """返回所有任务的发现项总数（仪表盘聚合统计）。"""
+        return self.storage.count_findings()
 
     def count_tasks(
         self,
@@ -115,20 +82,12 @@ class TaskReadService:
         task_type: TaskType | None = None,
     ) -> int:
         """返回任务总数，支持按状态、项目、类型和关键词过滤。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.count_tasks(
-                status=status.value if status else None,
-                project_id=project_id,
-                q=q,
-                task_type=task_type.value if task_type else None,
-            )
-        if status is None and project_id is None and q is None and task_type is None:
-            return self.storage.count_tasks()
-        tasks = self.list_tasks(status=status, project_id=project_id, task_type=task_type)
-        if q and len(q) >= TASK_SEARCH_MIN_LENGTH:
-            kw = q.lower()
-            tasks = [t for t in tasks if _task_matches_keyword(t, kw)]
-        return len(tasks)
+        return self.storage.count_tasks(
+            status=status.value if status else None,
+            project_id=project_id,
+            q=q,
+            task_type=task_type.value if task_type else None,
+        )
 
     def list_task_summaries(
         self,
@@ -140,37 +99,20 @@ class TaskReadService:
         q: str | None = None,
     ) -> tuple[list[Task], int]:
         """轻量列表查询，返回 (tasks, total_count)，单语句完成。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.list_task_summaries(
-                offset=offset,
-                limit=limit,
-                status=status.value if status else None,
-                project_id=project_id,
-                q=q,
-                task_type=task_type.value if task_type else None,
-            )
-        tasks = self.list_tasks(status=status, project_id=project_id, task_type=task_type)
-        if q and len(q) >= TASK_SEARCH_MIN_LENGTH:
-            kw = q.lower()
-            tasks = [t for t in tasks if _task_matches_keyword(t, kw)]
-        total = len(tasks)
-        if offset:
-            tasks = tasks[offset:]
-        if limit is not None:
-            tasks = tasks[:limit]
-        return tasks, total
+        return self.storage.list_task_summaries(
+            offset=offset,
+            limit=limit,
+            status=status.value if status else None,
+            project_id=project_id,
+            q=q,
+            task_type=task_type.value if task_type else None,
+        )
 
     # ── 报告路径解析 ──────────────────────────────────────────
 
     def get_report_path(self, task_id: str) -> str | None:
         """窄查询：只返回 report_path 字段，不加载日志/发现项。"""
-        if isinstance(self.storage, TaskSQLiteStorage):
-            return self.storage.get_report_path(task_id)
-        try:
-            task = self.storage.load(task_id)
-            return task.report_path
-        except TaskNotFoundError:
-            return None
+        return self.storage.get_report_path(task_id)
 
     def resolve_report_path_by_id(self, task_id: str) -> Path:
         """窄查询版本：通过 task_id 直接解析并校验 HTML 报告路径。"""

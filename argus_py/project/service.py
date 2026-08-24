@@ -10,19 +10,21 @@ from argus_py.observability import audit
 from argus_py.project.models import Project
 from argus_py.project.storage import ProjectSQLiteStorage
 from argus_py.task.read import TaskReadService
-from argus_py.task.storage import TaskSQLiteStorage
 
 
 class ProjectService:
-    """项目 CRUD 业务逻辑。"""
+    """项目 CRUD 业务逻辑。
+
+    存储与任务读服务由组合根（runtime.container）注入，服务自身不创建共享资源。
+    """
 
     def __init__(
         self,
-        storage: ProjectSQLiteStorage | None = None,
-        task_read_service: TaskReadService | None = None,
+        storage: ProjectSQLiteStorage,
+        task_read_service: TaskReadService,
     ) -> None:
-        self.storage = storage or ProjectSQLiteStorage()
-        self.task_read_service = task_read_service or TaskReadService(TaskSQLiteStorage())
+        self.storage = storage
+        self.task_read_service = task_read_service
 
     def create_project(
         self,

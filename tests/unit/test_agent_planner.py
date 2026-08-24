@@ -11,11 +11,11 @@ from argus_py.core.enums import ActionType, TaskStatus
 from argus_py.llm.models import ChatResponse
 from argus_py.llm.parser import extract_json
 from argus_py.report.generator import ReportGenerator
-from argus_py.task.event import _NullTimelineService
+from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.read import TaskReadService
-from argus_py.task.storage import TaskFileStorage
+from argus_py.task.storage import TaskSQLiteStorage
 
 
 def test_extract_json_from_markdown_block():
@@ -178,11 +178,11 @@ class CountingEvaluator:
 
 @pytest.mark.asyncio
 async def test_blackbox_runner_executes_initial_browser_loop(tmp_path):
-    storage = TaskFileStorage(tmp_path / "tasks")
+    storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=None)
     reader = TaskReadService(storage)
     log_service = TaskLogService(storage, event_publisher=None)
-    timeline = _NullTimelineService()
+    timeline = TaskTimelineService(storage)
     task = lifecycle.create_task(goal="打开页面并截图", start_url="https://example.com")
     runner = BlackboxRunner(
         lifecycle=lifecycle,
@@ -247,11 +247,11 @@ class CompleteEvaluator:
 
 @pytest.mark.asyncio
 async def test_blackbox_runner_replans_after_action_failure(tmp_path):
-    storage = TaskFileStorage(tmp_path / "tasks")
+    storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=None)
     reader = TaskReadService(storage)
     log_service = TaskLogService(storage, event_publisher=None)
-    timeline = _NullTimelineService()
+    timeline = TaskTimelineService(storage)
     task = lifecycle.create_task(goal="测试登录界面", start_url="https://example.com/login")
     planner = RecoveryPlanner()
     runner = BlackboxRunner(
@@ -284,11 +284,11 @@ class ScreenshotOnlyPlanner:
 
 @pytest.mark.asyncio
 async def test_blackbox_runner_skips_screenshot_when_disabled(tmp_path):
-    storage = TaskFileStorage(tmp_path / "tasks")
+    storage = TaskSQLiteStorage(tmp_path / "argus.db")
     lifecycle = TaskLifecycleService(storage, event_publisher=None)
     reader = TaskReadService(storage)
     log_service = TaskLogService(storage, event_publisher=None)
-    timeline = _NullTimelineService()
+    timeline = TaskTimelineService(storage)
     task = lifecycle.create_task(
         goal="打开页面",
         start_url="https://example.com",

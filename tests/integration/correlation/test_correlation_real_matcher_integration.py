@@ -22,9 +22,6 @@ from argus_py.correlation.enums import (
 from argus_py.correlation.matcher import EndpointMatcher
 from argus_py.correlation.models import HttpRequestEvidence
 from argus_py.task.models import Task
-from argus_py.task.repositories.analysis_repo import (
-    _endpoint_to_row as _endpoint_to_row,
-)
 from argus_py.task.storage import TaskSQLiteStorage
 
 from tests.integration.correlation._fixtures import setup_base_tables
@@ -63,7 +60,7 @@ def _make_minimal_db(tmp_path: Path, analysis_id: str = "analysis-1") -> TaskSQL
 
 def _insert_endpoints(storage: TaskSQLiteStorage, analysis_id: str, endpoints: list[dict]) -> None:
     """向 analysis_endpoints 批量写入端点数据。"""
-    from argus_py.task.repositories.analysis_repo import _endpoint_to_row as _ep_row
+    from argus_py.task.repositories.mappers import endpoint_to_row as _ep_row
 
     with storage._analysis._pool.tx() as conn:
         for ep in endpoints:

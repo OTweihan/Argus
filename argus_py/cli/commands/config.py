@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from argus_py.cli.io import cli_error, cli_info, cli_print
 from argus_py.cli.messages import llm_field_label, llm_message
+from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
 from argus_py.core.constants import DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MAX_RETRIES, DEFAULT_LLM_MODEL
 from argus_py.core.exceptions import ModelConfigError
@@ -28,7 +29,7 @@ def build_parser(subparsers: "SubParserAdder") -> None:
 
 def run_llm(args: argparse.Namespace) -> int:
     """交互式配置 LLM API — 写入 SQLite。"""
-    service = ModelConfigService()
+    service = ModelConfigService(ModelConfigSQLiteStorage())
 
     existing = service.get_default_model_config()
     if existing:

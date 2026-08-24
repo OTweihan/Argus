@@ -22,9 +22,10 @@ def resolve_llm_client_for_task(
     + 解密 api_key）；为 None 时惰性新建。
     """
     if model_config_service is None:
+        from argus_py.config.model_storage import ModelConfigSQLiteStorage  # noqa: PLC0415
         from argus_py.config.service import ModelConfigService  # noqa: PLC0415
 
-        model_config_service = ModelConfigService()
+        model_config_service = ModelConfigService(ModelConfigSQLiteStorage())
     model_config_id = _task_model_config_id(task)
     if model_config_id:
         return create_llm_client(model_config_service.get_model_config(model_config_id))

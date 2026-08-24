@@ -25,10 +25,13 @@ if TYPE_CHECKING:
 
 
 class ModelConfigService:
-    """模型配置 CRUD 和连接检查服务。"""
+    """模型配置 CRUD 和连接检查服务。
 
-    def __init__(self, storage: ModelConfigSQLiteStorage | None = None) -> None:
-        self.storage = storage or ModelConfigSQLiteStorage()
+    存储由组合根注入，服务自身不创建共享存储。
+    """
+
+    def __init__(self, storage: ModelConfigSQLiteStorage) -> None:
+        self.storage = storage
 
     def create_model_config(
         self,

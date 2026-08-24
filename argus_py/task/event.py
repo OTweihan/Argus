@@ -100,31 +100,3 @@ class TaskTimelineService:
     def delete_by_task(self, task_id: str) -> None:
         """删除任务的所有时间线事件。"""
         self.storage.delete_events(task_id)
-
-
-class _NullTimelineService:
-    """``TaskTimelineService`` 的 Null Object：所有方法都是空操作。
-
-    用于 ``TaskService`` 在底层 storage 不是 SQLite（仅 ``TaskFileStorage``）
-    时占位，使 facade 不必每次都 ``if self.timeline is None: return``。
-    """
-
-    async def emit(
-        self,
-        task_id: str,  # noqa: ARG002 - Null Object 接口对齐
-        event_type: str,  # noqa: ARG002
-        phase: str,  # noqa: ARG002
-        step_number: int = 0,  # noqa: ARG002
-        summary: str = "",  # noqa: ARG002
-        data: dict[str, Any] | None = None,  # noqa: ARG002
-    ) -> None:
-        return None
-
-    async def flush_events(self) -> None:
-        return None
-
-    def list_by_task(self, task_id: str) -> list[TimelineEvent]:  # noqa: ARG002
-        return []
-
-    def delete_by_task(self, task_id: str) -> None:  # noqa: ARG002
-        return None

@@ -2,6 +2,8 @@
 
 覆盖：跨运行触达并集、ATTEMPT_ONLY 排除、调用流组装、未覆盖端点、未匹配请求仅 displayPath、
 finding 关联去重、无关联运行返回 None，以及新查询 list_confirmed_touched_endpoints 的 SQL 形状。
+另含 P9 回归：报告聚合明细（unmatchedRequests / findingRelations / 关联运行列表）
+不得被固定 limit 静默截断。
 """
 
 from __future__ import annotations
@@ -16,10 +18,11 @@ from argus_py.correlation.enums import (
     ResolutionStatus,
 )
 from argus_py.correlation.models import EndpointEvidence, EndpointEvidenceFlow
-from argus_py.task.application import build_correlation_report_data
+from argus_py.correlation.report_data import build_correlation_report_data
 from argus_py.task.models import Task
 from argus_py.task.storage import TaskSQLiteStorage
 
+from tests.helpers.factories import make_app_stack
 from tests.integration.correlation._fixtures import setup_base_tables
 
 pytestmark = [pytest.mark.integration]
@@ -120,7 +123,7 @@ def _seed_correlation_report_data(storage: TaskSQLiteStorage, db: Path) -> None:
             "entry_call_node_id": "cn-3",
         },
     ]
-    from argus_py.task.repositories.analysis_repo import _endpoint_to_row
+    from argus_py.task.repositories.mappers import endpoint_to_row
 
     with storage._analysis._pool.tx() as conn:
         for ep in eps:
@@ -139,7 +142,7 @@ def _seed_correlation_report_data(storage: TaskSQLiteStorage, db: Path) -> None:
                     source_end_line, source_end_column,
                     entry_call_node_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _endpoint_to_row("an-rep", ep),
+                endpoint_to_row("an-rep", ep),
             )
 
     # 执行流 + steps
@@ -439,3 +442,128 @@ class TestBuildCorrelationReportData:
         # 未绑定任何关联运行的分析
         data = build_correlation_report_data(storage, "no-such-analysis")
         assert data is None
+
+
+class TestReportAggregationUnbounded:
+    """P9 回归：报告聚合明细不得被固定 limit 静默截断。"""
+
+    def test_unmatched_requests_beyond_50_all_included(self, tmp_path: Path) -> None:
+        storage = setup_base_tables(tmp_path / "t.db")
+        _seed_correlation_report_data(storage, tmp_path)
+
+        extra = [(f"req-unmatched-{i:02d}", 10 + i, f"/api/unknown/{i}") for i in range(59)]
+        with storage._correlation._pool.tx() as conn:
+            conn.executemany(
+                """INSERT OR IGNORE INTO http_request_evidence (
+                    request_evidence_id, blackbox_run_id, task_id, step_execution_id,
+                    request_sequence, http_method, normalized_path, display_path, origin,
+                    endpoint_match_eligibility, outcome, request_owner, captured_at
+                ) VALUES (?, 'bb1', 't1', NULL, ?, 'GET', ?, ?, 'https://example.com',
+                          'CONFIRMED_ELIGIBLE', 'COMPLETED', 'FRAME', '2024-01-01')""",
+                [(rid, seq, path, path) for rid, seq, path in extra],
+            )
+            conn.executemany(
+                """INSERT OR IGNORE INTO endpoint_evidence (
+                    endpoint_evidence_id, correlation_run_id, correlation_attempt_id,
+                    request_evidence_id, resolution_status, match_strategy, confidence,
+                    matched_endpoint_id, matcher_version, normalization_version,
+                    candidate_count, created_at
+                ) VALUES (?, 'cr-rep', 'ca-rep', ?, 'UNMATCHED', 'NONE', 'UNKNOWN',
+                          NULL, 'v1', 'v1', 0, '2024-01-01')""",
+                [(f"eev-x-{rid}", rid) for rid, _, _ in extra],
+            )
+
+        data = build_correlation_report_data(storage, "an-rep")
+
+        assert data is not None
+        # 60 条（基础 1 条 + 追加 59 条）全部进入报告，不被 limit=50 截断
+        unmatched = data["unmatchedRequests"]
+        assert len(unmatched) == 60
+        assert {r["displayPath"] for r in unmatched} >= {p for _, _, p in extra}
+
+    def test_finding_relations_beyond_500_all_included(self, tmp_path: Path) -> None:
+        storage = setup_base_tables(tmp_path / "t.db")
+        _seed_correlation_report_data(storage, tmp_path)
+
+        fe_rows = [(f"fe-x-{i:03d}", f"f-x-{i:03d}", i % 5) for i in range(520)]
+        with storage._correlation._pool.tx() as conn:
+            conn.executemany(
+                """INSERT OR IGNORE INTO finding_evidence (
+                    finding_evidence_id, correlation_attempt_id, finding_id,
+                    best_relation_type, minimum_call_distance,
+                    confirmed_request_count, candidate_request_count,
+                    finding_rule_id_snapshot, finding_location_snapshot
+                ) VALUES (?, 'ca-rep', ?, 'FLOW_MEMBER', 1, ?, 0, 'R-X', 'loc-x')""",
+                fe_rows,
+            )
+
+        data = build_correlation_report_data(storage, "an-rep")
+
+        assert data is not None
+        relations = data["findingRelations"]
+        # 521 = 基础 f-rep + 追加 520 条，全部进入报告，不被 limit=500 截断
+        assert len(relations) == 521
+        by_id = {fr["findingId"]: fr for fr in relations}
+        assert by_id["f-x-000"]["confirmedRequestCount"] == 0
+        assert by_id["f-rep"]["title"] == "空 catch"
+
+    def test_list_correlation_runs_by_task_beyond_200_analysis_runs(self, tmp_path: Path) -> None:
+        stack = make_app_stack(tmp_path)
+        storage = stack.reader.storage
+        storage.save(
+            Task(
+                task_id="t-many",
+                goal="many runs",
+                project_id="p1",
+                task_type=TaskType.WHITEBOX,
+                status=TaskStatus.COMPLETED,
+            )
+        )
+
+        from argus_py.analysis.models import AnalysisRun
+
+        runs = [
+            (
+                AnalysisRun(
+                    analysis_id=f"an-m{i:03d}",
+                    task_id="t-many",
+                    source_snapshot_id="src-m",
+                    resolved_commit_sha="abc123",
+                    run_status="SUCCEEDED",
+                    config_json="{}",
+                ),
+                f"bb-m{i:03d}",
+                f"cr-m{i:03d}",
+            )
+            for i in range(210)
+        ]
+        for ar, _, _ in runs:
+            storage.create_analysis_run(ar)
+        with storage._correlation._pool.tx() as conn:
+            # 外键父行：project / blackbox_runs
+            conn.execute(
+                "INSERT OR IGNORE INTO projects (project_id, name, created_at, updated_at) "
+                "VALUES ('p1', 'test', '2024-01-01', '2024-01-01')"
+            )
+            conn.executemany(
+                """INSERT OR IGNORE INTO blackbox_runs (
+                    blackbox_run_id, task_id, attempt, status, started_at
+                ) VALUES (?, 't-many', ?, 'SUCCESS', '2024-01-01')""",
+                [(bb_id, i + 1) for i, (_, bb_id, _) in enumerate(runs)],
+            )
+            conn.executemany(
+                """INSERT OR IGNORE INTO correlation_runs (
+                    correlation_run_id, project_id, blackbox_run_id,
+                    desired_source_snapshot_id, correlation_config_digest,
+                    matcher_version, normalization_version,
+                    analysis_id, bound_source_snapshot_id, analysis_projection_version,
+                    status, created_at
+                ) VALUES (?, 'p1', ?, 'abc123', 'd1', 'v1', 'v1', ?, 'abc123', 1,
+                          'READY', '2024-01-01')""",
+                [(cr_id, bb_id, ar.analysis_id) for ar, bb_id, cr_id in runs],
+            )
+
+        result = stack.app.list_correlation_runs_by_task("t-many")
+
+        # 210 个关联运行全部返回，不被 _MAX_ANALYSIS_RUNS=200 钳制
+        assert len(result) == 210
