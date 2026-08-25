@@ -1,17 +1,21 @@
 """阶段四：进程恢复测试。
 
 覆盖：RUNNING Attempt 租约过期 → ABORTED + Run 回退；
-残留 SUCCEEDED Attempt 不自激活。
+残留 SUCCEEDED Attempt 不自激活；Worker 启动 reconciliation 触发恢复。
 """
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Any
+from unittest.mock import Mock
 
-from argus_py.correlation.enums import (
-    CorrelationRunStatus,
-)
+import pytest
+from argus_py.correlation.enums import CorrelationRunStatus
+from argus_py.infra.queue import TaskQueue
+from argus_py.infra.worker import TaskWorker
+from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.storage import TaskSQLiteStorage
 
 from tests.integration.correlation._fixtures import (
@@ -123,3 +127,72 @@ def test_recover_then_reclaim(tmp_path: Path) -> None:
     assert new_attempt is not None
     assert new_attempt.attempt_number == 2
     assert new_attempt.lease_owner == "new-worker"
+
+
+# ── Worker 启动 reconciliation 接线 ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_worker_reconciliation_recovers_stale_attempts(tmp_path: Path) -> None:
+    """Worker 启动 reconciliation 必须触发关联 attempt 崩溃恢复。
+
+    进程在 claim 后 complete 前崩溃会遗留 RUNNING attempt——若启动期不恢复，
+    Run 将永久卡 RUNNING（claim CAS 要求 READY 永远失败）。
+    """
+    db = tmp_path / "test.db"
+    storage, cr_id, attempt_id = _setup_running_with_expired_lease(db)
+
+    lifecycle: Any = TaskLifecycleService(storage, None)
+    worker = TaskWorker(
+        queue=TaskQueue(),
+        lifecycle=lifecycle,
+        reader=Mock(),
+        handlers={},
+        concurrency=1,
+    )
+
+    await worker._reconcile_stale_tasks()
+    await worker.stop()
+
+    cr = storage.get_correlation_run(cr_id)
+    assert cr is not None
+    assert cr.status in (CorrelationRunStatus.READY, CorrelationRunStatus.FAILED)
+    assert cr.active_attempt_id is None
+
+    conn = sqlite3.connect(str(db))
+    try:
+        row = conn.execute(
+            "SELECT status FROM correlation_attempts WHERE correlation_attempt_id=?",
+            (attempt_id,),
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "ABORTED"
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_reconciliation_survives_recovery_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """恢复逻辑抛异常时不得阻断 Worker 启动（reconciliation 其余分支仍执行）。"""
+    db = tmp_path / "test.db"
+    storage = setup_base_tables(db)
+
+    lifecycle: Any = TaskLifecycleService(storage, None)
+
+    def _boom() -> list[Any]:
+        raise RuntimeError("模拟恢复失败")
+
+    monkeypatch.setattr(lifecycle.storage, "recover_stale_attempts", _boom)
+
+    worker = TaskWorker(
+        queue=TaskQueue(),
+        lifecycle=lifecycle,
+        reader=Mock(),
+        handlers={},
+        concurrency=1,
+    )
+    # 不抛异常即通过（reconciliation 内部吞掉恢复失败）
+    await worker._reconcile_stale_tasks()
+    await worker.stop()

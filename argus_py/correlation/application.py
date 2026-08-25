@@ -239,16 +239,21 @@ class CorrelationService:
 
         WAITING_ANALYSIS 表示分析尚未完成（等白盒回调触发），直接返回；
         WAITING_BLACKBOX 在此路径意味着黑盒刚完成，推进 READY 后认领。
+
+        所有同步 SQLite 操作均经 ``run_in_thread`` 执行：本方法被黑盒完成
+        回调直接 await，重活放在事件循环上会冻结整个服务。
         """
-        cr = self._storage.get_correlation_run(correlation_run_id)
+        cr = await run_in_thread(self._storage.get_correlation_run, correlation_run_id)
         if cr is None:
             return
         if cr.status == CorrelationRunStatus.WAITING_ANALYSIS:
             return  # 分析尚未完成，等白盒回调触发
         if cr.status == CorrelationRunStatus.WAITING_BLACKBOX:
-            self._storage.set_correlation_status(correlation_run_id, "READY")
+            await run_in_thread(self._storage.set_correlation_status, correlation_run_id, "READY")
 
-        attempt = self._storage.claim_and_create_attempt(correlation_run_id, worker_id)
+        attempt = await run_in_thread(
+            self._storage.claim_and_create_attempt, correlation_run_id, worker_id
+        )
         if attempt is None:
             return
         try:
@@ -256,7 +261,8 @@ class CorrelationService:
                 await self._execute_correlation(attempt)
             except Exception:
                 logger.exception("关联匹配失败: attempt=%s", attempt.correlation_attempt_id)
-                self._storage.complete_and_activate_attempt(
+                await run_in_thread(
+                    self._storage.complete_and_activate_attempt,
                     attempt.correlation_attempt_id,
                     AttemptStatus.FAILED,
                     EvidenceCompleteness.PARTIAL,
@@ -270,7 +276,14 @@ class CorrelationService:
         薄委托到 ``correlation._execution.execute_correlation``。根据采集质量
         和匹配结果决定 completeness 是 COMPLETE 还是 PARTIAL，并写入对应的
         reasons 和 diagnostics。
+
+        ``execute_correlation`` 是纯 CPU + 同步 SQLite 的重活（全量加载投影 +
+        匹配 + 批量写），必须整体放入 IO 线程执行，避免阻塞事件循环。
         """
+        await run_in_thread(self._execute_correlation_sync, attempt)
+
+    def _execute_correlation_sync(self, attempt: Any) -> None:
+        """``_execute_correlation`` 的同步实现（仅限 IO 线程调用）。"""
         from argus_py.correlation._execution import execute_correlation
 
         cr = self._storage.get_correlation_run(attempt.correlation_run_id)
@@ -290,13 +303,39 @@ class CorrelationService:
         """白盒分析成功后：查找 WAITING_ANALYSIS 的 CorrelationRun 并触发关联。
 
         绑定后按黑盒是否已完成推进 READY/WAITING_BLACKBOX，并立即尝试认领执行。
+        同步绑定/认领阶段整体在 IO 线程执行（多次 SQLite 读写）；随后逐个
+        执行匹配（同样在线程）并刷新报告。多个等待运行的绑定先于其执行完成，
+        各运行相互独立，最终 DB 状态与逐个「绑定→执行」一致。
+        """
+        claimed_list = await run_in_thread(self._bind_and_claim_waiting, task_id, analysis_id)
+        for claimed in claimed_list:
+            try:
+                await self._execute_correlation(claimed)
+            except Exception:
+                # 与 claim_and_execute 相同的兜底：单次匹配失败落 FAILED 终态，
+                # 不让一个运行拖住同批其余已认领的运行（它们已进入 RUNNING，
+                # 不兜底会卡到租约过期才被恢复）。
+                logger.exception("关联匹配失败: attempt=%s", claimed.correlation_attempt_id)
+                await run_in_thread(
+                    self._storage.complete_and_activate_attempt,
+                    claimed.correlation_attempt_id,
+                    AttemptStatus.FAILED,
+                    EvidenceCompleteness.PARTIAL,
+                )
+            finally:
+                await self.regen_report_after_attempt(claimed)
+
+    def _bind_and_claim_waiting(self, task_id: str, analysis_id: str) -> list[Any]:
+        """查找并绑定 WAITING_ANALYSIS 的关联运行，返回已认领的 attempt 列表。
+
+        仅限 IO 线程调用：全部为同步 SQLite 操作。
         """
         analysis_run = self._storage.get_analysis_run(analysis_id)
         if analysis_run is None:
-            return
+            return []
         snapshot_id = getattr(analysis_run, "resolved_commit_sha", None) or ""
         if not snapshot_id:
-            return  # 无源码快照信息，无法可靠绑定
+            return []  # 无源码快照信息，无法可靠绑定
 
         # 获取分析任务的项目 ID，用于匹配同项目关联运行
         analysis_project_id = ""
@@ -315,6 +354,7 @@ class CorrelationService:
                 "", project_id=analysis_project_id or None
             )
             is_fallback = True
+        claimed: list[Any] = []
         for cr in waiting:
             if is_fallback:
                 alignment = SourceAlignmentStatus.UNVERIFIED.value
@@ -331,12 +371,10 @@ class CorrelationService:
             )
             self._advance_after_binding(cr)
             # 尝试立即推进和认领
-            claimed = self._storage.claim_and_create_attempt(cr.correlation_run_id, self._worker_id)
-            if claimed:
-                try:
-                    await self._execute_correlation(claimed)
-                finally:
-                    await self.regen_report_after_attempt(claimed)
+            attempt = self._storage.claim_and_create_attempt(cr.correlation_run_id, self._worker_id)
+            if attempt is not None:
+                claimed.append(attempt)
+        return claimed
 
     def _advance_after_binding(self, cr: Any) -> None:
         """绑定分析后按黑盒完成状态推进 CorrelationRun 状态（单一事实源）。
@@ -370,13 +408,20 @@ class CorrelationService:
 
     async def regen_report_after_attempt(self, attempt: Any) -> None:
         """Attempt 完成（成功/失败）后刷新该分析对应的白盒报告。"""
-        cr = self._storage.get_correlation_run(attempt.correlation_run_id)
-        if cr is None or not cr.analysis_id:
+
+        def _resolve_analysis_id() -> str | None:
+            cr = self._storage.get_correlation_run(attempt.correlation_run_id)
+            if cr is None or not cr.analysis_id:
+                return None
+            return cr.analysis_id
+
+        analysis_id = await run_in_thread(_resolve_analysis_id)
+        if analysis_id is None:
             return
         try:
-            await run_in_thread(self.regen_report, cr.analysis_id)
+            await run_in_thread(self.regen_report, analysis_id)
         except Exception:
-            logger.exception("关联完成后报告重生成失败: analysis_id=%s", cr.analysis_id)
+            logger.exception("关联完成后报告重生成失败: analysis_id=%s", analysis_id)
 
     # ── 手动操作：bind / retry / recalc ─────────────────────────────
 

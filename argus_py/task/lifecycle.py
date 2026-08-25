@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Final
@@ -42,6 +43,12 @@ class TaskLifecycleService(_StorageEventBase):
     ) -> None:
         super().__init__(storage, event_publisher)
         self._cancellation_tokens: dict[str, CancellationToken] = {}
+        # 注册表锁：事件循环线程（application 层 cancel/pause/resume、runner
+        # 轮询读取）与 IO 线程（lifecycle 同名方法经 run_in_thread 调用）都会
+        # 访问本注册表。信号布尔位幂等且 GIL 下读写原子；锁只保护懒创建的
+        # check-then-act 窗口，避免双创建导致一方的取消/暂停信号写入孤儿
+        # token 而丢失。
+        self._token_lock = threading.Lock()
 
     def create_task(
         self,
@@ -133,14 +140,16 @@ class TaskLifecycleService(_StorageEventBase):
         audit("task.delete", task_id=resolved.task_id)
 
     def get_cancellation_token(self, task_id: str) -> CancellationToken:
-        """获取任务的取消/暂停信号量，懒创建。"""
-        if task_id not in self._cancellation_tokens:
-            self._cancellation_tokens[task_id] = CancellationToken()
-        return self._cancellation_tokens[task_id]
+        """获取任务的取消/暂停信号量，懒创建（线程协议见构造函数注释）。"""
+        with self._token_lock:
+            if task_id not in self._cancellation_tokens:
+                self._cancellation_tokens[task_id] = CancellationToken()
+            return self._cancellation_tokens[task_id]
 
     def remove_cancellation_token(self, task_id: str) -> None:
         """移除任务的取消/暂停信号量。"""
-        self._cancellation_tokens.pop(task_id, None)
+        with self._token_lock:
+            self._cancellation_tokens.pop(task_id, None)
 
     def update_status(
         self, task: Task, target: TaskStatus, error_message: str | None = None

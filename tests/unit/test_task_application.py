@@ -181,6 +181,39 @@ async def test_resume_task_rejects_non_paused(tmp_path: Path) -> None:
     assert exc_info.value.code == "TASK_NOT_PAUSED"
 
 
+async def test_resume_task_rejects_when_handler_not_executing(tmp_path: Path) -> None:
+    """PAUSED 但执行器已退出（队列无活跃记录）→ resume 被拒（僵尸防护）。
+
+    白盒是一次性分析型 handler：暂停后远端作业完成、结果落盘但被 PAUSED
+    阻止终态推进时，handler 已退出；此时 resume 只会产出永远无人执行的假
+    RUNNING 任务。
+    """
+    stack = make_app_stack(tmp_path)
+    task = _create_task(stack, TaskStatus.PAUSED)
+
+    with pytest.raises(TaskAppError) as exc_info:
+        await stack.app.resume_task(task.task_id)
+    assert exc_info.value.code == "TASK_NOT_EXECUTING"
+    # 状态保持 PAUSED，未翻回 RUNNING
+    refreshed = stack.lifecycle.storage.load(task.task_id)
+    assert refreshed.status == TaskStatus.PAUSED
+
+
+async def test_resume_task_allows_when_execution_active(tmp_path: Path) -> None:
+    """PAUSED 且 handler 仍在执行（队列活跃记录存在）→ resume 正常放行。"""
+    stack = make_app_stack(tmp_path)
+    task = _create_task(stack, TaskStatus.PAUSED)
+
+    # 模拟 worker 已认领该任务（进入队列活跃集合）
+    await stack.queue.enqueue(task.task_id)
+    assert await stack.queue.get() == task.task_id
+
+    resumed = await stack.app.resume_task(task.task_id)
+    assert resumed.status == TaskStatus.RUNNING
+
+    await stack.queue.complete(task.task_id)
+
+
 async def test_update_task_rejects_non_editable(tmp_path: Path) -> None:
     stack = make_app_stack(tmp_path)
     task = _create_task(stack, TaskStatus.RUNNING)

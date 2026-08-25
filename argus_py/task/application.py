@@ -409,6 +409,17 @@ class TaskApplicationService:
                 f"只有暂停的任务可以恢复，当前状态：{task.status.value}。",
                 details={"task_id": task.task_id, "status": task.status.value},
             )
+        # 僵尸防护：白盒是一次性分析型 handler——若执行器已退出（如暂停后远端
+        # 作业完成、结果落盘但被 PAUSED 阻止终态推进），队列中已无活跃执行，
+        # resume 只会把状态翻回 RUNNING 却永远无人再执行（既不能 retry 也不能
+        # 推进终态）。此时拒绝并引导改用 restart 创建新任务。
+        if await self._queue.scheduler_status(task_id) != "running":
+            raise TaskAppError(
+                "TASK_NOT_EXECUTING",
+                "任务当前没有正在执行的处理器，无法恢复；请使用重启创建新任务。",
+                http_status=409,
+                details={"task_id": task_id, "status": task.status.value},
+            )
         # CancellationToken 线程不安全；必须在 event loop 线程修改信号量。
         self._lifecycle.get_cancellation_token(task.task_id).resume()
         return await run_in_thread(self._lifecycle.resume_task, task)

@@ -248,6 +248,21 @@ class TaskWorker:
         """
         storage = self._lifecycle.storage
 
+        # 关联 attempt 崩溃恢复：进程在 claim_and_create_attempt 之后、
+        # complete_and_activate_attempt 之前崩溃会遗留 RUNNING attempt——Run 卡
+        # RUNNING 且 claim CAS 永久失败。启动期批量 ABORT 并回退 Run 状态；
+        # 失败不阻断 Worker 启动（下次重启重试）。
+        try:
+            recovered = await run_in_thread(storage.recover_stale_attempts)
+            for attempt in recovered:
+                logger.warning(
+                    "已恢复中断的关联尝试: run=%s attempt=%s",
+                    attempt.correlation_run_id,
+                    attempt.correlation_attempt_id,
+                )
+        except Exception:
+            logger.exception("关联尝试崩溃恢复失败（不影响 Worker 启动）")
+
         if self._whitebox_client is not None:
             await reconcile_orphan_whitebox_jobs(
                 storage=storage,
