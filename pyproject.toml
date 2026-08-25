@@ -118,6 +118,13 @@ disallow_untyped_defs = true
 module = "argus_py.cli.commands.config"
 warn_unused_ignores = false
 
+# 跨平台文件锁：fcntl（posix 专属）与 msvcrt（win32 专属）的属性在对方平台的
+# typeshed 桩里不可见，两平台需要的 ignore 集合互补，任一平台都会把另一平台
+# 的必要 ignore 判为 unused，故关闭本模块的 unused-ignore 检查。
+[[tool.mypy.overrides]]
+module = "argus_py.infra.singleton_lock"
+warn_unused_ignores = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

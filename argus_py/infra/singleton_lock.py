@@ -140,7 +140,10 @@ class SingleInstanceLock:
         file = self._open_handle()
         try:
             file.seek(0)
-            msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, _LOCK_LENGTH)
+            # typeshed 将 msvcrt 内容标记为 win32 专属；linux 平台分析下属性不可见。
+            # 两个平台的 ignore 需求互补，由 pyproject.toml 中本模块的
+            # warn_unused_ignores=false 统一放行，见 [[tool.mypy.overrides]]。
+            msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, _LOCK_LENGTH)  # type: ignore[attr-defined]
         except OSError:
             file.close()
             return False
@@ -167,7 +170,7 @@ class SingleInstanceLock:
         if self._file is None:
             return
         self._file.seek(0)
-        msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, _LOCK_LENGTH)
+        msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, _LOCK_LENGTH)  # type: ignore[attr-defined]
 
     def _release_posix(self) -> None:
         import fcntl

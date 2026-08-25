@@ -60,7 +60,9 @@ jobs:
         run: uv run ruff check argus_py tests scripts && uv run ruff format --check argus_py tests scripts
 
       - name: Mypy
-        run: uv run mypy argus_py
+        # CI 宿主是 Linux，显式固定平台语义，避免本地 win32 分析漏检
+        # posix 专属代码（如 typeshed 平台桩差异导致的属性不可见）
+        run: uv run mypy --platform linux argus_py
 
       - name: Pytest (unit + integration)
         run: uv run pytest tests/unit tests/integration -q --tb=short
