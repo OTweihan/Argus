@@ -88,8 +88,13 @@ export function getTaskEvents(
   });
 }
 
-export function getTaskTraces(taskId: string): Promise<LLMTraceRecord[]> {
-  return request<LLMTraceRecord[]>(`/tasks/${encodeURIComponent(taskId)}/llm-traces`);
+export function getTaskTraces(
+  taskId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<LLMTraceRecord[]> {
+  return request<LLMTraceRecord[]>(`/tasks/${encodeURIComponent(taskId)}/llm-traces`, {
+    signal: options.signal,
+  });
 }
 
 export function inferTaskLimits(
@@ -162,6 +167,7 @@ export function listAnalysisEndpoints(
   analysisId: string,
   cursor?: string | null,
   limit?: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PageResponse<EndpointInfo>> {
   const params = new URLSearchParams();
   if (cursor) params.set("cursor", cursor);
@@ -169,6 +175,7 @@ export function listAnalysisEndpoints(
   const query = params.toString();
   return request<PageResponse<EndpointInfo>>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/endpoints${query ? `?${query}` : ""}`,
+    { signal: options.signal },
   );
 }
 
@@ -179,6 +186,7 @@ export function listAnalysisCallNodes(
   methodName?: string | null,
   cursor?: string | null,
   limit?: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PageResponse<CallNodeInfo>> {
   const params = new URLSearchParams();
   if (className) params.set("className", className);
@@ -188,6 +196,7 @@ export function listAnalysisCallNodes(
   const query = params.toString();
   return request<PageResponse<CallNodeInfo>>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/call-nodes${query ? `?${query}` : ""}`,
+    { signal: options.signal },
   );
 }
 
@@ -215,6 +224,7 @@ export function listAnalysisExecutionFlows(
   analysisId: string,
   cursor?: string | null,
   limit?: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PageResponse<ExecutionFlowInfo>> {
   const params = new URLSearchParams();
   if (cursor) params.set("cursor", cursor);
@@ -222,15 +232,18 @@ export function listAnalysisExecutionFlows(
   const query = params.toString();
   return request<PageResponse<ExecutionFlowInfo>>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/execution-flows${query ? `?${query}` : ""}`,
+    { signal: options.signal },
   );
 }
 
 export function getAnalysisDiagnostics(
   taskId: string,
   analysisId: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<DiagnosticsInfo> {
   return request<DiagnosticsInfo>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/diagnostics`,
+    { signal: options.signal },
   );
 }
 
@@ -243,6 +256,7 @@ export function listAnalysisFindings(
   analysisId: string,
   cursor?: string | null,
   limit?: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PageResponse<FindingInfo>> {
   const params = new URLSearchParams();
   if (cursor) params.set("cursor", cursor);
@@ -250,6 +264,7 @@ export function listAnalysisFindings(
   const query = params.toString();
   return request<PageResponse<FindingInfo>>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/findings${query ? `?${query}` : ""}`,
+    { signal: options.signal },
   );
 }
 
@@ -262,6 +277,7 @@ export function listAnalysisClusters(
   analysisId: string,
   cursor?: string | null,
   limit?: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PageResponse<ClusterInfo>> {
   const params = new URLSearchParams();
   if (cursor) params.set("cursor", cursor);
@@ -269,5 +285,6 @@ export function listAnalysisClusters(
   const query = params.toString();
   return request<PageResponse<ClusterInfo>>(
     `/tasks/${encodeURIComponent(taskId)}/analysis-runs/${encodeURIComponent(analysisId)}/clusters${query ? `?${query}` : ""}`,
+    { signal: options.signal },
   );
 }

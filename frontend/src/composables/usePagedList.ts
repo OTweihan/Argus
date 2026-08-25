@@ -30,6 +30,19 @@ export interface PagedListOptions {
   lazyOnce?: boolean;
 }
 
+/** 传给 fetcher 的分页请求描述。signal 由本 composable 管理： */
+export interface PageRequest {
+  /** offset 分页的起始下标（首页 / cursor 分页恒为 0）。 */
+  offset: number;
+  cursor: string | null;
+  limit: number;
+  /**
+   * 本次请求的中止信号（可选）。接入底层 request 后可真正取消在途请求：
+   * 新 load / reset / 卸载会 abort 旧信号；不关心取消的 fetcher 忽略即可。
+   */
+  signal?: AbortSignal;
+}
+
 export interface PagedList<T, A extends unknown[]> {
   items: Ref<T[]>;
   total: Ref<number | null>;
@@ -46,7 +59,7 @@ export interface PagedList<T, A extends unknown[]> {
 
 export function usePagedList<T, A extends unknown[]>(
   fetcher: (
-    pagination: { offset: number; cursor: string | null; limit: number },
+    pagination: PageRequest,
     ...args: A
   ) => Promise<PagedResult<T>>,
   options: PagedListOptions = {},
@@ -60,6 +73,7 @@ export function usePagedList<T, A extends unknown[]>(
   let cursor: string | null = null;
   let requestSeq = 0;
   let disposed = false;
+  let activeController: AbortController | null = null;
 
   // 组件卸载 / 切 run 后丢弃后续写入：requestSeq 只防乱序，不防卸载后写死 ref。
   // 需在 Vue effect scope（组件 setup / effectScope）内调用；纯函数调用场景跳过注册，
@@ -68,7 +82,17 @@ export function usePagedList<T, A extends unknown[]>(
     onScopeDispose(() => {
       disposed = true;
       requestSeq += 1;
+      activeController?.abort();
+      activeController = null;
     });
+  }
+
+  /** 开启一次新请求：作废上一个在途请求并返回其控制器。 */
+  function beginRequest(): { seq: number; controller: AbortController } {
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
+    return { seq: ++requestSeq, controller };
   }
 
   function handleError(caught: unknown): void {
@@ -79,18 +103,22 @@ export function usePagedList<T, A extends unknown[]>(
   async function load(...args: A): Promise<void> {
     if (options.lazyOnce && items.value.length > 0) return;
     if (disposed) return;
-    const seq = ++requestSeq;
+    const { seq, controller } = beginRequest();
     error.value = "";
     loading.value = true;
     try {
-      const page = await fetcher({ offset: 0, cursor: null, limit }, ...args);
+      const page = await fetcher(
+        { offset: 0, cursor: null, limit, signal: controller.signal },
+        ...args,
+      );
       if (seq !== requestSeq || disposed) return; // 已有更新的 load/reset/卸载，丢弃过期响应
       items.value = page.items;
       total.value = page.total ?? null;
       hasMore.value = page.hasMore;
       cursor = page.nextCursor ?? null;
     } catch (caught) {
-      if (seq !== requestSeq || disposed) return;
+      // 被主动取消的请求必然伴随 seq 失效/卸载，静默丢弃而非写错误
+      if (seq !== requestSeq || disposed || controller.signal.aborted) return;
       handleError(caught);
     } finally {
       if (seq === requestSeq && !disposed) loading.value = false;
@@ -100,12 +128,14 @@ export function usePagedList<T, A extends unknown[]>(
   async function loadMore(...args: A): Promise<void> {
     if (loading.value || !hasMore.value || disposed) return;
     if (options.cursor && cursor === null) return; // cursor 分页下无下一页
-    const seq = requestSeq;
+    const { seq, controller } = beginRequest();
     const offset = items.value.length;
     loading.value = true;
     try {
       const page = await fetcher(
-        options.cursor ? { offset: 0, cursor, limit } : { offset, cursor: null, limit },
+        options.cursor
+          ? { offset: 0, cursor, limit, signal: controller.signal }
+          : { offset, cursor: null, limit, signal: controller.signal },
         ...args,
       );
       if (seq !== requestSeq || disposed) return;
@@ -113,7 +143,7 @@ export function usePagedList<T, A extends unknown[]>(
       hasMore.value = page.hasMore;
       cursor = page.nextCursor ?? null;
     } catch (caught) {
-      if (seq !== requestSeq || disposed) return;
+      if (seq !== requestSeq || disposed || controller.signal.aborted) return;
       handleError(caught);
     } finally {
       if (seq === requestSeq && !disposed) loading.value = false;
@@ -121,6 +151,8 @@ export function usePagedList<T, A extends unknown[]>(
   }
 
   function reset(): void {
+    activeController?.abort();
+    activeController = null;
     requestSeq += 1;
     items.value = [];
     total.value = null;

@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { usePagedList, type PagedResult } from "../usePagedList";
+import { usePagedList, type PagedResult, type PageRequest } from "../usePagedList";
 
 /** 构造一个可控的 fetcher：每次调用记录参数，并按 entries 顺序返回 resolve/reject。 */
 function makeDeferredFetcher<T>() {
   const entries: {
     args: unknown[];
-    pagination: { offset: number; cursor: string | null; limit: number };
+    pagination: PageRequest;
     resolve: (value: PagedResult<T>) => void;
     reject: (err: unknown) => void;
   }[] = [];
 
   const fetcher = vi.fn(
     (
-      pagination: { offset: number; cursor: string | null; limit: number },
+      pagination: PageRequest,
       ...args: unknown[]
     ) =>
       new Promise<PagedResult<T>>((res, rej) => {
@@ -45,7 +45,8 @@ describe("usePagedList", () => {
     expect(list.items.value).toEqual([1, 2, 3]);
     expect(list.total.value).toBe(3);
     expect(list.hasMore.value).toBe(true);
-    expect(entries[0].pagination).toEqual({ offset: 0, cursor: null, limit: 10 });
+    // signal 为每次请求独立生成，断言用子集匹配
+    expect(entries[0].pagination).toMatchObject({ offset: 0, cursor: null, limit: 10 });
   });
 
   it("loadMore offset 分页按当前 items 长度作为 offset 追加", async () => {
@@ -59,7 +60,7 @@ describe("usePagedList", () => {
 
     const second = list.loadMore();
     await flush();
-    expect(entries[1].pagination).toEqual({ offset: 2, cursor: null, limit: 2 });
+    expect(entries[1].pagination).toMatchObject({ offset: 2, cursor: null, limit: 2 });
     entries[1].resolve(page([3, 4], { hasMore: false }));
     await second;
 
@@ -78,10 +79,31 @@ describe("usePagedList", () => {
 
     const second = list.loadMore();
     await flush();
-    expect(entries[1].pagination).toEqual({ offset: 0, cursor: "c1", limit: 2 });
+    expect(entries[1].pagination).toMatchObject({ offset: 0, cursor: "c1", limit: 2 });
     entries[1].resolve(page([3], { hasMore: false, nextCursor: null }));
     await second;
     expect(list.items.value).toEqual([1, 2, 3]);
+  });
+
+  it("每次请求携带独立 signal，新 load/reset 中止旧请求", async () => {
+    const { fetcher, entries } = makeDeferredFetcher<number>();
+    const list = usePagedList<number, [string]>(fetcher);
+
+    // 两次 load 均不 resolve：验证的是在途请求的 signal 状态
+    list.load("a");
+    await flush();
+    expect(entries[0].pagination.signal).toBeInstanceOf(AbortSignal);
+    expect(entries[0].pagination.signal?.aborted).toBe(false);
+
+    // 新 load 作废旧在途请求：旧 signal 被真正 abort
+    list.load("b");
+    await flush();
+    expect(entries[0].pagination.signal?.aborted).toBe(true);
+    expect(entries[1].pagination.signal?.aborted).toBe(false);
+
+    // reset 同样中止在途请求
+    list.reset();
+    expect(entries[1].pagination.signal?.aborted).toBe(true);
   });
 
   it("代际守卫：迟到的旧 load 响应不覆盖新 load", async () => {

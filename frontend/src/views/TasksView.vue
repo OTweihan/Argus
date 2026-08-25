@@ -299,21 +299,26 @@ const isWhitebox = computed(() => selectedTask.value?.taskType === "whitebox");
 // WhiteboxReportView，避免其在挂载时重复请求同一接口。
 const correlationRunId = ref<string | null>(null);
 
-watch(selectedTask, async (task) => {
-  correlationRunId.value = null;
-  if (!task) return;
-  const taskId = task.taskId;
-  try {
-    const crs = await listCorrelationRunsByTask(taskId);
-    // 快照 taskId：快速切换任务时丢弃过期响应，防止旧任务的结果覆盖新任务
-    if (taskId !== selectedTask.value?.taskId) return;
-    if (crs.length > 0) {
-      correlationRunId.value = crs[0].correlationRunId;
+// 仅以 taskId 为触发源：运行中任务的 WS patch 会整体替换 selectedTask
+// 对象引用，若监听对象本身则每个事件批次都会重置并重查 correlationRunId，
+// 导致关联 pane 反复卸载重挂。
+watch(
+  () => selectedTask.value?.taskId ?? null,
+  async (taskId) => {
+    correlationRunId.value = null;
+    if (!taskId) return;
+    try {
+      const crs = await listCorrelationRunsByTask(taskId);
+      // 快照 taskId：快速切换任务时丢弃过期响应，防止旧任务的结果覆盖新任务
+      if (taskId !== selectedTask.value?.taskId) return;
+      if (crs.length > 0) {
+        correlationRunId.value = crs[0].correlationRunId;
+      }
+    } catch {
+      // correlation data is optional — silently ignore lookup failures
     }
-  } catch {
-    // correlation data is optional — silently ignore lookup failures
-  }
-});
+  },
+);
 </script>
 
 <style scoped>

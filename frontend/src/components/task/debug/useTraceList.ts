@@ -4,11 +4,11 @@
  * 把原本散在 LLMDebugTab.vue setup 里的 traces / loading / filter ref 集中到
  * 一个 composable，让组件本身只剩"编排 + 视图"，方便单测过滤逻辑。
  */
-import { computed, ref, watch } from "vue";
+import { computed, getCurrentScope, onScopeDispose, ref, watch } from "vue";
 
 import { getTaskTraces } from "../../../api";
 import type { LLMTraceRecord } from "../../../types";
-import { errorMessage } from "../../../utils";
+import { errorMessage, isAbortError } from "../../../utils";
 
 export type TracePhaseFilter = "" | "planner" | "evaluator";
 
@@ -24,6 +24,16 @@ export function useTraceList(opts: UseTraceListOptions) {
   const selectedTrace = ref<LLMTraceRecord | null>(null);
   const phaseFilter = ref<TracePhaseFilter>("");
   const hideStarted = ref(true);
+
+  // 代次守卫 + 中止：taskId 变化/重拉时丢弃过期响应并取消在途请求，
+  // 防止慢的旧任务 traces 覆盖新任务数据（契约上本 composable 声明支持
+  // 响应式 taskId，防护不能依赖调用方用 :key 重挂载兜底）。
+  let requestSeq = 0;
+  let tracesAbort: AbortController | null = null;
+
+  if (getCurrentScope()) {
+    onScopeDispose(() => tracesAbort?.abort());
+  }
 
   const filteredTraces = computed(() => {
     let list = traces.value;
@@ -50,14 +60,21 @@ export function useTraceList(opts: UseTraceListOptions) {
   }
 
   async function loadTraces(): Promise<void> {
+    const seq = ++requestSeq;
+    tracesAbort?.abort();
+    const controller = new AbortController();
+    tracesAbort = controller;
     loading.value = true;
     loadError.value = "";
     try {
-      traces.value = await getTaskTraces(opts.taskId());
+      const rows = await getTaskTraces(opts.taskId(), { signal: controller.signal });
+      if (seq !== requestSeq) return;
+      traces.value = rows;
     } catch (caught) {
+      if (seq !== requestSeq || isAbortError(caught)) return;
       loadError.value = errorMessage(caught);
     } finally {
-      loading.value = false;
+      if (seq === requestSeq) loading.value = false;
     }
   }
 

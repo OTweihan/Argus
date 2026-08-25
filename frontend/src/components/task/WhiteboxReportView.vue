@@ -211,6 +211,7 @@ onUnmounted(() => {
   initialLoadAbort?.abort();
   selectRunAbort?.abort();
   calleeAbort?.abort();
+  diagAbort?.abort();
 });
 
 // ── 分页子资源（usePagedList 统一管理 load/loadMore/cursor/loading） ──
@@ -218,11 +219,17 @@ onUnmounted(() => {
 // F1：五个子资源列表仅 fetcher 与 limit 不同，抽工厂收敛「usePagedList + 解构 +
 // load/loadMore wrapper」样板；reactive 包装让模板可直接访问解包后的 items 等。
 function makeCursorList<T>(
-  fetcher: (p: { cursor: string | null; limit: number }, aid: string) => Promise<PagedResult<T>>,
+  fetcher: (
+    p: { cursor: string | null; limit: number },
+    aid: string,
+    signal?: AbortSignal,
+  ) => Promise<PagedResult<T>>,
   limit: number,
 ) {
   const list = usePagedList<T, [string]>(
-    (pagination, aid) => fetcher({ cursor: pagination.cursor, limit }, aid),
+    // 透传 usePagedList 管理的中止信号：切 run / 卸载时真正取消在途请求
+    // （而非仅丢弃响应）。
+    (pagination, aid) => fetcher({ cursor: pagination.cursor, limit }, aid, pagination.signal),
     { limit, cursor: true },
   );
   const guarded = (action: (aid: string) => Promise<void>) => (): void => {
@@ -241,23 +248,28 @@ function makeCursorList<T>(
 }
 
 const endpoints = makeCursorList<EndpointInfo>(
-  ({ cursor, limit }, aid) => listAnalysisEndpoints(props.taskId, aid, cursor, limit),
+  ({ cursor, limit }, aid, signal) =>
+    listAnalysisEndpoints(props.taskId, aid, cursor, limit, { signal }),
   100,
 );
 const callNodes = makeCursorList<CallNodeInfo>(
-  ({ cursor, limit }, aid) => listAnalysisCallNodes(props.taskId, aid, null, null, cursor, limit),
+  ({ cursor, limit }, aid, signal) =>
+    listAnalysisCallNodes(props.taskId, aid, null, null, cursor, limit, { signal }),
   100,
 );
 const flows = makeCursorList<ExecutionFlowInfo>(
-  ({ cursor, limit }, aid) => listAnalysisExecutionFlows(props.taskId, aid, cursor, limit),
+  ({ cursor, limit }, aid, signal) =>
+    listAnalysisExecutionFlows(props.taskId, aid, cursor, limit, { signal }),
   50,
 );
 const findings = makeCursorList<FindingInfo>(
-  ({ cursor, limit }, aid) => listAnalysisFindings(props.taskId, aid, cursor, limit),
+  ({ cursor, limit }, aid, signal) =>
+    listAnalysisFindings(props.taskId, aid, cursor, limit, { signal }),
   50,
 );
 const clusters = makeCursorList<ClusterInfo>(
-  ({ cursor, limit }, aid) => listAnalysisClusters(props.taskId, aid, cursor, limit),
+  ({ cursor, limit }, aid, signal) =>
+    listAnalysisClusters(props.taskId, aid, cursor, limit, { signal }),
   50,
 );
 
@@ -303,14 +315,25 @@ async function selectCallNode(nodeId: string): Promise<void> {
 // Diagnostics（非分页，tab 切换时懒加载一次）
 const diagnostics = ref<DiagnosticsInfo | null>(null);
 let diagLoaded = false;
+let diagAbort: AbortController | null = null;
 
 async function loadDiagnostics(): Promise<void> {
   const aid = analysisId.value;
   if (!aid || diagLoaded) return;
+  // 与 summary/callee 相同的 abort + 身份校验口径：切换 run 时丢弃过期响应，
+  // 防止慢响应把旧 run 的诊断串台到新 run。
+  diagAbort?.abort();
+  const controller = new AbortController();
+  diagAbort = controller;
   try {
-    diagnostics.value = await getAnalysisDiagnostics(props.taskId, aid);
+    const result = await getAnalysisDiagnostics(props.taskId, aid, {
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted || aid !== analysisId.value) return;
+    diagnostics.value = result;
     diagLoaded = true;
   } catch (caught) {
+    if (controller.signal.aborted || aid !== analysisId.value) return;
     // 诊断为尽力而为展示，失败不阻塞页面，仅记录便于排查。
     console.warn("[WhiteboxReport] 诊断信息加载失败：", errorMessage(caught));
   }
@@ -322,6 +345,8 @@ function resetSubResources(): void {
   flows.reset();
   findings.reset();
   clusters.reset();
+  diagAbort?.abort();
+  diagAbort = null;
   diagnostics.value = null;
   diagLoaded = false;
   selectedCallNodeId.value = null;

@@ -2,7 +2,7 @@ import { ref, type Ref } from "vue";
 
 import { getTask, openAuthenticatedResource, reportPath } from "../api";
 import type { Task } from "../types";
-import { errorMessage } from "../utils";
+import { errorMessage, isAbortError } from "../utils";
 
 export function useTaskViewActions(options: {
   allTasks: Ref<Task[]>;
@@ -13,18 +13,31 @@ export function useTaskViewActions(options: {
   const detailLoading = ref(false);
   const detailTask = ref<Task | null>(null);
 
+  // 代次守卫：快速先后点开两个任务时，仅最新一次点击允许写入
+  // detailTask/detailLoading（与 selectTask 同一口径），防止慢响应串数据。
+  let detailSeq = 0;
+  let detailAbort: AbortController | null = null;
+
   async function showTaskDetail(taskId: string): Promise<void> {
+    const seq = ++detailSeq;
+    detailAbort?.abort();
+    const controller = new AbortController();
+    detailAbort = controller;
+
     detailVisible.value = true;
     detailLoading.value = true;
     const cached = options.allTasks.value.find((task) => task.taskId === taskId) ?? null;
     detailTask.value = cached;
     try {
-      detailTask.value = await getTask(taskId);
+      const fresh = await getTask(taskId, { signal: controller.signal });
+      if (seq !== detailSeq) return;
+      detailTask.value = fresh;
     } catch (caught) {
+      if (seq !== detailSeq || isAbortError(caught)) return;
       options.error.value = errorMessage(caught);
       if (!cached) detailVisible.value = false;
     } finally {
-      detailLoading.value = false;
+      if (seq === detailSeq) detailLoading.value = false;
     }
   }
 
