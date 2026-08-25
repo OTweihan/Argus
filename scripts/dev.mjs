@@ -23,8 +23,6 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
 
 const paths = {
-  uvLock: path.join(projectRoot, "uv.lock"),
-  venvConfig: path.join(projectRoot, ".venv", "pyvenv.cfg"),
   python: path.join(
     projectRoot,
     ".venv",
@@ -40,7 +38,7 @@ const serviceDefinitions = [
     name: "python",
     color: "\u001b[36m",
     cwd: projectRoot,
-    command: () => paths.python,
+    command: (tools) => tools.python,
     // Windows 下 uvicorn --reload 会强制 SelectorEventLoop，该 loop 不支持
     // asyncio 子进程，导致 Playwright 无法拉起浏览器进程（黑盒任务启动即失败，
     // 报 NotImplementedError）。因此仅非 Windows 平台启用 Python 热重载——
@@ -211,35 +209,17 @@ async function runPreflight() {
     throw new Error(`Node.js 版本过低：当前 ${process.versions.node}，需要 20 或更高版本。`);
   }
 
-  assertFile(paths.uvLock, "缺少 uv.lock，无法确认 Python 锁定依赖。");
-  assertFile(
-    paths.venvConfig,
-    "缺少 .venv/pyvenv.cfg，请执行：uv sync --frozen --extra browser --extra dev",
-  );
-  assertFile(
-    paths.python,
-    `当前平台缺少虚拟环境解释器 ${path.relative(projectRoot, paths.python)}。` +
-      "如果 .venv 来自其他操作系统，请删除后执行：uv sync --frozen --extra browser --extra dev",
-  );
   assertFile(
     paths.frontendModules,
     "缺少 frontend/node_modules，请执行：pnpm --dir frontend install --frozen-lockfile",
   );
   assertFile(paths.javaPom, "缺少 java_analyzer/pom.xml。");
 
-  const venvConfig = fs.readFileSync(paths.venvConfig, "utf8");
-  if (!/^uv\s*=\s*.+$/m.test(venvConfig)) {
-    throw new Error(
-      ".venv 不是可识别的 uv 管理环境，请重新执行：uv sync --frozen --extra browser --extra dev",
-    );
-  }
-
+  // uv 是可选加速路径而非硬依赖：只要能找到一个可用的 Python 解释器
+  // （项目 .venv 或系统 PATH），即可启动；uv 仅影响缺失环境时的引导文案。
   const uv = findExecutable("uv");
   const pnpm = findExecutable("pnpm");
   const maven = findExecutable("mvn");
-  if (!uv) {
-    throw new Error("未找到 uv，请先安装 uv 并确保它位于 PATH 中。");
-  }
   if (!pnpm) {
     throw new Error("未找到 pnpm，请先安装 pnpm 并确保它位于 PATH 中。");
   }
@@ -247,13 +227,46 @@ async function runPreflight() {
     throw new Error("未找到 Maven，请先安装 mvn 并确保它位于 PATH 中。");
   }
 
-  const uvVersion = runVersionCheck(uv, ["--version"]);
-  if (!uvVersion.ok) {
-    throw new Error(`uv 无法运行：${uvVersion.output}`);
+  let pythonCommand = null;
+  let pythonSourceLabel = "";
+  if (fs.existsSync(paths.python)) {
+    // 项目 .venv 存在即直接使用，不要求由 uv 创建。
+    pythonCommand = paths.python;
+    pythonSourceLabel = "项目 .venv";
+  } else {
+    const systemPython = isWindows
+      ? findExecutable("python")
+      : (findExecutable("python3") ?? findExecutable("python"));
+    if (systemPython) {
+      pythonCommand = systemPython;
+      pythonSourceLabel = "系统 PATH";
+    }
   }
-  const pythonVersion = runVersionCheck(paths.python, ["--version"]);
+  if (!pythonCommand) {
+    throw new Error(
+      uv
+        ? "未找到可用的 Python。已检测到 uv，请先执行：uv sync --extra browser 创建项目环境后重试。"
+        : '未找到可用的 Python 3.11+。请安装 Python 后执行 pip install -e ".[browser]"，或安装 uv 后执行：uv sync --extra browser。',
+    );
+  }
+
+  let uvVersionLine = null;
+  if (uv) {
+    const uvVersion = runVersionCheck(uv, ["--version"]);
+    if (uvVersion.ok) {
+      uvVersionLine = uvVersion.output.split(/\r?\n/)[0];
+    } else {
+      print(`⚠ 检测到 uv 但无法运行，已忽略：${uvVersion.output}`, DIM_COLOR);
+    }
+  }
+
+  const pythonVersion = runVersionCheck(pythonCommand, ["--version"]);
   if (!pythonVersion.ok) {
-    throw new Error(`uv 虚拟环境中的 Python 无法运行：${pythonVersion.output}`);
+    const hint =
+      pythonSourceLabel === "项目 .venv"
+        ? "如果 .venv 来自其他操作系统或已损坏，请删除后重建（推荐：uv sync --extra browser）。"
+        : '请确认该 Python 可用，并已安装项目依赖（pip install -e ".[browser]"）。';
+    throw new Error(`Python 无法运行（${pythonSourceLabel}）：${pythonVersion.output}\n${hint}`);
   }
   const pythonMatch = pythonVersion.output.match(/Python\s+(\d+)\.(\d+)/i);
   if (!pythonMatch || Number(pythonMatch[1]) < 3 || (Number(pythonMatch[1]) === 3 && Number(pythonMatch[2]) < 11)) {
@@ -277,10 +290,12 @@ async function runPreflight() {
 
   await Promise.all([8000, 5173, 8081].map(checkPortAvailable));
 
-  tools = { uv, pnpm, maven };
+  tools = { python: pythonCommand, pnpm, maven };
   print(`✓ Node.js ${process.versions.node}`, SUCCESS_COLOR);
-  print(`✓ ${uvVersion.output.split(/\r?\n/)[0]}`, SUCCESS_COLOR);
-  print(`✓ ${pythonVersion.output.split(/\r?\n/)[0]}（uv 虚拟环境）`, SUCCESS_COLOR);
+  if (uvVersionLine) {
+    print(`✓ ${uvVersionLine}`, SUCCESS_COLOR);
+  }
+  print(`✓ ${pythonVersion.output.split(/\r?\n/)[0]}（${pythonSourceLabel}）`, SUCCESS_COLOR);
   print(`✓ pnpm ${pnpmVersion.output.split(/\r?\n/)[0]}`, SUCCESS_COLOR);
   print(`✓ Maven/JDK 检查通过（JDK ${javaMatch[1]}）`, SUCCESS_COLOR);
   print("✓ 端口 8000、5173、8081 可用", SUCCESS_COLOR);
