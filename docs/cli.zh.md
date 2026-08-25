@@ -4,7 +4,7 @@
 
 ## 概述
 
-Argus 提供单个 `argus` CLI 命令，包含多个子命令。所有命令共享全局选项。
+Argus 提供单个 `argus` CLI 命令，包含多个子命令。`argus run` 执行黑盒浏览器测试，`argus analyze` 对 Java 代码库执行白盒静态分析。所有命令共享全局选项。
 
 ### 全局选项
 
@@ -93,6 +93,68 @@ argus run --goal "复杂表单流程" --url "https://example.com/form" --max-ste
 
 - **报告：** `outputs/reports/<task_id>/index.html` 和 `outputs/reports/<task_id>/report.json`
 - **截图：** `outputs/screenshots/<task_id>/`（每个执行步骤一张）
+
+---
+
+## `argus analyze` — 执行白盒分析任务
+
+对 Java 代码库执行静态分析任务。Argus 对源码做快照（Git clone 或本地复制），交给 Java Analyzer 服务（Spring Boot + JavaParser + Maven classpath 解析），并生成 HTML/JSON 报告。
+
+### 前置条件
+
+- Java Analyzer 服务可达 — 默认 `http://localhost:8081`，通过环境变量 `ARGUS_JAVA_ANALYZER_URL` 覆盖（Docker Compose 使用 `--profile java` 启动）
+- 源码路径必须对分析进程可见（容器部署使用共享源码卷；允许根目录之外的路径会被拒绝）
+
+### 用法
+
+```bash
+# 分析 Git 仓库（完整分析）
+argus analyze --repo https://github.com/user/project.git
+
+# 分析本地目录
+argus analyze --source-path /path/to/project
+
+# 分析指定分支
+argus analyze --repo https://github.com/user/project.git --branch main
+
+# 仅抽取 REST 端点，限定指定 Maven 模块
+argus analyze --source-path /path/to/project --scope endpoints \
+  --target-modules app-api app-web
+```
+
+### 参数
+
+| 参数 | 说明 |
+|------|------|
+| `--repo <url>` | Git 仓库 URL（与 `--source-path` 二选一） |
+| `--source-path <dir>` | 本地源码目录（与 `--repo` 二选一） |
+| `--branch <name>` | 分析分支（仅配合 `--repo`） |
+| `--scope <s>` | `all`（默认）、`changed`、`modules`、`endpoints`、`callgraph`、`flows`、`clusters` |
+| `--project <id>` | 将分析任务关联到项目 |
+| `--target-modules <m...>` | 目标 Maven 模块，空格分隔（`--scope modules` 时必填） |
+| `--classpath-mode <mode>` | 类路径策略：`auto`（智能降级）、`cache-only`、`maven`、`source-only` |
+| `--prepare-reactor` | 类路径生成前执行 `mvn install -DskipTests` 准备 reactor 内部模块 |
+| `--maven-classpath-file` | classpath 文件路径（相对于项目根目录） |
+| `--maven-executable` | Maven 可执行文件路径 |
+| `--maven-settings` | Maven settings.xml 路径 |
+| `--local-repository` | 本地 Maven 仓库路径 |
+| `--maven-offline` | Maven 离线模式 |
+
+### 分析范围
+
+| 范围 | 内容 |
+|------|------|
+| `all` | 完整分析：端点、调用图、发现项、执行流、功能聚类 |
+| `changed` | 基于变更的增量分析 |
+| `modules` | 限定分析指定的 Maven 模块 |
+| `endpoints` | 仅抽取 REST 端点 |
+| `callgraph` | 仅调用图 |
+| `flows` | 仅执行流 |
+| `clusters` | 仅功能聚类 |
+
+### 输出
+
+任务结果会打印状态和报告路径。报告写入 `outputs/reports/<task_id>/`。可选 pass（flows/clusters）失败时显式降级而不是使作业失败——降级记录在分析器诊断中，并在报告和 CLI 输出中可见。
 
 ---
 

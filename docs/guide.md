@@ -13,9 +13,11 @@ This guide covers everything you need to use Argus effectively — from configur
 3. [Prompt Extension System](#prompt-extension-system)
 4. [Browser Auth State Management](#browser-auth-state-management)
 5. [Reports & Execution](#reports--execution)
-6. [Task Observability](#task-observability)
-7. [Best Practices](#best-practices)
-8. [Troubleshooting](#troubleshooting)
+6. [White-box Code Analysis](#white-box-code-analysis)
+7. [Black-white-box Correlation](#black-white-box-correlation)
+8. [Task Observability](#task-observability)
+9. [Best Practices](#best-practices)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -116,8 +118,10 @@ Manage test projects. Each project can have:
 
 The task management center. Features:
 - **Create task** — set goal, URL, project association, model config, and prompt extensions
-- **Task list** — filter by status, project, search by goal
-- **Task detail** — three tabs:
+- **Task list** — filter by status, project, search by goal; white-box tasks are listed with type **whitebox**
+- **Task detail** — tab layout depends on the task type:
+
+  **Black-box tasks** — three tabs:
 
   **Report Tab** — View the HTML report inline with collapsible steps, screenshots, and issues.
 
@@ -130,6 +134,10 @@ The task management center. Features:
   - Raw Response (full API response)
   - Parsed Result (structured output after JSON parsing)
   - Errors and parse failures
+
+  **White-box tasks** — an **Analysis Report** tab renders the analysis results (overview metrics, endpoints, interactive call graph viewer, findings, execution flows, feature clusters), plus a completeness banner and analyzer diagnostics panel; an **Analysis Log** tab shows the build/analysis progress. White-box tasks do not make LLM calls, so there is no LLM debug tab.
+
+  When a task has an associated correlation run, a **Correlation** tab shows endpoint evidence, finding evidence, and unmatched HTTP requests (see [Black-white-box Correlation](#black-white-box-correlation)).
 
 #### Models
 
@@ -263,6 +271,62 @@ outputs/screenshots/<task_id>/
 ```
 
 Disable with `--no-screenshot`. When disabled, the Planner can still emit `screenshot` actions, but they are logged as skipped without saving an image.
+
+---
+
+## White-box Code Analysis
+
+Beyond browser testing, Argus can statically analyze Java codebases. The Python control plane snapshots the source (Git clone or local copy), delegates parsing to the Java Analyzer service (Spring Boot + JavaParser + Maven classpath resolution), and renders the results as reports.
+
+### Prerequisites
+
+- A reachable Java Analyzer service — default `http://localhost:8081`, override with `ARGUS_JAVA_ANALYZER_URL`. With Docker Compose, start it via `--profile java`.
+- The source path must be visible to the analyzer process and inside the allowed source roots (container deployments share a source volume; see the [deployment guide](deployment.md)).
+- Maven classpath resolution improves precision; without Maven the analysis falls back to source-only mode.
+
+### Running an Analysis
+
+```bash
+# Full analysis of a Git repository
+argus analyze --repo https://github.com/user/project.git
+
+# Local directory, endpoints only
+argus analyze --source-path /path/to/project --scope endpoints
+```
+
+Scopes: `all` (default, full analysis), `changed` (incremental changes), `modules` (specified Maven modules), `endpoints`, `callgraph`, `flows`, `clusters`. See the [CLI reference](cli.md#argus-analyze--execute-white-box-analysis) for all options.
+
+### Understanding Results
+
+| Result | Description |
+|--------|-------------|
+| Endpoints | REST mappings: path, HTTP method, controller class/method, parameters |
+| Call graph | Method-level graph keyed by `className#methodName` |
+| Findings | Rule-based findings with severity |
+| Execution flows | Traced execution paths through the code |
+| Clusters | Feature clustering of related classes |
+| Diagnostics | Parse failures and per-pass failures/degradations |
+
+Optional passes (`flows`, `clusters`) degrade gracefully when they fail — degradations are recorded in the diagnostics and surfaced as a completeness warning in the report rather than failing the task.
+
+---
+
+## Black-white-box Correlation
+
+During black-box runs Argus captures HTTP request evidence (method, normalized path, status, timing) for every request the browser issues. Correlation runs match this evidence against the REST endpoints extracted by white-box analysis, linking UI behavior to server-side code paths.
+
+### How It Works
+
+1. A correlation run is created for a black-box run and pinned to a desired source snapshot and analysis config
+2. Once a white-box analysis is bound, captured HTTP requests are matched against extracted endpoints
+3. Matching results are stored as endpoint evidence and finding evidence, with unmatched requests listed explicitly
+
+### Viewing Correlation Results
+
+- **Web Console** — tasks with a correlation run show a **Correlation** tab with endpoint evidence, finding evidence, and unmatched request tables
+- **REST API** — `GET /argus/api/correlation-runs/{id}` (plus `summary`, `attempts`, and evidence endpoints); bind or re-run matching via `bind-analysis`, `retry`, and `recalculate`
+
+> A correlation run is only as fresh as its bound source snapshot. If the analyzed source no longer matches what the black-box run exercised, the alignment status flags the mismatch instead of silently returning stale results.
 
 ---
 

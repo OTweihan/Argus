@@ -4,7 +4,7 @@
 
 ## Overview
 
-Argus ships as a single `argus` CLI command with several subcommands. All commands share the global options.
+Argus ships as a single `argus` CLI command with several subcommands. `argus run` executes black-box browser tests, while `argus analyze` runs white-box static analysis on Java codebases. All commands share the global options.
 
 ### Global Options
 
@@ -93,6 +93,68 @@ After completion, Argus prints the task status, step count, issue count, and rep
 
 - **Reports:** `outputs/reports/<task_id>/index.html` and `outputs/reports/<task_id>/report.json`
 - **Screenshots:** `outputs/screenshots/<task_id>/` (one per execution step)
+
+---
+
+## `argus analyze` — Execute White-box Analysis
+
+Run a static analysis task on a Java codebase. Argus snapshots the source (Git clone or local copy), sends it to the Java Analyzer service (Spring Boot + JavaParser + Maven classpath resolution), and generates an HTML/JSON report.
+
+### Prerequisites
+
+- A reachable Java Analyzer service — default `http://localhost:8081`, override with `ARGUS_JAVA_ANALYZER_URL` (Docker Compose: start it with `--profile java`)
+- The source path must be visible to the analyzer process (container deployments use the shared source volume; paths outside the allowed source roots are rejected)
+
+### Usage
+
+```bash
+# Analyze a Git repository (full analysis)
+argus analyze --repo https://github.com/user/project.git
+
+# Analyze a local directory
+argus analyze --source-path /path/to/project
+
+# Analyze a specific branch
+argus analyze --repo https://github.com/user/project.git --branch main
+
+# Extract REST endpoints only, restricted to given Maven modules
+argus analyze --source-path /path/to/project --scope endpoints \
+  --target-modules app-api app-web
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--repo <url>` | Git repository URL (mutually exclusive with `--source-path`) |
+| `--source-path <dir>` | Local source directory (mutually exclusive with `--repo`) |
+| `--branch <name>` | Branch to analyze (`--repo` only) |
+| `--scope <s>` | `all` (default), `changed`, `modules`, `endpoints`, `callgraph`, `flows`, `clusters` |
+| `--project <id>` | Associate the analysis task with a project |
+| `--target-modules <m...>` | Target Maven modules, space separated (required for `--scope modules`) |
+| `--classpath-mode <mode>` | Classpath strategy: `auto` (smart fallback), `cache-only`, `maven`, `source-only` |
+| `--prepare-reactor` | Run `mvn install -DskipTests` before classpath generation to prepare reactor-internal modules |
+| `--maven-classpath-file` | classpath file path (relative to the project root) |
+| `--maven-executable` | Maven executable path |
+| `--maven-settings` | Maven settings.xml path |
+| `--local-repository` | Local Maven repository path |
+| `--maven-offline` | Run Maven in offline mode |
+
+### Analysis Scopes
+
+| Scope | Content |
+|-------|---------|
+| `all` | Full analysis: endpoints, call graph, findings, execution flows, clusters |
+| `changed` | Incremental analysis of changes |
+| `modules` | Restrict analysis to the specified Maven modules |
+| `endpoints` | REST endpoint extraction only |
+| `callgraph` | Call graph only |
+| `flows` | Execution flows only |
+| `clusters` | Feature clustering only |
+
+### Output
+
+The task result prints status and report paths. Reports are written under `outputs/reports/<task_id>/`. Optional passes (flows/clusters) degrade gracefully instead of failing the job when they error — degradations are recorded in the analyzer diagnostics and surfaced in the report and CLI output.
 
 ---
 
