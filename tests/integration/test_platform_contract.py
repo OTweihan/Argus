@@ -40,6 +40,9 @@ async def test_web_platform_project_task_worker_events_and_report(tmp_path, monk
                 url_after=running.start_url,
                 message="端到端契约测试步骤。",
             )
+            # append_log 走缓冲批量写入（阈值兜底），生产由 BlackboxEvents 每步
+            # flush；Fake runner 必须显式 flush，否则日志与 current_step 不落库
+            stack.log.flush_logs()
             completed = self._lifecycle.complete_task(logged, result_summary="端到端契约测试完成。")
             return generate_report_safely(
                 completed,
