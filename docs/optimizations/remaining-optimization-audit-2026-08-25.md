@@ -149,16 +149,45 @@
 | 前端 | `eslint src/` + `vue-tsc --noEmit` | 通过 |
 | 前端 | `pnpm test` | **228 passed**（新增 1 例） |
 
-## 遗留待办（低优先级，未实施）
+## 遗留待办（已全部完成）
 
-1. **ExecutionFlowTracer flows 体积二次膨胀**：每端点重建 visited 做 DFS，稠密图最坏
-   O(端点×节点) 条 FlowStep；建议设每流步数上限与全局预算（超限记 diagnostics）。
-2. **TaskTimeline O(n) 事件去重**：每事件 `some()` 全数组扫描且 events 无上限；
-   建议改 Set 索引 + 超上限丢弃最旧（配合服务端重取）。
-3. **大列表虚拟化**：CallGraphViewer/EndpointList 等 el-table 无限累积行数，大型分析
-   下滚动/输入卡顿；超过阈值（如 500 行）时可切 `el-table-v2` 或提示过滤。
-4. **JarTypeSolverPool 可选增强**：池化已消除句柄累积；如后续需要进一步降低重复解析，
-   可评估进程级预热或容量调优（当前 32）。
+1. **ExecutionFlowTracer flows 体积二次膨胀** ✅ 已完成（2026-08-25 第二轮）
+   - 【修复】单流步数上限 400 + 全局步数预算 5000：超限截断当前流、预算耗尽后
+     跳过剩余端点；截断经 progress 发 WARN 事件、打日志，并新增
+     `AnalyzerDiagnostics.flowTruncations` 记录（Java/Python 端同步镜像，
+     报告 diagnostics 一并透出）。上限内行为与旧实现完全一致。
+2. **TaskTimeline O(n) 事件去重** ✅ 已完成（2026-08-25 第二轮）
+   - 【修复】`some()` 全数组扫描改为 Set 幂等索引（O(1)）；`MAX_EVENTS = 2000`
+     有界缓冲，超限丢弃最旧事件（权威历史仍可经挂载加载/reloadTick 从 SQLite
+     重取）；初始加载与服务端重拉统一走同一截断与索引重建路径。新增 4 个组件测试。
+3. **大列表虚拟化** ✅ 已完成（2026-08-25 第二轮）
+   - 【修复】白盒报告五个子列表（EndpointList / CallGraphViewer / ExecutionFlowList /
+     ClusterList / FindingList）接入共享渲染上限守卫 `useRenderCap`（上限 500）：
+     过滤/排序仍作用于全量已加载数据，仅 DOM 渲染截断前 500 行；触顶后以
+     `RenderCapHint` 提示「可过滤或缩小范围」并停用继续追加的无限滚动入口，
+     避免 el-table/v-for 无界累积行数导致滚动与输入卡顿。未触顶行为不变。
+4. **JarTypeSolverPool 可选增强** ✅ 已完成（2026-08-25 第二轮）
+   - 【修复】(a) 容量参数化：经 `argus.analysis.jar-pool.max-open-jars`（默认 256）
+     Spring 注入配置，调优不再需要改代码（类注释遗留的旧值 32 已一并修正）；
+     (b) 可观测性：新增 acquisitions/hits/opens/evictions 计数与 `stats()` 快照，
+     首次淘汰即 WARN 提示「被淘汰 solver 的惰性解析会退化为 unresolved、考虑调大
+     容量」，其后降为 debug——为数据驱动的容量调优提供依据；(c) 预热评估结论：
+     刻意不做进程级预热——acquire 在扫描路径上按需打开，预热不减少首次解析总量
+     只移动时机，且对全部历史 jar 预热会空占 fd/内存，与 LRU 容量目标相悖
+     （javadoc 已记录论证）。
+   - 【注意】`SourceFileScanner` 的 jar 池改为构造注入（保留两参便捷构造，既有
+     测试不受影响）；新增 `JarTypeSolverPoolTest`（复用命中计数 / LRU 淘汰 /
+     非法容量）。
+
+### 第二轮验证记录
+
+| 范围 | 命令 | 结果 |
+|---|---|---|
+| Python | `ruff check` + `ruff format --check` + `mypy argus_py` | 全部通过 |
+| Python | `pytest tests/unit tests/integration -q` | **1429 passed, 5 skipped**（新增 4 例） |
+| 前端 | `eslint` + `vue-tsc --noEmit` | 通过 |
+| 前端 | `pnpm test` | **232 passed**（新增 4 例）→ 第二轮后 **236 passed**（再增 4 例） |
+| Java | 第一批新增 3 个 ExecutionFlowTracer 测试；第二批新增 JarTypeSolverPoolTest 3 例。**未执行 Maven 编译/测试，由用户自行验证** | — |
 
 ## 行为变化说明（兼容/迁移）
 
