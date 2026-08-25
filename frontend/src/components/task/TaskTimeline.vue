@@ -114,6 +114,29 @@ const loading = ref(true);
 const error = ref("");
 const eventOpenMap = ref<Record<string, boolean>>({});
 
+// 去重 + 有界缓冲：此前 WS 每事件 some() 全数组扫描（O(n²)）且 events 无上限，
+// 长会话下内存与扫描成本持续膨胀。现以 Set 做 O(1) 幂等索引；超过 MAX_EVENTS
+// 时丢弃最旧事件，权威历史仍可经挂载加载/reloadTick 从 SQLite 重取。
+const MAX_EVENTS = 2000;
+let eventIdIndex = new Set<string>();
+
+function replaceEvents(next: TimelineEvent[]): void {
+  const bounded =
+    next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next;
+  eventIdIndex = new Set(bounded.map((e) => e.eventId));
+  events.value = bounded;
+}
+
+function appendTimelineEvent(event: TimelineEvent): void {
+  if (eventIdIndex.has(event.eventId)) return;
+  eventIdIndex.add(event.eventId);
+  events.value.push(event);
+  if (events.value.length > MAX_EVENTS) {
+    const dropped = events.value.shift();
+    if (dropped) eventIdIndex.delete(dropped.eventId);
+  }
+}
+
 // 长列表有界渲染：默认只渲染最近 RENDER_WINDOW 条，避免挂载拉全量 + 每个
 // WS 事件追加时整列重渲染。白盒日志/时间线超过窗口时用"加载更早"按钮扩大窗口。
 const RENDER_WINDOW_STEP = 200;
@@ -142,9 +165,7 @@ onMounted(async () => {
       if (wsEvent.taskId !== props.taskId) return;
       const timelineEvent = wsEvent.data as unknown;
       if (!isTimelineEvent(timelineEvent)) return;
-      if (!events.value.some((e) => e.eventId === timelineEvent.eventId)) {
-        events.value.push(timelineEvent);
-      }
+      appendTimelineEvent(timelineEvent);
     });
   }
 });
@@ -171,7 +192,7 @@ async function loadEvents(): Promise<void> {
   try {
     const result = await getTaskEvents(props.taskId, { signal: controller.signal });
     if (generation !== loadGeneration) return;
-    events.value = result;
+    replaceEvents(result);
   } catch (caught) {
     if (generation !== loadGeneration || isAbortError(caught)) return;
     error.value = errorMessage(caught);
