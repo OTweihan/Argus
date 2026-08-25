@@ -11,7 +11,6 @@ import com.github.javaparser.Problem;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
-import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import org.slf4j.Logger;
@@ -35,6 +34,7 @@ public class SourceFileScanner {
 
     private final JavaParser defaultParser;
     private final SourceScannerCache cache;
+    private final JarTypeSolverPool jarPool = new JarTypeSolverPool();
 
     public SourceFileScanner(JavaParser defaultParser,
                              SourceScannerCache cache) {
@@ -155,7 +155,9 @@ public class SourceFileScanner {
         for (Path jar : classpathJars) {
             if (Files.exists(jar)) {
                 try {
-                    typeSolver.add(new JarTypeSolver(jar));
+                    // 复用池化 solver：消除每次扫描的 fd 累积与 zip 重复解析；
+                    // AST 后续惰性解析依赖 solver 存活，故不能按次关闭（见池类注释）。
+                    typeSolver.add(jarPool.acquire(jar));
                 } catch (Exception e) {
                     log.warn("Failed to load JarTypeSolver for: {} — {}", jar, e.getMessage());
                 }
@@ -220,17 +222,13 @@ public class SourceFileScanner {
     }
 
     /**
-     * 判断路径是否位于构建输出目录（Maven {@code target/}）之下。
+     * 判断路径是否位于构建输出目录之下。
      *
-     * <p>按路径段精确匹配 {@code target}，避免旧的子串匹配把 {@code TargetService.java}、
-     * {@code targeting/}、{@code retarget/} 等合法源码一并排除。</p>
+     * <p>规则统一收口于 {@link BuildOutputFilter}（与源码指纹共用同一口径）；
+     * 按路径段精确匹配，避免子串匹配把 {@code TargetService.java}、
+     * {@code targeting/} 等合法源码一并排除。</p>
      */
     private static boolean isUnderBuildOutput(Path path) {
-        for (Path segment : path) {
-            if ("target".equals(segment.toString())) {
-                return true;
-            }
-        }
-        return false;
+        return BuildOutputFilter.isUnder(path);
     }
 }

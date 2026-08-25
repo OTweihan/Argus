@@ -2,6 +2,7 @@ package com.argus.analyzer.support;
 
 import com.argus.analyzer.domain.AnalysisResult;
 import com.argus.analyzer.domain.AnalysisScope;
+import com.argus.analyzer.domain.JobCancelledException;
 import com.argus.analyzer.domain.model.AnalyzerDiagnostics;
 import com.argus.analyzer.domain.model.CallEdge;
 import com.argus.analyzer.domain.model.CallGraphNode;
@@ -21,8 +22,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -198,6 +202,100 @@ class ProjectIndexCacheTest {
         });
         assertThat(calls).hasValue(2);
         assertThat(second.cacheHit()).isFalse();
+    }
+
+    // ── single-flight 跟随者异常不传染 ────────────────────────────────────
+
+    /** 等待跟随者线程阻塞在领导者 future 的 join() 上（最多 2s）。 */
+    private static void awaitFollowerJoined(Thread follower) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (follower.getState() != Thread.State.WAITING && System.nanoTime() < deadline) {
+            Thread.sleep(5);
+        }
+        assertThat(follower.getState()).isEqualTo(Thread.State.WAITING);
+    }
+
+    @Test
+    void shouldNotPropagateLeaderCancellationToFollower(
+            @org.junit.jupiter.api.io.TempDir Path tempDir) throws Exception {
+        var key = key(tempDir, AnalysisScope.ALL);
+        var response = emptyResult();
+        CountDownLatch leaderEntered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger followerCalls = new AtomicInteger();
+
+        Thread leader = new Thread(() -> assertThatThrownBy(() -> cache.getOrCompute(key, () -> {
+            leaderEntered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(error);
+            }
+            throw new JobCancelledException("job-1 cancelled");
+        })).isInstanceOf(JobCancelledException.class));
+        leader.start();
+        leaderEntered.await();
+
+        AtomicReference<ProjectIndexCache.CacheResult> followerResult = new AtomicReference<>();
+        Thread follower = new Thread(() ->
+                followerResult.set(cache.getOrCompute(key, () -> {
+                    followerCalls.incrementAndGet();
+                    return response;
+                })));
+        follower.start();
+        awaitFollowerJoined(follower);
+
+        // 领导者被其所属请求取消：跟随者不得被传染，应就地重算并成功。
+        release.countDown();
+        leader.join();
+        follower.join();
+
+        assertThat(followerResult.get()).isNotNull();
+        assertThat(followerResult.get().cacheHit()).isFalse();
+        assertThat(followerResult.get().response()).isEqualTo(response);
+    }
+
+    @Test
+    void shouldUnwrapFollowerFailureToOriginalType(@org.junit.jupiter.api.io.TempDir Path tempDir)
+            throws Exception {
+        var key = key(tempDir, AnalysisScope.ALL);
+        CountDownLatch leaderEntered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        Thread leader = new Thread(() -> assertThatThrownBy(() -> cache.getOrCompute(key, () -> {
+            leaderEntered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(error);
+            }
+            throw new IllegalStateException("boom");
+        })).isInstanceOf(IllegalStateException.class));
+        leader.start();
+        leaderEntered.await();
+
+        AtomicReference<Throwable> followerError = new AtomicReference<>();
+        Thread follower = new Thread(() -> {
+            try {
+                cache.getOrCompute(key, () -> emptyResult());
+            } catch (Throwable error) {
+                followerError.set(error);
+            }
+        });
+        follower.start();
+        awaitFollowerJoined(follower);
+
+        release.countDown();
+        leader.join();
+        follower.join();
+
+        // 解包为原始类型而非 CompletionException：同步 /analyze 的异常映射
+        // （AnalysisExceptionHandler）依赖原始类型才能返回精确状态码。
+        assertThat(followerError.get())
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(CompletionException.class);
     }
 
     @Test

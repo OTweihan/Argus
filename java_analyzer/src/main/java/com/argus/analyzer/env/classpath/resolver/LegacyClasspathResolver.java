@@ -2,6 +2,7 @@ package com.argus.analyzer.env.classpath.resolver;
 
 import com.argus.analyzer.env.ClasspathResult;
 import com.argus.analyzer.env.MavenConfig;
+import com.argus.analyzer.env.classpath.cache.ClasspathCacheManager;
 import com.argus.analyzer.env.classpath.gateway.ClasspathGateway;
 import com.argus.analyzer.domain.AnalysisProgressListener;
 import org.slf4j.Logger;
@@ -17,7 +18,8 @@ import java.nio.file.Path;
  * <p>6-step priority chain:
  * <ol>
  *   <li>User-specified explicit classpath file</li>
- *   <li>Cache file {@code .argus/classpath.txt} — return directly if valid JARs exist</li>
+ *   <li>Cache file {@code .argus/classpath.txt} — return directly if fresh and valid JARs exist
+ *       (freshness = root pom/settings/JDK metadata unchanged, same policy as the module-aware path)</li>
  *   <li>Offline Maven generation ({@code -o}, short timeout)</li>
  *   <li>Online Maven generation (long timeout)</li>
  *   <li>Stale cache — try to use even if JARs are missing</li>
@@ -29,11 +31,14 @@ public class LegacyClasspathResolver {
 
     private static final Logger log = LoggerFactory.getLogger(LegacyClasspathResolver.class);
     private static final String CACHE_FILE = ".argus/classpath.txt";
+    private static final String CACHE_META_FILE = ".argus/classpath.meta";
 
     private final ClasspathGateway gateway;
+    private final ClasspathCacheManager cacheManager;
 
-    public LegacyClasspathResolver(ClasspathGateway gateway) {
+    public LegacyClasspathResolver(ClasspathGateway gateway, ClasspathCacheManager cacheManager) {
         this.gateway = gateway;
+        this.cacheManager = cacheManager;
     }
 
     public ClasspathResult resolve(Path sourcePath, MavenConfig config, AnalysisProgressListener progress) {
@@ -48,18 +53,23 @@ public class LegacyClasspathResolver {
             log.warn("[CLASSPATH] Step 0: explicit file not found: {}", cpFile);
         }
 
-        // 2. 缓存文件
+        // 2. 缓存文件（带新鲜度校验：此前仅凭 hasValidJars 直接返回——根 pom /
+        //    settings / JDK 变更后会静默使用陈旧 jars，符号解析质量退化且无告警）
         Path cachedFile = sourcePath.resolve(CACHE_FILE);
         boolean cacheFileExists = Files.exists(cachedFile);
         log.info("[CLASSPATH] Step A: checking cache at {} ... exists={}", cachedFile, cacheFileExists);
         ClasspathResult cacheResult = cacheFileExists ? gateway.readClasspathFile(cachedFile, "cache") : null;
+        boolean cacheFresh = cacheManager.isLegacyCacheValid(
+                sourcePath.resolve(CACHE_META_FILE), sourcePath, config);
 
-        if (cacheResult != null && cacheResult.hasValidJars()) {
+        if (cacheResult != null && cacheResult.hasValidJars() && cacheFresh) {
             log.info("[CLASSPATH] Step A: cache hit — {} valid jars, using directly", cacheResult.getJars().size());
             return cacheResult;
         }
-        log.info("[CLASSPATH] Step A: cache skipped ({}), proceeding to Maven generation",
-                cacheResult != null ? "hasValidJars=false" : "file not found");
+        String skipReason = cacheResult == null
+                ? "file not found"
+                : (!cacheResult.hasValidJars() ? "hasValidJars=false" : "metadata stale");
+        log.info("[CLASSPATH] Step A: cache skipped ({}), proceeding to Maven generation", skipReason);
 
         // 3/4. 自动 Maven 生成
         if (config.isAutoDetect() && config.isGenerateClasspath()) {
@@ -72,6 +82,8 @@ public class LegacyClasspathResolver {
                 ClasspathResult offlineResult = gateway.generateClasspath(sourcePath, mvnExec, offlineConfig, offlineTimeout, progress);
                 if (offlineResult.isAvailable()) {
                     log.info("[CLASSPATH] Step B: offline Maven succeeded — {} jars", offlineResult.getJars().size());
+                    cacheManager.saveLegacyCacheMetadata(
+                            sourcePath.resolve(CACHE_META_FILE), sourcePath, config);
                     return offlineResult;
                 }
                 log.warn("[CLASSPATH] Step B: offline Maven failed — {}", offlineResult.getErrors());
@@ -83,6 +95,8 @@ public class LegacyClasspathResolver {
                 ClasspathResult onlineResult = gateway.generateClasspath(sourcePath, mvnExec, onlineConfig, onlineTimeout, progress);
                 if (onlineResult.isAvailable()) {
                     log.info("[CLASSPATH] Step C: online Maven succeeded — {} jars", onlineResult.getJars().size());
+                    cacheManager.saveLegacyCacheMetadata(
+                            sourcePath.resolve(CACHE_META_FILE), sourcePath, config);
                     return onlineResult;
                 }
                 log.warn("[CLASSPATH] Step C: online Maven failed — {}", onlineResult.getErrors());

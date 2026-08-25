@@ -98,8 +98,14 @@ public class AnalysisJobService {
                 }
             }
 
-            if (jobs.size() >= maxJobs) {
-                throw new RejectedExecutionException("Analysis job capacity reached: " + maxJobs);
+            // 容量语义 = 并发作业上限：只统计 PENDING/RUNNING 的活跃作业。
+            // 保留期内（retention 默认 1800s）的终态作业仍留在 jobs 表供
+            // 状态查询/幂等复用，由 cleanupExpiredJobs 按 TTL 回收，不计入
+            // 准入——否则高完成速率下已完成作业会挤占额度，造成假性 503。
+            long activeJobs = jobs.values().stream().filter(AnalysisJob::isActive).count();
+            if (activeJobs >= maxJobs) {
+                throw new RejectedExecutionException(
+                        "Analysis job capacity reached: " + maxJobs + " active jobs");
             }
             String jobId = UUID.randomUUID().toString();
             long timeout = resolveTimeoutSeconds(command.timeoutSeconds());

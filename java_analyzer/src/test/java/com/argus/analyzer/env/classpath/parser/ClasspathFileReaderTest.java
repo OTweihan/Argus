@@ -62,6 +62,26 @@ class ClasspathFileReaderTest {
     }
 
     @Test
+    @DisplayName("Windows drive-letter single entry without ';' keeps the drive colon intact")
+    void windowsSingleEntryKeepsDriveColon(@TempDir Path tempDir) throws IOException {
+        // mdep build-classpath 在单依赖模块下只写一个条目（无 ';'），
+        // 内容如 C:\Users\...\.m2\...\x.jar：若按 ':' 切分会被劈成
+        // "C" + "\Users\..."（盘符丢失/驱动器相对路径），导致缓存永远失效。
+        // 修复后整行作为单条目处理（此处断言 warning 携带完整未劈裂路径）。
+        Path classpathFile = tempDir.resolve("classpath-win.txt");
+        Files.writeString(
+                classpathFile,
+                "C:\\Users\\demo\\.m2\\repository\\com\\acme\\acme-1.0.jar");
+
+        ClasspathResult result = reader.read(classpathFile, "maven-test");
+
+        assertThat(result.isAvailable()).isTrue();
+        assertThat(result.getWarnings()).containsExactly(
+                "JAR not found, skipping: C:\\Users\\demo\\.m2\\repository\\com\\acme\\acme-1.0.jar");
+        assertThat(result.getJars()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Missing JARs become warnings while valid ones are kept")
     void missingJarsBecomeWarnings(@TempDir Path tempDir) throws IOException {
         Path valid = touch(tempDir.resolve("keep.jar"));

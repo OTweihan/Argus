@@ -13,6 +13,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * SourceFileScanner 的缓存状态持有者。
@@ -25,6 +28,11 @@ import java.util.Optional;
  * {@code getLanguageLevel}，且 {@code getModuleIndex} 隐式依赖先调
  * {@code getSourceDirectories} 才能命中。改为 Map 后，每个项目持有独立条目，
  * 并消除调用顺序耦合。</p>
+ *
+ * <p>条目构建采用 per-path single-flight：首次构建（全树 POM 遍历 + 语言级别
+ * 探测）在首个请求者的线程执行，同项目并发请求跟随同一 future。全局锁只保护
+ * LRU 结构本身的 O(1) 操作，构建不再持锁——避免项目 X 首次建索引期间阻塞
+ * 项目 Y 的全部查询。</p>
  */
 @Component
 public class SourceScannerCache {
@@ -37,13 +45,17 @@ public class SourceScannerCache {
     private final MavenModuleScanner moduleScanner;
 
     // access-order LinkedHashMap：最近访问的条目排在末尾，容量超限时淘汰最久未用。
-    // 所有读写都在 synchronized 方法内，无需额外并发结构。
+    // get/put 都会改变访问序，必须与 totalWeight 类似地在 synchronized 内操作；
+    // 耗时的条目构建在锁外完成。
     private final Map<String, Entry> cache = new LinkedHashMap<>(MAX_ENTRIES, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {
             return size() > MAX_ENTRIES;
         }
     };
+
+    /** per-path 构建去重：同一路径只允许一个线程执行文件系统扫描。 */
+    private final Map<String, CompletableFuture<Entry>> inFlight = new ConcurrentHashMap<>();
 
     private record Entry(
             ParserConfiguration.LanguageLevel languageLevel,
@@ -57,27 +69,63 @@ public class SourceScannerCache {
         this.moduleScanner = moduleScanner;
     }
 
-    synchronized ParserConfiguration.LanguageLevel getLanguageLevel(Path sourcePath) {
+    ParserConfiguration.LanguageLevel getLanguageLevel(Path sourcePath) {
         return entry(sourcePath).languageLevel();
     }
 
-    synchronized List<Path> getSourceDirectories(Path sourcePath) {
+    List<Path> getSourceDirectories(Path sourcePath) {
         return entry(sourcePath).sourceDirectories();
     }
 
-    synchronized MavenModuleIndex getModuleIndex(Path sourcePath) {
+    MavenModuleIndex getModuleIndex(Path sourcePath) {
         return entry(sourcePath).moduleIndex();
     }
 
     private Entry entry(Path sourcePath) {
         String pathStr = sourcePath.toAbsolutePath().normalize().toString();
-        Entry cached = cache.get(pathStr);
+
+        // 快路径：命中缓存只需一次 O(1) 锁内读（access-order 的 get 也改变
+        // 访问序，必须持锁），构建等重活绝不在该锁内发生。
+        Entry cached;
+        synchronized (cache) {
+            cached = cache.get(pathStr);
+        }
         if (cached != null) {
             return cached;
         }
-        Entry built = build(sourcePath);
-        cache.put(pathStr, built);
-        return built;
+
+        // per-path single-flight：首个请求者在自己线程构建，同路径并发请求
+        // 跟随同一 future，避免重复扫描；不同项目互不阻塞。
+        CompletableFuture<Entry> mine = new CompletableFuture<>();
+        CompletableFuture<Entry> existing = inFlight.putIfAbsent(pathStr, mine);
+        if (existing != null) {
+            try {
+                return existing.join();
+            } catch (CompletionException ce) {
+                // 解包为原始类型重抛，保持与旧同步实现一致的异常语义。
+                Throwable cause = ce.getCause() != null ? ce.getCause() : ce;
+                if (cause instanceof RuntimeException runtimeError) {
+                    throw runtimeError;
+                }
+                if (cause instanceof Error error) {
+                    throw error;
+                }
+                throw ce;
+            }
+        }
+        try {
+            Entry built = build(sourcePath);
+            synchronized (cache) {
+                cache.put(pathStr, built);
+            }
+            mine.complete(built);
+            return built;
+        } catch (RuntimeException | Error error) {
+            mine.completeExceptionally(error);
+            throw error;
+        } finally {
+            inFlight.remove(pathStr, mine);
+        }
     }
 
     private Entry build(Path sourcePath) {

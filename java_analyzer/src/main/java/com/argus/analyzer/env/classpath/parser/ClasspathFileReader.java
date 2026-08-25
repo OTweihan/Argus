@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Parses a classpath text file into a {@link ClasspathResult}.
@@ -19,6 +20,9 @@ import java.util.List;
  */
 public final class ClasspathFileReader {
 
+    /** Windows 盘符前缀（内容开头处的 {@code X:\} 或 {@code X:/}）。 */
+    private static final Pattern DRIVE_PREFIX = Pattern.compile("^[A-Za-z]:[\\\\/]");
+
     public ClasspathResult read(Path classpathFile, String source) {
         try {
             String content = Files.readString(classpathFile, StandardCharsets.UTF_8).trim();
@@ -28,8 +32,19 @@ public final class ClasspathFileReader {
                         List.of(), null, null);
             }
 
-            String separator = content.contains(";") ? ";" : ":";
-            String[] parts = content.split(separator);
+            // 分隔符判定（盘符感知）：
+            // - 含 ';' → Windows 风格（File.pathSeparator=';'），多条目按 ';' 切分；
+            // - 不含 ';' 但以盘符开头（如 C:\...）→ Windows 单条目（Windows 多条目
+            //   必以 ';' 分隔），整行作为单个 JAR 路径——否则会把盘符冒号误当
+            //   分隔符劈成 "C" + "\..."，导致路径损坏或全部判无效而静默降级；
+            // - 其余 → Unix 风格，按 ':' 切分。
+            String[] parts;
+            if (!content.contains(";") && DRIVE_PREFIX.matcher(content).find()) {
+                parts = new String[] {content};
+            } else {
+                String separator = content.contains(";") ? ";" : ":";
+                parts = content.split(separator);
+            }
             List<String> validJars = new ArrayList<>();
             List<String> warnings = new ArrayList<>();
 

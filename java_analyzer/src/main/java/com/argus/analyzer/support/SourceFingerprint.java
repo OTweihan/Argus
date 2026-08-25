@@ -56,6 +56,13 @@ public final class SourceFingerprint {
 
     /** 是否参与源码指纹的输入文件。新增构建文件类型时在此同步。 */
     public static boolean isFingerprintInput(Path path) {
+        // 与扫描器共用同一构建输出排除口径（单一事实源）：构建产物（如
+        // target/generated-sources 的注解处理器输出）从不被扫描分析，也就
+        // 不应影响缓存键身份——否则同一源码树的键随构建状态漂移，且对大型
+        // 生成树做无意义哈希。
+        if (BuildOutputFilter.isUnder(path)) {
+            return false;
+        }
         String name = path.getFileName().toString();
         return name.endsWith(".java")
                 || name.equals("pom.xml")

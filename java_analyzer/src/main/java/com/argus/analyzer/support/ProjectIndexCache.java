@@ -3,6 +3,7 @@ package com.argus.analyzer.support;
 import com.argus.analyzer.domain.AnalysisCommand;
 import com.argus.analyzer.domain.AnalysisResult;
 import com.argus.analyzer.domain.AnalysisScope;
+import com.argus.analyzer.domain.JobCancelledException;
 import com.argus.analyzer.domain.model.AnalyzerDiagnostics;
 import com.argus.analyzer.env.MavenConfig;
 import com.argus.analyzer.env.MavenConfigFingerprint;
@@ -23,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -216,6 +218,13 @@ public class ProjectIndexCache {
         log.debug("Cache cleared");
     }
 
+    /**
+     * single-flight 跟随者在「领导者因 {@link JobCancelledException} 失败」时的
+     * 最大就地重算次数。取消只针对发起取消的请求，跟随者不应被传染；正常情况
+     * 下第一次重试即可成为新领导者，上限仅为极端取消风暴下的防活锁兜底。
+     */
+    private static final int MAX_CANCELLED_LEADER_RETRIES = 5;
+
     public CacheResult getOrCompute(CacheKey key, Supplier<AnalysisResult> supplier) {
         // 查找耗时由 get() 单独统计（不含 supplier 分析耗时）。
         AnalysisResult cached = get(key);
@@ -223,26 +232,57 @@ public class ProjectIndexCache {
             return new CacheResult(cached, true);
         }
 
-        CompletableFuture<AnalysisResult> candidate = new CompletableFuture<>();
-        CompletableFuture<AnalysisResult> existing = inFlight.putIfAbsent(key, candidate);
-        if (existing != null) {
-            // single-flight：并发请求等待同一 in-flight 计算结果，也算命中
-            AnalysisResult joined = existing.join();
-            cacheHits.incrementAndGet();
-            return new CacheResult(joined, true);
-        }
-        try {
-            AnalysisResult computed = supplier.get();
-            AnalysisResult safe = insert(key, computed);
-            // 超大条目旁路时 safe 为 null：仍返回计算结果，只是不缓存。
-            AnalysisResult result = safe != null ? safe : computed;
-            candidate.complete(result);
-            return new CacheResult(result, false);
-        } catch (RuntimeException | Error error) {
-            candidate.completeExceptionally(error);
-            throw error;
-        } finally {
-            inFlight.remove(key, candidate);
+        // single-flight：并发请求等待同一 in-flight 计算结果。
+        //
+        // 跟随者不得原样传染领导者的失败：
+        // - JobCancelledException 只属于发起取消的那个请求——跟随者视为
+        //   single-flight miss 就地重算（等领导者 finally 把自己移出 inFlight）；
+        // - 其余异常解包为原始类型重抛，避免同步 /analyze 收到裸
+        //   CompletionException（无 handler 映射而误变 500）。
+        int cancelledLeaderRetries = 0;
+        while (true) {
+            CompletableFuture<AnalysisResult> candidate = new CompletableFuture<>();
+            CompletableFuture<AnalysisResult> existing = inFlight.putIfAbsent(key, candidate);
+            if (existing == null) {
+                try {
+                    AnalysisResult computed = supplier.get();
+                    AnalysisResult safe = insert(key, computed);
+                    // 超大条目旁路时 safe 为 null：仍返回计算结果，只是不缓存。
+                    AnalysisResult result = safe != null ? safe : computed;
+                    candidate.complete(result);
+                    return new CacheResult(result, false);
+                } catch (RuntimeException | Error error) {
+                    candidate.completeExceptionally(error);
+                    throw error;
+                } finally {
+                    inFlight.remove(key, candidate);
+                }
+            }
+            try {
+                AnalysisResult joined = existing.join();
+                cacheHits.incrementAndGet();
+                return new CacheResult(joined, true);
+            } catch (CompletionException ce) {
+                Throwable cause = ce.getCause() != null ? ce.getCause() : ce;
+                if (cause instanceof JobCancelledException) {
+                    if (cancelledLeaderRetries++ >= MAX_CANCELLED_LEADER_RETRIES) {
+                        throw (JobCancelledException) cause;
+                    }
+                    // 领导者被其所属请求取消：等其 finally 清理后重算，避免与
+                    // 清理竞态导致再次跟随同一死亡 future。
+                    while (inFlight.get(key) == existing) {
+                        Thread.onSpinWait();
+                    }
+                    continue;
+                }
+                if (cause instanceof RuntimeException runtimeError) {
+                    throw runtimeError;
+                }
+                if (cause instanceof Error error) {
+                    throw error;
+                }
+                throw ce;
+            }
         }
     }
 

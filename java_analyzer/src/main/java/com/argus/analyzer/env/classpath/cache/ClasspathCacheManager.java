@@ -108,6 +108,45 @@ public class ClasspathCacheManager {
         new CacheMetadata(pomHash, settingsHash, jdkVersion, createdAt).write(metaFile);
     }
 
+    // ── legacy 单模块缓存（.argus/classpath.txt）────────────────────────
+
+    /**
+     * 校验 legacy classpath 缓存元数据是否仍然新鲜。
+     *
+     * <p>与模块感知路径共用 {@link CacheMetadata} 口径（根 pom hash +
+     * settings hash + JDK 版本）；legacy 路径没有 {@link MavenModuleIndex}，
+     * 根 pom 取 {@code sourcePath/pom.xml}（非 Maven 项目视为空 hash，与
+     * 「pom 不存在时不参与校验」语义一致）。</p>
+     */
+    public boolean isLegacyCacheValid(Path metaFile, Path sourcePath, MavenConfig config) {
+        CacheMetadata meta = CacheMetadata.read(metaFile);
+        if (meta == null) {
+            return false;
+        }
+        return meta.isValid(
+                computePomHash(legacyRootPom(sourcePath)),
+                computeSettingsHash(config.getSettingsXml()),
+                getJdkVersion());
+    }
+
+    /** 在成功重新生成 legacy 缓存后写入/刷新元数据。 */
+    public void saveLegacyCacheMetadata(Path metaFile, Path sourcePath, MavenConfig config) {
+        String createdAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        new CacheMetadata(
+                computePomHash(legacyRootPom(sourcePath)),
+                computeSettingsHash(config.getSettingsXml()),
+                getJdkVersion(),
+                createdAt).write(metaFile);
+    }
+
+    private static Path legacyRootPom(Path sourcePath) {
+        if (sourcePath == null) {
+            return null;
+        }
+        Path pom = sourcePath.resolve("pom.xml");
+        return Files.exists(pom) ? pom : null;
+    }
+
     private String computePomHash(Path rootPom) {
         if (rootPom == null || !Files.exists(rootPom)) {
             return "";

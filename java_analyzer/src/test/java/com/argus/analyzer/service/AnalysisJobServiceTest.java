@@ -73,6 +73,22 @@ class AnalysisJobServiceTest {
     }
 
     @Test
+    void shouldAdmitNewJobsWhenOnlyTerminalJobsAreRetained() {
+        // 容量 = 并发作业上限：保留期内（未过 TTL 清理）的终态作业不占额度，
+        // 否则高完成速率下已完成作业会挤爆 maxJobs 造成假性 503。
+        ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
+        List<Runnable> queued = new ArrayList<>();
+        AnalysisJobService service = new AnalysisJobService(analyzer, queued::add, 1, 1800);
+
+        var first = service.submit(command, new MavenConfig());
+        assertThat(service.cancel(first.jobId()).status()).isEqualTo("CANCELLED");
+
+        var second = service.submit(command, new MavenConfig());
+        assertThat(second.status()).isEqualTo("PENDING");
+        assertThat(queued).hasSize(2);
+    }
+
+    @Test
     void shouldRetainFailureAsDeterministicJobStatus() {
         ProjectAnalyzerService analyzer = mock(ProjectAnalyzerService.class);
         when(analyzer.analyze(any(), any(), any())).thenThrow(new IllegalStateException("analysis failed"));
