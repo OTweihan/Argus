@@ -14,7 +14,7 @@
 
     <template v-if="items.length">
       <article
-        v-for="f in sortedItems"
+        v-for="f in visibleItems"
         :key="f.findingId"
         :class="['finding-item', 'sev-' + f.severity.toLowerCase()]"
       >
@@ -57,14 +57,26 @@
 
     <el-empty v-else-if="!loading" description="该分析执行未产生发现项" />
 
-    <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+    <RenderCapHint
+      v-if="hiddenCount > 0"
+      :loaded="sortedItems.length"
+      :rendered="visibleItems.length"
+    />
+    <InfiniteScrollLoad
+      v-else
+      :has-more="hasMore"
+      :loading="loading"
+      @load-more="$emit('load-more')"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import type { FindingInfo } from "../../../api/task";
+import { useRenderCap } from "../../../composables/useRenderCap";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../common/RenderCapHint.vue";
 import { severityRank } from "./severity";
 
 const props = defineProps<{
@@ -83,6 +95,10 @@ const sortedItems = computed(() =>
     (left, right) => severityRank(left.severity) - severityRank(right.severity),
   ),
 );
+
+// 渲染上限：排序在全量已加载数据上进行（触顶时优先展示严重程度最高的条目），
+// 仅 DOM 渲染截断。
+const { visibleItems, hiddenCount } = useRenderCap(sortedItems);
 </script>
 
 <style scoped>

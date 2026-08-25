@@ -6,7 +6,7 @@
       <span v-if="total !== null" class="list-count">共 {{ total }} 个节点</span>
     </div>
     <el-table
-      :data="filteredItems"
+      :data="visibleItems"
       row-key="callNodeId"
       :expand-row-keys="expandedRowKeys"
       size="small"
@@ -87,7 +87,13 @@
         </template>
       </el-table-column>
       <template #append>
+        <RenderCapHint
+          v-if="hiddenCount > 0"
+          :loaded="filteredItems.length"
+          :rendered="visibleItems.length"
+        />
         <InfiniteScrollLoad
+          v-else
           :has-more="hasMore"
           :loading="loading"
           @load-more="$emit('load-more')"
@@ -101,8 +107,10 @@
 import { computed, ref, watch } from "vue";
 import type { CallEdgeInfo, CallNodeInfo } from "../../../api/task";
 import { useDebounceFn } from "../../../composables/useDebounceFn";
+import { useRenderCap } from "../../../composables/useRenderCap";
 import type { ElTagType } from "../../../utils";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../common/RenderCapHint.vue";
 
 const props = defineProps<{
   items: CallNodeInfo[];
@@ -150,6 +158,9 @@ const filteredItems = computed(() => {
     return true;
   });
 });
+
+// 渲染上限：过滤在全量已加载数据上进行，仅 DOM 渲染截断（触顶提示过滤）。
+const { visibleItems, hiddenCount } = useRenderCap(filteredItems);
 
 function toggleNode(row: CallNodeInfo): void {
   emit("select-node", row.callNodeId);

@@ -4,7 +4,7 @@
       <el-input v-model="filter" placeholder="过滤路径" clearable class="filter-input" />
       <span v-if="total !== null" class="list-count">共 {{ total }} 个端点</span>
     </div>
-    <el-table :data="filteredItems" size="small" stripe style="width: 100%">
+    <el-table :data="visibleItems" size="small" stripe style="width: 100%">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
@@ -28,7 +28,13 @@
         </template>
       </el-table-column>
       <template #append>
+        <RenderCapHint
+          v-if="hiddenCount > 0"
+          :loaded="filteredItems.length"
+          :rendered="visibleItems.length"
+        />
         <InfiniteScrollLoad
+          v-else
           :has-more="hasMore"
           :loading="loading"
           @load-more="$emit('load-more')"
@@ -42,8 +48,10 @@
 import { computed, ref, watch } from "vue";
 import type { EndpointInfo } from "../../../api/task";
 import { useDebounceFn } from "../../../composables/useDebounceFn";
+import { useRenderCap } from "../../../composables/useRenderCap";
 import { httpMethodTag } from "../../../utils";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../common/RenderCapHint.vue";
 
 const props = defineProps<{
   items: EndpointInfo[];
@@ -78,6 +86,9 @@ const filteredItems = computed(() => {
       (e.controllerClass || "").toLowerCase().includes(q),
   );
 });
+
+// 渲染上限：过滤在全量已加载数据上进行，仅 DOM 渲染截断（触顶提示过滤）。
+const { visibleItems, hiddenCount } = useRenderCap(filteredItems);
 </script>
 
 <style scoped>

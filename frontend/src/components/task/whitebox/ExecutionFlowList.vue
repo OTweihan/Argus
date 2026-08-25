@@ -1,7 +1,11 @@
 <template>
   <div class="list-wrap">
     <el-collapse v-if="items.length">
-      <el-collapse-item v-for="flow in items" :key="flow.executionFlowId" :title="flow.entryPoint">
+      <el-collapse-item
+        v-for="flow in visibleItems"
+        :key="flow.executionFlowId"
+        :title="flow.entryPoint"
+      >
         <div class="flow-depth">调用深度: {{ flow.callDepth }}</div>
         <el-table :data="flow.steps" size="small" stripe style="width: 100%">
           <el-table-column label="#" width="40">
@@ -27,21 +31,32 @@
 
     <el-empty v-else description="无执行流数据" :image-size="60" />
 
-    <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+    <RenderCapHint v-if="hiddenCount > 0" :loaded="items.length" :rendered="visibleItems.length" />
+    <InfiniteScrollLoad
+      v-else
+      :has-more="hasMore"
+      :loading="loading"
+      @load-more="$emit('load-more')"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import type { ExecutionFlowInfo } from "../../../api/task";
+import { useRenderCap } from "../../../composables/useRenderCap";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../common/RenderCapHint.vue";
 
-defineProps<{
+const props = defineProps<{
   items: ExecutionFlowInfo[];
   hasMore: boolean;
   loading: boolean;
 }>();
 
 defineEmits<{ "load-more": [] }>();
+
+// 渲染上限：仅 DOM 渲染截断，触顶后提示缩小范围（数据仍全量在内存中）。
+const { visibleItems, hiddenCount } = useRenderCap(() => props.items);
 </script>
 
 <style scoped>

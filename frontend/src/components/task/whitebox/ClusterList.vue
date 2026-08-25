@@ -7,7 +7,7 @@
     <div v-if="loading && !items.length" v-loading="loading" class="skeleton" />
 
     <template v-if="items.length">
-      <details v-for="c in items" :key="c.clusterId" class="cluster-item">
+      <details v-for="c in visibleItems" :key="c.clusterId" class="cluster-item">
         <summary class="cluster-summary">
           <strong>{{ c.suggestedLabel || "(未命名)" }}</strong>
           <span class="badge">{{ c.memberCount }} members</span>
@@ -22,15 +22,23 @@
 
     <el-empty v-else-if="!loading" description="该分析执行未生成功能聚类" />
 
-    <InfiniteScrollLoad :has-more="hasMore" :loading="loading" @load-more="$emit('load-more')" />
+    <RenderCapHint v-if="hiddenCount > 0" :loaded="items.length" :rendered="visibleItems.length" />
+    <InfiniteScrollLoad
+      v-else
+      :has-more="hasMore"
+      :loading="loading"
+      @load-more="$emit('load-more')"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import type { ClusterInfo } from "../../../api/task";
+import { useRenderCap } from "../../../composables/useRenderCap";
 import InfiniteScrollLoad from "../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../common/RenderCapHint.vue";
 
-defineProps<{
+const props = defineProps<{
   items: ClusterInfo[];
   total: number | null;
   hasMore: boolean;
@@ -40,6 +48,9 @@ defineProps<{
 defineEmits<{
   (e: "load-more"): void;
 }>();
+
+// 渲染上限：仅 DOM 渲染截断，触顶后提示缩小范围（数据仍全量在内存中）。
+const { visibleItems, hiddenCount } = useRenderCap(() => props.items);
 </script>
 
 <style scoped>
