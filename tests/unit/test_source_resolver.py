@@ -347,14 +347,20 @@ def test_symlink_escaping_source_dir_is_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows 创建符号链接需要管理员权限")
 def test_snapshot_follows_dir_symlink_without_cycle(tmp_path: Path) -> None:
-    """O-07：目录符号链接被跟随（与旧 copytree 语义一致），且循环链接不死循环。"""
+    """O-07：根内目录符号链接被跟随（与旧 copytree 语义一致），循环不死循环。
+
+    跟随仅限源码根目录之内；指向根内同一真实目录的多条路径（真实目录
+    与链接）内容只物化一份——先展开哪个名字取决于遍历序，因此只断言
+    不丢失、不重复，不断言具体落点。
+    """
     source = tmp_path / "src"
     source.mkdir()
     (source / "Main.java").write_text("class Main {}", encoding="utf-8")
-    real_dir = tmp_path / "real"
-    real_dir.mkdir()
-    (real_dir / "Shared.java").write_text("class Shared {}", encoding="utf-8")
-    (source / "link-to-real").symlink_to(real_dir, target_is_directory=True)
+    # 根内真实目录 + 指向它的目录符号链接
+    lib_dir = source / "real-lib"
+    lib_dir.mkdir()
+    (lib_dir / "Shared.java").write_text("class Shared {}", encoding="utf-8")
+    (source / "linked-lib").symlink_to(lib_dir, target_is_directory=True)
     # 自环目录链接：防环必须跳过而非死循环
     (source / "self-loop").symlink_to(source, target_is_directory=True)
 
@@ -363,9 +369,26 @@ def test_snapshot_follows_dir_symlink_without_cycle(tmp_path: Path) -> None:
 
     snapshot = Path(result.resolved_path)
     assert (snapshot / "Main.java").is_file()
-    assert (snapshot / "link-to-real" / "Shared.java").is_file()
-    # 自环不会导致快照无限展开：被解析到同一真实目录后跳过
-    assert snapshot.is_dir()
+    shared_copies = list(snapshot.rglob("Shared.java"))
+    assert len(shared_copies) == 1
+    # 自环解析到已访问的真实目录后被跳过，不会在快照中无限展开
+    assert not (snapshot / "self-loop" / "self-loop").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows 创建符号链接需要管理员权限")
+def test_snapshot_rejects_out_of_root_dir_symlink(tmp_path: Path) -> None:
+    """越界目录符号链接与普通越界文件链接同样触发拒绝（防目录穿越逃逸）。"""
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Main.java").write_text("class Main {}", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "Secret.java").write_text("class Secret {}", encoding="utf-8")
+    (source / "link-to-outside").symlink_to(outside, target_is_directory=True)
+
+    resolver = _resolver(tmp_path)
+    with pytest.raises(SourceResolutionError, match="越界或无效符号链接"):
+        resolver.resolve_path(str(source), snapshot_id="symlink-escape")
 
 
 def test_git_resolve_skips_content_hash(tmp_path: Path, monkeypatch) -> None:
