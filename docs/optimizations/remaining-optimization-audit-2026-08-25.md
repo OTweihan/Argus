@@ -187,7 +187,7 @@
 | Python | `pytest tests/unit tests/integration -q` | **1429 passed, 5 skipped**（新增 4 例） |
 | 前端 | `eslint` + `vue-tsc --noEmit` | 通过 |
 | 前端 | `pnpm test` | **232 passed**（新增 4 例）→ 第二轮后 **236 passed**（再增 4 例） |
-| Java | 第一批新增 3 个 ExecutionFlowTracer 测试；第二批新增 JarTypeSolverPoolTest 3 例。**未执行 Maven 编译/测试，由用户自行验证** | — |
+| Java | `mvn test`（已获用户授权执行；含构造器签名冲突修复） | **BUILD SUCCESS：201 tests, 0 failures, 2 skipped**（两轮共新增 6 例） |
 
 ## 行为变化说明（兼容/迁移）
 

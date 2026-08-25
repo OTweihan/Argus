@@ -85,16 +85,17 @@ final class JarTypeSolverPool {
         this(DEFAULT_MAX_OPEN_JARS);
     }
 
-    JarTypeSolverPool(int maxOpenJars) {
+    /**
+     * 容量注入构造：Spring 经 {@code @Value} 提供配置值；测试/手工装配直接传裸 int
+     * （注解不影响直调）。注意不能与无参构造之外再开第三个同参构造——Java 不允许
+     * 仅靠注解区分重载。
+     */
+    @Autowired
+    JarTypeSolverPool(@Value("${argus.analysis.jar-pool.max-open-jars:256}") int maxOpenJars) {
         if (maxOpenJars < 1) {
             throw new IllegalArgumentException("maxOpenJars must be >= 1: " + maxOpenJars);
         }
         this.maxOpenJars = maxOpenJars;
-    }
-
-    @Autowired
-    JarTypeSolverPool(@Value("${argus.analysis.jar-pool.max-open-jars:256}") int maxOpenJars) {
-        this(maxOpenJars);
     }
 
     /**
