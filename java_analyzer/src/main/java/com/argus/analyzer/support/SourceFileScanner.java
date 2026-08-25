@@ -15,6 +15,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeS
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -34,12 +35,20 @@ public class SourceFileScanner {
 
     private final JavaParser defaultParser;
     private final SourceScannerCache cache;
-    private final JarTypeSolverPool jarPool = new JarTypeSolverPool();
+    private final JarTypeSolverPool jarPool;
 
+    @Autowired
     public SourceFileScanner(JavaParser defaultParser,
-                             SourceScannerCache cache) {
+                             SourceScannerCache cache,
+                             JarTypeSolverPool jarPool) {
         this.defaultParser = defaultParser;
         this.cache = cache;
+        this.jarPool = jarPool;
+    }
+
+    /** 测试/手工装配便捷入口：使用默认容量的进程级 jar 池。 */
+    public SourceFileScanner(JavaParser defaultParser, SourceScannerCache cache) {
+        this(defaultParser, cache, new JarTypeSolverPool());
     }
 
     /**
