@@ -13,7 +13,7 @@
 
     <groupId>com.argus</groupId>
     <artifactId>java-analyzer</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <name>Argus Java Analyzer</name>
     <description>Static analysis subsystem for Argus - Java whitebox code analysis</description>
 
