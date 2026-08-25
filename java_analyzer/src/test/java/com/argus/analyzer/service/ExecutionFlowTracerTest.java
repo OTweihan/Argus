@@ -1,5 +1,6 @@
 package com.argus.analyzer.service;
 
+import com.argus.analyzer.domain.AnalysisProgressListener;
 import com.argus.analyzer.domain.model.CallEdge;
 import com.argus.analyzer.domain.model.CallGraphNode;
 import com.argus.analyzer.domain.model.Confidence;
@@ -207,6 +208,82 @@ class ExecutionFlowTracerTest {
     void shouldHandleEmptyGraphOrEndpoints() {
         assertThat(tracer.trace(Map.of(), List.of())).isEmpty();
         assertThat(tracer.trace(Map.of(), List.of(new EndpointInfo("/", "GET", "C", "m", List.of(), "void")))).isEmpty();
+    }
+
+    /**
+     * 单流步数上限：稠密图全量展开时单流可达 O(节点数)，超过上限必须截断，
+     * 并把截断记录写入 truncations、经 progress 发 WARN 事件。
+     */
+    @Test
+    void shouldCapStepsPerFlowAndRecordTruncation() {
+        ExecutionFlowTracer capped = new ExecutionFlowTracer(4, 100);
+        Map<String, CallGraphNode> graph = new LinkedHashMap<>();
+        for (int i = 0; i < 9; i++) {
+            graph.put("N" + i + "#m", node("N" + i, "m", "N" + (i + 1) + "#m"));
+        }
+        graph.put("N9#m", node("N9", "m"));
+
+        List<String> warnings = new ArrayList<>();
+        AnalysisProgressListener progress = (stage, level, message) -> {
+            if ("WARN".equals(level)) warnings.add(message);
+        };
+
+        ExecutionFlowTracer.TraceOutcome outcome = capped.traceWithBudget(
+                graph,
+                List.of(new EndpointInfo("/t", "GET", "N0", "m", List.of(), "void")),
+                progress);
+
+        assertThat(outcome.flows()).hasSize(1);
+        assertThat(flowSteps(outcome.flows().getFirst())).hasSize(4);
+        assertThat(outcome.flows().getFirst().callDepth()).isEqualTo(3);
+        assertThat(outcome.truncations()).containsExactly("N0#m: truncated at 4 steps (cap 4)");
+        assertThat(warnings).singleElement().asString().contains("truncated");
+    }
+
+    /** 全局预算：耗尽后当前流截断、剩余端点整流跳过，且不再产生空流。 */
+    @Test
+    void shouldStopTracingWhenGlobalBudgetExhausted() {
+        ExecutionFlowTracer bounded = new ExecutionFlowTracer(100, 6);
+        Map<String, CallGraphNode> graph = new LinkedHashMap<>();
+        graph.put("A#m", node("A", "m", "B#m"));
+        graph.put("B#m", node("B", "m", "C#m"));
+        graph.put("C#m", node("C", "m", "D#m"));
+        graph.put("D#m", node("D", "m"));
+
+        List<EndpointInfo> endpoints = List.of(
+                new EndpointInfo("/a", "GET", "A", "m", List.of(), "void"),
+                new EndpointInfo("/b", "GET", "B", "m", List.of(), "void"),
+                new EndpointInfo("/c", "GET", "C", "m", List.of(), "void")
+        );
+
+        ExecutionFlowTracer.TraceOutcome outcome = bounded.traceWithBudget(
+                graph, endpoints, AnalysisProgressListener.NOOP);
+
+        // 端点 A 消耗 4 步；端点 B 只剩 2 步预算（截断）；端点 C 整流跳过，不产生空流。
+        assertThat(outcome.flows()).hasSize(2);
+        assertThat(flowSteps(outcome.flows().get(0))).containsExactly("A#m", "B#m", "C#m", "D#m");
+        assertThat(flowSteps(outcome.flows().get(1))).containsExactly("B#m", "C#m");
+        assertThat(outcome.truncations()).containsExactly(
+                "B#m: truncated at 2 steps (cap 100)",
+                "global step budget (6) exhausted; skipped 1 endpoint flow(s)");
+    }
+
+    /** 未触限时行为与旧实现一致：不产生截断记录。 */
+    @Test
+    void shouldNotRecordTruncationsWithinBudget() {
+        Map<String, CallGraphNode> graph = new LinkedHashMap<>();
+        graph.put("UserController#getUser",
+                node("UserController", "getUser", "UserService#findById"));
+        graph.put("UserService#findById", node("UserService", "findById"));
+
+        ExecutionFlowTracer.TraceOutcome outcome = tracer.traceWithBudget(
+                graph,
+                List.of(new EndpointInfo("/users/{id}", "GET", "UserController", "getUser",
+                        List.of("id"), "User")),
+                AnalysisProgressListener.NOOP);
+
+        assertThat(outcome.flows()).hasSize(1);
+        assertThat(outcome.truncations()).isEmpty();
     }
 
     // ---- helpers

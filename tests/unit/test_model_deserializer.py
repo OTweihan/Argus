@@ -120,6 +120,24 @@ def test_pass_failures_defaults_to_empty():
     assert ad.pass_failures == []
 
 
+# --- 6c. flows 步数预算截断记录（Java AnalyzerDiagnostics.flowTruncations） ---
+def test_flow_truncations_deserializes_from_camel_case():
+    ad = AnalyzerDiagnostics.from_dict(
+        {"flowTruncations": ["Foo#bar: truncated at 400 steps (cap 400)"]}
+    )
+    assert ad.flow_truncations == ["Foo#bar: truncated at 400 steps (cap 400)"]
+
+
+def test_flow_truncations_defaults_to_empty():
+    ad = AnalyzerDiagnostics.from_dict({})
+    assert ad.flow_truncations == []
+
+
+def test_flow_truncations_null_uses_default_factory():
+    ad = AnalyzerDiagnostics.from_dict({"flowTruncations": None})
+    assert ad.flow_truncations == []
+
+
 # --- 7. null list → default_factory ---
 def test_null_list_uses_default_factory():
     ad = AnalyzerDiagnostics.from_dict(

@@ -268,6 +268,9 @@ class AnalyzerDiagnostics:
     # O-11：可选 AnalysisPass 显式降级记录（"passId: message"），与 Java 端
     # AnalyzerDiagnostics.passFailures 对齐；空列表表示未发生降级。
     pass_failures: list[str] = field(default_factory=list)
+    # flows pass 步数预算截断记录（"entryPoint: 原因" 或全局汇总说明），与 Java 端
+    # AnalyzerDiagnostics.flowTruncations 对齐；空列表/缺失表示未发生截断。
+    flow_truncations: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalyzerDiagnostics:

@@ -148,7 +148,10 @@ public final class PassExecutor {
                 .join();
     }
 
-    /** 合并 pass 附加诊断（目前仅 call graph pass 提供解析统计）。 */
+    /**
+     * 合并 pass 附加诊断。解析统计目前仅 call graph pass 提供，仅当来源携带统计时
+     * 才覆盖（flows 等只附加截断记录的 pass 不得把统计清零）；截断记录做追加合并。
+     */
     private static AnalyzerDiagnostics mergeDiagnostics(AnalyzerDiagnostics target,
                                                         AnalyzerDiagnostics source) {
         if (source == null) {
@@ -157,15 +160,24 @@ public final class PassExecutor {
         if (target == null) {
             return source;
         }
-        target.setTotalSourceFiles(source.getTotalSourceFiles());
-        target.setParsedFileCount(source.getParsedFileCount());
-        target.setFailedFileCount(source.getFailedFileCount());
-        target.setFailedFiles(source.getFailedFiles());
-        target.setTotalCalls(source.getTotalCalls());
-        target.setResolvedHigh(source.getResolvedHigh());
-        target.setResolvedMedium(source.getResolvedMedium());
-        target.setResolvedLow(source.getResolvedLow());
-        target.setUnresolved(source.getUnresolved());
+        if (source.getTotalSourceFiles() > 0 || source.getTotalCalls() > 0) {
+            target.setTotalSourceFiles(source.getTotalSourceFiles());
+            target.setParsedFileCount(source.getParsedFileCount());
+            target.setFailedFileCount(source.getFailedFileCount());
+            target.setFailedFiles(source.getFailedFiles());
+            target.setTotalCalls(source.getTotalCalls());
+            target.setResolvedHigh(source.getResolvedHigh());
+            target.setResolvedMedium(source.getResolvedMedium());
+            target.setResolvedLow(source.getResolvedLow());
+            target.setUnresolved(source.getUnresolved());
+        }
+        List<String> truncations = source.getFlowTruncations();
+        if (truncations != null && !truncations.isEmpty()) {
+            List<String> merged = new ArrayList<>(
+                    target.getFlowTruncations() != null ? target.getFlowTruncations() : List.of());
+            merged.addAll(truncations);
+            target.setFlowTruncations(List.copyOf(merged));
+        }
         return target;
     }
 

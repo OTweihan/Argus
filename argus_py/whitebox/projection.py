@@ -525,6 +525,8 @@ def serialize_whitebox_result(
                 "moduleTypes": result.diagnostics.module_types,
                 # O-11：可选 pass 降级记录（与 Java AnalyzerDiagnostics.passFailures 对齐）
                 "passFailures": result.diagnostics.pass_failures,
+                # flows pass 步数预算截断记录（与 Java flowTruncations 对齐）
+                "flowTruncations": result.diagnostics.flow_truncations,
             }
             if result.diagnostics
             else None

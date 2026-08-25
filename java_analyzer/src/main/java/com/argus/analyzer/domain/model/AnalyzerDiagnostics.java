@@ -51,6 +51,10 @@ public class AnalyzerDiagnostics {
     // 空列表/空值时未发生降级。wire contract 为兼容新增字段（Python 端同步镜像）。
     private List<String> passFailures;
 
+    // flows pass 步数预算截断记录（"entryPoint: 原因" 或全局汇总说明）；
+    // 空/null 表示未发生截断。wire contract 为兼容新增字段（Python 端同步镜像）。
+    private List<String> flowTruncations;
+
     public AnalyzerDiagnostics() {}
 
     /**
@@ -91,6 +95,7 @@ public class AnalyzerDiagnostics {
         this.bomModuleCount = other.bomModuleCount;
         this.moduleTypes = other.moduleTypes;
         this.passFailures = other.passFailures;
+        this.flowTruncations = other.flowTruncations;
     }
 
     public AnalyzerDiagnostics(int totalSourceFiles, int parsedFileCount, int failedFileCount,
@@ -203,4 +208,7 @@ public class AnalyzerDiagnostics {
 
     public List<String> getPassFailures() { return passFailures; }
     public void setPassFailures(List<String> passFailures) { this.passFailures = passFailures; }
+
+    public List<String> getFlowTruncations() { return flowTruncations; }
+    public void setFlowTruncations(List<String> flowTruncations) { this.flowTruncations = flowTruncations; }
 }

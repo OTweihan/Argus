@@ -334,6 +334,15 @@ class TestSerializeWhiteboxResult:
         assert data["completeness"] == "NOT_EVALUATED"
         assert data["qualityIssues"] == []
 
+    def test_serializes_flow_truncations(self) -> None:
+        from argus_py.whitebox.projection import serialize_whitebox_result
+
+        d = AnalyzerDiagnostics(flow_truncations=["Foo#bar: truncated at 400 steps (cap 400)"])
+        data = serialize_whitebox_result(WhiteboxResult(diagnostics=d), 0, 0, "all")
+        assert data["diagnostics"]["flowTruncations"] == [
+            "Foo#bar: truncated at 400 steps (cap 400)"
+        ]
+
 
 # ── _build_projection_data ───────────────────────
 
