@@ -122,40 +122,24 @@ public class MavenExecutor {
             Process process = pb.start();
             processRegistry.register(progress, process);
 
-            StringBuilder outputCapture = new StringBuilder();
-            Thread outputReader = new Thread(() -> {
-                try (var reader = new BufferedReader(
-                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (outputCapture.length() < MAVEN_OUTPUT_TAIL_CHARS * 2) {
-                            outputCapture.append(line).append("\n");
-                        }
-                    }
-                } catch (IOException ignored) {
-                    // Normal — pipe closes when process exits
-                }
-            }, "mvn-install-reader");
-            outputReader.setDaemon(true);
-            outputReader.start();
+            // 与 executeMaven 同口径：streamExecutor + readStream 有界滑动窗口，
+            // 失败诊断取到的是真实输出的末尾（构建报错几乎都在末尾）。
+            // 此前是裸线程 + 「前 16000 字符截断后取尾」，拿到的是输出中段切片。
+            CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(
+                    () -> readStream(process.getInputStream(), null, progress), streamExecutor);
 
             ProcessOutcome outcome = waitForProcess(process, timeoutSeconds, progress);
             if (outcome == ProcessOutcome.CANCELLED) {
                 throw new JobCancelledException("Maven reactor install cancelled");
             }
             if (outcome == ProcessOutcome.TIMED_OUT) {
-                outputReader.interrupt();
                 log.warn("[CLASSPATH] Reactor install timed out after {}s", timeoutSeconds);
                 return false;
             }
-            try { outputReader.join(1000); } catch (InterruptedException ignored) {}
 
             int exitCode = process.exitValue();
+            String tail = tail(awaitOutput(outputFuture));
             if (exitCode != 0) {
-                String tail = outputCapture.toString();
-                if (tail.length() > MAVEN_OUTPUT_TAIL_CHARS) {
-                    tail = tail.substring(tail.length() - MAVEN_OUTPUT_TAIL_CHARS);
-                }
                 log.warn("[CLASSPATH] Reactor install failed with exit code {}; tail: {}",
                         exitCode, tail);
                 return false;
