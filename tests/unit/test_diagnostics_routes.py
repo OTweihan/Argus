@@ -216,6 +216,80 @@ class TestServicesEndpoint:
         assert "checkedAt" in body
 
 
+class TestJavaProbe:
+    async def test_probe_bypasses_system_proxy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Java 健康探测必须 trust_env=False（Windows 系统代理会拦截 localhost → 502）。"""
+        import httpx
+        from argus_py.observability.diagnostics_service import DiagnosticsService
+
+        captured: dict[str, object] = {}
+
+        class _FakeResponse:
+            status_code = 200
+
+            def json(self) -> dict[str, str]:
+                return {"status": "UP"}
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs: object) -> None:
+                captured.update(kwargs)
+
+            async def __aenter__(self) -> "_FakeAsyncClient":
+                return self
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+            async def get(self, url: str) -> _FakeResponse:
+                return _FakeResponse()
+
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+        settings = ServerSettings(java_analyzer_url="http://localhost:8081")
+        service = DiagnosticsService(settings, store=None)  # type: ignore[arg-type]
+
+        status = await service.java_status()
+
+        assert captured.get("trust_env") is False
+        assert status.status == "ok"
+
+    async def test_probe_cache_hit_within_ttl(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TTL 窗口内重复探测直接返回缓存，不重复发起 HTTP。"""
+        import httpx
+        from argus_py.observability.diagnostics_service import DiagnosticsService
+
+        calls = {"count": 0}
+
+        class _FakeResponse:
+            status_code = 200
+
+            def json(self) -> dict[str, str]:
+                return {"status": "UP"}
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs: object) -> None:
+                pass
+
+            async def __aenter__(self) -> "_FakeAsyncClient":
+                return self
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+            async def get(self, url: str) -> _FakeResponse:
+                calls["count"] += 1
+                return _FakeResponse()
+
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+        settings = ServerSettings(java_analyzer_url="http://localhost:8081")
+        service = DiagnosticsService(settings, store=None)  # type: ignore[arg-type]
+
+        first = await service.java_status()
+        second = await service.java_status()
+
+        assert calls["count"] == 1
+        assert first.status == second.status == "ok"
+
+
 class TestConcurrencyGuard:
     def test_saturated_gate_returns_429(self, logs_root: Path) -> None:
         store = FileDiagnosticsLogStore(logs_root)

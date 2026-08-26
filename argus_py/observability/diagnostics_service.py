@@ -152,7 +152,11 @@ class DiagnosticsService:
         status = ServiceStatus(name="java", status="unknown", detail=None)
         try:
             async with httpx.AsyncClient(
-                timeout=min(3.0, max(0.5, self._settings.java_analyzer_request_timeout))
+                timeout=min(3.0, max(0.5, self._settings.java_analyzer_request_timeout)),
+                # trust_env=False：Windows 系统代理（注册表级，非环境变量）会拦截
+                # localhost 探测并返回 502——与 WhiteboxClient 的既有教训一致，
+                # 内网健康探测必须绕过代理直连。
+                trust_env=False,
             ) as client:
                 response = await client.get(url)
             latency = round((time.monotonic() - started) * 1000, 1)
