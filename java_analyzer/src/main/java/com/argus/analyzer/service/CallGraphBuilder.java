@@ -125,11 +125,14 @@ public class CallGraphBuilder implements AnalysisPass {
                             .map(p -> p.getType().toString())
                             .toList()) + ")";
 
-                    List<CallEdge> calleeDetails = new ArrayList<>();
+                    // 完全相同的边（同目标/同行等全字段相等，如单行循环里的重复调用）
+                    // 只保留一条：CallEdge 是 record，值相等即去重。诊断计数仍按
+                    // 调用点全量统计，不受去重影响。
+                    Set<CallEdge> calleeEdges = new LinkedHashSet<>();
                     for (MethodCallExpr call : method.findAll(MethodCallExpr.class)) {
                         int line = call.getBegin().map(b -> b.line).orElse(0);
                         CallEdge edge = resolve(call, sourceRelative, line);
-                        calleeDetails.add(edge);
+                        calleeEdges.add(edge);
 
                         totalCalls++;
                         switch (edge.confidence()) {
@@ -140,7 +143,8 @@ public class CallGraphBuilder implements AnalysisPass {
                     }
 
                     graph.put(nodeKey, new CallGraphNode(
-                            className, method.getNameAsString(), signature, calleeDetails
+                            className, method.getNameAsString(), signature,
+                            List.copyOf(calleeEdges)
                     ));
                 }
             }
@@ -184,7 +188,12 @@ public class CallGraphBuilder implements AnalysisPass {
                     List.of(), sourceFile, line
             );
         } catch (RuntimeException ex) {
-            log.debug("[RESOLVE] Symbol-solver fallback on {}:{} — {}", sourceFile, line, ex.toString());
+            // 热路径：无 classpath 项目几乎每条调用都走此回退，debug 关闭时
+            // 不做字符串拼接
+            if (log.isDebugEnabled()) {
+                log.debug("[RESOLVE] Symbol-solver fallback on {}:{} — {}",
+                        sourceFile, line, ex.toString());
+            }
         }
 
         // Layer 2: scope 类型回退
