@@ -22,6 +22,10 @@ _DEFAULT_POOL_MAX_SIZE: int = 8
 """进程级默认连接池大小，可由 set_default_pool_max_size() 覆盖。"""
 _DB_POOLS_LOCK = threading.Lock()
 
+_INITIALIZED_DATABASES: set[str] = set()
+"""init_database 幂等护栏：已初始化的 resolved path 集合（见 init_database docstring）。"""
+_INIT_LOCK = threading.Lock()
+
 
 class DbPool:
     """线程安全的 SQLite 连接池。
@@ -221,8 +225,15 @@ def get_db_pool(db_path: str | Path = DEFAULT_DB_PATH, max_pool_size: int | None
 
 
 def close_all_db_pools() -> None:
-    """关闭并移除进程内所有 SQLite 连接池。"""
+    """关闭并移除进程内所有 SQLite 连接池。
+
+    同步清空 ``init_database`` 的幂等护栏：池已全部关闭意味着调用方处于
+    「整体重置」语境（测试 teardown / 停机），此后对同路径的再次 init 必须
+    真正执行（库文件可能已被删除重建），不能被护栏跳过。
+    """
     global _DB_POOLS
+    with _INIT_LOCK:
+        _INITIALIZED_DATABASES.clear()
     with _DB_POOLS_LOCK:
         pools = list(_DB_POOLS.values())
         _DB_POOLS = {}
@@ -418,6 +429,17 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
 
     WAL 是数据库级永久设置，在此处一次性切换；后续 connect() 不再每次写 PRAGMA。
 
+    幂等护栏：同一进程内对同一 resolved path 的重复调用直接返回。生产启动时
+    TaskSQLiteStorage / ProjectSQLiteStorage 会对同一 argus.db 各调一次，测试
+    工厂每个栈同样如此——重复执行 6 段 executescript + 迁移扫描纯属浪费。
+    护栏带库文件存在性检查：文件被删后同路径重建时重新初始化；
+    ``close_all_db_pools()`` 会整体清空护栏。
+
+    并发语义：仅在初始化**成功后**才标记。并发的首次调用可能各自完整执行
+    一遍（schema 全部 ``IF NOT EXISTS`` / 就地迁移可重入，与历史行为一致），
+    但不会出现「A 执行中、B 见护栏位即跳过、拿到半初始化 schema」的竞态。
+    失败不标记，下次调用自然重试。
+
     流程：
     1. baseline schema 用 ``CREATE TABLE IF NOT EXISTS`` 建好（首次部署 +
        历史升级用户都安全）。
@@ -426,6 +448,10 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     3. ``apply_migrations`` 应用 ``infra/migrations/sql/`` 下的版本化迁移。
        首次见到 ``schema_migrations`` 表时自动标 baseline=applied。
     """
+    resolved = str(Path(db_path).resolve())
+    with _INIT_LOCK:
+        if resolved in _INITIALIZED_DATABASES and Path(db_path).exists():
+            return
     _check_sqlite_version()
     with closing(connect(db_path)) as connection:
         # journal_mode 是 SQLite 数据库级别的持久属性，设置一次即可永久生效
@@ -440,6 +466,8 @@ def init_database(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             _migrate_tasks_table(connection)
             _migrate_model_configs_table(connection)
         apply_migrations(connection)
+    with _INIT_LOCK:
+        _INITIALIZED_DATABASES.add(resolved)
 
 
 class _DefaultDBProbe:

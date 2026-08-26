@@ -130,3 +130,8 @@ def reset_all_dependencies() -> None:
     from argus_py.llm.client import set_llm_semaphore
 
     set_llm_semaphore(None)
+    # 回收按路径累积的 SQLite 连接池（同时清空 init_database 幂等护栏）：
+    # 测试进程内每个 tmp_path 都会建池，不回收则连接句柄随用例数单调增长。
+    from argus_py.infra.db import close_all_db_pools
+
+    close_all_db_pools()
