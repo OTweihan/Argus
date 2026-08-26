@@ -214,8 +214,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, watch } from "vue";
 import TaskTable from "../components/task/TaskTable.vue";
-import TaskFormDialog from "../components/task/TaskFormDialog.vue";
-import TaskDetailDialog from "../components/task/TaskDetailDialog.vue";
 import { injectConsoleApp } from "../composables/useConsoleApp";
 import type { TaskFormState } from "../composables/useTasks";
 import { useTaskViewActions } from "../composables/useTaskViewActions";
@@ -230,6 +228,13 @@ const TaskTimeline = defineAsyncComponent(() => import("../components/task/TaskT
 const LLMDebugTab = defineAsyncComponent(() => import("../components/task/LLMDebugTab.vue"));
 const CorrelationTab = defineAsyncComponent(
   () => import("../components/task/whitebox/CorrelationTab.vue"),
+);
+// 表单/详情弹窗仅在用户点击后才需要（TaskFormDialog 含大量 EP 表单组件），同样懒加载
+const TaskFormDialog = defineAsyncComponent(
+  () => import("../components/task/TaskFormDialog.vue"),
+);
+const TaskDetailDialog = defineAsyncComponent(
+  () => import("../components/task/TaskDetailDialog.vue"),
 );
 
 const {
