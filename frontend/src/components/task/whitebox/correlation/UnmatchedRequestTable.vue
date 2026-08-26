@@ -3,7 +3,7 @@
     <div class="list-toolbar">
       <span v-if="total !== null" class="list-count">共 {{ total }} 条未匹配请求</span>
     </div>
-    <el-table :data="items" size="small" stripe style="width: 100%">
+    <el-table :data="visibleItems" size="small" stripe style="width: 100%">
       <el-table-column label="方法" width="70">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod)">
@@ -40,6 +40,11 @@
         </template>
       </el-table-column>
       <template #append>
+        <RenderCapHint
+          v-if="hiddenCount > 0"
+          :loaded="items.length"
+          :rendered="visibleItems.length"
+        />
         <InfiniteScrollLoad
           :has-more="hasMore"
           :loading="loading"
@@ -55,13 +60,18 @@ import type { HttpRequestEvidenceInfo } from "../../../../api/correlation";
 import { httpMethodTag } from "../../../../utils";
 import type { ElTagType } from "../../../../utils";
 import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../../common/RenderCapHint.vue";
+import { useRenderCap } from "../../../../composables/useRenderCap";
 
-defineProps<{
+const props = defineProps<{
   items: HttpRequestEvidenceInfo[];
   total: number | null;
   hasMore: boolean;
   loading: boolean;
 }>();
+
+// 渲染上限守卫：无限滚动累积行数超限后仅渲染前 RENDER_CAP 条（同口径）。
+const { visibleItems, hiddenCount } = useRenderCap(() => props.items);
 
 defineEmits<{ "load-more": [] }>();
 

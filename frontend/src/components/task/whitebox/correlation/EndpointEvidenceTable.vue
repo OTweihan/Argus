@@ -16,7 +16,7 @@
       </el-select>
       <span v-if="total !== null" class="list-count">共 {{ total }} 条</span>
     </div>
-    <el-table :data="items" size="small" stripe style="width: 100%">
+    <el-table :data="visibleItems" size="small" stripe style="width: 100%">
       <el-table-column label="请求" width="80">
         <template #default="{ row }">
           <el-tag size="small" :type="httpMethodTag(row.httpMethod ?? row.requestPath ?? '')">
@@ -75,25 +75,21 @@
                   <span class="mono flow-entry">{{ flow.entryPoint }}</span>
                   <span class="badge depth">深度 {{ flow.callDepth }}</span>
                 </template>
-                <el-table
-                  :data="flow.steps ?? []"
-                  size="small"
-                  :show-header="false"
-                  style="width: 100%"
-                >
-                  <el-table-column label="深度" width="50">
-                    <template #default="{ row: step }">
-                      {{ step.depth }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="方法" min-width="200">
-                    <template #default="{ row: step }">
-                      <span class="mano"
-                        >{{ step.className || "-" }}.{{ step.methodName || step.methodKey }}</span
-                      >
-                    </template>
-                  </el-table-column>
-                </el-table>
+                <!-- 纯展示行列表：此前每行每流内嵌一个完整 el-table 实例，
+                     el-collapse-item 内容为 v-show 隐藏而非懒挂载，折叠状态下
+                     也会实例化全部嵌套表格，滚动加载后组件实例数爆炸。 -->
+                <div class="flow-steps">
+                  <div
+                    v-for="step in flow.steps ?? []"
+                    :key="step.flowStepId"
+                    class="flow-step-row"
+                  >
+                    <span class="flow-step-depth">{{ step.depth }}</span>
+                    <span class="mano">{{
+                      (step.className || "-") + "." + (step.methodName || step.methodKey)
+                    }}</span>
+                  </div>
+                </div>
               </el-collapse-item>
             </el-collapse>
           </template>
@@ -106,6 +102,11 @@
         </template>
       </el-table-column>
       <template #append>
+        <RenderCapHint
+          v-if="hiddenCount > 0"
+          :loaded="items.length"
+          :rendered="visibleItems.length"
+        />
         <InfiniteScrollLoad
           :has-more="hasMore"
           :loading="loading"
@@ -121,14 +122,20 @@ import type { EndpointEvidenceInfo } from "../../../../api/correlation";
 import { httpMethodTag } from "../../../../utils";
 import type { ElTagType } from "../../../../utils";
 import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../../common/RenderCapHint.vue";
+import { useRenderCap } from "../../../../composables/useRenderCap";
 
-defineProps<{
+const props = defineProps<{
   items: EndpointEvidenceInfo[];
   total: number | null;
   hasMore: boolean;
   loading: boolean;
   statusFilter: string;
 }>();
+
+// 渲染上限守卫：无限滚动会让外层表格行数无限累积，超限后仅渲染前
+// RENDER_CAP 条，数据仍全量参与统计（与白盒其它列表同口径）。
+const { visibleItems, hiddenCount } = useRenderCap(() => props.items);
 
 const emit = defineEmits<{
   "load-more": [];
@@ -234,6 +241,27 @@ function resolutionLabel(r: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 执行流步骤行列表（替代内嵌 el-table 的轻量纯展示实现） */
+.flow-steps {
+  display: flex;
+  flex-direction: column;
+}
+
+.flow-step-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.flow-step-depth {
+  min-width: 24px;
+  color: var(--text-faint);
+  text-align: right;
 }
 
 .badge.depth {

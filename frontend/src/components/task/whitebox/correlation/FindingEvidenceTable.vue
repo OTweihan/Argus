@@ -5,7 +5,7 @@
         共 {{ total }} 条 (已确认 {{ confirmedCount }} / 候选 {{ candidateCount }})
       </span>
     </div>
-    <el-table :data="items" size="small" stripe style="width: 100%">
+    <el-table :data="visibleItems" size="small" stripe style="width: 100%">
       <el-table-column label="缺陷" min-width="220">
         <template #default="{ row }">
           <template v-if="row.findingInfo">
@@ -57,6 +57,11 @@
         </template>
       </el-table-column>
       <template #append>
+        <RenderCapHint
+          v-if="hiddenCount > 0"
+          :loaded="items.length"
+          :rendered="visibleItems.length"
+        />
         <InfiniteScrollLoad
           :has-more="hasMore"
           :loading="loading"
@@ -72,6 +77,8 @@ import { computed } from "vue";
 import type { FindingEvidenceInfo } from "../../../../api/correlation";
 import type { ElTagType } from "../../../../utils";
 import InfiniteScrollLoad from "../../../common/InfiniteScrollLoad.vue";
+import RenderCapHint from "../../../common/RenderCapHint.vue";
+import { useRenderCap } from "../../../../composables/useRenderCap";
 
 const props = defineProps<{
   items: FindingEvidenceInfo[];
@@ -81,6 +88,9 @@ const props = defineProps<{
 }>();
 
 defineEmits<{ "load-more": [] }>();
+
+// 渲染上限守卫：无限滚动累积行数超限后仅渲染前 RENDER_CAP 条（同口径）。
+const { visibleItems, hiddenCount } = useRenderCap(() => props.items);
 
 const confirmedCount = computed(
   () => props.items.filter((f) => f.confirmedRequestCount > 0).length,

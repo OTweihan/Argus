@@ -140,6 +140,7 @@
 
         <!-- Steps -->
         <section
+          v-if="activatedTabs.has('steps')"
           v-show="reportTab === 'steps'"
           id="report-panel-steps"
           class="section steps-panel report-tab-panel"
@@ -229,21 +230,29 @@
           </div>
 
           <!-- Timeline -->
-          <div v-if="displaySteps.length" class="timeline">
-            <div class="timeline-line" />
-            <StepCard
-              v-for="step in displaySteps"
-              :key="step.taskLogId"
-              :step="step"
-              :task-id="taskId"
-              @open-lightbox="openLightbox"
+          <template v-if="displaySteps.length">
+            <div class="timeline">
+              <div class="timeline-line" />
+              <StepCard
+                v-for="step in visibleSteps"
+                :key="step.taskLogId"
+                :step="step"
+                :task-id="taskId"
+                @open-lightbox="openLightbox"
+              />
+            </div>
+            <RenderCapHint
+              v-if="hiddenStepCount > 0"
+              :loaded="stepCount"
+              :rendered="visibleSteps.length"
             />
-          </div>
+          </template>
           <el-empty v-else description="暂无执行步骤" />
         </section>
 
         <!-- Findings -->
         <section
+          v-if="activatedTabs.has('findings')"
           v-show="reportTab === 'findings'"
           id="report-panel-findings"
           class="section findings-panel report-tab-panel"
@@ -305,22 +314,29 @@
             </div>
           </div>
 
-          <div v-if="report.findings.length" class="findings-list">
-            <FindingCard
-              v-for="(finding, index) in report.findings"
-              :key="finding.findingId"
-              :finding="finding"
-              :index="index"
-              :task-id="taskId"
-              @open-lightbox="openLightbox"
+          <template v-if="report.findings.length">
+            <div class="findings-list">
+              <FindingCard
+                v-for="(finding, index) in visibleFindings"
+                :key="finding.findingId"
+                :finding="finding"
+                :index="index"
+                :task-id="taskId"
+                @open-lightbox="openLightbox"
+              />
+            </div>
+            <RenderCapHint
+              v-if="hiddenFindingCount > 0"
+              :loaded="findingCount"
+              :rendered="visibleFindings.length"
             />
-          </div>
+          </template>
           <el-empty v-else description="未记录问题" />
         </section>
 
         <!-- Raw JSON -->
         <section
-          v-show="reportTab === 'raw-json'"
+          v-if="reportTab === 'raw-json'"
           id="report-panel-raw-json"
           class="section json-panel report-tab-panel"
           role="tabpanel"
@@ -413,14 +429,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, reactive, ref, watchEffect } from "vue";
 import type { ReportData, TaskStatus } from "../types";
 import { screenshotPath } from "../api";
 import AuthenticatedImage from "../components/AuthenticatedImage.vue";
+import RenderCapHint from "../components/common/RenderCapHint.vue";
 import ReportHero from "../components/report/ReportHero.vue";
 import ReportMetrics from "../components/report/ReportMetrics.vue";
 import StepCard from "../components/task/report/StepCard.vue";
 import FindingCard from "../components/task/report/FindingCard.vue";
+import { useRenderCap } from "../composables/useRenderCap";
 import {
   REPORT_NAV_ITEMS,
   formatReportDate,
@@ -438,6 +456,9 @@ const props = defineProps<{
 
 // --- reactive state ---
 const reportTab = ref("overview");
+// 页签懒挂载：重组件分区（steps/findings）首次激活才渲染，之后保留 DOM
+// （v-if + v-show 组合）；raw-json 纯 v-if，离开即释放大文本节点。
+const activatedTabs = reactive(new Set<string>(["overview"]));
 const reportContainer = ref<HTMLElement | null>(null);
 const reportTabs = ref<HTMLElement | null>(null);
 const rawJsonCopied = ref(false);
@@ -455,19 +476,25 @@ const status = computed(() => props.taskStatus ?? props.report?.task?.status ?? 
 const statusLabel = computed(() => getStatusLabel(status.value));
 const summary = computed(() => getReportSummary(props.report));
 const displaySteps = computed(() => props.report?.displaySteps ?? []);
+const findings = computed(() => props.report?.findings ?? []);
+// 大报告渲染上限守卫：数据全量参与统计，仅渲染前 RENDER_CAP 条（与白盒侧同口径）。
+const { visibleItems: visibleSteps, hiddenCount: hiddenStepCount } = useRenderCap(displaySteps);
+const { visibleItems: visibleFindings, hiddenCount: hiddenFindingCount } = useRenderCap(findings);
 const failedSteps = computed(() => displaySteps.value.filter((s) => s.result === "failed"));
 const failedCount = computed(() => failedSteps.value.length);
 const successCount = computed(
   () => displaySteps.value.filter((step) => step.result === "success").length,
 );
-const findingCount = computed(() => props.report?.findings?.length ?? 0);
+const findingCount = computed(() => findings.value.length);
 const stepCount = computed(() => displaySteps.value.length);
-// 仅当用户切到「原始 JSON」标签时才做全量序列化：尺寸/行数显示在
-// v-show="reportTab === 'raw-json'" 的分区里，但仍会被求值；用 reportTab
-// 做门槛，保证概览/步骤/问题清单等默认标签下不触发数 MB 报告的 stringify。
-const reportJsonStr = computed(() =>
-  reportTab.value === "raw-json" ? prettyJson(props.report) : "",
-);
+// 仅当用户切到「原始 JSON」标签时才做全量序列化。用 watchEffect 而非
+// computed：分区卸载后 computed 不再被访问、旧值会一直滞留缓存（数 MB
+// 字符串不释放）；watchEffect 在依赖变化时主动执行，切走立即置空释放。
+const reportJsonStr = ref("");
+watchEffect(() => {
+  reportJsonStr.value =
+    reportTab.value === "raw-json" && props.report ? prettyJson(props.report) : "";
+});
 const reportJsonSize = computed(() => {
   const str = reportJsonStr.value;
   if (!str) return "0 B";
@@ -503,6 +530,7 @@ async function revealPanelTop(): Promise<void> {
 }
 
 async function selectReportTab(id: string): Promise<void> {
+  activatedTabs.add(id);
   reportTab.value = id;
   await revealPanelTop();
 }
