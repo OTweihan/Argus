@@ -38,6 +38,32 @@ Argus 的主要部署方式包括：
 
 诊断中心不是传统意义上的安全审计系统，不承担复杂用户行为追踪、多租户审计或合规报表功能。
 
+### 1.3 文档定位
+
+* 本文是诊断中心的总体建设方案；现行日志体系的运行事实源是 [logging.md](../logging.md)。
+* 两者关系：`logging.md` 描述“现在是什么”，本文描述“在此之上增建什么”。凡与 `logging.md` 冲突之处，必须先同步修订两份文档再实施，不允许各自漂移。
+* 字段命名约定：日志 JSONL 落盘字段统一使用 camelCase（`requestId`、`runId`、`errorStack`），与现有 `JsonLogFormatter` 输出及前端 wire contract 保持一致；Python/Java 代码内部命名沿用各语言惯例（snake_case / camelCase）。
+* 架构约束：Python 当前为单 worker/单副本（见 architecture.md），诊断查询属于同进程旁路负载，所有设计必须满足第 17 章的资源隔离约束。
+
+### 1.4 现状盘点
+
+以下能力已经存在。本方案是**增量建设**，不得重复实现：
+
+| 能力 | 现状 | 位置 |
+|------|------|------|
+| Python 结构化 JSON 日志 | 已落地，含递归脱敏 | `argus_py.observability.logger` 的 `JsonLogFormatter` |
+| request_id 生成/回传 | 中间件生成、响应头 `X-Request-ID` 回传、ContextVar 经线程池传播 | `observability/middleware.py`、`observability/context.py` |
+| 四类文件 handler | app/error/audit/access 已拆分，RotatingFileHandler | `config/logging.yaml` |
+| 敏感信息脱敏 | key=value、Authorization、JSON 字段递归脱敏已实现 | `argus_py.redaction` |
+| 开发会话日志 | dev.mjs 写 `outputs/logs/dev/<run-id>/`（combined/python/java/frontend） | `scripts/dev.mjs` |
+| 差异化清理 | dev 14 天/运行 30 天/错误 30 天/访问 14 天/审计 180 天 | `scripts/cleanup_outputs.py` |
+| 前端异常捕获 | window.onerror、unhandledrejection、Vue errorHandler 已捕获（仅 console，未上报） | `frontend/src/main.ts` |
+| JSONL 行索引先例 | 按 task_id 维护 `.idx` 侧车索引 | `observability/trace_index.py` |
+| 诊断包雏形 | traces 打包 zip 的 debug bundle | `observability/debug_bundle.py` |
+| Java 健康探针 | actuator health/info 已暴露 | `java_analyzer/src/main/resources/application.yml` |
+
+尚未具备的能力（本方案的真正增量）：Java JSONL 日志与 MDC 贯通、request_id 跨服务传递（`WhiteboxClient` 未携带 `X-Request-ID`）、run_id 全局注入、前端异常上报通道、诊断查询 API 与前端页面、系统事件流。
+
 ---
 
 ## 2. 建设目标
@@ -94,14 +120,16 @@ Java 结构化日志 ─────┼──→ 本地 JSONL 日志文件
                     │
 Web 前端异常上报 ────┘
                            ↓
-                    LogRepository
+                     LogRepository
                            ↓
-               Argus 诊断查询后端接口
+                Argus 诊断查询后端接口
                            ↓
-                     Web 诊断中心
+                      Web 诊断中心
 ```
 
 该架构不额外引入日志数据库，适用于本地部署和单机私有化部署。
+
+> 图中 LogRepository 泛指日志仓储，落地命名见 4.3（`DiagnosticsLogStore`）。
 
 ### 4.2 后续集中式架构
 
@@ -112,7 +140,7 @@ Web 前端异常上报 ────┘
 部署节点 B ── Agent ──┼──→ Loki
 部署节点 C ── Agent ──┘
                            ↓
-                  LokiLogRepository
+                  LokiDiagnosticsLogStore
                            ↓
                Argus 诊断查询后端接口
                            ↓
@@ -123,10 +151,11 @@ Web 前端异常上报 ────┘
 
 ### 4.3 数据源抽象
 
-后端定义统一日志仓储接口：
+后端定义统一日志仓储接口。**命名必须避开既有类**：`argus_py.task.repositories.log_repo.LogRepository`
+是任务步骤日志存储，诊断日志仓储不得复用同名，统一命名为 `DiagnosticsLogStore`：
 
 ```python
-class LogRepository:
+class DiagnosticsLogStore:
     def search(self, query):
         pass
 
@@ -149,17 +178,18 @@ class LogRepository:
 第一阶段实现：
 
 ```text
-FileLogRepository
+FileDiagnosticsLogStore
 ```
 
 后续可增加：
 
 ```text
-LokiLogRepository
-OpenSearchLogRepository
+LokiDiagnosticsLogStore
+OpenSearchDiagnosticsLogStore
 ```
 
-上层业务接口不直接依赖具体日志平台。
+上层业务接口不直接依赖具体日志平台；仓储实例在 `argus_py/runtime/container.py`
+组合根组装，禁止在 route 或 service 内自行创建。
 
 ---
 
@@ -269,14 +299,15 @@ Web 前端状态可通过以下方式判断：
 
 可选检查：
 
-* 数据库连接；
-* Redis 连接；
-* 消息队列连接；
-* 模型网关连接；
+* SQLite 数据库连接；
+* 模型网关（LLM）连接；
 * 外部 API 连接；
 * 磁盘剩余空间；
 * 日志目录大小；
 * 当前端口占用情况。
+
+> 说明：Argus 当前不依赖 Redis 和独立消息队列（队列在 Python 进程内），
+> 不设置对应检查项；架构变化时再补充。
 
 ---
 
@@ -297,8 +328,7 @@ Web 前端状态可通过以下方式判断：
 * 部署实例；
 * 模块或类名；
 * 关键词；
-* `request_id`；
-* `trace_id`；
+* `requestId`；
 * 进程 PID；
 * 主机名；
 * 是否仅查看异常日志。
@@ -349,9 +379,8 @@ FATAL
 * 主机名；
 * 进程 PID；
 * 线程名称；
-* `run_id`；
-* `request_id`；
-* `trace_id`；
+* `runId`；
+* `requestId`；
 * 完整消息；
 * 异常类型；
 * 完整异常堆栈；
@@ -511,6 +540,13 @@ parent_span_id
 yyyyMMdd-HHmmss-随机后缀
 ```
 
+生成与传递责任（按启动方式区分，避免“run_id 从哪来”无定义）：
+
+* dev.mjs 启动：由启动器生成，作为 dev 会话目录名，并写入 `session.json`；
+* Docker 部署：由启动脚本生成并通过环境变量（如 `ARGUS_RUN_ID`）注入各组件；
+* systemd / 服务脚本直启：由包装脚本生成注入；未注入时 Python 服务启动时自行生成回退值并在日志中标注来源；
+* 单组件独立重启（如只重启 Java）：Java 读取环境变量继承当前 run_id，读不到时自生成并记录系统事件。
+
 ### 10.3 启动会话信息
 
 | 字段         | 说明                    |
@@ -616,13 +652,13 @@ POST /api/diagnostics/frontend-events
     {
       "timestamp": "2026-08-05T16:42:09.120+08:00",
       "level": "ERROR",
-      "event_type": "api_error",
+      "eventType": "api_error",
       "message": "Request failed with status 500",
       "page": "/tasks/1024",
-      "api_path": "/api/tasks/:id",
-      "http_status": 500,
-      "duration_ms": 2381,
-      "request_id": "req-82ab",
+      "apiPath": "/api/tasks/:id",
+      "httpStatus": 500,
+      "durationMs": 2381,
+      "requestId": "req-82ab",
       "release": "2026.08.05",
       "browser": "Edge 151"
     }
@@ -642,17 +678,19 @@ POST /api/diagnostics/frontend-events
 * 敏感字段脱敏；
 * 非法字符清洗；
 * 超大堆栈截断；
-* 来源校验。
+* 来源校验；
+* 鉴权与现有 API Token 机制对齐，浏览器场景无法携带凭证时的豁免必须配合来源校验与更严格的限流；
+* 上报失败静默降级，不得重试风暴、不得影响页面运行。
 
 ### 11.5 重复异常聚合
 
 可根据以下字段生成异常指纹：
 
 ```text
-event_type
-error_type
+eventType
+errorType
 message
-stack_top
+stackTop
 page
 release
 ```
@@ -675,6 +713,12 @@ TypeError: Cannot read properties of undefined
 ### 12.1 模块定位
 
 系统事件用于记录重要的运行状态变化，不等同于普通日志，也不依赖用户体系。
+
+实现上必须复用既有机制，**不建立第二套事件管道**：
+
+* Python 侧复用 `audit()` / EventBus 与结构化事件日志 `log_event()`，系统事件页面对既有事件流做检索投影；
+* 启动器与部署层事件由启动器写入会话文件，经诊断后端聚合展示；
+* 禁止业务代码为诊断中心另行埋设独立事件写入通道。
 
 ### 12.2 事件范围
 
@@ -702,12 +746,12 @@ TypeError: Cannot read properties of undefined
 
 ```json
 {
-  "event_id": "evt-01J...",
+  "eventId": "evt-01J...",
   "timestamp": "2026-08-05T16:20:01.321+08:00",
-  "event_type": "service.started",
+  "eventType": "service.started",
   "component": "argus-python",
-  "run_id": "20260805-162001-a7f3",
-  "instance_id": "argus-local-desktop-01",
+  "runId": "20260805-162001-a7f3",
+  "instanceId": "argus-local-desktop-01",
   "result": "success",
   "source": "launcher",
   "details": {
@@ -782,17 +826,22 @@ operator_id
 
 ### 14.1 日志格式
 
-Python、Java 和 Web 日志统一采用 JSON Lines 格式：
+所有组件的结构化日志统一采用 JSON Lines 格式：
 
 ```text
 一行一个 JSON 对象
-文件扩展名：.jsonl
 编码：UTF-8
 ```
 
+扩展现状说明：`outputs/logs/runtime/python/` 下现有文件继续使用 `.log`
+扩展名（`argus.log`、`argus.error.log` 等，内容已是 JSON Lines），不统一改名为
+`.jsonl`，避免破坏既有 handler 与清理规则；新增日志类别（前端异常、系统事件）
+采用 `.jsonl` 扩展名。
+
 ### 14.2 通用字段
 
-所有组件应尽量输出以下字段：
+落盘字段名统一 camelCase，与现有 `JsonLogFormatter` 输出（`requestId`、`taskId`、
+`durationMs`）及前端 wire contract 保持一致。所有组件应尽量输出以下字段：
 
 ```json
 {
@@ -801,20 +850,21 @@ Python、Java 和 Web 日志统一采用 JSON Lines 格式：
   "service": "argus-python",
   "component": "python",
   "environment": "local",
-  "instance_id": "argus-local-desktop-01",
+  "instanceId": "argus-local-desktop-01",
   "host": "DESKTOP-ABC123",
   "pid": 10324,
   "thread": "MainThread",
   "logger": "argus.llm.gateway",
   "message": "Upstream request failed",
-  "run_id": "20260805-162001-a7f3",
-  "request_id": "req-82ab",
-  "trace_id": null,
-  "span_id": null,
-  "error_type": "TimeoutError",
-  "error_stack": "..."
+  "runId": "20260805-162001-a7f3",
+  "requestId": "req-82ab",
+  "errorType": "TimeoutError",
+  "errorStack": "..."
 }
 ```
+
+`instanceId` 在单机部署下默认取主机名或配置值，多节点部署时由部署脚本注入。
+`traceId` / `spanId` 第一阶段不进入通用字段（见 9.5）。
 
 ### 14.3 必填字段
 
@@ -831,16 +881,16 @@ message
 运行期推荐必填：
 
 ```text
-instance_id
+instanceId
 host
 pid
-run_id
+runId
 ```
 
 请求日志推荐必填：
 
 ```text
-request_id
+requestId
 ```
 
 ### 14.4 服务命名
@@ -880,32 +930,28 @@ argus-py
 
 ## 15. 日志目录设计
 
-推荐目录结构：
+目录结构以现有布局为基线扩展（不迁移、不改名既有文件）：
 
 ```text
 outputs/logs/
 ├── dev/
 │   └── <run-id>/
-│       ├── session.json
-│       ├── launcher.jsonl
-│       ├── python.stdout.log
-│       ├── python.stderr.log
-│       ├── java.stdout.log
-│       ├── java.stderr.log
-│       ├── web.stdout.log
-│       └── web.stderr.log
+│       ├── session.json        # 新增：run_id、启动方式、PID、版本等会话元数据
+│       ├── combined.log        # 现有（dev.mjs）
+│       ├── python.log          # 现有（dev.mjs）
+│       ├── java.log            # 现有（dev.mjs）
+│       └── frontend.log        # 现有（dev.mjs）
 │
 ├── runtime/
-│   ├── python/
-│   │   ├── argus.jsonl
-│   │   └── error.jsonl
-│   ├── java/
-│   │   ├── argus.jsonl
-│   │   └── error.jsonl
+│   ├── python/                 # 现有四类 JSON Lines 文件，保持不变
+│   │   ├── argus.log
+│   │   ├── argus.error.log
+│   │   ├── argus.access.log
+│   │   └── argus.audit.log
 │   ├── web/
-│   │   └── frontend-events.jsonl
+│   │   └── frontend-events.jsonl   # 新增：前端异常上报
 │   └── system/
-│       └── events.jsonl
+│       └── events.jsonl            # 新增：系统事件
 │
 └── archive/
 ```
@@ -916,7 +962,9 @@ outputs/logs/
 outputs/logs/dev/<run-id>/
 ```
 
-用于保存某次启动过程中各进程的原始标准输出和标准错误。
+用于保存某次启动过程中各进程的原始输出。沿用 dev.mjs 现有四文件布局
+（combined/python/java/frontend），**不**改为 stdout/stderr 八文件拆分；
+`session.json` 为本次方案新增的会话元数据文件。
 
 ### 15.2 运行时结构化日志
 
@@ -940,15 +988,22 @@ outputs/logs/runtime/
 
 ### 16.1 默认策略
 
-建议默认配置：
+保留策略的**唯一事实来源**是 `config/logging.yaml`（轮转参数）和
+`scripts/cleanup_outputs.py`（清理阈值）。本表与其保持一致，新增日志类别
+必须同步登记清理规则（见 logging.md「修改 config/logging.yaml 的原则」）：
 
-| 日志类型   | 单文件大小 | 保留时间 |   最大总量 |
-| ------ | ----: | ---: | -----: |
-| 运行日志   | 50 MB | 14 天 |   2 GB |
-| 错误日志   | 50 MB | 30 天 |   1 GB |
-| 前端异常   | 20 MB | 14 天 | 500 MB |
-| 系统事件   | 20 MB | 90 天 | 500 MB |
-| 开发会话日志 |   按会话 |  7 天 |   2 GB |
+| 日志类型     | 轮转配置（logging.yaml） | 清理阈值（cleanup_outputs.py） |
+| -------- | ------------------- | ------------------------ |
+| 运行日志     | 10 MB × 20 备份       | 30 天                     |
+| 错误日志     | 10 MB × 20 备份       | 30 天                     |
+| 访问日志     | 10 MB × 20 备份       | 14 天                     |
+| 审计日志     | 10 MB × 10 备份       | 180 天                    |
+| 前端异常（新增） | 建议 20 MB × 10 备份    | 14 天                     |
+| 系统事件（新增） | 建议 20 MB × 10 备份    | 90 天                     |
+| 开发会话日志   | 按会话                 | 14 天                     |
+
+> 注意：保留期是清理上限，实际可用时长受 RotatingFileHandler 的
+> maxBytes/backupCount 约束；不得在本方案中另设一套与上述文件冲突的数字。
 
 ### 16.2 清理规则
 
@@ -970,21 +1025,34 @@ outputs/logs/runtime/
 
 ### 16.3 配置化
 
-保留策略应通过配置文件调整，例如：
+保留策略参数化时收敛进现有配置体系（`config/logging.yaml` /
+`config/server.yaml`），不另建第二套配置文件；默认值与 16.1 一致：
 
 ```yaml
 diagnostics:
   logs:
     retention:
-      runtime_days: 14
+      runtime_days: 30      # 与 cleanup_outputs.py 现值一致
       error_days: 30
-      run_days: 7
+      access_days: 14
+      audit_days: 180
+      run_days: 14          # dev 会话，现值
+      frontend_events_days: 14
+      system_events_days: 90
       max_total_size_mb: 4096
 ```
 
 ---
 
 ## 17. 后端接口设计
+
+所有 `/api/diagnostics/*` 查询接口必须遵守以下约束（源于单 worker/单副本架构硬约束，见 architecture.md）：
+
+* 查询逻辑一律在线程池中执行（沿用路由层 `run_in_thread` 惯例），禁止在事件循环内扫描文件；
+* 每类查询设置并发上限与显式超时，超限快速返回 429/503，不排队堆积；
+* 强制 `limit` 上限与游标分页，禁止全量返回；
+* 单次扫描的文件字节上限可配置，超限时提示缩小时间范围；
+* 诊断仓储实例在组合根（`argus_py/runtime/container.py`）组装，route/service 不得自行创建。
 
 ### 17.1 概览接口
 
@@ -1020,14 +1088,16 @@ to
 component
 level
 keyword
-request_id
-trace_id
-run_id
-instance_id
+requestId
+runId
+instanceId
 module
 limit
 cursor
 ```
+
+> 查询参数第一阶段不含 `traceId`（OpenTelemetry 接入后再扩展，见 9.5）；
+> 参数命名在落地时遵循项目 OpenAPI wire contract 惯例。
 
 ### 17.4 日志详情接口
 
@@ -1094,8 +1164,8 @@ POST /api/diagnostics/export
   "to": "2026-08-05T17:00:00+08:00",
   "components": ["python", "java", "web"],
   "levels": ["WARN", "ERROR"],
-  "request_id": null,
-  "run_id": null
+  "requestId": null,
+  "runId": null
 }
 ```
 
@@ -1179,6 +1249,14 @@ CREATE TABLE log_event_index (
 
 是否建立事件级索引可根据实际日志量决定。
 
+事件级索引的实现约束：
+
+* 参考既有 `observability/trace_index.py` 的侧车索引经验：索引是**可重建的派生缓存，不是事实源**；
+* `byte_offset` 只对特定文件代次有效：文件轮转或被清理后，对应索引条目必须失效，按 `file_path + modified_time` 判断；
+* JSONL 与 SQLite 双写不引入分布式事务：以 JSONL 为准；索引缺失或可疑时降级为受限扫描并异步重建；
+* 首次查询命中未建索引的时间范围时，限制单次扫描字节数上限，避免长尾查询拖垮单 worker 服务；
+* 索引写入与查询同受第 17 章资源隔离约束。
+
 ### 18.3 文件安全
 
 查询接口只能访问配置允许的日志根目录。
@@ -1194,6 +1272,10 @@ CREATE TABLE log_event_index (
 ---
 
 ## 19. 敏感信息处理
+
+脱敏能力已在 `argus_py.redaction` 实现并被 `JsonLogFormatter` 递归应用。
+诊断中心的所有出口（查询、导出、诊断包）**必须复用同一模块**，不得另写一套
+脱敏正则；Java 侧提供等价 filter 并与 Python 规则用同一份测试用例约束。
 
 ### 19.1 禁止记录内容
 
@@ -1241,10 +1323,10 @@ postgresql://user:password@host/db
 ```text
 method
 path
-status_code
-duration_ms
-request_id
-content_length
+statusCode
+durationMs
+requestId
+contentLength
 ```
 
 默认不记录：
@@ -1273,6 +1355,10 @@ query_string 全量内容
 ## 20. 访问控制
 
 虽然当前没有用户体系，仍应限制诊断接口的暴露范围。
+
+诊断接口的鉴权必须与现有 API 鉴权机制（API Token）保持一致，**不另建第二套
+认证体系**；确需豁免（如浏览器页面场景）时，豁免范围仅限只读查询类接口，
+写入与导出类接口不得豁免。
 
 ### 20.1 本地部署
 
@@ -1436,26 +1522,34 @@ diagnostics:
 
 ### 第一阶段：日志基础规范
 
-目标：完成统一结构化日志和基础关联能力。
+目标：在现有基础上补齐跨组件关联能力。Python 侧大部分已完成（见 1.4 现状盘点），
+本阶段聚焦真正的缺口。
+
+已完成（仅核对，不重建）：
+
+* Python JSONL 结构化日志、request_id 生成/回传、四类 handler、脱敏；
+* dev 会话目录与差异化清理脚本。
 
 工作内容：
 
-1. 统一 Python 日志为 JSONL。
-2. 统一 Java 日志为 JSONL。
-3. 定义 Web 异常事件结构。
-4. 统一服务名称和日志字段。
-5. 引入 `run_id`。
-6. 引入并贯通 `request_id`。
-7. 重构日志目录。
-8. 增加敏感字段脱敏。
-9. 增加日志轮转和清理策略。
+1. 核对 Python 日志字段与本方案 14.2 一致（camelCase）；
+2. **Java 日志 JSONL 化**（独立子任务，工作量最大）：
+   * 引入 logback JSON encoder（如 logstash-logback-encoder 或等价物）；
+   * 通过 MDC 贯通 `requestId` / `runId`；
+   * `WhiteboxClient` 调用 Java 时注入 `X-Request-ID`，Java 侧中间件读取并写入 MDC；
+3. 定义 Web 异常事件结构（camelCase，与 11.3 一致）；
+4. 核对各服务名称符合 14.4；
+5. 补齐 `run_id` 生成与注入链路（见 10.2 按部署方式区分的责任）；
+6. dev 会话目录新增 `session.json`；
+7. Java 侧提供与 `argus_py.redaction` 等价的脱敏 filter；
+8. 新增日志类别（前端异常、系统事件）并在 `cleanup_outputs.py` 登记清理规则。
 
 交付结果：
 
 * 三部分日志格式统一；
-* 单次请求可以通过 Request ID 关联；
+* 一次请求的 Request ID 从浏览器贯通到 Java 与 Python；
 * 单次启动可以通过 Run ID 关联；
-* 日志目录结构稳定。
+* 日志目录结构稳定且与 logging.md 一致。
 
 ### 第二阶段：诊断后端接口
 
@@ -1463,16 +1557,18 @@ diagnostics:
 
 工作内容：
 
-1. 实现 `LogRepository`。
-2. 实现 `FileLogRepository`。
-3. 实现日志搜索接口。
-4. 实现日志详情接口。
-5. 实现日志上下文接口。
-6. 实现请求追踪接口。
-7. 实现启动会话接口。
-8. 实现服务状态接口。
-9. 实现前端异常上报接口。
-10. 实现系统信息接口。
+1. 实现 `DiagnosticsLogStore` 接口（命名避开既有任务步骤日志
+   `task.repositories.log_repo.LogRepository`，见 4.3）；
+2. 实现 `FileDiagnosticsLogStore`；
+3. 实现日志搜索接口；
+4. 实现日志详情接口；
+5. 实现日志上下文接口；
+6. 实现请求追踪接口；
+7. 实现启动会话接口；
+8. 实现服务状态接口；
+9. 实现前端异常上报接口；
+10. 实现系统信息接口；
+11. 所有查询接口落实第 17 章资源隔离约束（线程池执行、并发上限、超时、limit 上限）。
 
 交付结果：
 
@@ -1508,7 +1604,7 @@ diagnostics:
 工作内容：
 
 1. 日志片段导出；
-2. 诊断包生成；
+2. 诊断包生成（基于既有 `observability/debug_bundle.py` 的 zip 打包扩展，纳入日志片段与服务状态快照）；
 3. 脱敏配置摘要；
 4. 系统状态快照；
 5. 诊断包大小限制；
@@ -1527,7 +1623,7 @@ diagnostics:
 工作内容：
 
 1. 接入 Loki；
-2. 实现 `LokiLogRepository`；
+2. 实现 `LokiDiagnosticsLogStore`；
 3. 增加实例和节点筛选；
 4. 增加 Grafana 深链接；
 5. 保持现有前端和 API 契约不变。
@@ -1601,6 +1697,8 @@ diagnostics:
 
 ### 25.3 性能验收
 
+指标统一按以下基准测量：约 1 万行（约 10 MB）JSONL、无事件级索引的冷启动查询。
+
 建议第一阶段指标：
 
 * 查询最近一小时日志，首次响应不超过 2 秒；
@@ -1610,6 +1708,11 @@ diagnostics:
 * 日志页面不会一次性加载完整日志文件；
 * 前端异常上报不阻塞主要业务流程；
 * 日志写入失败不得导致核心业务请求失败。
+
+隔离验收（单 worker 架构保护）：
+
+* 诊断查询持续进行时，核心业务接口 P95 耗时增幅不超过 20%；
+* 任一诊断查询超时或失败，不影响业务请求处理。
 
 ### 25.4 稳定性验收
 
@@ -1645,6 +1748,7 @@ diagnostics:
 * 限制查询时间范围；
 * 使用游标分页；
 * 建立 SQLite 辅助索引；
+* 查询与业务请求资源隔离（见第 17 章），扫描变慢时降级限流而不是拖垮服务；
 * 达到阈值后切换 Loki。
 
 ### 26.2 日志字段不一致
@@ -1721,7 +1825,11 @@ Web 诊断中心
 
 第一阶段不直接引入 Loki、Elasticsearch 或 OpenSearch，避免增加本地部署复杂度。
 
-系统设计上必须保留日志仓储抽象，使本地部署使用 `FileLogRepository`，多节点私有化部署可以切换至 `LokiLogRepository`。
+系统设计上必须保留日志仓储抽象，使本地部署使用 `FileDiagnosticsLogStore`，多节点私有化部署可以切换至 `LokiDiagnosticsLogStore`。
+
+实施过程中本方案与 [logging.md](../logging.md) 同步演进：凡日志字段、handler、
+保留策略的变更，先更新 `logging.md` 再落地代码；两者冲突时以先完成的双文档
+同步修订为准。
 
 最终形成以下产品结构：
 
