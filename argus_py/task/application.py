@@ -13,6 +13,7 @@ import json
 from collections import defaultdict
 from typing import Any
 
+from argus_py.analysis.models import AnalysisRun
 from argus_py.browser.url_validator import validate_url
 from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskStatus, TaskType
@@ -477,15 +478,15 @@ class TaskApplicationService:
 
     def list_analysis_runs(
         self, task_id: str, *, offset: int = 0, limit: int = 50
-    ) -> tuple[list[Any], int]:
+    ) -> tuple[list[AnalysisRun], int]:
         """列出任务的所有分析执行记录。"""
         return self._read.storage.list_analysis_runs(task_id, offset=offset, limit=limit)
 
-    def get_latest_analysis_run(self, task_id: str) -> Any:
+    def get_latest_analysis_run(self, task_id: str) -> AnalysisRun | None:
         """获取任务的最近一次分析执行。"""
         return self._read.storage.get_latest_analysis_run(task_id)
 
-    def get_analysis_run(self, analysis_id: str) -> Any:
+    def get_analysis_run(self, analysis_id: str) -> AnalysisRun | None:
         """按 ID 获取分析执行详情。"""
         return self._read.storage.get_analysis_run(analysis_id)
 
@@ -535,7 +536,7 @@ class TaskApplicationService:
 
     def list_analysis_clusters(
         self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
-    ) -> tuple[list[Any], str | None, int | None, bool]:
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
         return self._read.storage.list_analysis_clusters(analysis_id, cursor=cursor, limit=limit)
 
     def get_analysis_diagnostics(self, analysis_id: str) -> dict[str, Any] | None:

@@ -249,7 +249,9 @@ class CorrelationService:
         if cr.status == CorrelationRunStatus.WAITING_ANALYSIS:
             return  # 分析尚未完成，等白盒回调触发
         if cr.status == CorrelationRunStatus.WAITING_BLACKBOX:
-            await run_in_thread(self._storage.set_correlation_status, correlation_run_id, "READY")
+            await run_in_thread(
+                self._storage.set_correlation_status, correlation_run_id, CorrelationRunStatus.READY
+            )
 
         attempt = await run_in_thread(
             self._storage.claim_and_create_attempt, correlation_run_id, worker_id
@@ -383,9 +385,11 @@ class CorrelationService:
         """
         bb_run = self._storage.get_blackbox_run(cr.blackbox_run_id)
         if is_blackbox_finished(bb_run):
-            self._storage.set_correlation_status(cr.correlation_run_id, "READY")
+            self._storage.set_correlation_status(cr.correlation_run_id, CorrelationRunStatus.READY)
         else:
-            self._storage.set_correlation_status(cr.correlation_run_id, "WAITING_BLACKBOX")
+            self._storage.set_correlation_status(
+                cr.correlation_run_id, CorrelationRunStatus.WAITING_BLACKBOX
+            )
 
     # ── 报告重生成 ──────────────────────────────────────────────────
 
@@ -479,13 +483,13 @@ class CorrelationService:
                     f"分析快照 ({analysis_snapshot[:8]}) 与关联运行期望快照 "
                     f"({cr_desired[:8]}) 不一致，请确认覆盖绑定。"
                 )
-            alignment = "USER_DECLARED"
+            alignment = SourceAlignmentStatus.USER_DECLARED
         elif source_mismatch_override:
-            alignment = "USER_DECLARED"
+            alignment = SourceAlignmentStatus.USER_DECLARED
         elif analysis_snapshot and cr_desired and analysis_snapshot == cr_desired:
-            alignment = "VERIFIED"
+            alignment = SourceAlignmentStatus.VERIFIED
         else:
-            alignment = "UNVERIFIED"
+            alignment = SourceAlignmentStatus.UNVERIFIED
 
         # 持久化 override 审计字段
         override_at = datetime.now(timezone.utc).isoformat() if source_mismatch_override else None
@@ -508,7 +512,7 @@ class CorrelationService:
         # 避免把「绑定成功但匹配降级」误报为绑定失败。
         bb_run = storage.get_blackbox_run(cr.blackbox_run_id)
         if is_blackbox_finished(bb_run):
-            storage.set_correlation_status(correlation_run_id, "READY")
+            storage.set_correlation_status(correlation_run_id, CorrelationRunStatus.READY)
             updated_cr = storage.get_correlation_run(correlation_run_id)
             if updated_cr is not None and updated_cr.analysis_id is not None:
                 worker_id = generate_id("bind")
@@ -518,7 +522,9 @@ class CorrelationService:
                     re_raise=False,
                 )
         else:
-            storage.set_correlation_status(correlation_run_id, "WAITING_BLACKBOX")
+            storage.set_correlation_status(
+                correlation_run_id, CorrelationRunStatus.WAITING_BLACKBOX
+            )
 
     def _claim_and_execute_matching_sync(
         self,
@@ -566,7 +572,7 @@ class CorrelationService:
             raise ValueError("无法重试：尚未绑定白盒分析。")
 
         worker_id = generate_id("retry")
-        storage.set_correlation_status(correlation_run_id, "READY")
+        storage.set_correlation_status(correlation_run_id, CorrelationRunStatus.READY)
         attempt = self._claim_and_execute_matching_sync(cr, worker_id, re_raise=True)
         if attempt is None:
             raise ValueError("认领关联运行失败，可能已被其他 Worker 执行。")

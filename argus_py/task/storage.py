@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from argus_py.analysis.enums import AnalysisRunStatus
+from argus_py.analysis.models import AnalysisRun
 from argus_py.core.enums import TaskStatus
 from argus_py.core.exceptions import TaskNotFoundError, TaskRetryConflictError
 from argus_py.core.paths import DATA_DIR, TEMP_DIR
+from argus_py.correlation.enums import CorrelationRunStatus, SourceAlignmentStatus
 from argus_py.correlation.models import (
     BlackboxRun,
     CaptureQuality,
@@ -456,27 +458,27 @@ class TaskSQLiteStorage:
 
     # ── 分析执行 ────────────────────────────────────────────
 
-    def create_analysis_run(self, run: Any) -> Any:
+    def create_analysis_run(self, run: AnalysisRun) -> AnalysisRun:
         return self._analysis.create(run)
 
-    def get_analysis_run(self, analysis_id: str) -> Any:
+    def get_analysis_run(self, analysis_id: str) -> AnalysisRun | None:
         return self._analysis.get(analysis_id)
 
     def list_analysis_runs(
         self, task_id: str, *, offset: int = 0, limit: int = 50
-    ) -> tuple[list[Any], int]:
+    ) -> tuple[list[AnalysisRun], int]:
         return self._analysis.list_by_task(task_id, offset=offset, limit=limit)
 
-    def list_all_analysis_runs(self, task_id: str) -> list[Any]:
+    def list_all_analysis_runs(self, task_id: str) -> list[AnalysisRun]:
         """返回任务的全部分析运行（无分页钳制，关联运行聚合入口用）。"""
         return self._analysis.list_all_by_task(task_id)
 
-    def get_latest_analysis_run(self, task_id: str) -> Any:
+    def get_latest_analysis_run(self, task_id: str) -> AnalysisRun | None:
         return self._analysis.get_latest(task_id)
 
     def get_latest_succeeded_analysis_by_project(
         self, project_id: str, *, source_snapshot_id: str | None = None
-    ) -> Any:
+    ) -> AnalysisRun | None:
         """查找同一项目下最新成功的分析执行。
 
         source_snapshot_id 非空时仅返回 resolved_commit_sha 一致的分析。
@@ -582,7 +584,7 @@ class TaskSQLiteStorage:
         """返回分析的全部执行流（无分页钳制，关联匹配引擎用）。"""
         return self._analysis.list_all_execution_flows(analysis_id)
 
-    def list_all_analysis_findings(self, analysis_id: str) -> list[Any]:
+    def list_all_analysis_findings(self, analysis_id: str) -> list[Finding]:
         """返回分析的全部发现项（无分页钳制，关联匹配引擎用）。"""
         return self._findings.list_all_by_analysis_id(analysis_id)
 
@@ -614,7 +616,7 @@ class TaskSQLiteStorage:
 
     def list_analysis_clusters(
         self, analysis_id: str, *, cursor: str | None = None, limit: int = 100
-    ) -> tuple[list[Any], str | None, int | None, bool]:
+    ) -> tuple[list[dict[str, Any]], str | None, int | None, bool]:
         return self._analysis.list_clusters(analysis_id, cursor=cursor, limit=limit)
 
     def get_analysis_finding_severity_counts(self, analysis_id: str) -> dict[str, int]:
@@ -685,7 +687,7 @@ class TaskSQLiteStorage:
         analysis_id: str,
         snapshot_id: str,
         projection_version: int,
-        alignment: str,
+        alignment: str | SourceAlignmentStatus,
         *,
         source_mismatch_overridden: bool = False,
         source_mismatch_override_by: str | None = None,
@@ -697,7 +699,7 @@ class TaskSQLiteStorage:
             analysis_id,
             snapshot_id,
             projection_version,
-            alignment,
+            alignment.value if isinstance(alignment, SourceAlignmentStatus) else alignment,
             source_mismatch_overridden=source_mismatch_overridden,
             source_mismatch_override_by=source_mismatch_override_by,
             source_mismatch_override_at=source_mismatch_override_at,
@@ -711,9 +713,10 @@ class TaskSQLiteStorage:
     ) -> CorrelationAttempt | None:
         return self._correlation.claim_and_create_attempt(correlation_run_id, worker_id)
 
-    def set_correlation_status(self, correlation_run_id: str, status: str) -> None:
-        from argus_py.correlation.enums import CorrelationRunStatus
-
+    def set_correlation_status(
+        self, correlation_run_id: str, status: str | CorrelationRunStatus
+    ) -> None:
+        # 枚举成员传入时 CorrelationRunStatus(member) 原样返回，str 则按值解析
         self._correlation.set_status(correlation_run_id, CorrelationRunStatus(status))
 
     def complete_and_activate_attempt(
