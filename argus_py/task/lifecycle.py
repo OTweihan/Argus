@@ -32,6 +32,12 @@ class _UnsetType:
 # 更新接口中"未提供 name"的标记：调用方不传时保持原名，而不是误清空。
 _UNSET: Final = _UnsetType()
 
+# 任务终态集合：终态流转必须走「单次全量落盘」路径（complete/fail/timeout/cancel_task），
+# 避免 SQLite UPDATE 整行重写导致大 result_json 双写。
+_TERMINAL_TASK_STATUSES: Final[frozenset[TaskStatus]] = frozenset(
+    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED}
+)
+
 
 class TaskLifecycleService(_StorageEventBase):
     """管理任务创建、删除、状态流转和取消令牌。"""
@@ -154,35 +160,64 @@ class TaskLifecycleService(_StorageEventBase):
     def update_status(
         self, task: Task, target: TaskStatus, error_message: str | None = None
     ) -> Task:
-        """更新任务状态。"""
+        """更新任务状态（窄更新：仅状态与租约相关字段落盘）。
+
+        终态流转请使用 complete/fail/timeout/cancel_task——它们把状态字段并入
+        全量保存，避免大 result_json 双写。
+        """
+        previous_status = self._apply_transition(task, target, error_message)
+        self._persist_status(task)
+        self._publish_task_status_events(task, target, previous_status, error_message)
+        return task
+
+    def _apply_transition(
+        self, task: Task, target: TaskStatus, error_message: str | None = None
+    ) -> TaskStatus:
+        """内存态推进状态转移（不落盘），返回 previous_status。
+
+        RUNNING 时补 started_at；终态时设置 completed_at 并移除取消令牌。
+        落盘方式由调用方决定：非终态走窄更新（_persist_status），终态走
+        全量保存（_save_and_publish_terminal）。
+        """
         assert_transition(task.status, target)
         previous_status = task.status
         now = datetime.now(timezone.utc)
         if target is TaskStatus.RUNNING and task.started_at is None:
             task.started_at = now
-        if target in {
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-            TaskStatus.CANCELLED,
-        }:
+        if target in _TERMINAL_TASK_STATUSES:
             task.completed_at = now
             self.remove_cancellation_token(task.task_id)
         task.status = target
         task.error_message = error_message
+        return previous_status
 
-        self._persist_status(task)
+    def _publish_task_status_events(
+        self,
+        task: Task,
+        target: TaskStatus,
+        previous_status: TaskStatus,
+        error_message: str | None,
+    ) -> None:
+        """发布 task.status 事件；终态追加 task.complete。"""
         self._publish(
             "task.status", task, self._status_event_payload(task, previous_status, error_message)
         )
-        if target in {
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-            TaskStatus.CANCELLED,
-        }:
+        if target in _TERMINAL_TASK_STATUSES:
             self._publish("task.complete", task, self._completion_event_payload(task))
-        return task
+
+    def _save_and_publish_terminal(self, task: Task, previous_status: TaskStatus) -> None:
+        """终态落盘：状态与 result_json 合并为单次全量写入，随后发布事件。
+
+        此前实现是「全量 save + 窄 UPDATE」两次落盘——SQLite 的 UPDATE 会
+        重写整行，等于把可达数十 MB 的 result_json 写两遍（WAL 与 fsync 翻倍）。
+        """
+        self.storage.save(task)
+        self._publish(
+            "task.status",
+            task,
+            self._status_event_payload(task, previous_status, task.error_message),
+        )
+        self._publish("task.complete", task, self._completion_event_payload(task))
 
     def _persist_status(self, task: Task) -> None:
         """持久化状态变更（仅更新状态与租约相关字段，不做全量覆盖）。"""
@@ -292,41 +327,34 @@ class TaskLifecycleService(_StorageEventBase):
     ) -> Task:
         """将任务标记为完成。
 
-        先全量持久化 task（确保 findings/result_json 等 handler 写入的
-        字段落盘），再走局部状态更新。避免 _persist_status 只写 6 个字段
-        导致白盒分析结果丢失。
+        状态变更与 handler 写入的 findings/result_json 合并为**同一次**全量
+        落盘，避免整行双写（语义见 _save_and_publish_terminal）。
         """
         resolved = self._resolve_task(task)
         if result_summary is not None:
             resolved.result_summary = result_summary
         if report_path is not None:
             resolved.report_path = report_path
-        self.storage.save(resolved)
-        return self.update_status(resolved, TaskStatus.COMPLETED)
+        previous_status = self._apply_transition(resolved, TaskStatus.COMPLETED)
+        self._save_and_publish_terminal(resolved, previous_status)
+        return resolved
 
     def fail_task(self, task: Task | str, error_message: str) -> Task:
-        """将任务标记为失败。
-
-        先全量持久化再局部更新状态，避免 handler 写入的额外字段丢失。
-        """
+        """将任务标记为失败（单次全量落盘，语义同 complete_task）。"""
         resolved = self._resolve_task(task)
-        self.storage.save(resolved)
-        return self.update_status(resolved, TaskStatus.FAILED, error_message)
+        previous_status = self._apply_transition(resolved, TaskStatus.FAILED, error_message)
+        self._save_and_publish_terminal(resolved, previous_status)
+        return resolved
 
     def timeout_task(self, task: Task | str, error_message: str = "任务执行超时。") -> Task:
-        """将任务标记为超时。
-
-        先全量持久化再局部更新状态，避免 handler 写入的额外字段丢失。
-        """
+        """将任务标记为超时（单次全量落盘，语义同 complete_task）。"""
         resolved = self._resolve_task(task)
-        self.storage.save(resolved)
-        return self.update_status(resolved, TaskStatus.TIMEOUT, error_message)
+        previous_status = self._apply_transition(resolved, TaskStatus.TIMEOUT, error_message)
+        self._save_and_publish_terminal(resolved, previous_status)
+        return resolved
 
     def cancel_task(self, task: Task | str) -> Task:
-        """将任务标记为取消。
-
-        先全量持久化再局部更新状态，避免 handler 写入的额外字段丢失。
-        """
+        """将任务标记为取消（单次全量落盘，语义同 complete_task）。"""
         resolved = self._resolve_task(task)
         token = self.get_cancellation_token(resolved.task_id)
         token.cancel()
@@ -336,8 +364,9 @@ class TaskLifecycleService(_StorageEventBase):
             status="cancelled",
             previous_status=resolved.status.value,
         )
-        self.storage.save(resolved)
-        return self.update_status(resolved, TaskStatus.CANCELLED)
+        previous_status = self._apply_transition(resolved, TaskStatus.CANCELLED)
+        self._save_and_publish_terminal(resolved, previous_status)
+        return resolved
 
     def pause_task(self, task: Task | str) -> Task:
         """将运行中的任务标记为暂停。"""
