@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: argus-java-analyzer
+  # 同步 /analyze 在请求线程内执行分钟级分析：虚拟线程承载请求，
+  # 避免长任务挤占平台线程池、拖垮健康探针。显式 executor bean 不受影响。
+  threads:
+    virtual:
+      enabled: true
 
 management:
   endpoints:
