@@ -9,6 +9,7 @@ CLI 也可复用此类避免重复编排逻辑。
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import defaultdict
 from typing import Any
 
@@ -698,7 +699,9 @@ class TaskApplicationService:
                     "pathSegmentCount": ep.get("path_segment_count", 0),
                     "controllerClass": ep.get("controller_class"),
                     "controllerMethod": ep.get("controller_method"),
-                    "parameters": [],
+                    # batch_get_endpoint_details 返回原始行，parameters 是 JSON
+                    # 字符串；与 mappers.row_to_endpoint 同口径解析，避免恒空。
+                    "parameters": json.loads(ep.get("parameters") or "[]"),
                     "returnType": ep.get("return_type"),
                 }
             else:

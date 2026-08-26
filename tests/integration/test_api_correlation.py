@@ -59,6 +59,7 @@ from argus_py.correlation.models import (
 from argus_py.infra.events import EventBus
 from argus_py.infra.worker import TaskWorker
 from argus_py.task.models import Task
+from argus_py.task.repositories.mappers import endpoint_to_row
 from argus_py.task.storage import TaskSQLiteStorage
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -456,6 +457,69 @@ def test_endpoint_evidence_response_includes_execution_flows(tmp_path: Path) -> 
     assert flows[0]["callDepth"] == 2
     assert flows[0]["steps"][0]["methodKey"] == "UserController.listUsers"
     assert "execution_flows" not in item
+
+
+def test_endpoint_evidence_matched_info_parses_parameters(tmp_path: Path) -> None:
+    """回归：matchedEndpointInfo.parameters 必须解析 DB 中的 JSON 字符串，
+    而非恒为空数组（与 /analysis-runs/{id}/endpoints 的 row_to_endpoint 同口径）。"""
+    app, stack = _build_correlation_test_app(tmp_path)
+    storage = stack.lifecycle.storage
+    assert isinstance(storage, TaskSQLiteStorage)
+    cr_id, _, _ = _seed_correlation_data(stack)
+
+    # analysis 侧：先建 run 行满足外键，再写端点投影（parameters 为 JSON 列）
+    storage.create_analysis_run(
+        AnalysisRun(
+            analysis_id="analysis-1",
+            task_id="t-api-test",
+            source_snapshot_id="src-api",
+            run_status="SUCCEEDED",
+            config_json="{}",
+        )
+    )
+    with storage._analysis._pool.tx() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO analysis_endpoints (
+                endpoint_id, analysis_id, endpoint_fingerprint,
+                http_method, raw_path, normalized_exact_path,
+                normalized_path_template, is_templated,
+                path_normalization_version, path_segment_count,
+                static_prefix, canonical_path_shape,
+                controller_class, controller_method,
+                controller_method_signature,
+                parameters, return_type,
+                source_file, source_start_line, source_start_column,
+                source_end_line, source_end_column,
+                entry_call_node_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            endpoint_to_row(
+                "analysis-1",
+                {
+                    "endpoint_id": "ep1",
+                    "endpoint_fingerprint": "fp:ep1",
+                    "http_method": "GET",
+                    "raw_path": "/api/users/{id}",
+                    "normalized_exact_path": "",
+                    "normalized_path_template": "/api/users/{id}",
+                    "is_templated": 1,
+                    "path_segment_count": 3,
+                    "controller_class": "UserController",
+                    "controller_method": "getUser",
+                    "parameters": ["id:Long"],
+                    "return_type": "User",
+                },
+            ),
+        )
+
+    client = TestClient(app)
+    resp = client.get(f"{_BASE}/{cr_id}/endpoint-evidence?limit=10")
+    assert resp.status_code == 200, resp.text
+    item = next(i for i in resp.json()["items"] if i["endpointEvidenceId"] == "eev-api-1")
+    info = item["matchedEndpointInfo"]
+    assert info is not None
+    assert info["endpointId"] == "ep1"
+    # 回归点：此前被硬编码为 []，现在必须返回解析后的参数列表
+    assert info["parameters"] == ["id:Long"]
 
 
 def test_list_endpoint_evidence_filter_by_status(api_client: tuple) -> None:

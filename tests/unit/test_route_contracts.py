@@ -22,6 +22,7 @@ from fastapi import HTTPException
 
 pytestmark = pytest.mark.integration
 
+from argus_py.analysis.models import AnalysisRun
 from argus_py.api.routes import projects as project_routes
 from argus_py.api.routes import tasks as task_routes
 from argus_py.api.schemas import (
@@ -31,6 +32,7 @@ from argus_py.api.schemas import (
 )
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import ProjectError, TaskError
+from argus_py.task.repositories.mappers import endpoint_to_row
 
 from tests.helpers.factories import make_app_stack
 
@@ -87,6 +89,72 @@ async def test_get_task_404_when_missing(tmp_path: Path) -> None:
 
     with pytest.raises(TaskError, match="not found"):
         await task_routes.get_task("no-such", app=stack.app)
+
+
+async def test_get_task_detail_latest_analysis_run_carries_real_counts(tmp_path: Path) -> None:
+    """回归：详情页 latest_analysis_run 必须携带真实投影计数，与 /analysis-runs
+    列表同口径（此前未传 counts/metrics，endpoint_count 等恒为 0）。"""
+    stack = make_app_stack(tmp_path)
+    project_id = await _create_project(stack.project_service)
+    task = stack.lifecycle.create_task(
+        goal="白盒契约任务",
+        project_id=project_id,
+        task_type=TaskType.WHITEBOX,
+    )
+    storage = stack.lifecycle.storage
+    storage.create_analysis_run(
+        AnalysisRun(
+            analysis_id="a-contract-1",
+            task_id=task.task_id,
+            source_snapshot_id="snap",
+            run_status="SUCCEEDED",
+            config_json="{}",
+        )
+    )
+
+    def _insert_endpoint(endpoint_id: str, template: str) -> None:
+        with storage._analysis._pool.tx() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO analysis_endpoints (
+                    endpoint_id, analysis_id, endpoint_fingerprint,
+                    http_method, raw_path, normalized_exact_path,
+                    normalized_path_template, is_templated,
+                    path_normalization_version, path_segment_count,
+                    static_prefix, canonical_path_shape,
+                    controller_class, controller_method,
+                    controller_method_signature,
+                    parameters, return_type,
+                    source_file, source_start_line, source_start_column,
+                    source_end_line, source_end_column,
+                    entry_call_node_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                endpoint_to_row(
+                    "a-contract-1",
+                    {
+                        "endpoint_id": endpoint_id,
+                        "endpoint_fingerprint": f"fp:{endpoint_id}",
+                        "http_method": "GET",
+                        "raw_path": template,
+                        "normalized_exact_path": "",
+                        "normalized_path_template": template,
+                        "is_templated": 1,
+                        "path_segment_count": 3,
+                        "controller_class": "UserController",
+                        "controller_method": "getUser",
+                        "parameters": [],
+                        "return_type": "User",
+                    },
+                ),
+            )
+
+    _insert_endpoint("ep-a", "/api/users/{id}")
+    _insert_endpoint("ep-b", "/api/orders/{id}")
+
+    response = await task_routes.get_task(task.task_id, app=stack.app)
+
+    assert response.latest_analysis_run is not None
+    # 回归点：此前恒为 0，现在必须与投影行数一致
+    assert response.latest_analysis_run.endpoint_count == 2
 
 
 async def test_list_tasks_pagination_and_filter(tmp_path: Path) -> None:

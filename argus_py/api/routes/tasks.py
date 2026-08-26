@@ -244,7 +244,21 @@ async def get_task(
     if task.task_type == TaskType.WHITEBOX:
         latest = await run_in_thread(app.get_latest_analysis_run, task_id)
         if latest:
-            response.latest_analysis_run = _build_analysis_run_summary(latest)
+            # 与 /analysis-runs 列表和单次摘要同口径：传入真实投影计数、
+            # 严重级别分布与完整性指标，避免详情页 latest_analysis_run
+            # 的 endpoint_count / finding_count / metrics 恒为 0。
+            analysis_id = latest.analysis_id
+            counts, severity_counts, diag = await asyncio.gather(
+                run_in_thread(app.get_analysis_counts, analysis_id),
+                run_in_thread(app.get_analysis_finding_severity_counts, analysis_id),
+                run_in_thread(app.get_analysis_diagnostics, analysis_id),
+            )
+            response.latest_analysis_run = _build_analysis_run_summary(
+                latest,
+                counts=counts,
+                severity_counts=severity_counts,
+                metrics=_build_completeness_metrics(diag),
+            )
     return response
 
 
