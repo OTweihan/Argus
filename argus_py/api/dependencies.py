@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
 
+from argus_py.config.server_settings import ServerSettings
 from argus_py.config.service import ModelConfigService
 from argus_py.core.exceptions import TaskNotFoundError
 from argus_py.infra.events import EventBus
@@ -23,6 +25,8 @@ from argus_py.task.read import TaskReadService
 
 if TYPE_CHECKING:
     from argus_py.correlation.application import CorrelationService
+    from argus_py.observability.diagnostics_service import DiagnosticsService
+    from argus_py.observability.diagnostics_store import FileDiagnosticsLogStore
     from argus_py.regression.application import RegressionService
     from argus_py.task.application import TaskApplicationService
 
@@ -98,6 +102,30 @@ def get_debug_bundle_builder() -> DebugBundleBuilder:
     return create_container().debug_bundle_builder
 
 
+@lru_cache
+def get_diagnostics_store() -> "FileDiagnosticsLogStore":
+    """返回诊断文件日志仓储（从容器直接提取）。"""
+    return create_container().diagnostics_store
+
+
+@lru_cache
+def get_diagnostics_service() -> "DiagnosticsService":
+    """返回诊断服务状态聚合服务（从容器直接提取）。"""
+    return create_container().diagnostics_service
+
+
+@lru_cache
+def get_diagnostics_semaphore() -> asyncio.Semaphore:
+    """返回诊断查询并发闸门（方案第 17 章资源隔离）。"""
+    return create_container().diagnostics_semaphore
+
+
+@lru_cache
+def get_server_settings() -> ServerSettings:
+    """返回服务配置（从容器直接提取，避免每请求重复读配置文件）。"""
+    return create_container().settings
+
+
 async def require_task_exists(
     task_id: str,
     reader: TaskReadService = Depends(get_task_read_service),
@@ -130,6 +158,10 @@ def reset_all_dependencies() -> None:
     get_correlation_service.cache_clear()
     get_regression_service.cache_clear()
     get_task_app_service.cache_clear()
+    get_diagnostics_store.cache_clear()
+    get_diagnostics_service.cache_clear()
+    get_diagnostics_semaphore.cache_clear()
+    get_server_settings.cache_clear()
     # 运行时容器与 LLM 信号量同样需要在测试间重置，防止 asyncio.Semaphore
     # 跨 event loop 复用导致 ``RuntimeError``。
     from argus_py.runtime.container import create_container

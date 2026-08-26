@@ -1036,6 +1036,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/diagnostics/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Services
+         * @description 返回各组件健康状态与日志目录占用（方案 17.2）。
+         */
+        get: operations["get_services_argus_api_diagnostics_services_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Logs
+         * @description 按条件检索诊断日志，游标分页、新→旧（方案 8.2/8.6/17.3）。
+         */
+        get: operations["search_logs_argus_api_diagnostics_logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/logs/{event_id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Log Context
+         * @description 返回同文件内前后若干条日志上下文（方案 17.5）。
+         */
+        get: operations["get_log_context_argus_api_diagnostics_logs__event_id__context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/logs/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Log Detail
+         * @description 返回单条日志完整内容（含原始 JSON 与文件来源，方案 17.4）。
+         */
+        get: operations["get_log_detail_argus_api_diagnostics_logs__event_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trace Request
+         * @description 按 Request ID 还原一次请求的完整处理过程（方案 17.6），时间正序。
+         */
+        get: operations["trace_request_argus_api_diagnostics_requests__request_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description 列出启动会话，新会话在前（方案 17.7）。
+         */
+        get: operations["list_runs_argus_api_diagnostics_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run
+         * @description 返回单个启动会话元数据。
+         */
+        get: operations["get_run_argus_api_diagnostics_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/runs/{run_id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Run Logs
+         * @description 检索指定启动会话内的日志（方案 17.7 runs/{runId}/logs）。
+         */
+        get: operations["search_run_logs_argus_api_diagnostics_runs__run_id__logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/argus/api/projects/{project_id}/regression-cases": {
         parameters: {
             query?: never;
@@ -1653,6 +1813,97 @@ export interface components {
             recentTasks?: components["schemas"]["TaskSummaryResponse"][];
         };
         /**
+         * DiagnosticsContextResponse
+         * @description 日志前后上下文（方案 17.5）。
+         */
+        DiagnosticsContextResponse: {
+            /** Items */
+            items?: components["schemas"]["DiagnosticsLogEntry"][];
+        };
+        /**
+         * DiagnosticsLogDetail
+         * @description 单条日志详情：完整消息、原始 JSON 与文件来源（方案 8.4）。
+         */
+        DiagnosticsLogDetail: {
+            /** Eventid */
+            eventId: string;
+            /** Timestamp */
+            timestamp: string;
+            /** Level */
+            level: string;
+            /** Component */
+            component: string;
+            /** Module */
+            module: string;
+            /** Message */
+            message: string;
+            /** Requestid */
+            requestId?: string | null;
+            /** Runid */
+            runId?: string | null;
+            /** Exception */
+            exception?: string | null;
+            /** Raw */
+            raw?: {
+                [key: string]: unknown;
+            };
+            source: components["schemas"]["DiagnosticsLogSource"];
+        };
+        /**
+         * DiagnosticsLogEntry
+         * @description 统一诊断日志条目（列表/上下文/追踪共用）。
+         */
+        DiagnosticsLogEntry: {
+            /** Eventid */
+            eventId: string;
+            /** Timestamp */
+            timestamp: string;
+            /** Level */
+            level: string;
+            /** Component */
+            component: string;
+            /** Module */
+            module: string;
+            /** Message */
+            message: string;
+            /** Requestid */
+            requestId?: string | null;
+            /** Runid */
+            runId?: string | null;
+            /** Exception */
+            exception?: string | null;
+        };
+        /**
+         * DiagnosticsLogPage
+         * @description 游标分页结果（方案 8.6）。
+         */
+        DiagnosticsLogPage: {
+            /** Items */
+            items?: components["schemas"]["DiagnosticsLogEntry"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /**
+             * Hasmore
+             * @default false
+             */
+            hasMore: boolean;
+            /**
+             * Scanlimited
+             * @default false
+             */
+            scanLimited: boolean;
+        };
+        /**
+         * DiagnosticsLogSource
+         * @description 日志来源定位（文件相对路径 + 行号）。
+         */
+        DiagnosticsLogSource: {
+            /** Filepath */
+            filePath: string;
+            /** Linenumber */
+            lineNumber: number;
+        };
+        /**
          * DiagnosticsResponse
          * @description 白盒诊断信息。注意：completeness 结论不在此处，在摘要接口。
          */
@@ -1691,6 +1942,27 @@ export interface components {
             moduleCount: number;
             /** Applicationmodulecount */
             applicationModuleCount: number;
+        };
+        /**
+         * DiagnosticsServicesResponse
+         * @description 服务状态聚合响应（方案 17.2）。
+         */
+        DiagnosticsServicesResponse: {
+            /** Services */
+            services?: components["schemas"]["ServiceStatusResponse"][];
+            logsUsage?: components["schemas"]["LogsUsageResponse"] | null;
+            /** Checkedat */
+            checkedAt: string;
+        };
+        /**
+         * DiagnosticsTraceResponse
+         * @description Request ID 追踪时间线（按时间正序，方案 9.3）。
+         */
+        DiagnosticsTraceResponse: {
+            /** Requestid */
+            requestId: string;
+            /** Items */
+            items?: components["schemas"]["DiagnosticsLogEntry"][];
         };
         /**
          * EndpointEvidenceCandidateResponse
@@ -2046,6 +2318,20 @@ export interface components {
             maxSteps: number;
             /** Timeoutseconds */
             timeoutSeconds: number;
+        };
+        /**
+         * LogsUsageResponse
+         * @description 日志目录空间占用。
+         */
+        LogsUsageResponse: {
+            /** Path */
+            path: string;
+            /** Totalbytes */
+            totalBytes: number;
+            /** Filecount */
+            fileCount: number;
+            /** Freebytes */
+            freeBytes?: number | null;
         };
         /**
          * MavenConfigResponse
@@ -2774,6 +3060,66 @@ export interface components {
             diff?: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * RunFileInfoResponse
+         * @description 启动会话内单个日志文件信息。
+         */
+        RunFileInfoResponse: {
+            /** Name */
+            name: string;
+            /** Sizebytes */
+            sizeBytes: number;
+            /** Modifiedat */
+            modifiedAt: string;
+        };
+        /**
+         * RunSummaryResponse
+         * @description 启动会话摘要（方案 10.3 的 MVP 子集）。
+         */
+        RunSummaryResponse: {
+            /** Runid */
+            runId: string;
+            /** Startedat */
+            startedAt: string;
+            /** Files */
+            files?: components["schemas"]["RunFileInfoResponse"][];
+            /** Totalbytes */
+            totalBytes: number;
+        };
+        /**
+         * RunsListResponse
+         * @description 启动会话列表（新会话在前）。
+         */
+        RunsListResponse: {
+            /** Runs */
+            runs?: components["schemas"]["RunSummaryResponse"][];
+        };
+        /**
+         * ServiceStatusResponse
+         * @description 组件服务状态（方案 7.2）。
+         */
+        ServiceStatusResponse: {
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version?: string | null;
+            /** Pid */
+            pid?: number | null;
+            /** Port */
+            port?: number | null;
+            /** Host */
+            host?: string | null;
+            /** Startedat */
+            startedAt?: string | null;
+            /** Uptimeseconds */
+            uptimeSeconds?: number | null;
+            /** Latencyms */
+            latencyMs?: number | null;
+            /** Detail */
+            detail?: string | null;
         };
         /**
          * SourceLocationResponse
@@ -4996,6 +5342,265 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CorrelationRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_services_argus_api_diagnostics_services_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsServicesResponse"];
+                };
+            };
+        };
+    };
+    search_logs_argus_api_diagnostics_logs_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                component?: string | null;
+                level?: string | null;
+                keyword?: string | null;
+                requestId?: string | null;
+                runId?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_log_context_argus_api_diagnostics_logs__event_id__context_get: {
+        parameters: {
+            query?: {
+                before?: number;
+                after?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsContextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_log_detail_argus_api_diagnostics_logs__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsLogDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trace_request_argus_api_diagnostics_requests__request_id__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsTraceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_argus_api_diagnostics_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunsListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_argus_api_diagnostics_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_run_logs_argus_api_diagnostics_runs__run_id__logs_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                component?: string | null;
+                level?: string | null;
+                keyword?: string | null;
+                requestId?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsLogPage"];
                 };
             };
             /** @description Validation Error */

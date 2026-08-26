@@ -18,6 +18,7 @@ from argus_py.config.server_settings import ServerSettings, load_server_settings
 from argus_py.config.service import ModelConfigService
 from argus_py.core.enums import TaskType
 from argus_py.core.ids import generate_id
+from argus_py.core.paths import LOGS_DIR
 from argus_py.infra.db import set_default_pool_max_size
 from argus_py.infra.events import EventBus
 from argus_py.infra.queue import TaskQueue
@@ -25,6 +26,8 @@ from argus_py.infra.worker import TaskWorker
 from argus_py.llm.client import set_llm_semaphore
 from argus_py.observability.audit import AuditService, set_audit_service
 from argus_py.observability.debug_bundle import DebugBundleBuilder
+from argus_py.observability.diagnostics_service import DiagnosticsService
+from argus_py.observability.diagnostics_store import FileDiagnosticsLogStore
 from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
@@ -89,6 +92,10 @@ class RuntimeContainer:
     whitebox_client: WhiteboxClient
     whitebox_runner: WhiteboxRunner
     source_resolver: SourceResolver
+    # 诊断中心（方案第 17 章：仓储在组合根组装，route/service 不得自行创建）
+    diagnostics_store: FileDiagnosticsLogStore
+    diagnostics_service: DiagnosticsService
+    diagnostics_semaphore: asyncio.Semaphore
     # 业务 handler 注册表（供测试/自定义注入）
     task_handlers: _TASK_HANDLER_TYPE
 
@@ -263,6 +270,12 @@ def create_container() -> RuntimeContainer:
     if llm_semaphore is not None:
         set_llm_semaphore(llm_semaphore)
 
+    # ── 诊断中心：文件日志仓储 + 服务状态聚合 + 查询并发闸门（方案第 17 章）──
+    diagnostics_store = FileDiagnosticsLogStore(LOGS_DIR)
+    diagnostics_store.set_scan_budget(settings.diagnostics_scan_max_bytes)
+    diagnostics_semaphore = asyncio.Semaphore(settings.diagnostics_max_concurrent_queries)
+    diagnostics_service = DiagnosticsService(settings, diagnostics_store)
+
     return RuntimeContainer(
         settings=settings,
         event_bus=event_bus,
@@ -284,6 +297,9 @@ def create_container() -> RuntimeContainer:
         whitebox_client=whitebox_client,
         whitebox_runner=whitebox_runner,
         source_resolver=source_resolver,
+        diagnostics_store=diagnostics_store,
+        diagnostics_service=diagnostics_service,
+        diagnostics_semaphore=diagnostics_semaphore,
         task_handlers=handlers,
     )
 

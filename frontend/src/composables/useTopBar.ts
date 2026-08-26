@@ -30,6 +30,7 @@ export function useTopBar(opts: {
         tasks: "任务管理",
         regression: "回归测试",
         models: "模型配置",
+        diagnostics: "诊断中心",
       }[view.value] ?? ""
     );
   });

@@ -101,12 +101,15 @@ import SidebarMenu from "./components/layout/SidebarMenu.vue";
 import { useConsoleApp } from "./composables/useConsoleApp";
 import { authRequired, clearApiToken, hasApiToken, setApiToken } from "./auth";
 
-// 路由级懒加载：四个视图按需加载，减小首屏 JS 体积
+// 路由级懒加载：各视图按需加载，减小首屏 JS 体积
 const DashboardView = defineAsyncComponent(() => import("./views/DashboardView.vue"));
 const ProjectsView = defineAsyncComponent(() => import("./views/ProjectsView.vue"));
 const TasksView = defineAsyncComponent(() => import("./views/TasksView.vue"));
-const RegressionView = defineAsyncComponent(() => import("./views/RegressionView.vue"));
 const ModelsView = defineAsyncComponent(() => import("./views/ModelsView.vue"));
+const RegressionView = defineAsyncComponent(() => import("./views/RegressionView.vue"));
+const DiagnosticsView = defineAsyncComponent(
+  () => import("./views/diagnostics/DiagnosticsView.vue"),
+);
 
 // zh-cn locale 以 dynamic import 形式从主 bundle 拆出，由 Vite 生成
 // 独立的 async chunk。
@@ -166,6 +169,8 @@ const currentView = computed(() => {
       return RegressionView;
     case "models":
       return ModelsView;
+    case "diagnostics":
+      return DiagnosticsView;
     default:
       return ModelsView;
   }

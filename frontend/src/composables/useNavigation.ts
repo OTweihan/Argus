@@ -1,6 +1,13 @@
 import { onMounted, onUnmounted, ref } from "vue";
 
-export type ViewKey = "dashboard" | "projects" | "tasks" | "regression" | "models" | "task-detail";
+export type ViewKey =
+  | "dashboard"
+  | "projects"
+  | "tasks"
+  | "regression"
+  | "models"
+  | "diagnostics"
+  | "task-detail";
 
 export function useNavigation() {
   const view = ref<ViewKey>("dashboard");
@@ -16,6 +23,7 @@ export function useNavigation() {
       "tasks",
       "regression",
       "models",
+      "diagnostics",
       "task-detail",
     ];
     if (validViews.includes(viewName)) {

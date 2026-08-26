@@ -89,6 +89,13 @@ class ServerSettings:
     # 请求路径在匹配前按段边界剥离这些前缀，使浏览器侧路径对齐后端 Controller 端点。
     correlation_gateway_strip_prefixes: list[str] = field(default_factory=list)
     correlation_gateway_prepend_prefix: str = ""
+    # 诊断中心 — 查询资源隔离（docs/optimizations/diagnostics-center-plan.md 第 17 章）。
+    # 单 worker 架构下诊断查询是同进程旁路负载：并发上限超限时快速返回 429，
+    # 单次查询超时返回 503，扫描字节预算防止长尾查询拖垮事件循环。
+    diagnostics_query_timeout_seconds: float = 5.0
+    diagnostics_max_concurrent_queries: int = 4
+    diagnostics_scan_max_bytes: int = 64 * 1024 * 1024
+    diagnostics_max_limit: int = 200
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -189,6 +196,20 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
             correlation.get("gateway_prepend_prefix")
         )
         or "",
+        diagnostics_query_timeout_seconds=_as_float(
+            (data.get("diagnostics") or {}).get("query_timeout_seconds"), 5.0, minimum=0.5
+        ),
+        diagnostics_max_concurrent_queries=_as_int(
+            (data.get("diagnostics") or {}).get("max_concurrent_queries"), 4, minimum=1
+        ),
+        diagnostics_scan_max_bytes=_as_int(
+            (data.get("diagnostics") or {}).get("scan_max_bytes"),
+            64 * 1024 * 1024,
+            minimum=1024 * 1024,
+        ),
+        diagnostics_max_limit=_as_int(
+            (data.get("diagnostics") or {}).get("max_limit"), 200, minimum=1
+        ),
     )
 
 

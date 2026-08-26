@@ -132,3 +132,16 @@ observability:
 correlation:
   gateway_strip_prefixes: []
   gateway_prepend_prefix: ""
+
+# 诊断中心（docs/optimizations/diagnostics-center-plan.md 第 17 章）。
+# 单 worker 架构下诊断查询是同进程旁路负载：以下参数控制资源隔离，
+# 不配置时使用与注释一致的内置默认值。
+diagnostics:
+  # 单次诊断查询超时（秒），超时返回 503。
+  query_timeout_seconds: 5.0
+  # 诊断查询并发上限，超限立即返回 429，不排队。
+  max_concurrent_queries: 4
+  # 单次查询累计扫描日志字节数上限（最小 1MB），超限截断并提示缩小时间范围。
+  scan_max_bytes: 67108864
+  # 日志查询单页 limit 上限。
+  max_limit: 200
