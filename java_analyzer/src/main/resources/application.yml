@@ -41,6 +41,10 @@ argus:
       # 0 = min(8, max(2, available processors))
       threads: 0
       queue-capacity: 64
+    scan:
+      # 0 = min(8, available processors)。源码扫描 parse 阶段（CPU 密集、
+      # 天然可并行）的分片并行度；符号求解阶段不受此值影响。
+      parse-threads: 0
     # 源码路径边界（fail-closed）：
     # 逗号分隔的允许根目录。裸机默认只允许 Python 默认快照目录
     # ${java.io.tmpdir}/argus_sources；确需其它目录时必须显式配置环境变量。
