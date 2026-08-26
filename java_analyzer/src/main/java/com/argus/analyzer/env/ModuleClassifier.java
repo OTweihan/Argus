@@ -51,6 +51,22 @@ public class ModuleClassifier {
             Pattern.CASE_INSENSITIVE
     );
 
+    // 注解精确匹配：{@code contains("@Controller")} 会把 @ControllerAdvice /
+    // @RestControllerAdvice 误计为 Controller，controllerCount 虚高导致 library
+    // 模块被误判为业务模块、对过多模块跑 Maven。(?!\w) 保证注解名完整匹配。
+    private static final Pattern ANNOTATION_SPRING_BOOT_APP = Pattern.compile(
+            "@SpringBootApplication(?!\\w)|@SpringBootConfiguration(?!\\w)");
+    private static final Pattern ANNOTATION_REST_CONTROLLER =
+            Pattern.compile("@RestController(?!\\w)");
+    private static final Pattern ANNOTATION_CONTROLLER = Pattern.compile("@Controller(?!\\w)");
+    private static final Pattern ANNOTATION_SERVICE = Pattern.compile("@Service(?!\\w)");
+    private static final Pattern ANNOTATION_REPOSITORY = Pattern.compile("@Repository(?!\\w)");
+    private static final Pattern ANNOTATION_MAPPER = Pattern.compile("@Mapper(?!\\w)");
+    private static final Pattern ANNOTATION_ENTITY_OR_TABLE =
+            Pattern.compile("@Entity(?!\\w)|@Table\\s*\\(");
+    private static final Pattern MAIN_METHOD =
+            Pattern.compile("public\\s+static\\s+void\\s+main\\s*\\(");
+
     /**
      * 对索引中所有模块执行分类。
      * 已标记 AGGREGATOR 的模块跳过扫描。
@@ -196,30 +212,29 @@ public class ModuleClassifier {
                     try {
                         String content = Files.readString(javaFile);
 
-                        if (content.contains("@SpringBootApplication")
-                                || content.contains("@SpringBootConfiguration")) {
+                        if (ANNOTATION_SPRING_BOOT_APP.matcher(content).find()) {
                             signals.springBootApp = true;
                         }
-                        if (content.contains("@RestController")) {
-                            signals.controllerCount++;
-                        } else if (content.contains("@Controller")) {
+                        // 与原 contains 逻辑一致：RestController / Controller 每文件最多计一次
+                        if (ANNOTATION_REST_CONTROLLER.matcher(content).find()
+                                || ANNOTATION_CONTROLLER.matcher(content).find()) {
                             signals.controllerCount++;
                         }
-                        if (content.contains("@Service")) {
+                        if (ANNOTATION_SERVICE.matcher(content).find()) {
                             signals.serviceCount++;
                         }
-                        if (content.contains("@Repository")) {
+                        if (ANNOTATION_REPOSITORY.matcher(content).find()) {
                             signals.repositoryCount++;
                         }
                         // Mapper 通常是 MyBatis 等框架的注解
-                        if (content.contains("@Mapper")) {
+                        if (ANNOTATION_MAPPER.matcher(content).find()) {
                             signals.mapperCount++;
                         }
-                        if (content.contains("@Entity") || content.contains("@Table(name =")) {
+                        if (ANNOTATION_ENTITY_OR_TABLE.matcher(content).find()) {
                             signals.entityCount++;
                         }
                         // 检查 main 方法
-                        if (!signals.hasMain && content.contains("public static void main")) {
+                        if (!signals.hasMain && MAIN_METHOD.matcher(content).find()) {
                             signals.hasMain = true;
                         }
                     } catch (IOException ex) {
