@@ -234,6 +234,6 @@ def test_init_database_includes_migrations(tmp_path: Path) -> None:
         }
         assert "schema_migrations" in tables
         # 新增迁移时同步更新此列表（0 为 baseline 版本）
-        assert _versions(conn) == [0, 1, 2, 3, 4, 5, 6]
+        assert _versions(conn) == [0, 1, 2, 3, 4, 5, 6, 7]
     finally:
         conn.close()

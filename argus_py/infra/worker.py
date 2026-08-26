@@ -71,6 +71,7 @@ class TaskWorker:
         report_generator: ReportGenerator | None = None,
         worker_id: str = "",
         whitebox_client: WhiteboxClient | None = None,
+        recover_regression_runs: Callable[[], int] | None = None,
     ) -> None:
         self.queue = queue
         self._lifecycle = lifecycle
@@ -81,6 +82,8 @@ class TaskWorker:
         self._worker_id = worker_id
         # O-04 启动恢复：非空时接管孤儿白盒作业；为空回退原 FAILED 语义。
         self._whitebox_client = whitebox_client
+        # 回归批次崩溃恢复（argus_py.regression）：非空时启动期对账非终态批次。
+        self._recover_regression_runs = recover_regression_runs
         # Runner 在装配期创建一次、跨任务复用；handlers 为共享 dict，
         # register_handler 的后续注册仍然生效。
         self._runner = TaskRunner(
@@ -262,6 +265,16 @@ class TaskWorker:
                 )
         except Exception:
             logger.exception("关联尝试崩溃恢复失败（不影响 Worker 启动）")
+
+        # 回归批次崩溃恢复：对账非终态批次的批次项并尽量收尾（差异 + 门禁）。
+        # 同样不阻断 Worker 启动；失败批次下次重启重试。
+        if self._recover_regression_runs is not None:
+            try:
+                finalized = await run_in_thread(self._recover_regression_runs)
+                if finalized:
+                    logger.info("回归批次启动恢复完成: 收尾 %d 个批次", finalized)
+            except Exception:
+                logger.exception("回归批次崩溃恢复失败（不影响 Worker 启动）")
 
         if self._whitebox_client is not None:
             await reconcile_orphan_whitebox_jobs(

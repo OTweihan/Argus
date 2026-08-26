@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted, ref } from "vue";
 
-export type ViewKey = "dashboard" | "projects" | "tasks" | "models" | "task-detail";
+export type ViewKey = "dashboard" | "projects" | "tasks" | "regression" | "models" | "task-detail";
 
 export function useNavigation() {
   const view = ref<ViewKey>("dashboard");
@@ -10,7 +10,14 @@ export function useNavigation() {
     const cleaned = hash.replace(/^#/, "");
     const parts = cleaned.split("/");
     const viewName = parts[0] as ViewKey;
-    const validViews: ViewKey[] = ["dashboard", "projects", "tasks", "models", "task-detail"];
+    const validViews: ViewKey[] = [
+      "dashboard",
+      "projects",
+      "tasks",
+      "regression",
+      "models",
+      "task-detail",
+    ];
     if (validViews.includes(viewName)) {
       return { view: viewName, taskId: parts[1] || null };
     }

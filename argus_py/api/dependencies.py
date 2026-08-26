@@ -23,6 +23,7 @@ from argus_py.task.read import TaskReadService
 
 if TYPE_CHECKING:
     from argus_py.correlation.application import CorrelationService
+    from argus_py.regression.application import RegressionService
     from argus_py.task.application import TaskApplicationService
 
 
@@ -65,6 +66,12 @@ def get_task_app_service() -> "TaskApplicationService":
 def get_correlation_service() -> "CorrelationService":
     """返回关联编排服务（从容器直接提取）。"""
     return create_container().correlation_service
+
+
+@lru_cache
+def get_regression_service() -> "RegressionService":
+    """返回回归批次协调服务（从容器直接提取）。"""
+    return create_container().regression_service
 
 
 @lru_cache
@@ -121,6 +128,7 @@ def reset_all_dependencies() -> None:
     get_trace_reader_service.cache_clear()
     get_debug_bundle_builder.cache_clear()
     get_correlation_service.cache_clear()
+    get_regression_service.cache_clear()
     get_task_app_service.cache_clear()
     # 运行时容器与 LLM 信号量同样需要在测试间重置，防止 asyncio.Semaphore
     # 跨 event loop 复用导致 ``RuntimeError``。

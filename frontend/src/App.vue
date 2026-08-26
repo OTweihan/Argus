@@ -105,6 +105,7 @@ import { authRequired, clearApiToken, hasApiToken, setApiToken } from "./auth";
 const DashboardView = defineAsyncComponent(() => import("./views/DashboardView.vue"));
 const ProjectsView = defineAsyncComponent(() => import("./views/ProjectsView.vue"));
 const TasksView = defineAsyncComponent(() => import("./views/TasksView.vue"));
+const RegressionView = defineAsyncComponent(() => import("./views/RegressionView.vue"));
 const ModelsView = defineAsyncComponent(() => import("./views/ModelsView.vue"));
 
 // zh-cn locale 以 dynamic import 形式从主 bundle 拆出，由 Vite 生成
@@ -161,6 +162,8 @@ const currentView = computed(() => {
     case "tasks":
     case "task-detail":
       return TasksView;
+    case "regression":
+      return RegressionView;
     case "models":
       return ModelsView;
     default:

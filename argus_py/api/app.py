@@ -21,6 +21,7 @@ from argus_py.api.routes import (
     health,
     projects,
     prompts,
+    regression,
     reports,
     tasks,
     ws,
@@ -202,6 +203,7 @@ def create_app() -> FastAPI:
     application.include_router(prompts.router, prefix=API_PREFIX)
     application.include_router(ws.router, prefix=API_PREFIX)
     application.include_router(correlation.router, prefix=API_PREFIX)
+    application.include_router(regression.router, prefix=API_PREFIX)
     if (API_STATIC_DIR / "index.html").exists():
         application.mount(
             "/",

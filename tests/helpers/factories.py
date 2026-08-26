@@ -14,6 +14,7 @@ from argus_py.observability.debug_bundle import DebugBundleBuilder
 from argus_py.observability.trace_reader import TraceReadService
 from argus_py.project.service import ProjectService
 from argus_py.project.storage import ProjectSQLiteStorage
+from argus_py.regression.application import RegressionService
 from argus_py.report.generator import ReportGenerator
 from argus_py.task.application import TaskApplicationService
 from argus_py.task.event import TaskTimelineService
@@ -36,6 +37,7 @@ class AppStack:
     timeline: TaskTimelineService
     project_service: ProjectService
     correlation: CorrelationService
+    regression: RegressionService
     queue: TaskQueue
 
 
@@ -76,6 +78,16 @@ def make_app_stack(
         project_service=project_service,
         model_config_service=ModelConfigService(ModelConfigSQLiteStorage(tmp_path / "models.db")),
     )
+    # 回归服务：与生产 RuntimeContainer 相同的装配方式（复用 resolve_create_params
+    # + 终态回调晚绑定）。
+    regression = RegressionService(
+        storage=storage,
+        lifecycle=lifecycle,
+        queue=queue,
+        resolve_create_params=app.resolve_create_params,
+        event_publisher=event_publisher,
+    )
+    lifecycle.set_task_terminal_callback(regression.handle_task_terminal)
     return AppStack(
         app=app,
         lifecycle=lifecycle,
@@ -86,5 +98,6 @@ def make_app_stack(
         timeline=timeline,
         project_service=project_service,
         correlation=correlation,
+        regression=regression,
         queue=queue,
     )

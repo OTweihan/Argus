@@ -40,6 +40,7 @@ from argus_py.whitebox.source_resolver import SourceResolver
 
 if TYPE_CHECKING:
     from argus_py.correlation.application import CorrelationService
+    from argus_py.regression.application import RegressionService
     from argus_py.task.application import TaskApplicationService
 
 _TASK_HANDLER_TYPE = dict
@@ -79,6 +80,7 @@ class RuntimeContainer:
     project_service: ProjectService
     model_config_service: ModelConfigService
     correlation_service: "CorrelationService"
+    regression_service: "RegressionService"
     task_queue: TaskQueue
     task_worker: TaskWorker
     llm_semaphore: asyncio.Semaphore | None
@@ -212,6 +214,28 @@ def create_container() -> RuntimeContainer:
         worker_id=worker_id,
     )
 
+    # ── 回归测试闭环：批次协调（终态回调晚绑定到 lifecycle）──
+    from argus_py.regression.application import RegressionService
+    from argus_py.task.application import TaskApplicationService
+
+    # resolve_create_params 是无状态的参数校验编排；这里构造一个仅供回归
+    # 使用的 TaskApplicationService 实例来复用它（与 API 路由的实例互不影响）。
+    task_app_for_regression = TaskApplicationService(
+        lifecycle=lifecycle_service,
+        task_read=task_read_service,
+        queue=task_queue,
+        project_service=project_service,
+        model_config_service=model_config_service,
+    )
+    regression_service = RegressionService(
+        storage=storage,
+        lifecycle=lifecycle_service,
+        queue=task_queue,
+        resolve_create_params=task_app_for_regression.resolve_create_params,
+        event_publisher=event_bus.publish,
+    )
+    lifecycle_service.set_task_terminal_callback(regression_service.handle_task_terminal)
+
     # ── Handler 装配 ──
     handlers: _TASK_HANDLER_TYPE = {
         TaskType.BLACKBOX: blackbox_runner.run,
@@ -229,6 +253,8 @@ def create_container() -> RuntimeContainer:
         worker_id=worker_id,
         # O-04 启动恢复：启动时接管孤儿白盒作业（SUCCEEDED 拉结果 / RUNNING 重入队）
         whitebox_client=whitebox_client,
+        # 回归批次崩溃恢复：对账非终态批次并收尾
+        recover_regression_runs=regression_service.recover_stale_runs,
     )
 
     llm_semaphore = (
@@ -250,6 +276,7 @@ def create_container() -> RuntimeContainer:
         project_service=project_service,
         model_config_service=model_config_service,
         correlation_service=correlation_service,
+        regression_service=regression_service,
         task_queue=task_queue,
         task_worker=task_worker,
         llm_semaphore=llm_semaphore,

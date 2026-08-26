@@ -1,5 +1,24 @@
 # 项目级回归测试闭环实施计划
 
+> **实施状态（2026-08-26）**：本计划已全量落地。
+>
+> - 领域与持久化：`argus_py/regression/`（enums/models/fingerprint/diff）+
+>   `task/repositories/regression_repo.py` + 迁移 `0007_regression.sql`
+>   （含 `uq_regression_baseline_per_project` 部分唯一索引兜底并发基线）。
+> - 应用服务与入口：`RegressionService`（批次协调、终态推进、崩溃恢复）；
+>   终态经 `TaskLifecycleService.set_task_terminal_callback` 晚绑定回调驱动；
+>   Worker 启动 reconciliation 接入 `recover_stale_runs`。REST 见
+>   `api/routes/regression.py`；CLI 为 `argus regression run/status/baseline set`
+>   （提交+轮询运行中的 Argus 服务，非通过批次返回非零退出码供 CI 使用）。
+> - 控制台：顶层「回归」页（用例管理/批次历史/详情抽屉差异三分组/基线设置）。
+> - 与本计划的实现偏差：
+>   - 批次终态语义细化为「completed=执行完毕（门禁结论见 gate_result）、
+>     failed=批次自身失败（队列满载中止/创建中断/恢复兜底）、cancelled=用户取消」；
+>   - 进程重启时未完成批次的未执行子任务会被取消并计 cancelled（门禁显式
+>     失败），不虚构队列恢复能力（对应 §7 风险条目）；
+>   - 差异明细持久化在 `regression_runs.summary_json`（单类别上限 500 条 +
+>     truncated 标记），详情接口直接返回持久化结果。
+
 ## 1. 背景与目标
 
 Argus 已具备任务执行、报告、项目管理和 Web 控制台等单次任务能力。下一阶段应将这些能力组织为

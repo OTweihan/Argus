@@ -28,6 +28,7 @@ export function useTopBar(opts: {
         dashboard: "仪表盘",
         projects: "项目管理",
         tasks: "任务管理",
+        regression: "回归测试",
         models: "模型配置",
       }[view.value] ?? ""
     );

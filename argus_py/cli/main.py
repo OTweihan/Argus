@@ -9,7 +9,7 @@ from collections.abc import Coroutine
 from typing import Any
 
 from argus_py.cli._types import SubParserAdder  # noqa: F401
-from argus_py.cli.commands import analyze, auth, browser, config, run, serve
+from argus_py.cli.commands import analyze, auth, browser, config, regression, run, serve
 from argus_py.cli.commands import llm as llm_cmd
 from argus_py.cli.io import setup_cli_logging
 from argus_py.cli.utils import print_cli_cancelled, print_cli_error
@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.build_parser(subparsers)
     run.build_parser(subparsers)
     analyze.build_parser(subparsers)
+    regression.build_parser(subparsers)
     browser.build_parser(subparsers)
     auth.build_parser(subparsers)
     llm_cmd.build_parser(subparsers)
@@ -69,6 +70,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "analyze":
         return _run_async_command(analyze.run(args), "白盒分析")
+
+    if args.command == "regression":
+        if args.regression_command == "run":
+            return regression.run_run(args)
+        if args.regression_command == "status":
+            return regression.run_status(args)
+        if args.regression_command == "baseline" and args.baseline_command == "set":
+            return regression.run_baseline_set(args)
+        parser.print_help()
+        return 0
 
     if args.command == "browser":
         if args.browser_command == "check":

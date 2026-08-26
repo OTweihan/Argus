@@ -1036,6 +1036,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/projects/{project_id}/regression-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Regression Cases
+         * @description 列出项目的回归用例（按 display_order 排序）。
+         */
+        get: operations["list_regression_cases_argus_api_projects__project_id__regression_cases_get"];
+        put?: never;
+        /**
+         * Create Regression Case
+         * @description 创建回归用例（输入按任务创建同一套规则校验）。
+         */
+        post: operations["create_regression_case_argus_api_projects__project_id__regression_cases_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/regression-cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Regression Case
+         * @description 获取回归用例详情。
+         */
+        get: operations["get_regression_case_argus_api_regression_cases__case_id__get"];
+        /**
+         * Update Regression Case
+         * @description 更新回归用例（合并后整体重新校验）。
+         */
+        put: operations["update_regression_case_argus_api_regression_cases__case_id__put"];
+        post?: never;
+        /**
+         * Delete Regression Case
+         * @description 删除回归用例（历史批次使用快照，不受影响）。
+         */
+        delete: operations["delete_regression_case_argus_api_regression_cases__case_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/projects/{project_id}/regression-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Regression Runs
+         * @description 分页查询项目批次历史（created_at 倒序）。
+         */
+        get: operations["list_regression_runs_argus_api_projects__project_id__regression_runs_get"];
+        put?: never;
+        /**
+         * Create Regression Run
+         * @description 创建并启动回归批次（异步执行；轮询批次状态获取进度与结论）。
+         */
+        post: operations["create_regression_run_argus_api_projects__project_id__regression_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/regression-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Regression Run
+         * @description 获取批次详情（含批次项实时任务状态与持久化汇总）。
+         */
+        get: operations["get_regression_run_argus_api_regression_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/regression-runs/{run_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Regression Run Summary
+         * @description 获取批次汇总（差异明细、门禁原因、计数）。
+         */
+        get: operations["get_regression_run_summary_argus_api_regression_runs__run_id__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/regression-runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Regression Run
+         * @description 取消未完成批次（未执行子任务取消，已执行的尽力中断）。
+         */
+        post: operations["cancel_regression_run_argus_api_regression_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/projects/{project_id}/regression-baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Regression Baseline
+         * @description 读取项目当前基线批次。
+         */
+        get: operations["get_regression_baseline_argus_api_projects__project_id__regression_baseline_get"];
+        /**
+         * Set Regression Baseline
+         * @description 将成功批次设为项目基线（仅 completed 批次；每项目一个基线）。
+         */
+        put: operations["set_regression_baseline_argus_api_projects__project_id__regression_baseline_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2361,6 +2521,259 @@ export interface components {
             worker: string;
             /** Event Bus */
             event_bus: string;
+        };
+        /**
+         * RegressionBaselineResponse
+         * @description 当前项目基线。
+         */
+        RegressionBaselineResponse: {
+            /** Baselinerunid */
+            baselineRunId: string | null;
+        };
+        /**
+         * RegressionBaselineSetRequest
+         * @description 设置项目基线。
+         */
+        RegressionBaselineSetRequest: {
+            /** Runid */
+            runId: string;
+        };
+        /**
+         * RegressionCaseCreateRequest
+         * @description 创建回归用例。
+         *
+         *     ``parameters`` 中的 model_config_id / prompt_extensions / 白盒源码输入等
+         *     与任务创建接口语义一致；保存时按同一套规则校验并合并项目默认值。
+         */
+        RegressionCaseCreateRequest: {
+            /** Name */
+            name: string;
+            /**
+             * Tasktype
+             * @default blackbox
+             */
+            taskType: string;
+            /** Goal */
+            goal: string;
+            /** Starturl */
+            startUrl?: string | null;
+            /** Maxsteps */
+            maxSteps?: number | null;
+            /** Timeoutseconds */
+            timeoutSeconds?: number | null;
+            /** Capturescreenshots */
+            captureScreenshots?: boolean | null;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Displayorder
+             * @default 0
+             */
+            displayOrder: number;
+        };
+        /**
+         * RegressionCaseListResponse
+         * @description 回归用例列表。
+         */
+        RegressionCaseListResponse: {
+            /** Total */
+            total: number;
+            /** Cases */
+            cases: components["schemas"]["RegressionCaseResponse"][];
+        };
+        /**
+         * RegressionCaseResponse
+         * @description 回归用例。
+         */
+        RegressionCaseResponse: {
+            /** Caseid */
+            caseId: string;
+            /** Projectid */
+            projectId: string;
+            /** Name */
+            name: string;
+            /** Tasktype */
+            taskType: string;
+            /** Goal */
+            goal: string;
+            /** Starturl */
+            startUrl: string | null;
+            /** Maxsteps */
+            maxSteps: number;
+            /** Timeoutseconds */
+            timeoutSeconds: number;
+            /** Capturescreenshots */
+            captureScreenshots: boolean;
+            /** Parameters */
+            parameters: {
+                [key: string]: unknown;
+            };
+            /**
+             * Whiteboxconfigjson
+             * @description 白盒配置 JSON 快照；黑盒用例为 null
+             */
+            whiteboxConfigJson?: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Displayorder */
+            displayOrder: number;
+            /** Createdat */
+            createdAt: string;
+            /** Updatedat */
+            updatedAt: string;
+        };
+        /**
+         * RegressionCaseUpdateRequest
+         * @description 更新回归用例（部分更新；taskType 不允许变更）。
+         */
+        RegressionCaseUpdateRequest: {
+            /** Name */
+            name?: string | null;
+            /** Goal */
+            goal?: string | null;
+            /** Starturl */
+            startUrl?: string | null;
+            /** Maxsteps */
+            maxSteps?: number | null;
+            /** Timeoutseconds */
+            timeoutSeconds?: number | null;
+            /** Capturescreenshots */
+            captureScreenshots?: boolean | null;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            } | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Displayorder */
+            displayOrder?: number | null;
+        };
+        /**
+         * RegressionRunCreateRequest
+         * @description 创建回归批次。
+         */
+        RegressionRunCreateRequest: {
+            /** Triggeredby */
+            triggeredBy?: string | null;
+        };
+        /**
+         * RegressionRunDetailResponse
+         * @description 批次详情：批次本体 + 批次项 + 持久化汇总。
+         */
+        RegressionRunDetailResponse: {
+            run: components["schemas"]["RegressionRunResponse"];
+            /** Items */
+            items?: components["schemas"]["RegressionRunItemResponse"][];
+            summary?: components["schemas"]["RegressionRunSummaryResponse"];
+        };
+        /**
+         * RegressionRunItemResponse
+         * @description 回归批次项。
+         */
+        RegressionRunItemResponse: {
+            /** Itemid */
+            itemId: string;
+            /** Runid */
+            runId: string;
+            /** Caseid */
+            caseId: string;
+            /** Casename */
+            caseName: string;
+            /** Displayorder */
+            displayOrder: number;
+            /** Taskid */
+            taskId: string | null;
+            /** Status */
+            status: string;
+            /** Findingcount */
+            findingCount: number | null;
+            /** Errorcode */
+            errorCode: string | null;
+            /** Errormessage */
+            errorMessage: string | null;
+            /** Createdat */
+            createdAt: string;
+            /** Taskstatus */
+            taskStatus?: string | null;
+        };
+        /**
+         * RegressionRunListResponse
+         * @description 批次列表（稳定分页）。
+         */
+        RegressionRunListResponse: {
+            /** Total */
+            total: number;
+            /** Runs */
+            runs: components["schemas"]["RegressionRunResponse"][];
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+        };
+        /**
+         * RegressionRunResponse
+         * @description 回归批次。
+         */
+        RegressionRunResponse: {
+            /** Runid */
+            runId: string;
+            /** Projectid */
+            projectId: string;
+            /** Triggersource */
+            triggerSource: string;
+            /** Triggeredby */
+            triggeredBy: string | null;
+            /** Baselinerunid */
+            baselineRunId: string | null;
+            /** Status */
+            status: string;
+            /** Gateresult */
+            gateResult: string | null;
+            /** Isbaseline */
+            isBaseline: boolean;
+            /** Errorcode */
+            errorCode: string | null;
+            /** Errormessage */
+            errorMessage: string | null;
+            /** Startedat */
+            startedAt: string | null;
+            /** Completedat */
+            completedAt: string | null;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
+         * RegressionRunSummaryResponse
+         * @description 批次持久化汇总（终态后含差异明细与门禁原因）。
+         */
+        RegressionRunSummaryResponse: {
+            /** Fingerprintversion */
+            fingerprintVersion?: string | null;
+            /** Baselinerunid */
+            baselineRunId?: string | null;
+            /** Gateresult */
+            gateResult?: string | null;
+            /** Blockingreasons */
+            blockingReasons?: string[];
+            /** Itemcounts */
+            itemCounts?: {
+                [key: string]: number;
+            };
+            /** Findingtotals */
+            findingTotals?: {
+                [key: string]: number;
+            };
+            /** Diff */
+            diff?: {
+                [key: string]: unknown;
+            };
         };
         /**
          * SourceLocationResponse
@@ -4583,6 +4996,410 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CorrelationRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_regression_cases_argus_api_projects__project_id__regression_cases_get: {
+        parameters: {
+            query?: {
+                enabledOnly?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description 项目 ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionCaseListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_regression_case_argus_api_projects__project_id__regression_cases_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 项目 ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegressionCaseCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionCaseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_regression_case_argus_api_regression_cases__case_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 用例 ID */
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionCaseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_regression_case_argus_api_regression_cases__case_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 用例 ID */
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegressionCaseUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionCaseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_regression_case_argus_api_regression_cases__case_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 用例 ID */
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_regression_runs_argus_api_projects__project_id__regression_runs_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+                status?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description 项目 ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_regression_run_argus_api_projects__project_id__regression_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 项目 ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RegressionRunCreateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_regression_run_argus_api_regression_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 批次 ID */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_regression_run_summary_argus_api_regression_runs__run_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 批次 ID */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_regression_run_argus_api_regression_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 批次 ID */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_regression_baseline_argus_api_projects__project_id__regression_baseline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 项目 ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionBaselineResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_regression_baseline_argus_api_projects__project_id__regression_baseline_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 项目 ID */
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegressionBaselineSetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegressionBaselineResponse"];
                 };
             };
             /** @description Validation Error */

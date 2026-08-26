@@ -57,6 +57,19 @@ class FindingRepository:
             row = conn.execute("SELECT COUNT(*) AS cnt FROM findings").fetchone()
         return row["cnt"] if row else 0
 
+    def count_by_task_ids(self, task_ids: list[str]) -> dict[str, int]:
+        """按任务 ID 统计发现项数量（回归批次终态汇总用）。"""
+        if not task_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(task_ids))
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                f"SELECT task_id, COUNT(*) AS cnt FROM findings "
+                f"WHERE task_id IN ({placeholders}) GROUP BY task_id",
+                task_ids,
+            ).fetchall()
+        return {row["task_id"]: int(row["cnt"]) for row in rows}
+
     def list_by_analysis_id(
         self,
         analysis_id: str,
@@ -96,3 +109,23 @@ class FindingRepository:
                 (analysis_id,),
             ).fetchall()
         return [row_to_finding(r) for r in rows]
+
+    def list_by_task_ids(self, task_ids: list[str]) -> dict[str, list[Finding]]:
+        """按任务 ID 批量返回全部发现项（回归批次差异计算用）。
+
+        空列表直接返回空映射；单查询 ``IN`` 取回后按 task_id 分组，
+        避免逐任务 N 次往返。
+        """
+        if not task_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(task_ids))
+        with self._pool.ro_conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM findings WHERE task_id IN ({placeholders}) "
+                "ORDER BY created_at DESC, finding_id ASC",
+                task_ids,
+            ).fetchall()
+        grouped: dict[str, list[Finding]] = {}
+        for row in rows:
+            grouped.setdefault(row["task_id"], []).append(row_to_finding(row))
+        return grouped

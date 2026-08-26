@@ -27,6 +27,8 @@ from argus_py.correlation.models import (
     FindingEvidenceLink,
     HttpRequestEvidence,
 )
+from argus_py.regression.enums import RegressionGateResult, RegressionRunStatus
+from argus_py.regression.models import RegressionCase, RegressionRun, RegressionRunItem
 from argus_py.task.models import Finding, Task, TaskLog
 from argus_py.task.repositories.analysis_repo import AnalysisRunRepository
 from argus_py.task.repositories.blackbox_repo import BlackboxRunRepository
@@ -35,6 +37,7 @@ from argus_py.task.repositories.event_repo import EventRepository
 from argus_py.task.repositories.evidence_repo import EvidenceRepository
 from argus_py.task.repositories.finding_repo import FindingRepository
 from argus_py.task.repositories.log_repo import LogRepository
+from argus_py.task.repositories.regression_repo import RegressionRepository
 from argus_py.task.repositories.task_repo import TaskRepository
 from argus_py.utils.jsonx import read_json, to_jsonable, write_json
 
@@ -286,6 +289,7 @@ class TaskSQLiteStorage:
         self._correlation = CorrelationRepository(pool)
         self._blackbox = BlackboxRunRepository(pool)
         self._evidence = EvidenceRepository(pool)
+        self._regression = RegressionRepository(pool)
 
     # ── 任务 CRUD ───────────────────────────────────────────
 
@@ -854,3 +858,95 @@ class TaskSQLiteStorage:
     # 崩溃恢复
     def recover_stale_attempts(self) -> list[CorrelationAttempt]:
         return self._correlation.recover_stale_attempts()
+
+    # ── 回归测试闭环（argus_py.regression）─────────────────────
+
+    def create_regression_case(self, case: RegressionCase) -> RegressionCase:
+        return self._regression.create_case(case)
+
+    def get_regression_case(self, case_id: str) -> RegressionCase | None:
+        return self._regression.get_case(case_id)
+
+    def list_regression_cases(
+        self, project_id: str, *, enabled_only: bool = False
+    ) -> list[RegressionCase]:
+        return self._regression.list_cases(project_id, enabled_only=enabled_only)
+
+    def update_regression_case(self, case_id: str, fields: dict[str, Any]) -> None:
+        self._regression.update_case(case_id, fields)
+
+    def delete_regression_case(self, case_id: str) -> None:
+        self._regression.delete_case(case_id)
+
+    def create_regression_run_with_items(
+        self, run: RegressionRun, items: list[RegressionRunItem]
+    ) -> None:
+        self._regression.create_run_with_items(run, items)
+
+    def get_regression_run(self, run_id: str) -> RegressionRun | None:
+        return self._regression.get_run(run_id)
+
+    def list_regression_runs(
+        self,
+        project_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+        status: "RegressionRunStatus | None" = None,
+    ) -> tuple[list[RegressionRun], int]:
+        return self._regression.list_runs(project_id, offset=offset, limit=limit, status=status)
+
+    def mark_regression_running(self, run_id: str) -> bool:
+        return self._regression.mark_running(run_id)
+
+    def finalize_regression_run(
+        self,
+        *,
+        run_id: str,
+        status: RegressionRunStatus,
+        gate_result: "RegressionGateResult | None",
+        summary_json: str,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> bool:
+        """CAS 收尾批次（幂等；重复收尾返回 False）。"""
+        return self._regression.finalize_run(
+            run_id,
+            status=status,
+            gate_result=gate_result,
+            summary_json=summary_json,
+            error_code=error_code,
+            error_message=error_message,
+        )
+
+    def set_regression_baseline(self, project_id: str, run_id: str) -> bool:
+        return self._regression.set_baseline(project_id, run_id)
+
+    def get_regression_baseline(self, project_id: str) -> RegressionRun | None:
+        return self._regression.get_baseline(project_id)
+
+    def get_regression_items(self, run_id: str) -> list[RegressionRunItem]:
+        return self._regression.get_items(run_id)
+
+    def get_regression_item_by_task_id(self, task_id: str) -> RegressionRunItem | None:
+        return self._regression.get_item_by_task_id(task_id)
+
+    def attach_regression_task(self, item_id: str, task_id: str) -> None:
+        self._regression.attach_task(item_id, task_id)
+
+    def update_regression_item_status(self, item_id: str, status: Any, **kwargs: Any) -> None:
+        self._regression.update_item_status(item_id, status, **kwargs)
+
+    def count_regression_item_statuses(self, run_id: str) -> dict[str, int]:
+        return self._regression.count_item_statuses(run_id)
+
+    def list_unfinished_regression_runs(self) -> list[RegressionRun]:
+        return self._regression.list_unfinished_runs()
+
+    def list_findings_by_task_ids(self, task_ids: list[str]) -> dict[str, list[Finding]]:
+        """按任务 ID 批量取发现项（回归差异计算用）。"""
+        return self._findings.list_by_task_ids(task_ids)
+
+    def count_findings_by_task_ids(self, task_ids: list[str]) -> dict[str, int]:
+        """按任务 ID 统计发现项数量（回归批次终态汇总用）。"""
+        return self._findings.count_by_task_ids(task_ids)

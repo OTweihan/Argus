@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Final
@@ -21,6 +23,8 @@ from argus_py.task.status import assert_transition
 from argus_py.task.storage import TaskSQLiteStorage
 
 __all__ = ["TaskEventPublisher", "TaskLifecycleService"]
+
+logger = logging.getLogger(__name__)
 
 
 class _UnsetType:
@@ -46,6 +50,7 @@ class TaskLifecycleService(_StorageEventBase):
         self,
         storage: TaskSQLiteStorage,
         event_publisher: TaskEventPublisher | None,
+        on_task_terminal: Callable[[str, str], None] | None = None,
     ) -> None:
         super().__init__(storage, event_publisher)
         self._cancellation_tokens: dict[str, CancellationToken] = {}
@@ -55,6 +60,23 @@ class TaskLifecycleService(_StorageEventBase):
         # check-then-act 窗口，避免双创建导致一方的取消/暂停信号写入孤儿
         # token 而丢失。
         self._token_lock = threading.Lock()
+        # 任务终态回调（回归批次协调等跨域编排使用）：在任务终态落盘与事件
+        # 发布之后同步触发，参数为 (task_id, status_value)。回调内部异常被
+        # 吞掉并记日志——绝不让旁路编排破坏任务主流程。
+        self._on_task_terminal = on_task_terminal
+
+    def set_task_terminal_callback(self, callback: Callable[[str, str], None] | None) -> None:
+        """运行期设置/替换终态回调（组合根晚绑定用，见 RuntimeContainer）。"""
+        self._on_task_terminal = callback
+
+    def _notify_task_terminal(self, task: Task) -> None:
+        """终态落盘后触发旁路回调（异常隔离）。"""
+        if self._on_task_terminal is None:
+            return
+        try:
+            self._on_task_terminal(task.task_id, task.status.value)
+        except Exception:
+            logger.exception("任务终态回调执行失败: task=%s", task.task_id)
 
     def create_task(
         self,
@@ -204,6 +226,7 @@ class TaskLifecycleService(_StorageEventBase):
         )
         if target in _TERMINAL_TASK_STATUSES:
             self._publish("task.complete", task, self._completion_event_payload(task))
+            self._notify_task_terminal(task)
 
     def _save_and_publish_terminal(self, task: Task, previous_status: TaskStatus) -> None:
         """终态落盘：状态与 result_json 合并为单次全量写入，随后发布事件。
@@ -218,6 +241,7 @@ class TaskLifecycleService(_StorageEventBase):
             self._status_event_payload(task, previous_status, task.error_message),
         )
         self._publish("task.complete", task, self._completion_event_payload(task))
+        self._notify_task_terminal(task)
 
     def _persist_status(self, task: Task) -> None:
         """持久化状态变更（仅更新状态与租约相关字段，不做全量覆盖）。"""
