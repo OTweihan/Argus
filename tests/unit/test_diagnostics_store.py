@@ -117,6 +117,112 @@ class TestSearch:
         assert all(e.event_id not in ids1 for e in page2.items)
         assert [e.message for e in page2.items] == ["warn thing", "oldest info"]
 
+    def test_missing_cursor_position_falls_back_to_timestamp(
+        self,
+        store: FileDiagnosticsLogStore,
+        logs_root: Path,
+    ) -> None:
+        page1 = store.search(DiagnosticsQuery(limit=2))
+        assert page1.next_cursor
+
+        base = datetime(2026, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
+        runtime_log = logs_root / "runtime" / "python" / "argus.log"
+        runtime_log.write_text(
+            "\n".join(
+                [
+                    _runtime_line(base - timedelta(minutes=30), "oldest info"),
+                    _runtime_line(base - timedelta(minutes=20), "warn thing", level="WARNING"),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        page2 = store.search(DiagnosticsQuery(limit=2, cursor=page1.next_cursor))
+
+        assert [event.message for event in page2.items] == ["warn thing", "oldest info"]
+
+    def test_legacy_line_cursor_remains_readable(
+        self,
+        store: FileDiagnosticsLogStore,
+    ) -> None:
+        from argus_py.observability.diagnostics_store import _b64_encode
+
+        timestamp = datetime(2026, 8, 26, 11, 50, tzinfo=timezone.utc).isoformat()
+        legacy_cursor = _b64_encode(
+            json.dumps({"f": "runtime/python/argus.log", "l": 3, "t": timestamp})
+        )
+
+        page = store.search(DiagnosticsQuery(limit=2, cursor=legacy_cursor))
+
+        assert [event.message for event in page.items] == ["warn thing", "oldest info"]
+
+    def test_exact_cursor_remains_pageable_after_log_grows_beyond_budget(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        runtime_dir = tmp_path / "runtime" / "python"
+        runtime_dir.mkdir(parents=True)
+        path = runtime_dir / "argus.log"
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        path.write_text(
+            "\n".join(
+                [
+                    _runtime_line(base - timedelta(seconds=2), "old"),
+                    _runtime_line(base - timedelta(seconds=1), "middle"),
+                    _runtime_line(base, "new"),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        store = FileDiagnosticsLogStore(tmp_path)
+        store.set_scan_budget(1024 * 1024)
+        page1 = store.search(DiagnosticsQuery(limit=1))
+        assert page1.next_cursor
+
+        with path.open("a", encoding="utf-8") as file:
+            file.write("x" * (2 * 1024 * 1024) + "\n")
+
+        page2 = store.search(DiagnosticsQuery(limit=1, cursor=page1.next_cursor))
+
+        assert [event.message for event in page2.items] == ["middle"]
+        assert page2.next_cursor
+
+    def test_exact_cursor_skips_already_read_newer_files(self, tmp_path: Path) -> None:
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        paths: list[Path] = []
+        for index, hour in enumerate((10, 11, 12)):
+            run_dir = tmp_path / "dev" / f"20260826-{hour:02d}0000"
+            run_dir.mkdir(parents=True)
+            path = run_dir / "java.log"
+            path.write_text(
+                _dev_line(
+                    base + timedelta(hours=index),
+                    "java",
+                    "stdout",
+                    f"event-{hour}",
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            stamp = (base + timedelta(hours=index)).timestamp()
+            os.utime(path, (stamp, stamp))
+            paths.append(path)
+
+        store = FileDiagnosticsLogStore(tmp_path)
+        store.set_scan_budget(1024 * 1024)
+        page1 = store.search(DiagnosticsQuery(component="java", limit=2))
+        assert [event.message for event in page1.items] == ["event-12", "event-11"]
+        assert page1.next_cursor
+
+        with paths[-1].open("a", encoding="utf-8") as file:
+            file.write("x" * (2 * 1024 * 1024) + "\n")
+
+        page2 = store.search(DiagnosticsQuery(component="java", limit=2, cursor=page1.next_cursor))
+
+        assert [event.message for event in page2.items] == ["event-10"]
+
     def test_level_filter_is_min_level(self, store: FileDiagnosticsLogStore) -> None:
         page = store.search(DiagnosticsQuery(level="ERROR"))
         assert [e.message for e in page.items] == ["boom happened"]
@@ -169,6 +275,15 @@ class TestDetailAndContext:
         assert detail["source"]["filePath"] == r"runtime/python/argus.log"
         assert detail["source"]["lineNumber"] == 3
 
+    def test_legacy_line_event_id_remains_readable(self, store: FileDiagnosticsLogStore) -> None:
+        from argus_py.observability.diagnostics_store import _encode_event_id
+
+        legacy_id = _encode_event_id("runtime/python/argus.log", 3)
+        detail = store.get_detail(legacy_id)
+
+        assert detail["event"].message == "boom happened"
+        assert detail["source"]["lineNumber"] == 3
+
     def test_context_same_file_window(self, store: FileDiagnosticsLogStore) -> None:
         target = store.search(DiagnosticsQuery(level="ERROR")).items[0]
         context = store.get_context(target.event_id, before=1, after=1)
@@ -176,6 +291,24 @@ class TestDetailAndContext:
         messages = [e.message for e in context]
         assert "boom happened" in messages
         assert len(context) <= 3
+
+    def test_detail_and_context_do_not_load_the_whole_file(
+        self,
+        store: FileDiagnosticsLogStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        target = store.search(DiagnosticsQuery(level="ERROR")).items[0]
+
+        def fail_read_text(*args: object, **kwargs: object) -> str:
+            raise AssertionError("详情和上下文不应调用 Path.read_text")
+
+        monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+        detail = store.get_detail(target.event_id)
+        context = store.get_context(target.event_id, before=1, after=1)
+
+        assert detail["event"].message == "boom happened"
+        assert "boom happened" in [event.message for event in context]
 
     def test_invalid_event_id_raises_not_found(self, store: FileDiagnosticsLogStore) -> None:
         with pytest.raises(DiagnosticsNotFoundError):
@@ -243,14 +376,14 @@ class TestScanBudget:
             run_dir.mkdir(parents=True)
             path = run_dir / "java.log"
             path.write_text(
-                _dev_line(
+                filler
+                + "\n"
+                + _dev_line(
                     datetime(2026, 8, 26, hour, 0, tzinfo=timezone.utc),
                     "java",
                     "stdout",
                     "filler",
                 )
-                + "\n"
-                + filler
                 + "\n",
                 encoding="utf-8",
             )
@@ -258,13 +391,37 @@ class TestScanBudget:
             os.utime(path, (stamp, stamp))
 
         store = FileDiagnosticsLogStore(tmp_path)
-        store.set_scan_budget(1024 * 1024)  # 1MB：只够约一个半 700KB 文件
+        store.set_scan_budget(1024 * 1024)  # 1MB：一个完整文件 + 第二个文件尾部
 
         page = store.search(DiagnosticsQuery(component="java"))
 
-        # 新→旧扫描：11 点与 10 点两个文件耗尽预算，9 点文件未读 → 截断标记。
+        # 新→旧扫描：11 点完整读取、10 点只读取预算内尾部，9 点不再读取。
         assert page.scan_limited is True
         assert [e.run_id for e in page.items] == ["20260826-110000", "20260826-100000"]
+
+    def test_single_oversized_file_reads_tail_within_budget(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "dev" / RUN_ID
+        run_dir.mkdir(parents=True)
+        path = run_dir / "java.log"
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        path.write_text(
+            "x" * (2 * 1024 * 1024)
+            + "\n"
+            + _dev_line(base - timedelta(seconds=1), "java", "stdout", "tail-old")
+            + "\n"
+            + _dev_line(base, "java", "stdout", "tail-new")
+            + "\n",
+            encoding="utf-8",
+        )
+
+        store = FileDiagnosticsLogStore(tmp_path)
+        store.set_scan_budget(1024 * 1024)
+        page = store.search(DiagnosticsQuery(component="java"))
+
+        assert page.scan_limited is True
+        assert [event.message for event in page.items] == ["tail-new", "tail-old"]
+        detail = store.get_detail(page.items[0].event_id)
+        assert detail["event"].message == "tail-new"
 
 
 class TestEmptyRoot:

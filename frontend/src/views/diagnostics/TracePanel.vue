@@ -1,6 +1,12 @@
 <template>
   <div class="trace-panel">
-    <el-form inline @submit.prevent>
+    <div class="panel-heading">
+      <div>
+        <h3>请求追踪</h3>
+        <p>使用 Request ID 还原单次请求在服务内的处理顺序。</p>
+      </div>
+    </div>
+    <el-form inline class="trace-search" @submit.prevent>
       <el-form-item label="Request ID">
         <el-input
           v-model="requestId"
@@ -49,10 +55,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
-import {
-  traceDiagnosticsRequest,
-  type DiagnosticsLogEntry,
-} from "../../api/diagnostics";
+import { traceDiagnosticsRequest, type DiagnosticsLogEntry } from "../../api/diagnostics";
 import { errorMessage } from "../../utils";
 import { formatTimestamp, levelTagType } from "./utils";
 
@@ -60,6 +63,7 @@ const requestId = ref("");
 const items = ref<DiagnosticsLogEntry[]>([]);
 const loading = ref(false);
 const searched = ref(false);
+let traceVersion = 0;
 
 function timelineType(level: string): "danger" | "warning" | "primary" {
   const upper = level.toUpperCase();
@@ -70,16 +74,22 @@ function timelineType(level: string): "danger" | "warning" | "primary" {
 
 async function doTrace(): Promise<void> {
   const trimmed = requestId.value.trim();
-  if (!trimmed) return;
+  if (!trimmed) {
+    searched.value = false;
+    items.value = [];
+    return;
+  }
+  const requestVersion = ++traceVersion;
   loading.value = true;
   searched.value = true;
+  items.value = [];
   try {
     const body = await traceDiagnosticsRequest(trimmed);
-    items.value = body.items ?? [];
+    if (requestVersion === traceVersion) items.value = body.items ?? [];
   } catch (caught) {
-    ElMessage.error(errorMessage(caught));
+    if (requestVersion === traceVersion) ElMessage.error(errorMessage(caught));
   } finally {
-    loading.value = false;
+    if (requestVersion === traceVersion) loading.value = false;
   }
 }
 </script>
@@ -91,6 +101,25 @@ async function doTrace(): Promise<void> {
   gap: 16px;
 }
 
+.panel-heading h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 16px;
+}
+
+.panel-heading p {
+  margin: 5px 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.trace-search {
+  padding: 14px 14px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 250, 252, 0.72);
+}
+
 .trace-timeline {
   padding-left: 4px;
 }
@@ -99,6 +128,11 @@ async function doTrace(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 13px 15px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: var(--shadow-xs);
 }
 
 .trace-head {

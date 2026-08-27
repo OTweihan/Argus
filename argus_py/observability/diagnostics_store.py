@@ -6,8 +6,8 @@ dev 会话日志，游标分页、字节预算与路径安全约束全部内聚�
 设计要点：
 
 - 命名避开任务步骤日志既有仓储，见方案 4.3；
-- 事件 ID 是可解码定位器（相对路径 + 行号），不引入第二套索引存储；文件轮转后
-  定位失效属预期行为，按 404 处理（索引是可重建派生缓存，JSONL 是事实源）；
+- 事件 ID 是可解码定位器（新格式为相对路径 + 字节偏移 + 时间戳，兼容旧行号格式），
+  不引入第二套索引存储；文件轮转后定位失效属预期行为，按 404 处理（JSONL 是事实源）；
 - 所有路径由本模块从日志根目录推导，外部输入只有事件 ID 与 run_id，
   均做穿越校验（方案 18.3）；
 - 同步实现；调用方（route 层）必须经 ``run_in_thread`` 执行（方案第 17 章）。
@@ -18,7 +18,7 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import Iterable, Iterator
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,33 +165,71 @@ def _b64_decode(value: str) -> str:
 
 
 def _encode_event_id(rel_path: str, line_no: int) -> str:
+    """编码旧版行号事件 ID（保留给已有链接与兼容性测试）。"""
     return _b64_encode(json.dumps({"f": rel_path, "l": line_no}, ensure_ascii=False))
 
 
-def _decode_event_id(event_id: str) -> tuple[str, int]:
+@dataclass(frozen=True)
+class _EventLocator:
+    file: str
+    line: int | None = None
+    offset: int | None = None
+    timestamp: str | None = None
+
+
+def _encode_event_locator(locator: _EventLocator) -> str:
+    payload: dict[str, object] = {"f": locator.file}
+    if locator.offset is not None:
+        payload["o"] = locator.offset
+    elif locator.line is not None:
+        payload["l"] = locator.line
+    else:  # pragma: no cover - 内部构造器保证至少有一种位置
+        raise ValueError("事件定位器缺少行号或字节偏移")
+    if locator.timestamp is not None:
+        payload["t"] = locator.timestamp
+    return _b64_encode(json.dumps(payload, ensure_ascii=False))
+
+
+def _decode_event_id(event_id: str) -> _EventLocator:
     try:
         payload = json.loads(_b64_decode(event_id))
         rel_path = str(payload["f"])
-        line_no = int(payload["l"])
+        line_no = int(payload["l"]) if "l" in payload else None
+        offset = int(payload["o"]) if "o" in payload else None
+        timestamp = str(payload["t"]) if payload.get("t") is not None else None
     except Exception as exc:  # noqa: BLE001 — 任何畸形输入都视为不存在
         raise DiagnosticsNotFoundError(f"事件不存在或已轮转：{event_id!r}") from exc
-    if line_no < 1 or not rel_path or "\x00" in rel_path:
+    invalid_position = (line_no is None) == (offset is None)
+    if (
+        invalid_position
+        or (line_no is not None and line_no < 1)
+        or (offset is not None and offset < 0)
+        or not rel_path
+        or "\x00" in rel_path
+    ):
         raise DiagnosticsNotFoundError(f"事件不存在或已轮转：{event_id!r}")
-    return rel_path, line_no
+    return _EventLocator(
+        file=rel_path,
+        line=line_no,
+        offset=offset,
+        timestamp=timestamp,
+    )
 
 
 @dataclass(frozen=True)
 class _CursorPos:
-    file: str
-    line: int
+    locator: _EventLocator
     timestamp: str
 
 
 def _encode_cursor(event: DiagnosticsEvent) -> str:
-    rel_path, line_no = _decode_event_id(event.event_id)
-    return _b64_encode(
-        json.dumps({"f": rel_path, "l": line_no, "t": event.timestamp}, ensure_ascii=False)
-    )
+    locator = _decode_event_id(event.event_id)
+    payload: dict[str, object] = {"f": locator.file, "t": event.timestamp}
+    if locator.offset is not None:
+        payload["o"] = locator.offset
+    else:
+        payload["l"] = locator.line
+    return _b64_encode(json.dumps(payload, ensure_ascii=False))
 
 
 def _decode_cursor(cursor: str | None) -> _CursorPos | None:
@@ -199,12 +237,28 @@ def _decode_cursor(cursor: str | None) -> _CursorPos | None:
         return None
     try:
         payload = json.loads(_b64_decode(cursor))
+        line_no = int(payload["l"]) if "l" in payload else None
+        offset = int(payload["o"]) if "o" in payload else None
         pos = _CursorPos(
-            file=str(payload["f"]), line=int(payload["l"]), timestamp=str(payload["t"])
+            locator=_EventLocator(
+                file=str(payload["f"]),
+                line=line_no,
+                offset=offset,
+                timestamp=str(payload["t"]),
+            ),
+            timestamp=str(payload["t"]),
         )
     except Exception as exc:  # noqa: BLE001
         raise DiagnosticsBadRequestError("非法分页游标") from exc
-    if pos.line < 1 or not pos.file:
+    locator = pos.locator
+    invalid_position = (locator.line is None) == (locator.offset is None)
+    if (
+        invalid_position
+        or (locator.line is not None and locator.line < 1)
+        or (locator.offset is not None and locator.offset < 0)
+        or not locator.file
+        or "\x00" in locator.file
+    ):
         raise DiagnosticsBadRequestError("非法分页游标")
     return pos
 
@@ -243,24 +297,56 @@ class FileDiagnosticsLogStore:
         run_id = self._validate_run_id(query.run_id) if query.run_id else None
         limit = max(1, min(query.limit, 500))
         cursor_pos = _decode_cursor(query.cursor)
-        matcher = _EventMatcher(query, cursor_pos)
-
+        candidates = self._candidate_files(component, run_id)
         budget = self._scan_max_bytes
+        cursor_pos, cursor_exact, cursor_consumed, cursor_limited = self._prepare_cursor(
+            cursor_pos,
+            candidates,
+            budget,
+        )
+        budget -= cursor_consumed
+        matcher = _EventMatcher(query, cursor_pos, cursor_exact=cursor_exact)
+
         collected: list[DiagnosticsEvent] = []
-        scan_limited = False
+        scan_limited = cursor_limited
         has_more = False
 
-        for path, rel_path in self._candidate_files(component, run_id):
+        cursor_file_index: int | None = None
+        if cursor_exact and cursor_pos is not None:
+            cursor_file_index = next(
+                index
+                for index, (_, rel_path) in enumerate(candidates)
+                if rel_path == cursor_pos.locator.file
+            )
+
+        for index, (path, rel_path) in enumerate(candidates):
+            if cursor_file_index is not None and index < cursor_file_index:
+                continue
             if budget <= 0:
                 # 还有未读候选文件却被预算截断：提示前端缩小时间范围。
                 scan_limited = True
                 break
-            try:
-                size = path.stat().st_size
-            except OSError:
-                continue
-            budget -= max(size, 1)
-            for event in self._iter_file_events(path, rel_path, reverse=True):
+            end_offset = (
+                cursor_pos.locator.offset
+                if cursor_file_index == index and cursor_pos is not None
+                else None
+            )
+            records, consumed, file_truncated = self._read_reverse_lines(
+                path,
+                budget,
+                end_offset=end_offset,
+            )
+            budget -= consumed
+            if file_truncated:
+                scan_limited = True
+            for offset, line in records:
+                event = self._build_event(
+                    line,
+                    rel_path,
+                    _EventLocator(file=rel_path, offset=offset),
+                )
+                if event is None:
+                    continue
                 verdict = matcher.match(event)
                 if verdict is not True:
                     continue
@@ -283,12 +369,12 @@ class FileDiagnosticsLogStore:
 
     def get_detail(self, event_id: str) -> dict[str, Any]:
         """返回单条事件完整内容（含原始 JSON 与文件定位，方案 8.4）。"""
-        rel_path, line_no = _decode_event_id(event_id)
-        path, rel_path = self._resolve_within_root(rel_path)
-        lines = self._read_lines(path)
-        if line_no > len(lines):
-            raise DiagnosticsNotFoundError("日志行已被轮转或截断")
-        detail = self._detail_from_line(lines[line_no - 1], rel_path, line_no)
+        locator = _decode_event_id(event_id)
+        path, rel_path = self._resolve_within_root(locator.file)
+        line_no, line = self._resolve_locator(path, locator)
+        detail = self._detail_from_line(line, rel_path, line_no, locator=locator)
+        if locator.timestamp is not None and detail["event"].timestamp != locator.timestamp:
+            raise DiagnosticsNotFoundError("日志事件已被轮转或内容已变化")
         return detail
 
     def get_context(
@@ -297,19 +383,26 @@ class FileDiagnosticsLogStore:
         """返回同一文件内前后若干条事件（方案 8.5：上下文限定同组件同文件）。"""
         before = max(0, min(before, _MAX_CONTEXT_LINES))
         after = max(0, min(after, _MAX_CONTEXT_LINES))
-        rel_path, line_no = _decode_event_id(event_id)
-        path, rel_path = self._resolve_within_root(rel_path)
-        lines = self._read_lines(path)
-        if line_no > len(lines):
-            raise DiagnosticsNotFoundError("日志行已被轮转或截断")
-        start = max(1, line_no - before)
-        end = min(len(lines), line_no + after)
+        locator = _decode_event_id(event_id)
+        path, rel_path = self._resolve_within_root(locator.file)
+        line_no, target_line, context_lines = self._read_context_window(
+            path,
+            locator,
+            before,
+            after,
+        )
+        target = self._detail_from_line(
+            target_line,
+            rel_path,
+            line_no,
+            locator=locator,
+        )["event"]
+        if locator.timestamp is not None and target.timestamp != locator.timestamp:
+            raise DiagnosticsNotFoundError("日志事件已被轮转或内容已变化")
         events: list[DiagnosticsEvent] = []
-        for current in range(start, end + 1):
+        for current, line in context_lines:
             try:
-                events.append(
-                    self._detail_from_line(lines[current - 1], rel_path, current)["event"]
-                )
+                events.append(self._detail_from_line(line, rel_path, current)["event"])
             except DiagnosticsNotFoundError:
                 continue  # 损坏行在上下文窗口中跳过，不让整段上下文失败（方案 25.4）
         return events
@@ -429,35 +522,248 @@ class FileDiagnosticsLogStore:
         )
         return names[-limit:] if limit > 0 else []
 
-    def _read_lines(self, path: Path) -> list[str]:
+    def _read_reverse_lines(
+        self,
+        path: Path,
+        max_bytes: int,
+        *,
+        end_offset: int | None = None,
+    ) -> tuple[list[tuple[int, str]], int, bool]:
+        """在字节预算内从指定上界逆序读取完整行，返回新→旧记录。"""
         try:
-            return path.read_text(encoding="utf-8", errors="replace").splitlines()
+            size = path.stat().st_size
+            end = size if end_offset is None else min(size, max(0, end_offset))
+            read_size = min(end, max(0, max_bytes))
+            start = end - read_size
+            with path.open("rb") as file:
+                file.seek(start)
+                raw = file.read(read_size)
+        except OSError:
+            return [], 0, False
+
+        truncated = start > 0
+        content_start = start
+        if truncated:
+            boundary = raw.find(b"\n")
+            if boundary < 0:
+                return [], len(raw), True
+            content_start += boundary + 1
+            raw = raw[boundary + 1 :]
+
+        records: list[tuple[int, str]] = []
+        offset = content_start
+        for raw_line in raw.splitlines(keepends=True):
+            line_bytes = raw_line.rstrip(b"\r\n")
+            records.append((offset, line_bytes.decode("utf-8", errors="replace")))
+            offset += len(raw_line)
+        records.reverse()
+        return records, read_size, truncated
+
+    def _read_line_at_offset(
+        self,
+        path: Path,
+        offset: int,
+        max_bytes: int | None = None,
+    ) -> tuple[str, int, bool]:
+        """按字节偏移读取一条完整行，并验证偏移确实位于行首。"""
+        try:
+            size = path.stat().st_size
+            if offset < 0 or offset >= size:
+                raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
+            consumed = 0
+            with path.open("rb") as file:
+                if offset:
+                    if max_bytes is not None and max_bytes <= 0:
+                        return "", consumed, True
+                    file.seek(offset - 1)
+                    if file.read(1) != b"\n":
+                        raise DiagnosticsNotFoundError("日志事件字节偏移不是行首")
+                    consumed += 1
+                remaining = None if max_bytes is None else max(0, max_bytes - consumed)
+                if remaining == 0:
+                    return "", consumed, True
+                file.seek(offset)
+                raw = file.readline(-1 if remaining is None else remaining)
+            consumed += len(raw)
+            if not raw:
+                raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
+            if offset + len(raw) < size and not raw.endswith(b"\n"):
+                return "", consumed, True
+            return raw.rstrip(b"\r\n").decode("utf-8", errors="replace"), consumed, False
         except OSError as exc:
             raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
 
-    def _iter_file_events(
-        self, path: Path, rel_path: str, reverse: bool = False
-    ) -> Iterator[DiagnosticsEvent]:
+    def _read_line_at_number(
+        self,
+        path: Path,
+        line_no: int,
+        max_bytes: int | None = None,
+    ) -> tuple[int, str, int, bool]:
+        """流式读取旧版行号定位器，并返回对应字节偏移。"""
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            return
-        indexed: Iterable[tuple[int, str]] = enumerate(lines, start=1)
-        if reverse:
-            indexed = reversed(list(indexed))
-        for line_no, line in indexed:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            builder = (
-                self._build_dev_event if rel_path.startswith("dev/") else self._build_runtime_event
-            )
-            event = builder(stripped, rel_path, line_no)
-            if event is not None:
-                yield event
+            size = path.stat().st_size
+            consumed = 0
+            offset = 0
+            with path.open("rb") as file:
+                for current in range(1, line_no + 1):
+                    remaining = None if max_bytes is None else max(0, max_bytes - consumed)
+                    if remaining == 0:
+                        return offset, "", consumed, True
+                    raw = file.readline(-1 if remaining is None else remaining)
+                    if not raw:
+                        raise DiagnosticsNotFoundError("日志行已被轮转或截断")
+                    if offset + len(raw) < size and not raw.endswith(b"\n"):
+                        return offset, "", consumed + len(raw), True
+                    if current == line_no:
+                        return (
+                            offset,
+                            raw.rstrip(b"\r\n").decode("utf-8", errors="replace"),
+                            consumed + len(raw),
+                            False,
+                        )
+                    offset += len(raw)
+                    consumed += len(raw)
+        except OSError as exc:
+            raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
+
+        raise DiagnosticsNotFoundError("日志行已被轮转或截断")
+
+    def _line_number_at_offset(self, path: Path, offset: int) -> int:
+        """计算字节偏移对应的 1-based 行号；仅详情/上下文请求使用。"""
+        try:
+            size = path.stat().st_size
+            if offset < 0 or offset >= size:
+                raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
+            remaining = offset
+            newlines = 0
+            with path.open("rb") as file:
+                while remaining:
+                    chunk = file.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
+                    newlines += chunk.count(b"\n")
+                    remaining -= len(chunk)
+            return newlines + 1
+        except OSError as exc:
+            raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
+
+    def _resolve_locator(self, path: Path, locator: _EventLocator) -> tuple[int, str]:
+        """流式解析新字节偏移或旧行号定位器，不加载完整文件。"""
+        if locator.line is not None:
+            _, line, _, _ = self._read_line_at_number(path, locator.line)
+            return locator.line, line
+        assert locator.offset is not None
+        line, _, _ = self._read_line_at_offset(path, locator.offset)
+        return self._line_number_at_offset(path, locator.offset), line
+
+    def _read_context_window(
+        self,
+        path: Path,
+        locator: _EventLocator,
+        before: int,
+        after: int,
+    ) -> tuple[int, str, list[tuple[int, str]]]:
+        """单次流式扫描定位目标，并仅保留目标前后的有限行窗口。"""
+        previous: deque[tuple[int, str]] = deque(maxlen=before)
+        try:
+            offset = 0
+            with path.open("rb") as file:
+                line_no = 0
+                while raw := file.readline():
+                    line_no += 1
+                    current_offset = offset
+                    offset += len(raw)
+                    line = raw.rstrip(b"\r\n").decode("utf-8", errors="replace")
+                    is_target = (
+                        locator.line == line_no
+                        if locator.line is not None
+                        else locator.offset == current_offset
+                    )
+                    if not is_target:
+                        previous.append((line_no, line))
+                        continue
+
+                    context = [*previous, (line_no, line)]
+                    for _ in range(after):
+                        following = file.readline()
+                        if not following:
+                            break
+                        line_no += 1
+                        context.append(
+                            (
+                                line_no,
+                                following.rstrip(b"\r\n").decode("utf-8", errors="replace"),
+                            )
+                        )
+                    target_line_no = context[len(previous)][0]
+                    return target_line_no, line, context
+        except OSError as exc:
+            raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
+        raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
+
+    def _prepare_cursor(
+        self,
+        cursor: _CursorPos | None,
+        candidates: list[tuple[Path, str]],
+        max_bytes: int,
+    ) -> tuple[_CursorPos | None, bool, int, bool]:
+        """在预算内校验游标，并把有效旧行号位置规范化为字节偏移。"""
+        if cursor is None:
+            return None, False, 0, False
+        paths = {rel_path: path for path, rel_path in candidates}
+        path = paths.get(cursor.locator.file)
+        if path is None:
+            return cursor, False, 0, False
+        try:
+            if cursor.locator.offset is not None:
+                offset = cursor.locator.offset
+                line, consumed, limited = self._read_line_at_offset(
+                    path,
+                    offset,
+                    max_bytes,
+                )
+            else:
+                assert cursor.locator.line is not None
+                offset, line, consumed, limited = self._read_line_at_number(
+                    path,
+                    cursor.locator.line,
+                    max_bytes,
+                )
+        except DiagnosticsNotFoundError:
+            return cursor, False, 0, False
+        if limited:
+            return cursor, False, min(consumed, max_bytes), True
+        normalized = _CursorPos(
+            locator=_EventLocator(
+                file=cursor.locator.file,
+                offset=offset,
+                timestamp=cursor.timestamp,
+            ),
+            timestamp=cursor.timestamp,
+        )
+        event = self._build_event(line, cursor.locator.file, normalized.locator)
+        if event is None:
+            return cursor, False, consumed, False
+        if event.timestamp != cursor.timestamp:
+            return cursor, False, consumed, False
+        return normalized, True, consumed, False
+
+    def _build_event(
+        self,
+        line: str,
+        rel_path: str,
+        locator: _EventLocator,
+    ) -> DiagnosticsEvent | None:
+        stripped = line.strip()
+        if not stripped:
+            return None
+        builder = (
+            self._build_dev_event if rel_path.startswith("dev/") else self._build_runtime_event
+        )
+        return builder(stripped, rel_path, locator)
 
     def _build_runtime_event(
-        self, line: str, rel_path: str, line_no: int
+        self, line: str, rel_path: str, locator: _EventLocator
     ) -> DiagnosticsEvent | None:
         try:
             payload = json.loads(line)
@@ -468,7 +774,14 @@ class FileDiagnosticsLogStore:
         timestamp = str(payload.get("timestamp") or "")
         exception = payload.get("exception")
         return DiagnosticsEvent(
-            event_id=_encode_event_id(rel_path, line_no),
+            event_id=_encode_event_locator(
+                _EventLocator(
+                    file=rel_path,
+                    line=locator.line,
+                    offset=locator.offset,
+                    timestamp=timestamp or "1970-01-01T00:00:00+00:00",
+                )
+            ),
             timestamp=timestamp or "1970-01-01T00:00:00+00:00",
             level=str(payload.get("level") or "INFO").upper(),
             component="python",
@@ -480,7 +793,9 @@ class FileDiagnosticsLogStore:
             raw=payload,
         )
 
-    def _build_dev_event(self, line: str, rel_path: str, line_no: int) -> DiagnosticsEvent | None:
+    def _build_dev_event(
+        self, line: str, rel_path: str, locator: _EventLocator
+    ) -> DiagnosticsEvent | None:
         match = _DEV_LINE_PATTERN.match(line)
         if match is None:
             return None
@@ -494,7 +809,14 @@ class FileDiagnosticsLogStore:
             timestamp_str = "1970-01-01T00:00:00+00:00"
         run_id = rel_path.split("/")[1] if "/" in rel_path else None
         return DiagnosticsEvent(
-            event_id=_encode_event_id(rel_path, line_no),
+            event_id=_encode_event_locator(
+                _EventLocator(
+                    file=rel_path,
+                    line=locator.line,
+                    offset=locator.offset,
+                    timestamp=timestamp_str,
+                )
+            ),
             timestamp=timestamp_str,
             level="ERROR" if channel.lower() == "stderr" else "INFO",
             component=component,
@@ -506,10 +828,18 @@ class FileDiagnosticsLogStore:
             raw={"line": line},
         )
 
-    def _detail_from_line(self, line: str, rel_path: str, line_no: int) -> dict[str, Any]:
-        event = self._build_runtime_event(line, rel_path, line_no) or self._build_dev_event(
-            line, rel_path, line_no
-        )
+    def _detail_from_line(
+        self,
+        line: str,
+        rel_path: str,
+        line_no: int,
+        *,
+        locator: _EventLocator | None = None,
+    ) -> dict[str, Any]:
+        resolved_locator = locator or _EventLocator(file=rel_path, line=line_no)
+        event = self._build_runtime_event(
+            line, rel_path, resolved_locator
+        ) or self._build_dev_event(line, rel_path, resolved_locator)
         if event is None:
             raise DiagnosticsNotFoundError(f"日志行无法解析：{rel_path}#{line_no}")
         return {
@@ -546,30 +876,29 @@ class FileDiagnosticsLogStore:
 
 
 class _EventMatcher:
-    """过滤器 + 游标边界判定。
+    """事件过滤器；定位失效的游标按时间戳降级过滤。"""
 
-    ``match`` 返回 True 收集、False 跳过。扫描顺序为新→旧：遇到上一页最后一条
-    （游标位置）之前的数据全部跳过，命中后开始正常过滤；若游标位置因轮转丢失，
-    回退为"严格更旧于游标时间戳"过滤（方案 18.2：定位失效按降级扫描处理）。
-    """
-
-    def __init__(self, query: DiagnosticsQuery, cursor: _CursorPos | None) -> None:
+    def __init__(
+        self,
+        query: DiagnosticsQuery,
+        cursor: _CursorPos | None,
+        *,
+        cursor_exact: bool,
+    ) -> None:
         self.min_level = _LEVEL_ORDER.get(query.level.upper()) if query.level else None
         self.keyword = query.keyword.lower() if query.keyword else None
         self.request_id = query.request_id or None
         self.time_from = _to_iso(query.time_from) if query.time_from else None
         self.time_to = _to_iso(query.time_to) if query.time_to else None
         self.cursor = cursor
-        self.cursor_passed = cursor is None
-        self._decode_cache: dict[str, tuple[str, int]] = {}
+        self.cursor_exact = cursor_exact
 
     def match(self, event: DiagnosticsEvent) -> bool:
-        if self.cursor is not None and not self.cursor_passed:
-            rel_path, line_no = self._locate(event)
-            if rel_path == self.cursor.file and line_no == self.cursor.line:
-                self.cursor_passed = True
-            return False
-        if self.cursor is not None and event.timestamp >= self.cursor.timestamp:
+        if (
+            self.cursor is not None
+            and not self.cursor_exact
+            and event.timestamp >= self.cursor.timestamp
+        ):
             # 游标位置丢失（文件轮转）后的兜底：只保留严格更旧的事件。
             return False
         if self.time_from and event.timestamp < self.time_from:
@@ -587,13 +916,6 @@ class _EventMatcher:
             if self.keyword not in haystack:
                 return False
         return True
-
-    def _locate(self, event: DiagnosticsEvent) -> tuple[str, int]:
-        cached = self._decode_cache.get(event.event_id)
-        if cached is None:
-            cached = _decode_event_id(event.event_id)
-            self._decode_cache[event.event_id] = cached
-        return cached
 
 
 def _optional_str(value: Any) -> str | None:

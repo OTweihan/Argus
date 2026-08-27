@@ -1,5 +1,12 @@
 <template>
   <div class="logs-panel">
+    <div class="panel-heading">
+      <div>
+        <h3>运行日志</h3>
+        <p>按组件、级别和链路标识快速定位异常上下文。</p>
+      </div>
+      <span class="result-count">{{ items.length }} 条结果</span>
+    </div>
     <el-form inline class="filter-bar" @submit.prevent>
       <el-form-item label="组件">
         <el-select v-model="filters.component" style="width: 130px" @change="resetAndSearch">
@@ -60,7 +67,12 @@
       class="scan-alert"
     />
 
-    <el-table v-loading="loading && items.length === 0" :data="items" size="small" class="logs-table">
+    <el-table
+      v-loading="loading && items.length === 0"
+      :data="items"
+      size="small"
+      class="logs-table"
+    >
       <el-table-column label="时间" width="180">
         <template #default="{ row }">{{ formatTimestamp(row.timestamp) }}</template>
       </el-table-column>
@@ -93,7 +105,11 @@
     <el-drawer v-model="drawerVisible" title="日志详情" size="620px" destroy-on-close>
       <div v-if="detail" class="detail-body">
         <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="时间">{{ formatTimestamp(detail.timestamp) }}</el-descriptions-item>
+          <el-descriptions-item label="时间">
+{{
+            formatTimestamp(detail.timestamp)
+          }}
+</el-descriptions-item>
           <el-descriptions-item label="级别">
             <el-tag :type="levelTagType(detail.level)" size="small">{{ detail.level }}</el-tag>
           </el-descriptions-item>
@@ -121,8 +137,16 @@
 
         <div class="detail-actions">
           <el-button size="small" @click="copyDetail">复制日志</el-button>
-          <el-button v-if="detail.exception" size="small" @click="copyException">复制堆栈</el-button>
-          <el-button v-if="detail.requestId" size="small" @click="filterByRequest">查看同一请求</el-button>
+          <el-button v-if="detail.exception" size="small" @click="copyException"
+            >
+复制堆栈
+</el-button
+          >
+          <el-button v-if="detail.requestId" size="small" @click="filterByRequest"
+            >
+查看同一请求
+</el-button
+          >
           <el-button size="small" :loading="contextLoading" @click="loadContext">
             {{ contextItems.length ? "刷新上下文" : "查看前后日志" }}
           </el-button>
@@ -149,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getDiagnosticsLogContext,
@@ -159,13 +183,7 @@ import {
   type DiagnosticsLogEntry,
 } from "../../api/diagnostics";
 import { errorMessage } from "../../utils";
-import {
-  COMPONENT_OPTIONS,
-  LEVEL_OPTIONS,
-  copyText,
-  formatTimestamp,
-  levelTagType,
-} from "./utils";
+import { COMPONENT_OPTIONS, LEVEL_OPTIONS, copyText, formatTimestamp, levelTagType } from "./utils";
 
 const PAGE_SIZE = 100;
 
@@ -176,15 +194,14 @@ const cursor = ref<string | null>(null);
 const hasMore = ref(false);
 const scanLimited = ref(false);
 const loading = ref(false);
+let searchVersion = 0;
 
 const drawerVisible = ref(false);
 const detail = ref<DiagnosticsLogDetail | null>(null);
 const contextLoading = ref(false);
 const contextItems = ref<DiagnosticsLogEntry[]>([]);
 
-const rawJson = computed(() =>
-  detail.value ? JSON.stringify(detail.value.raw, null, 2) : "",
-);
+const rawJson = computed(() => (detail.value ? JSON.stringify(detail.value.raw, null, 2) : ""));
 
 function timeFromIso(): string | undefined {
   if (timeRange.value === "all") return undefined;
@@ -208,6 +225,8 @@ function activeFilters(): Record<string, string> {
 }
 
 async function search(reset: boolean): Promise<void> {
+  if (loading.value && !reset) return;
+  const requestVersion = ++searchVersion;
   loading.value = true;
   try {
     const page = await searchDiagnosticsLogs({
@@ -215,15 +234,16 @@ async function search(reset: boolean): Promise<void> {
       limit: PAGE_SIZE,
       cursor: reset ? undefined : (cursor.value ?? undefined),
     });
+    if (requestVersion !== searchVersion) return;
     const pageItems = page.items ?? [];
     items.value = reset ? pageItems : [...items.value, ...pageItems];
     cursor.value = page.nextCursor ?? null;
     hasMore.value = page.hasMore;
     scanLimited.value = page.scanLimited;
   } catch (caught) {
-    ElMessage.error(errorMessage(caught));
+    if (requestVersion === searchVersion) ElMessage.error(errorMessage(caught));
   } finally {
-    loading.value = false;
+    if (requestVersion === searchVersion) loading.value = false;
   }
 }
 
@@ -271,9 +291,7 @@ function filterByRequest(): void {
 async function copyDetail(): Promise<void> {
   if (!detail.value) return;
   if (
-    await copyText(
-      JSON.stringify({ ...detail.value.raw, source: detail.value.source }, null, 2),
-    )
+    await copyText(JSON.stringify({ ...detail.value.raw, source: detail.value.source }, null, 2))
   ) {
     ElMessage.success("已复制日志");
   }
@@ -283,6 +301,8 @@ async function copyException(): Promise<void> {
   if (!detail.value?.exception) return;
   if (await copyText(detail.value.exception)) ElMessage.success("已复制异常堆栈");
 }
+
+onMounted(resetAndSearch);
 </script>
 
 <style scoped>
@@ -292,8 +312,42 @@ async function copyException(): Promise<void> {
   gap: 12px;
 }
 
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panel-heading h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 16px;
+}
+
+.panel-heading p {
+  margin: 5px 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.result-count {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--brand-100);
+  border-radius: var(--radius-pill);
+  color: var(--brand-700);
+  background: var(--brand-50);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .filter-bar {
   margin-bottom: 0;
+  padding: 14px 14px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 250, 252, 0.72);
 }
 
 .scan-alert {
@@ -310,6 +364,10 @@ async function copyException(): Promise<void> {
   display: flex;
   justify-content: center;
   padding: 4px 0;
+}
+
+.logs-table {
+  border: 1px solid var(--line-soft);
 }
 
 .detail-body {

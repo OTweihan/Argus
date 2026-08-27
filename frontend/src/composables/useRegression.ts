@@ -72,51 +72,73 @@ export function useRegression(opts: { error: Ref<string>; message: Ref<string> }
   const showDetail = ref(false);
   const detailLoading = ref(false);
   let detailTimer: number | null = null;
+  let detailAbort: AbortController | null = null;
 
-  const selectedProjectHasCases = computed(() => cases.value.length > 0);
+  // 只有启用用例才会进入批次；全部停用时不应让用户发起一个空批次。
+  const selectedProjectHasCases = computed(() => cases.value.some((item) => item.enabled));
+  let casesRequestVersion = 0;
+  let runsRequestVersion = 0;
+  let baselineRequestVersion = 0;
+  let detailRequestVersion = 0;
 
   /* ── 数据加载 ── */
 
   async function loadCases(): Promise<void> {
-    if (!selectedProjectId.value) return;
+    const projectId = selectedProjectId.value;
+    if (!projectId) return;
+    const requestVersion = ++casesRequestVersion;
     casesLoading.value = true;
     try {
-      const res = await listRegressionCases(selectedProjectId.value);
-      cases.value = res.cases ?? [];
+      const res = await listRegressionCases(projectId);
+      if (requestVersion === casesRequestVersion && selectedProjectId.value === projectId) {
+        cases.value = res.cases ?? [];
+      }
     } catch (caught) {
-      error.value = errorMessage(caught);
+      if (requestVersion === casesRequestVersion) error.value = errorMessage(caught);
     } finally {
-      casesLoading.value = false;
+      if (requestVersion === casesRequestVersion) casesLoading.value = false;
     }
   }
 
   async function loadRuns(): Promise<void> {
-    if (!selectedProjectId.value) return;
+    const projectId = selectedProjectId.value;
+    if (!projectId) return;
+    const requestVersion = ++runsRequestVersion;
     runsLoading.value = true;
     try {
-      const res = await listRegressionRuns(selectedProjectId.value, { offset: 0, limit: 50 });
-      runs.value = res.runs ?? [];
-      runsTotal.value = res.total ?? 0;
+      const res = await listRegressionRuns(projectId, { offset: 0, limit: 50 });
+      if (requestVersion === runsRequestVersion && selectedProjectId.value === projectId) {
+        runs.value = res.runs ?? [];
+        runsTotal.value = res.total ?? 0;
+      }
     } catch (caught) {
-      error.value = errorMessage(caught);
+      if (requestVersion === runsRequestVersion) error.value = errorMessage(caught);
     } finally {
-      runsLoading.value = false;
+      if (requestVersion === runsRequestVersion) runsLoading.value = false;
     }
   }
 
   async function loadBaseline(): Promise<void> {
-    if (!selectedProjectId.value) return;
+    const projectId = selectedProjectId.value;
+    if (!projectId) return;
+    const requestVersion = ++baselineRequestVersion;
     try {
-      const res = await getRegressionBaseline(selectedProjectId.value);
-      baselineRunId.value = res.baselineRunId ?? null;
+      const res = await getRegressionBaseline(projectId);
+      if (requestVersion === baselineRequestVersion && selectedProjectId.value === projectId) {
+        baselineRunId.value = res.baselineRunId ?? null;
+      }
     } catch (caught) {
-      error.value = errorMessage(caught);
+      if (requestVersion === baselineRequestVersion) error.value = errorMessage(caught);
     }
   }
 
   function selectProject(projectId: string): void {
     if (selectedProjectId.value === projectId) return;
     selectedProjectId.value = projectId;
+    cases.value = [];
+    runs.value = [];
+    runsTotal.value = 0;
+    baselineRunId.value = null;
     closeDetail();
   }
 
@@ -282,30 +304,47 @@ export function useRegression(opts: { error: Ref<string>; message: Ref<string> }
 
   function stopDetailPolling(): void {
     if (detailTimer !== null) {
-      window.clearInterval(detailTimer);
+      window.clearTimeout(detailTimer);
       detailTimer = null;
     }
+  }
+
+  function abortDetailRequest(): void {
+    detailAbort?.abort();
+    detailAbort = null;
   }
 
   async function refreshDetail(): Promise<void> {
     const runId = detail.value?.run?.runId;
     if (!runId) return;
+    stopDetailPolling();
+    abortDetailRequest();
+    const requestVersion = ++detailRequestVersion;
+    const controller = new AbortController();
+    detailAbort = controller;
     detailLoading.value = true;
     try {
-      detail.value = await getRegressionRun(runId);
+      const next = await getRegressionRun(runId, { signal: controller.signal });
+      if (requestVersion === detailRequestVersion && showDetail.value) detail.value = next;
     } catch (caught) {
-      error.value = errorMessage(caught);
+      if (requestVersion === detailRequestVersion && !controller.signal.aborted) {
+        error.value = errorMessage(caught);
+      }
     } finally {
-      detailLoading.value = false;
+      if (requestVersion === detailRequestVersion) {
+        if (detailAbort === controller) detailAbort = null;
+        detailLoading.value = false;
+      }
     }
-    scheduleDetailPolling();
+    if (requestVersion === detailRequestVersion) scheduleDetailPolling();
   }
 
   function scheduleDetailPolling(): void {
     stopDetailPolling();
     const status = detail.value?.run?.status;
     if (!status || TERMINAL_RUN_STATUSES.has(status)) return;
-    detailTimer = window.setInterval(() => {
+    detailTimer = window.setTimeout(() => {
+      detailTimer = null;
       void pollOnce();
     }, DETAIL_POLL_INTERVAL_MS);
   }
@@ -313,8 +352,13 @@ export function useRegression(opts: { error: Ref<string>; message: Ref<string> }
   async function pollOnce(): Promise<void> {
     const runId = detail.value?.run?.runId;
     if (!runId) return;
+    abortDetailRequest();
+    const requestVersion = ++detailRequestVersion;
+    const controller = new AbortController();
+    detailAbort = controller;
     try {
-      const next = await getRegressionRun(runId);
+      const next = await getRegressionRun(runId, { signal: controller.signal });
+      if (requestVersion !== detailRequestVersion || !showDetail.value) return;
       const before = detail.value?.run?.status;
       detail.value = next;
       if (before !== next.run.status && TERMINAL_RUN_STATUSES.has(next.run.status)) {
@@ -323,30 +367,48 @@ export function useRegression(opts: { error: Ref<string>; message: Ref<string> }
         await loadRuns();
         await loadBaseline();
       }
-      scheduleDetailPolling();
     } catch {
       // 轮询失败静默重试；终态以查询接口为准
+    } finally {
+      if (requestVersion === detailRequestVersion) {
+        if (detailAbort === controller) detailAbort = null;
+        scheduleDetailPolling();
+      }
     }
   }
 
   async function openRunDetail(runId: string): Promise<void> {
+    stopDetailPolling();
+    abortDetailRequest();
+    const requestVersion = ++detailRequestVersion;
+    const controller = new AbortController();
+    detailAbort = controller;
     showDetail.value = true;
     detail.value = null;
     detailLoading.value = true;
     try {
-      detail.value = await getRegressionRun(runId);
+      const next = await getRegressionRun(runId, { signal: controller.signal });
+      if (requestVersion === detailRequestVersion && showDetail.value) detail.value = next;
     } catch (caught) {
-      error.value = errorMessage(caught);
+      if (requestVersion === detailRequestVersion && !controller.signal.aborted) {
+        error.value = errorMessage(caught);
+      }
     } finally {
-      detailLoading.value = false;
+      if (requestVersion === detailRequestVersion) {
+        if (detailAbort === controller) detailAbort = null;
+        detailLoading.value = false;
+      }
     }
-    scheduleDetailPolling();
+    if (requestVersion === detailRequestVersion) scheduleDetailPolling();
   }
 
   function closeDetail(): void {
+    detailRequestVersion += 1;
     stopDetailPolling();
+    abortDetailRequest();
     showDetail.value = false;
     detail.value = null;
+    detailLoading.value = false;
   }
 
   /* ── 基线 ── */
@@ -362,7 +424,11 @@ export function useRegression(opts: { error: Ref<string>; message: Ref<string> }
     }
   }
 
-  onUnmounted(stopDetailPolling);
+  onUnmounted(() => {
+    detailRequestVersion += 1;
+    stopDetailPolling();
+    abortDetailRequest();
+  });
 
   return {
     selectedProjectId,

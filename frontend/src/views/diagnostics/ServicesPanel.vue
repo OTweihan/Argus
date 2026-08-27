@@ -1,11 +1,17 @@
 <template>
   <div class="services-panel">
     <div class="panel-toolbar">
-      <el-button size="large" type="primary" plain :loading="loading" @click="loadServices">
-        刷新状态
-      </el-button>
-      <span class="hint">每 {{ REFRESH_SECONDS }} 秒自动刷新</span>
-      <span v-if="checkedAt" class="hint">最近检查：{{ formatTimestamp(checkedAt) }}</span>
+      <div>
+        <h3>服务健康状态</h3>
+        <p>自动探测控制台依赖与本地日志存储。</p>
+      </div>
+      <div class="toolbar-actions">
+        <span v-if="checkedAt" class="hint">最近检查：{{ formatTimestamp(checkedAt) }}</span>
+        <span class="auto-refresh"><i></i> 每 {{ REFRESH_SECONDS }} 秒刷新</span>
+        <el-button type="primary" plain :loading="loading" @click="loadServices">
+          刷新状态
+        </el-button>
+      </div>
     </div>
 
     <el-table v-loading="loading" :data="services" size="default" class="services-table">
@@ -16,7 +22,11 @@
       </el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
-          <el-tag :type="statusTagType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
+          <el-tag :type="statusTagType(row.status)" size="small">
+{{
+            statusText(row.status)
+          }}
+</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="版本" prop="version" width="100">
@@ -27,7 +37,9 @@
       </el-table-column>
       <el-table-column label="地址" width="180">
         <template #default="{ row }">
-          <span v-if="row.host || row.port">{{ row.host ?? "-" }}{{ row.port ? `:${row.port}` : "" }}</span>
+          <span v-if="row.host || row.port"
+            >{{ row.host ?? "-" }}{{ row.port ? `:${row.port}` : "" }}</span
+          >
           <span v-else>-</span>
         </template>
       </el-table-column>
@@ -36,7 +48,9 @@
       </el-table-column>
       <el-table-column label="响应耗时" width="110">
         <template #default="{ row }">
-          <span v-if="row.latencyMs !== null && row.latencyMs !== undefined">{{ row.latencyMs }} ms</span>
+          <span v-if="row.latencyMs !== null && row.latencyMs !== undefined"
+            >{{ row.latencyMs }} ms</span
+          >
           <span v-else>-</span>
         </template>
       </el-table-column>
@@ -47,7 +61,11 @@
 
     <el-descriptions v-if="logsUsage" title="日志目录占用" :column="3" border class="usage-card">
       <el-descriptions-item label="目录">{{ logsUsage.path }}</el-descriptions-item>
-      <el-descriptions-item label="占用空间">{{ formatBytes(logsUsage.totalBytes) }}</el-descriptions-item>
+      <el-descriptions-item label="占用空间">
+{{
+        formatBytes(logsUsage.totalBytes)
+      }}
+</el-descriptions-item>
       <el-descriptions-item label="文件数">{{ logsUsage.fileCount }}</el-descriptions-item>
     </el-descriptions>
   </div>
@@ -101,6 +119,7 @@ function statusTagType(status: string): "success" | "danger" | "info" | "warning
 }
 
 async function loadServices(): Promise<void> {
+  if (loading.value) return;
   loading.value = true;
   try {
     const body = await getDiagnosticsServices();
@@ -134,11 +153,61 @@ onUnmounted(() => {
 .panel-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panel-toolbar h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 16px;
+}
+
+.panel-toolbar p {
+  margin: 5px 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
   gap: 12px;
 }
 
 .hint {
   color: var(--text-faint, #6b7280);
   font-size: 12px;
+}
+
+.auto-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.auto-refresh i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.services-table,
+.usage-card {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+@media (max-width: 760px) {
+  .panel-toolbar,
+  .toolbar-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }
 </style>
