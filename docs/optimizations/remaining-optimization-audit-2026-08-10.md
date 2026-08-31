@@ -3,7 +3,7 @@
 ## 1. 审查结论
 
 本次审查以 `docs/architecture.md` 为架构基线，并对照
-`docs/optimizations/follow-up-optimizations.md` 排除了已经完成的事项。当前代码已经具备较好的
+本审查排除了此前已经完成的事项。当前代码已经具备较好的
 分层、SQLite 批量查询、Java 有界线程池、EventBus 背压、OpenAPI 门禁和跨服务契约测试基础。
 下一阶段不宜继续以“拆大文件”或“引入更多框架”为主要目标，更高收益的方向是：
 

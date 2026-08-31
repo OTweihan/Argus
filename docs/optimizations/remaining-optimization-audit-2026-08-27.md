@@ -30,8 +30,31 @@
 - 前端：ESLint、`vue-tsc --noEmit` 通过；`useRegression` 专项 Vitest 通过。
 - 未执行 Maven / Gradle 编译或测试，本批次不涉及 Java 代码。
 
-## 延后项
+## 2026-08-31 补充完成
 
-- `TaskLifecycleService` 当前同步执行回归终态汇总回调，存在阻塞 worker 事件循环的风险。
-  该项需要先增加耗时观测并确认真实影响，再设计线程调度和关闭阶段排空协议，避免在本批次
-  扩大生命周期改动。
+1. **回归终态汇总移出事件循环**
+   - `TaskRunner` 的任务启动、状态读取和终态写入统一经现有 IO executor 执行并等待完成；
+     回归批次推进随终态落盘在同一 IO 工作内完成，不新增脱离 Worker 生命周期的后台任务。
+   - `RegressionService.handle_task_terminal` 增加结构化操作耗时日志，保留异常隔离和启动恢复
+     兜底语义。
+   - 复核修正：EventBus 在 Web/API 生命周期绑定 owner loop，IO 线程发布通过
+     `call_soon_threadsafe` 回投，任务与回归终态事件继续实时通知 WebSocket；CLI 未绑定时仍
+     降级写入 history。终态推进的操作日志在内部异常转换前记录，失败不会误报 success。
+   - 回归批次创建、队列满回收和用户取消中的同步 SQLite/lifecycle 操作统一经 IO executor
+     执行，避免大批次逐项处理阻塞事件循环。
+
+2. **受保护 Blob 请求补齐超时与取消**
+   - Blob 下载复用 API 请求的超时控制并接受 `AbortSignal`；超时与调用方取消分别返回稳定的
+     `REQUEST_TIMEOUT`、`REQUEST_ABORTED` 错误码。
+   - 鉴权图片在路径切换或卸载时释放等待；同路径并发消费者仍共享一次下载，只有最后一个
+     等待者离开才取消底层请求。
+
+3. **架构与审计文档同步**
+   - 架构文档标记组合根收敛已完成，并清理已删除历史清单的失效引用。
+
+## 2026-08-31 验证
+
+- Python：Ruff、格式检查、Mypy 通过；全量 unit/integration 测试
+  `1520 passed, 6 skipped, 2 deselected`。
+- 前端：ESLint、`vue-tsc --noEmit` 通过；全量 Vitest `252 passed`。
+- 未执行 Maven / Gradle 编译或测试，本次不涉及 Java 代码。

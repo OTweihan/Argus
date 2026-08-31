@@ -2,7 +2,7 @@
 
 > 本文档记录 2026-08-25 一轮三端（Python / Java / 前端）审计的发现与完成状态。
 > 历史批次见 [`remaining-optimization-audit-2026-08-18.md`](remaining-optimization-audit-2026-08-18.md)、
-> [`follow-up-optimizations.md`](follow-up-optimizations.md)。
+> [`remaining-optimization-audit-2026-08-10.md`](remaining-optimization-audit-2026-08-10.md)。
 >
 > 本轮共 12 项修复，按「高优先级正确性 → 中优先级性能/一致性」分四批实施，
 > 每批独立验证：Python ruff/mypy/pytest 全量、Java `mvn test`、前端

@@ -119,8 +119,8 @@ Python 包按职责理解，不要求为追求形式立即重排目录：
 - 新任务类型通过 `TaskType`、独立 handler/runner 和 `TaskRunner` 注册扩展，不在 Runner
   主流程中堆叠任务类型分支。
 
-演进目标：`TaskRunner` 的默认 handler 及其存储依赖应由组合根装配，Runner 自身不再创建
-`TaskSQLiteStorage` 等具体基础设施。
+当前状态：`TaskRunner` 的 handler、生命周期服务和报告生成器均由组合根装配，Runner 不再
+创建 `TaskSQLiteStorage` 等具体基础设施；后续扩展必须保持这一边界。
 
 ### 4.3 前端分层
 
@@ -403,7 +403,8 @@ ADR 至少包含：背景、决策、备选方案、取舍、兼容/迁移、回
 后续架构优化按以下顺序推进：
 
 1. **守住现有契约和单副本正确性**：不以扩展性名义提前削弱状态、鉴权和事件约束。
-2. **收敛组合根**：把 Runner 内部创建具体存储/客户端的逻辑迁回 RuntimeContainer。
+2. **保持组合根收敛**（已完成首轮）：Runner 不创建具体存储/客户端，新增依赖继续由
+   RuntimeContainer 装配。
 3. **隔离 Java 核心**（O-11 已完成首轮）：HTTP adapter 映射 `AnalysisCommand`、五个算法
    已实现 `AnalysisPass`、`PlanValidator` 启动校验能力图、包依赖架构测试已落地；
    后续新分析类别统一走 `AnalysisPass` SPI。
@@ -416,4 +417,4 @@ ADR 至少包含：背景、决策、备选方案、取舍、兼容/迁移、回
 
 - 日志、审计、上下文字段和脱敏：[`logging.md`](logging.md)
 - 私网部署、单副本、安全与迁移：[`deployment.zh.md`](deployment.zh.md)
-- 已识别的历史优化项：[`optimizations/follow-up-optimizations.md`](optimizations/follow-up-optimizations.md)
+- 最近一轮优化审计：[`optimizations/remaining-optimization-audit-2026-08-27.md`](optimizations/remaining-optimization-audit-2026-08-27.md)

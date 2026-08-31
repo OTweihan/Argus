@@ -5,7 +5,7 @@
 > 批次 1–5 中遗漏的次要项全部在此列出，按「三端 × 优先级」组织。
 >
 > 对照文档：
-> - 历史已完成：[`follow-up-optimizations.md`](follow-up-optimizations.md)
+> - 历史已完成：[`remaining-optimization-audit-2026-08-10.md`](remaining-optimization-audit-2026-08-10.md)
 > - 上一轮审计：[`remaining-optimization-audit-2026-08-10.md`](remaining-optimization-audit-2026-08-10.md)
 
 ---
