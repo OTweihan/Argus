@@ -126,11 +126,11 @@ defineProps<{
   display: flex;
   align-items: center;
   gap: 14px;
-  border: 1px solid #e4e7ec;
+  border: 1px solid var(--line-soft, #e4e7ec);
   border-radius: var(--radius-md, 14px);
   background: var(--surface-glass-strong, rgba(255, 255, 255, 0.88));
   padding: 16px 18px;
-  box-shadow: var(--shadow-xs, 0 4px 14px rgba(15, 23, 42, 0.04));
+  box-shadow: var(--shadow-panel, 0 4px 14px rgba(15, 23, 42, 0.04));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   transition:
@@ -212,7 +212,7 @@ defineProps<{
 
 .metric-label {
   font-size: 12px;
-  color: #667085;
+  color: var(--text-faint, #667085);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -220,7 +220,7 @@ defineProps<{
 .metric-value {
   font-size: 23px;
   font-weight: 720;
-  color: #172033;
+  color: var(--text-strong, #172033);
   letter-spacing: -0.04em;
   line-height: 1.2;
   overflow: hidden;

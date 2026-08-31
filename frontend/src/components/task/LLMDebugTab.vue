@@ -51,7 +51,9 @@ async function downloadDebugBundle(): Promise<void> {
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  background: rgba(255, 255, 255, 0.45);
+  background:
+    radial-gradient(circle at 100% 0, rgba(10, 186, 181, 0.06), transparent 34%),
+    rgba(248, 250, 252, 0.54);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
@@ -61,6 +63,7 @@ async function downloadDebugBundle(): Promise<void> {
   display: flex;
   min-height: 0;
   overflow: hidden;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
 .dbg-empty-detail {

@@ -3,7 +3,11 @@
     <el-card class="projects-card">
       <template #header>
         <div class="card-header">
-          <span class="card-title">项目列表</span>
+          <div class="card-heading">
+            <span class="card-title">项目列表</span>
+            <span class="card-subtitle">管理测试目标、环境入口与认证信息</span>
+          </div>
+          <span class="header-count">{{ filteredProjects.length }} 个项目</span>
           <el-button size="large" type="primary" @click="openNewProjectDialog">
             新增项目
           </el-button>
@@ -130,22 +134,11 @@ const filteredProjects = computed(() => {
   padding: 0 22px 22px;
 }
 
-.card-title {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .filter-bar {
   flex-shrink: 0;
-  padding: 18px 0 14px;
+  padding: 16px 0 14px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 6px;
 }
 
 .search-input {
@@ -162,7 +155,7 @@ const filteredProjects = computed(() => {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border-top: 1px solid var(--line-soft);
-  padding-top: 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
 }
 </style>

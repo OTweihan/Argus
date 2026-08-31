@@ -8,19 +8,11 @@
       <el-empty :description="variant === 'whitebox-log' ? '暂无分析日志' : '暂无时间线事件'" />
     </div>
     <div v-else-if="variant === 'whitebox-log'" class="whitebox-log-host">
-      <WhiteboxBuildLog
-        :events="renderedEvents"
-        :total="events.length"
-        @load-more="expandWindow"
-      />
+      <WhiteboxBuildLog :events="renderedEvents" :total="events.length" @load-more="expandWindow" />
     </div>
     <div v-else class="tl-scroll">
       <div class="tl-list">
-        <button
-          v-if="hasMoreEvents"
-          class="load-more"
-          @click="expandWindow"
-        >
+        <button v-if="hasMoreEvents" class="load-more" @click="expandWindow">
           ↑ 加载更早事件（{{ events.length - renderedEvents.length }} 条未显示）
         </button>
         <div v-for="event in renderedEvents" :key="event.eventId" class="tl-item">
@@ -121,8 +113,7 @@ const MAX_EVENTS = 2000;
 let eventIdIndex = new Set<string>();
 
 function replaceEvents(next: TimelineEvent[]): void {
-  const bounded =
-    next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next;
+  const bounded = next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next;
   eventIdIndex = new Set(bounded.map((e) => e.eventId));
   events.value = bounded;
 }
@@ -275,7 +266,9 @@ onUnmounted(() => {
 /* ===== Timeline List ===== */
 .tl-list {
   position: relative;
-  padding: 12px 0 12px 24px;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 18px 12px 18px 30px;
 }
 
 /* ===== Item ===== */
@@ -324,7 +317,7 @@ onUnmounted(() => {
 
 /* ===== Card ===== */
 .tl-card {
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--surface-glass-strong, rgba(255, 255, 255, 0.88));
   border: 1px solid var(--line-soft, #e4e7ed);
   border-left: 3px solid var(--text-faint, #909399);
   border-radius: var(--radius-md, 14px);
@@ -334,7 +327,7 @@ onUnmounted(() => {
   transition:
     box-shadow var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1)),
     transform var(--transition-base, 0.22s cubic-bezier(0.4, 0, 0.2, 1));
-  box-shadow: var(--shadow-sm, 0 4px 12px rgba(15, 23, 42, 0.05));
+  box-shadow: var(--shadow-panel, 0 4px 12px rgba(15, 23, 42, 0.05));
 }
 
 .tl-card:hover {

@@ -23,10 +23,8 @@
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
           <el-tag :type="statusTagType(row.status)" size="small">
-{{
-            statusText(row.status)
-          }}
-</el-tag>
+            {{ statusText(row.status) }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="版本" prop="version" width="100">
@@ -62,10 +60,8 @@
     <el-descriptions v-if="logsUsage" title="日志目录占用" :column="3" border class="usage-card">
       <el-descriptions-item label="目录">{{ logsUsage.path }}</el-descriptions-item>
       <el-descriptions-item label="占用空间">
-{{
-        formatBytes(logsUsage.totalBytes)
-      }}
-</el-descriptions-item>
+        {{ formatBytes(logsUsage.totalBytes) }}
+      </el-descriptions-item>
       <el-descriptions-item label="文件数">{{ logsUsage.fileCount }}</el-descriptions-item>
     </el-descriptions>
   </div>
@@ -201,6 +197,7 @@ onUnmounted(() => {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  box-shadow: var(--shadow-xs);
 }
 
 @media (max-width: 760px) {

@@ -1,5 +1,15 @@
 <template>
   <div class="dashboard-container">
+    <section class="dashboard-intro">
+      <div>
+        <p class="intro-kicker">WORKSPACE OVERVIEW</p>
+        <h2>质量工作台</h2>
+        <p>集中查看项目规模、任务进度与最近执行结果。</p>
+      </div>
+      <div class="intro-orbit" aria-hidden="true">
+        <span />
+      </div>
+    </section>
     <el-row :gutter="20">
       <!-- 项目卡片 -->
       <el-col :xs="24" :sm="12" :lg="6" class="mb-4">
@@ -145,6 +155,85 @@ async function showTaskReport(taskId: string): Promise<void> {
   overflow: hidden;
 }
 
+.dashboard-intro {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 104px;
+  margin-bottom: 16px;
+  padding: 20px 24px;
+  overflow: hidden;
+  border: 1px solid rgba(10, 186, 181, 0.18);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at 88% 32%, rgba(10, 186, 181, 0.16), transparent 32%),
+    var(--surface-glass-strong);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(var(--blur-soft));
+}
+
+.intro-kicker {
+  margin: 0 0 5px;
+  color: var(--brand-700);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.dashboard-intro h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 23px;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-intro p:last-child {
+  margin: 6px 0 0;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.intro-orbit {
+  position: relative;
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid rgba(10, 186, 181, 0.2);
+  border-radius: 18px;
+  background: var(--brand-gradient-soft);
+  box-shadow: var(--shadow-xs);
+}
+
+.intro-orbit::before,
+.intro-orbit::after {
+  content: "";
+  position: absolute;
+  border: 1px solid rgba(8, 123, 120, 0.34);
+  border-radius: 50%;
+}
+
+.intro-orbit::before {
+  width: 34px;
+  height: 16px;
+  transform: rotate(28deg);
+}
+
+.intro-orbit::after {
+  width: 16px;
+  height: 34px;
+  transform: rotate(28deg);
+}
+
+.intro-orbit span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-700);
+  box-shadow: 0 0 0 5px rgba(10, 186, 181, 0.14);
+}
+
 .mb-4 {
   margin-bottom: 16px;
   flex-shrink: 0;
@@ -157,7 +246,7 @@ async function showTaskReport(taskId: string): Promise<void> {
   border-radius: var(--radius-md);
   border: 1px solid var(--line-soft);
   background: var(--surface-glass-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
   -webkit-backdrop-filter: blur(var(--blur-soft));
   flex: 1;

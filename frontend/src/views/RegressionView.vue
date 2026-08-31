@@ -123,10 +123,8 @@
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
                 <el-tag size="small" :type="runTagType(row.status)">
-{{
-                  runLabel(row.status)
-                }}
-</el-tag>
+                  {{ runLabel(row.status) }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column label="门禁" width="96">
@@ -266,7 +264,7 @@ function runLabel(status: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 112px;
+  min-height: 104px;
   margin-bottom: 14px;
   padding: 22px 26px;
   border: 1px solid rgba(10, 186, 181, 0.18);
@@ -274,7 +272,7 @@ function runLabel(status: string): string {
   background:
     radial-gradient(circle at 88% 30%, rgba(10, 186, 181, 0.16), transparent 34%),
     var(--surface-glass-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
 }
 
@@ -289,7 +287,8 @@ function runLabel(status: string): string {
 .page-intro h2 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 24px;
+  font-size: 23px;
+  letter-spacing: -0.02em;
   line-height: 1.25;
 }
 
@@ -326,7 +325,7 @@ function runLabel(status: string): string {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
   background: var(--surface-glass-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
 }
 
@@ -363,7 +362,8 @@ function runLabel(status: string): string {
   padding: 8px 11px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
-  background: rgba(248, 250, 252, 0.72);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 250, 252, 0.66));
+  box-shadow: var(--shadow-xs);
 }
 
 .stat-item span {
@@ -381,7 +381,7 @@ function runLabel(status: string): string {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
   background: var(--surface-glass-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
 }
 

@@ -32,7 +32,7 @@ defineProps<{
   border-radius: var(--radius-md);
   border: 1px solid var(--line-soft);
   background: var(--surface-glass-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
   -webkit-backdrop-filter: blur(var(--blur-soft));
   transition:
@@ -47,7 +47,7 @@ defineProps<{
 }
 
 .metric-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
   box-shadow: var(--shadow-md);
 }
 
@@ -55,6 +55,19 @@ defineProps<{
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.metric-card::after {
+  content: "";
+  position: absolute;
+  top: -38px;
+  right: -32px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--brand-gradient-soft);
+  opacity: 0.56;
+  pointer-events: none;
 }
 
 .metric-icon {
@@ -100,7 +113,7 @@ defineProps<{
   min-width: 0;
 }
 .metric-value {
-  font-size: 30px;
+  font-size: 31px;
   font-weight: 720;
   color: var(--text-strong);
   line-height: 1.15;

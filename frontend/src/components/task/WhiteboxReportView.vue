@@ -151,7 +151,14 @@ const analysisId = ref<string | null>(null);
 const loading = ref(false);
 const error = ref("");
 const subTab = ref("overview");
-const SCROLLABLE_TABS = new Set(["endpoints", "callgraph", "flows", "clusters", "findings", "correlation"]);
+const SCROLLABLE_TABS = new Set([
+  "endpoints",
+  "callgraph",
+  "flows",
+  "clusters",
+  "findings",
+  "correlation",
+]);
 const showBackTop = computed(() => SCROLLABLE_TABS.has(subTab.value));
 
 // 初始化：加载历史列表 + 默认选择最新（关联运行已由父级查询并传入）
@@ -304,7 +311,8 @@ async function selectCallNode(nodeId: string): Promise<void> {
       calleeItems.value = page.items;
     }
   } catch (caught) {
-    if (!controller.signal.aborted) console.warn("[WhiteboxReport] 调用边加载失败：", errorMessage(caught));
+    if (!controller.signal.aborted)
+      console.warn("[WhiteboxReport] 调用边加载失败：", errorMessage(caught));
   } finally {
     if (selectedCallNodeId.value === nodeId) {
       calleeLoading.value = false;
@@ -380,7 +388,6 @@ watch(analysisId, (aid) => {
 
 // subTab 变化 → 懒加载该 tab 资源
 watch(subTab, () => loadCurrentTabResources());
-
 </script>
 
 <style scoped>
@@ -399,7 +406,7 @@ watch(subTab, () => loadCurrentTabResources());
 .wb-report > .report-hero,
 .wb-report > .report-summary,
 .wb-report > .report-tabs {
-  width: min(1200px, 100%);
+  width: min(1440px, 100%);
   margin-right: auto;
   margin-left: auto;
 }
@@ -418,7 +425,7 @@ watch(subTab, () => loadCurrentTabResources());
   background:
     linear-gradient(120deg, rgba(255, 255, 255, 0.96), rgba(236, 254, 253, 0.88)),
     var(--surface-solid);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
 }
 
 .report-hero::after {
@@ -482,7 +489,7 @@ watch(subTab, () => loadCurrentTabResources());
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
   background: var(--surface-glass-strong);
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-panel);
 }
 
 .report-tabs :deep(.el-tabs__header) {

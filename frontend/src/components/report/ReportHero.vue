@@ -82,14 +82,14 @@ const taskName = computed(() => {
 <style scoped>
 .report-hero {
   position: relative;
-  width: min(1200px, 100%);
+  width: min(1440px, 100%);
   margin: 0 auto;
   border: 1px solid rgba(10, 186, 181, 0.22);
   border-radius: var(--radius-lg, 18px);
   background:
     linear-gradient(120deg, rgba(255, 255, 255, 0.96), rgba(236, 254, 253, 0.88)),
     var(--surface-solid, #fff);
-  box-shadow: var(--shadow-sm, 0 8px 24px rgba(15, 23, 42, 0.06));
+  box-shadow: var(--shadow-panel, 0 8px 24px rgba(15, 23, 42, 0.06));
   color: var(--text-strong, #172033);
   overflow: hidden;
 }
@@ -119,7 +119,7 @@ const taskName = computed(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 28px;
-  padding: 22px 24px;
+  padding: 25px 28px;
 }
 
 .hero-main {
@@ -238,11 +238,11 @@ const taskName = computed(() => {
   padding: 14px 16px;
   border: 1px solid var(--line-soft, #e4e7ec);
   border-radius: var(--radius-md, 14px);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.76);
   display: grid;
   gap: 10px;
   align-content: start;
-  box-shadow: var(--shadow-xs, 0 4px 14px rgba(15, 23, 42, 0.04));
+  box-shadow: var(--shadow-sm, 0 4px 14px rgba(15, 23, 42, 0.04));
   backdrop-filter: blur(12px);
 }
 

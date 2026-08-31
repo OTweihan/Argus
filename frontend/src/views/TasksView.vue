@@ -94,7 +94,11 @@
       <el-card class="tasks-card">
         <template #header>
           <div class="card-header">
-            <span class="card-title">任务列表</span>
+            <div class="card-heading">
+              <span class="card-title">任务列表</span>
+              <span class="card-subtitle">跟踪黑盒与白盒任务的执行状态和分析结果</span>
+            </div>
+            <span class="header-count">{{ total }} 个任务</span>
             <el-button size="large" type="primary" @click="openNewTaskDialog"> 新增任务 </el-button>
           </div>
         </template>
@@ -230,9 +234,7 @@ const CorrelationTab = defineAsyncComponent(
   () => import("../components/task/whitebox/CorrelationTab.vue"),
 );
 // 表单/详情弹窗仅在用户点击后才需要（TaskFormDialog 含大量 EP 表单组件），同样懒加载
-const TaskFormDialog = defineAsyncComponent(
-  () => import("../components/task/TaskFormDialog.vue"),
-);
+const TaskFormDialog = defineAsyncComponent(() => import("../components/task/TaskFormDialog.vue"));
 const TaskDetailDialog = defineAsyncComponent(
   () => import("../components/task/TaskDetailDialog.vue"),
 );
@@ -363,6 +365,8 @@ watch(
   overflow: auto;
   display: flex;
   flex-direction: column;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
 }
 
 .pagination-bar {
@@ -372,23 +376,10 @@ watch(
   flex-shrink: 0;
 }
 
-.card-title {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .filter-bar {
   display: flex;
   gap: 12px;
-  padding: 18px 0 14px;
+  padding: 16px 0 14px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line-soft);
   margin-bottom: 4px;
@@ -412,12 +403,12 @@ watch(
   margin-bottom: 0;
   flex-shrink: 0;
   flex-wrap: wrap;
-  padding: 10px 14px;
+  padding: 11px 14px;
   background: var(--surface-glass-strong);
   border: 1px solid var(--line-soft);
   border-bottom: 0;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
   -webkit-backdrop-filter: blur(var(--blur-soft));
   position: relative;

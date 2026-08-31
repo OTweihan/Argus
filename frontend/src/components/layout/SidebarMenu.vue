@@ -1,5 +1,5 @@
 <template>
-  <el-aside width="220px" class="sidebar">
+  <el-aside width="var(--aside-width)" class="sidebar">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">A</span>
       <span class="brand-name">Argus</span>
@@ -86,11 +86,17 @@
           stroke-linecap="round"
           stroke-linejoin="round"
         >
-          <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
+          <path
+            d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"
+          />
         </svg>
         <span>诊断中心</span>
       </el-menu-item>
     </el-menu>
+    <div class="sidebar-footer">
+      <span class="footer-dot" />
+      <span>QUALITY ENGINEERING</span>
+    </div>
   </el-aside>
 </template>
 
@@ -112,7 +118,7 @@ function onSelect(index: string): void {
 <style>
 .sidebar {
   height: 100vh;
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.66);
   border-right: 1px solid var(--line-soft);
   display: flex;
   flex-direction: column;
@@ -142,7 +148,8 @@ function onSelect(index: string): void {
 
 .brand {
   margin: 0;
-  padding: 18px 20px;
+  min-height: var(--header-height);
+  padding: 16px 20px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -151,9 +158,9 @@ function onSelect(index: string): void {
 }
 
 .brand-mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
   background-image: var(--brand-gradient-strong);
   color: #ffffff;
   display: inline-flex;
@@ -168,7 +175,7 @@ function onSelect(index: string): void {
 }
 
 .brand-name {
-  font-size: 22px;
+  font-size: 23px;
   font-weight: 720;
   letter-spacing: -0.01em;
   color: var(--text-strong);
@@ -178,15 +185,15 @@ function onSelect(index: string): void {
   border-right: none !important;
   background: transparent !important;
   flex: 1;
-  padding: 10px 0;
+  padding: 14px 0;
 }
 
 .nav-menu .el-menu-item {
   position: relative;
-  margin: 3px 12px;
+  margin: 4px 12px;
   border-radius: var(--radius-sm);
-  height: 42px;
-  line-height: 42px;
+  height: 44px;
+  line-height: 44px;
   font-size: 14px;
   color: var(--text-muted);
   transition:
@@ -217,10 +224,31 @@ function onSelect(index: string): void {
 }
 
 .nav-menu .el-menu-item.is-active {
-  background: var(--brand-50) !important;
+  background: linear-gradient(90deg, var(--brand-50), rgba(236, 254, 253, 0.64)) !important;
   color: var(--brand-700) !important;
   font-weight: 600;
   box-shadow: inset 0 0 0 1px rgba(10, 186, 181, 0.12);
+}
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 16px;
+  padding: 12px 10px 0;
+  border-top: 1px solid var(--line-soft);
+  color: var(--text-placeholder);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.footer-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-500);
+  box-shadow: 0 0 0 4px rgba(10, 186, 181, 0.12);
 }
 
 .nav-menu .el-menu-item.is-active::before {

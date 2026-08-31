@@ -62,14 +62,14 @@ const activeTab = ref("services");
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 112px;
+  min-height: 104px;
   padding: 22px 26px;
   border: 1px solid rgba(10, 186, 181, 0.18);
   border-radius: var(--radius-md);
   background:
     radial-gradient(circle at 88% 30%, rgba(56, 189, 248, 0.15), transparent 34%),
     var(--surface-glass-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
 }
 
@@ -84,7 +84,8 @@ const activeTab = ref("services");
 .page-intro h2 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 24px;
+  font-size: 23px;
+  letter-spacing: -0.02em;
   line-height: 1.25;
 }
 
@@ -134,7 +135,7 @@ const activeTab = ref("services");
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
   background: var(--surface-glass-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(var(--blur-soft));
 }
 
@@ -146,6 +147,11 @@ const activeTab = ref("services");
   height: 54px;
   padding: 0 22px;
   font-weight: 650;
+}
+
+.diagnostics-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: var(--line-soft);
 }
 
 .diagnostics-tabs :deep(.el-tabs__content) {

@@ -5,7 +5,10 @@
 
       <el-container class="main-area">
         <el-header class="topbar">
-          <h1>{{ viewTitle }}</h1>
+          <div class="topbar-title">
+            <span class="topbar-kicker">ARGUS CONSOLE</span>
+            <h1>{{ viewTitle }}</h1>
+          </div>
           <div class="topbar-actions">
             <div class="status">
               <span class="dot" :class="eventStatus" />
@@ -182,6 +185,11 @@ const currentView = computed(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.topbar-actions :deep(.el-button) {
+  min-height: 38px;
+  padding-inline: 15px;
 }
 
 .refresh-btn {
