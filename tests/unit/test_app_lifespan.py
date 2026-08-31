@@ -22,6 +22,7 @@ async def test_lifespan_can_restart_without_reusing_runtime_resources(
     ]
     shutdown = AsyncMock()
     reset = Mock()
+    event_bus = Mock()
 
     monkeypatch.setattr(app_module, "setup_logging", Mock())
     monkeypatch.setattr(
@@ -37,7 +38,11 @@ async def test_lifespan_can_restart_without_reusing_runtime_resources(
     monkeypatch.setattr(
         app_module,
         "create_container",
-        lambda: SimpleNamespace(lifecycle_service=Mock(), task_read_service=Mock()),
+        lambda: SimpleNamespace(
+            lifecycle_service=Mock(),
+            task_read_service=Mock(),
+            event_bus=event_bus,
+        ),
     )
     monkeypatch.setattr(app_module, "get_task_worker", lambda: workers.pop(0))
     monkeypatch.setattr(app_module, "shutdown_container", shutdown)
@@ -60,4 +65,6 @@ async def test_lifespan_can_restart_without_reusing_runtime_resources(
     assert reset.call_count == 2
     assert lock.acquire.call_count == 2
     assert lock.release.call_count == 2
+    assert event_bus.bind_loop.call_count == 2
+    assert event_bus.unbind_loop.call_count == 2
     assert io_executor_stats() == {"queued": -1}

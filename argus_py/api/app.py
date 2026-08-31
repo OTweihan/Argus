@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -128,6 +129,7 @@ def create_app() -> FastAPI:
             c = create_container()
             app.state.container = c
             recover_interrupted_tasks(lifecycle=c.lifecycle_service, reader=c.task_read_service)
+            c.event_bus.bind_loop(asyncio.get_running_loop())
         except Exception:
             log_event(logger, "lifespan.recover_tasks", status=STATUS_ERROR, exc_info=True)
             lock.release()
@@ -176,6 +178,7 @@ def create_app() -> FastAPI:
                         reset_all_dependencies()
                         set_io_executor(None)
                         executor.shutdown(wait=True, cancel_futures=True)
+                        c.event_bus.unbind_loop()
                         lock.release()
 
     application = FastAPI(

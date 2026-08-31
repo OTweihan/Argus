@@ -105,7 +105,11 @@ class TaskRunner:
         if task.status is not TaskStatus.PENDING:
             raise TaskError(f"只有 pending 任务可以执行，当前状态：{task.status.value}")
 
-        running_task = self.lifecycle.start_task(task, worker_id=self._worker_id)
+        running_task = await run_in_thread(
+            self.lifecycle.start_task,
+            task,
+            worker_id=self._worker_id,
+        )
         handler = self.handlers.get(running_task.task_type)
         if handler is None:
             await self._handle_no_handler(running_task)
@@ -156,37 +160,37 @@ class TaskRunner:
 
     async def _handle_cancelled(self, task: Task) -> Task:
         """Handler 检测到取消 → CANCELLED。"""
-        latest = self._latest_task(task)
+        latest = await self._latest_task(task)
         if latest.status in TERMINAL_STATUSES:
             return await self._generate_report(latest)
-        return self.lifecycle.cancel_task(latest)
+        return await run_in_thread(self.lifecycle.cancel_task, latest)
 
     async def _handle_timeout(self, task: Task) -> Task:
         """超时 → TIMEOUT。"""
-        latest = self._latest_task(task)
+        latest = await self._latest_task(task)
         if latest.status in TERMINAL_STATUSES:
             return await self._generate_report(latest)
         logger.warning("任务超时: %s（%ds）", task.task_id, task.timeout_seconds)
         latest = await self._generate_report(latest)
-        timeout_task = self.lifecycle.timeout_task(latest)
+        timeout_task = await run_in_thread(self.lifecycle.timeout_task, latest)
         raise TaskError(timeout_task.error_message or "任务执行超时。")
 
     async def _handle_exception(self, task: Task, exc: Exception) -> Task:
         """异常 → FAILED。"""
-        latest = self._latest_task(task)
+        latest = await self._latest_task(task)
         if latest.status in TERMINAL_STATUSES:
             return await self._generate_report(latest)
         logger.exception("任务执行异常: %s", task.task_id)
         latest = await self._generate_report(latest)
-        failed_task = self.lifecycle.fail_task(latest, str(exc))
+        failed_task = await run_in_thread(self.lifecycle.fail_task, latest, str(exc))
         raise TaskError(failed_task.error_message or "任务执行失败。") from exc
 
     # ── 辅助 ──────────────────────────────────────────────────────────────
 
-    def _latest_task(self, task: Task) -> Task:
-        """从存储中读取最新任务快照（复用 lifecycle 的 storage 实例）。"""
+    async def _latest_task(self, task: Task) -> Task:
+        """在线程池读取最新任务快照（复用 lifecycle 的 storage 实例）。"""
         try:
-            return self.lifecycle.storage.load(task.task_id)
+            return await run_in_thread(self.lifecycle.storage.load, task.task_id)
         except TaskError:
             logger.warning("从存储读取任务快照失败: %s", task.task_id)
             return task
@@ -204,7 +208,7 @@ class TaskRunner:
         """无 handler 时标记失败并生成报告。"""
         message = f"任务类型 {task.task_type.value} 尚未注册执行器。"
         task = await self._generate_report(task)
-        self.lifecycle.fail_task(task, message)
+        await run_in_thread(self.lifecycle.fail_task, task, message)
         raise TaskError(message)
 
     async def _finalize_run(self, task: Task, result: Task | None = None) -> Task:
@@ -218,7 +222,7 @@ class TaskRunner:
         （外部 pause）时原样返回、绝不覆盖；报告生成后再核对一次，防止迟到的
         成功返回覆盖外部取消。
         """
-        latest = self._latest_task(task)
+        latest = await self._latest_task(task)
         if latest.status in TERMINAL_STATUSES:
             # 外部/并发已写入终态：不覆盖
             return latest
@@ -233,10 +237,10 @@ class TaskRunner:
             completed = task
         completed = await self._generate_report(completed)
         # 报告生成期间外部可能已取消/暂停，完成前再次核对最新状态
-        final = self._latest_task(task)
+        final = await self._latest_task(task)
         if final.status is not TaskStatus.RUNNING:
             return final
-        return self.lifecycle.complete_task(completed)
+        return await run_in_thread(self.lifecycle.complete_task, completed)
 
 
 # ── whitebox 类型化异常导入 ──────────────────────────────────────────────

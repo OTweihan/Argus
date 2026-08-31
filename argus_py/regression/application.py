@@ -2,11 +2,12 @@
 
 线程/协程约定（重要）：
 - **async 方法**（``create_run`` / ``cancel_run``）：需要与进程内 TaskQueue
-  交互，必须在事件循环上调用；
+  交互，必须在事件循环上调用；其中同步 SQLite/lifecycle 操作统一经
+  ``run_in_thread`` 执行；
 - **sync 方法**（用例 CRUD、``handle_task_terminal``、基线管理、恢复扫描、
   查询）：纯 SQLite 操作；API 路由经 ``run_in_thread`` 调用，
   ``handle_task_terminal`` 由 ``TaskLifecycleService`` 的终态回调在任务落盘
-  线程内直接调用——保持同步且快速。
+  线程内直接调用；TaskRunner 会等待该 IO 工作完成，不在事件循环执行。
 
 批次状态语义：
 - ``completed``：批次执行完毕，是否通过质量门禁见 ``gate_result``；
@@ -25,6 +26,8 @@ from argus_py.core.constants import utc_now_iso
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import ArgusError
 from argus_py.core.ids import generate_id
+from argus_py.observability.aspect import log_operation
+from argus_py.observability.context import run_in_thread
 from argus_py.regression.diff import (
     DiffResult,
     compute_diff,
@@ -307,14 +310,18 @@ class RegressionService:
     ) -> RegressionRun:
         """创建并启动回归批次：快照化启用用例 → 逐条创建子任务并入队。"""
         source = RegressionTriggerSource(trigger_source)
-        cases = self._storage.list_regression_cases(project_id, enabled_only=True)
+        cases = await run_in_thread(
+            self._storage.list_regression_cases,
+            project_id,
+            enabled_only=True,
+        )
         if not cases:
             raise RegressionError(
                 "REGRESSION_NO_ENABLED_CASES",
                 f"项目 {project_id} 没有启用的回归用例。",
                 details={"projectId": project_id},
             )
-        baseline = self._storage.get_regression_baseline(project_id)
+        baseline = await run_in_thread(self._storage.get_regression_baseline, project_id)
         now = utc_now_iso()
         run = RegressionRun(
             run_id=generate_id("regrun"),
@@ -340,7 +347,7 @@ class RegressionService:
                     created_at=now,
                 )
             )
-        self._storage.create_regression_run_with_items(run, items)
+        await run_in_thread(self._storage.create_regression_run_with_items, run, items)
         self._publish(
             "regression.batch.created",
             run.run_id,
@@ -350,7 +357,7 @@ class RegressionService:
         submitted: list[tuple[RegressionRunItem, str]] = []
         try:
             for item in items:
-                task = self._create_item_task(run, item)
+                task = await run_in_thread(self._create_item_task, run, item)
                 submitted.append((item, task.task_id))
                 result = await self._queue.try_enqueue(task.task_id)
                 if result.rejected:
@@ -364,8 +371,9 @@ class RegressionService:
                 details={"runId": run.run_id, "submitted": len(submitted)},
             )
 
-        self._storage.mark_regression_running(run.run_id)
-        return self._storage.get_regression_run(run.run_id) or run
+        await run_in_thread(self._storage.mark_regression_running, run.run_id)
+        persisted = await run_in_thread(self._storage.get_regression_run, run.run_id)
+        return persisted or run
 
     def _create_item_task(self, run: RegressionRun, item: RegressionRunItem) -> Any:
         """按批次项快照创建子任务并回填关联。"""
@@ -419,7 +427,8 @@ class RegressionService:
         """
         submitted_ids = {task_id for _, task_id in submitted}
         submitted_items = {item.item_id for item, _ in submitted}
-        self._storage.finalize_regression_run(
+        await run_in_thread(
+            self._storage.finalize_regression_run,
             run_id=run_id,
             status=RegressionRunStatus.FAILED,
             gate_result=None,
@@ -443,7 +452,8 @@ class RegressionService:
         )
         for item in items:
             if item.item_id not in submitted_items:
-                self._storage.update_regression_item_status(
+                await run_in_thread(
+                    self._storage.update_regression_item_status,
                     item.item_id,
                     RegressionItemStatus.SKIPPED,
                     error_code="BATCH_ABORTED_QUEUE_FULL",
@@ -456,7 +466,8 @@ class RegressionService:
                     # 已在执行的子任务保留跑完；批次项保持 running，由其终态
                     # 回调……不会更新（批次已终态）。这里显式镜像为 cancelled
                     # 并注明任务仍在执行，结果可在任务列表查看。
-                    self._storage.update_regression_item_status(
+                    await run_in_thread(
+                        self._storage.update_regression_item_status,
                         item.item_id,
                         RegressionItemStatus.CANCELLED,
                         error_code="BATCH_ABORTED_TASK_RUNNING",
@@ -466,15 +477,16 @@ class RegressionService:
                     continue
                 if sched == "queued":
                     await self._queue.cancel(task_id)
-                task = self._lifecycle.storage.load(task_id)
+                task = await run_in_thread(self._lifecycle.storage.load, task_id)
                 if task.status not in terminal_statuses:
-                    self._lifecycle.cancel_task(task)
+                    await run_in_thread(self._lifecycle.cancel_task, task)
             except Exception:
                 logger.debug("回归批次中止回收子任务失败: %s", task_id, exc_info=True)
             finally:
                 if not mirrored:
                     # 已取消/未开始的子任务：批次项显式收口为 cancelled
-                    self._storage.update_regression_item_status(
+                    await run_in_thread(
+                        self._storage.update_regression_item_status,
                         item.item_id,
                         RegressionItemStatus.CANCELLED,
                         error_code="BATCH_ABORTED_QUEUE_FULL",
@@ -482,7 +494,7 @@ class RegressionService:
 
     async def cancel_run(self, run_id: str) -> RegressionRun:
         """取消未完成批次：CAS 置 cancelled 后尽力取消全部未终态子任务。"""
-        run = self._require_run(run_id)
+        run = await run_in_thread(self._require_run, run_id)
         if run.status not in (RegressionRunStatus.PENDING, RegressionRunStatus.RUNNING):
             raise RegressionError(
                 "REGRESSION_RUN_NOT_RUNNING",
@@ -490,7 +502,8 @@ class RegressionService:
                 http_status=409,
                 details={"runId": run_id, "status": run.status.value},
             )
-        ok = self._storage.finalize_regression_run(
+        ok = await run_in_thread(
+            self._storage.finalize_regression_run,
             run_id=run_id,
             status=RegressionRunStatus.CANCELLED,
             gate_result=None,
@@ -506,11 +519,13 @@ class RegressionService:
                 details={"runId": run_id},
             )
 
-        for item in self._storage.get_regression_items(run_id):
+        items = await run_in_thread(self._storage.get_regression_items, run_id)
+        for item in items:
             if item.status in _ITEM_TERMINAL_STATUSES:
                 continue
             if item.task_id is None:
-                self._storage.update_regression_item_status(
+                await run_in_thread(
+                    self._storage.update_regression_item_status,
                     item.item_id,
                     RegressionItemStatus.SKIPPED,
                     error_code="BATCH_CANCELLED",
@@ -521,21 +536,22 @@ class RegressionService:
                 if sched == "queued":
                     await self._queue.cancel(item.task_id)
                 self._lifecycle.get_cancellation_token(item.task_id).cancel()
-                task = self._lifecycle.storage.load(item.task_id)
+                task = await run_in_thread(self._lifecycle.storage.load, item.task_id)
                 if task.status not in (
                     TaskStatus.COMPLETED,
                     TaskStatus.FAILED,
                     TaskStatus.TIMEOUT,
                     TaskStatus.CANCELLED,
                 ):
-                    self._lifecycle.cancel_task(task)
+                    await run_in_thread(self._lifecycle.cancel_task, task)
             except Exception:
                 logger.debug(
                     "取消批次子任务失败: run=%s task=%s", run_id, item.task_id, exc_info=True
                 )
             finally:
                 # 批次已终态、终态回调被阻断：批次项状态在此显式收口
-                self._storage.update_regression_item_status(
+                await run_in_thread(
+                    self._storage.update_regression_item_status,
                     item.item_id,
                     RegressionItemStatus.CANCELLED,
                     error_code="BATCH_CANCELLED",
@@ -545,7 +561,7 @@ class RegressionService:
             run_id,
             {"runId": run_id, "status": RegressionRunStatus.CANCELLED.value},
         )
-        return self._require_run(run_id)
+        return await run_in_thread(self._require_run, run_id)
 
     # ══════════════════════════════════════════════════════════
     # 终态推进（sync —— 由 TaskLifecycleService 终态回调驱动）
@@ -562,6 +578,7 @@ class RegressionService:
         except Exception:
             logger.exception("回归批次终态推进失败: task=%s status=%s", task_id, status_value)
 
+    @log_operation("regression.task_terminal", task_arg="task_id")
     def _handle_task_terminal(self, task_id: str, status_value: str) -> None:
         item = self._storage.get_regression_item_by_task_id(task_id)
         if item is None:

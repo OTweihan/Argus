@@ -5,6 +5,7 @@
 - 同步路径 sequence 严格自增
 - 限频 warning 在首次和每 100 次触发
 - async 路径行为不受影响（与原有行为兼容）
+- 绑定 owner loop 后，工作线程 publish 会回投并通知实时订阅者
 - subscribe(since_seq=...) 部分回放
 - subscribe_with_replay 有界回放批次：history > 队列容量不丢事件（O-05）
 - stream_epoch 随 EventBus 实例（进程）变化，回放窗口边界正确（O-05）
@@ -90,6 +91,21 @@ class TestPublishWithLoop:
         await asyncio.sleep(0)
         assert bus.dropped_no_loop_count == 0
         assert len(bus._history) == 1
+
+    @pytest.mark.asyncio
+    async def test_publish_from_worker_thread_returns_to_bound_loop(self) -> None:
+        """绑定 owner loop 后，工作线程发布仍应实时通知订阅者。"""
+        bus = EventBus(history_limit=10)
+        bus.bind_loop(asyncio.get_running_loop())
+        subscription = await bus.subscribe(task_id="tk-1", replay=False)
+
+        await asyncio.to_thread(bus.publish, "task.complete", "tk-1", {"status": "completed"})
+        event = await asyncio.wait_for(subscription.queue.get(), timeout=1)
+
+        assert event.event_type == "task.complete"
+        assert event.data == {"status": "completed"}
+        assert bus.dropped_no_loop_count == 0
+        await subscription.close()
 
 
 # ─── drop-oldest 背压策略 ──────────────────────────────────────

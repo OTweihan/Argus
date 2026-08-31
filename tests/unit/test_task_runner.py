@@ -8,10 +8,14 @@
 外加外部 pause 与 async-only 收窄的守卫用例。
 """
 
+import asyncio
+import threading
+
 import pytest
 from argus_py.core.enums import TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
 from argus_py.execution.runner import TaskRunner
+from argus_py.infra.events import EventBus
 from argus_py.report.generator import ReportGenerator
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.models import Finding, Task
@@ -86,6 +90,54 @@ async def test_handler_returns_none_keeps_inplace_mutations(tmp_path):
     loaded = storage.load(task.task_id)
     assert loaded.status is TaskStatus.COMPLETED
     assert loaded.result_summary == "原地写入的摘要"
+
+
+@pytest.mark.asyncio
+async def test_terminal_callback_runs_outside_event_loop_thread(tmp_path):
+    """终态落盘及回归回调经 IO executor 执行，不阻塞事件循环线程。"""
+    storage = TaskFileStorage(tmp_path / "tasks")
+    callback_threads: list[int] = []
+    lifecycle = TaskLifecycleService(
+        storage,
+        event_publisher=None,
+        on_task_terminal=lambda _task_id, _status: callback_threads.append(threading.get_ident()),
+    )
+    task = _make_task(lifecycle)
+
+    async def handler(_running_task: Task) -> None:
+        return None
+
+    runner = _make_runner(tmp_path, lifecycle, handler)
+    await runner.run(task)
+
+    assert len(callback_threads) == 1
+    assert callback_threads[0] != threading.get_ident()
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_events_from_io_thread_reach_live_subscriber(tmp_path):
+    """Runner 在线程池落盘时，生命周期事件仍回投 EventBus 实时订阅。"""
+    storage = TaskFileStorage(tmp_path / "tasks")
+    bus = EventBus(history_limit=20)
+    bus.bind_loop(asyncio.get_running_loop())
+    lifecycle = TaskLifecycleService(storage, event_publisher=bus.publish)
+    task = _make_task(lifecycle)
+
+    async def handler(_running_task: Task) -> None:
+        return None
+
+    subscription = await bus.subscribe(task_id=task.task_id, replay=False)
+    runner = _make_runner(tmp_path, lifecycle, handler)
+    await runner.run(task)
+
+    events = []
+    while not any(event.event_type == "task.complete" for event in events):
+        events.append(await asyncio.wait_for(subscription.queue.get(), timeout=1))
+
+    statuses = [event.data.get("status") for event in events if event.event_type == "task.status"]
+    assert statuses == [TaskStatus.RUNNING.value, TaskStatus.COMPLETED.value]
+    assert bus.dropped_no_loop_count == 0
+    await subscription.close()
 
 
 @pytest.mark.asyncio

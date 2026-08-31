@@ -152,6 +152,9 @@ class EventBus:
         self._task_subscribers: dict[str, set[asyncio.Queue[TaskEvent]]] = defaultdict(set)
         self._history: deque[TaskEvent] = deque(maxlen=self.history_limit or None)
         self._lock = asyncio.Lock()
+        # Web/API 运行时所属事件循环。生命周期方法可能在线程池执行，事件必须
+        # 通过该 loop 回投，不能误走 CLI 的 sync-history 降级路径。
+        self._owner_loop: asyncio.AbstractEventLoop | None = None
         # 累计：因 max_subscribers 上限被拒的订阅次数。暴露给监控，方便发现
         # "前端反复重连且容量需要调大" 或 "存在异常调用方" 的隐患。
         self.rejected_subscriber_count = 0
@@ -176,12 +179,21 @@ class EventBus:
         self.coalesced_batch_count = 0
         self.coalesced_event_count = 0
 
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """绑定 Web/API 所属事件循环，供工作线程安全回投实时事件。"""
+        self._owner_loop = loop
+
+    def unbind_loop(self) -> None:
+        """解除事件循环绑定；关闭阶段之后的同步发布退回 history。"""
+        self._owner_loop = None
+
     def publish(self, event_type: str, task_id: str, data: dict[str, Any] | None = None) -> None:
         """发布事件。
 
         - 有运行中的事件循环：缓冲到 tick buffer，由 ``_dispatch_batch`` 合并派发
-        - 无运行中的事件循环（CLI / 同步路径）：降级为只写 history（订阅者此时
-          理论上不存在），同时累加 ``dropped_no_loop_count`` 并周期性 warn
+        - 当前线程无事件循环、但 Web/API owner loop 正在运行：线程安全回投 owner loop
+        - 未绑定 owner loop（CLI / 纯同步路径）：降级为只写 history，同时累加
+          ``dropped_no_loop_count`` 并周期性 warn
 
         早期实现里无 loop 时静默 return，CLI 路径下的所有事件都被吞掉，导致
         审计闭环缺数据。现在至少 history 有记录，且可观测。
@@ -189,6 +201,15 @@ class EventBus:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
+            owner_loop = self._owner_loop
+            if owner_loop is not None and owner_loop.is_running():
+                try:
+                    owner_loop.call_soon_threadsafe(self.publish, event_type, task_id, data)
+                except RuntimeError:
+                    # loop 在 is_running() 与投递之间关闭：按同步路径保留 history。
+                    pass
+                else:
+                    return
             self._publish_sync(event_type, task_id, data or {})
             return
 

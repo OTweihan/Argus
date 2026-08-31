@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import threading
 from pathlib import Path
 
 import pytest
 from argus_py.core.enums import FindingSeverity, FindingType
 from argus_py.core.exceptions import ArgusError
 from argus_py.infra.queue import TaskQueue
+from argus_py.observability import aspect
 from argus_py.regression.application import RegressionError, RegressionService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.models import Finding
@@ -284,13 +287,27 @@ class TestRunLifecycle:
             stack.regression.set_baseline(run.run_id)
         assert exc_info.value.code == "BASELINE_ONLY_COMPLETED_BATCH"
 
-    async def test_cancel_run_marks_cancelled(self, stack: AppStack) -> None:
+    async def test_cancel_run_marks_cancelled(
+        self, stack: AppStack, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         pid = await _make_project(stack)
         stack.regression.create_case(pid, _blackbox_input())
         run = await stack.regression.create_run(pid)
 
+        event_loop_thread = threading.get_ident()
+        cancel_threads: list[int] = []
+        original_cancel = stack.lifecycle.cancel_task
+
+        def recording_cancel(task):
+            cancel_threads.append(threading.get_ident())
+            return original_cancel(task)
+
+        monkeypatch.setattr(stack.lifecycle, "cancel_task", recording_cancel)
+
         cancelled = await stack.regression.cancel_run(run.run_id)
         assert cancelled.status.value == "cancelled"
+        assert cancel_threads
+        assert all(thread_id != event_loop_thread for thread_id in cancel_threads)
 
         # 子任务被取消且批次项镜像 cancelled → 终态回调不再改写批次
         (item,) = stack.regression.get_run_items(run.run_id)
@@ -299,6 +316,35 @@ class TestRunLifecycle:
         with pytest.raises(RegressionError) as exc_info:
             await stack.regression.cancel_run(run.run_id)
         assert exc_info.value.code == "REGRESSION_RUN_NOT_RUNNING"
+
+
+def test_terminal_operation_log_marks_failure(
+    stack: AppStack,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """终态推进失败必须输出 error 操作日志，不能误记 success。"""
+
+    def fail_lookup(_task_id: str):
+        raise RuntimeError("terminal lookup failed")
+
+    monkeypatch.setattr(stack.regression._storage, "get_regression_item_by_task_id", fail_lookup)
+    monkeypatch.setattr(aspect, "_OPERATION_LOGGING_CACHE", True)
+    operation_logger = logging.getLogger("argus.operation")
+    caplog.set_level(logging.INFO, logger="argus.operation")
+    operation_logger.addHandler(caplog.handler)
+    try:
+        stack.regression.handle_task_terminal("task-broken", "completed")
+    finally:
+        operation_logger.removeHandler(caplog.handler)
+
+    records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "regression.task_terminal"
+    ]
+    assert records
+    assert getattr(records[-1], "status", None) == "error"
 
 
 class TestQueueFullAbort:
