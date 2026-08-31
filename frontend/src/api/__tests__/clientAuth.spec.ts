@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { authRequired, clearApiToken, setApiToken } from "../../auth";
-import { loadObjectUrl, request } from "../client";
+import { loadObjectUrl, request, requestBlob } from "../client";
 import { TaskEventStream } from "../../ws";
 
 class MockWebSocket {
@@ -38,6 +38,7 @@ describe("API session token", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     clearApiToken();
@@ -82,21 +83,19 @@ describe("API session token", () => {
     setApiToken("token +/?&中文");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({ token: "short-lived-ticket", expiresIn: 30, singleUse: true }),
-          { status: 200, headers: { "content-type": "application/json" } },
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ token: "short-lived-ticket", expiresIn: 30, singleUse: true }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
         ),
-      ),
     );
     const stream = new TaskEventStream();
     const internal = stream as unknown as {
       endpoint: string;
-      openSocket: (
-        endpoint: string,
-        sinceSeq?: number,
-        epoch?: string,
-      ) => Promise<void>;
+      openSocket: (endpoint: string, sinceSeq?: number, epoch?: string) => Promise<void>;
     };
     // 复刻 connect() 的准备工作：openSocket 前先登记当前 endpoint，
     // 避免 ticket 换取期间被 stale-guard 判定为"已切换端点"而中止。
@@ -128,5 +127,63 @@ describe("API session token", () => {
     await expect(loadObjectUrl("/tasks/t/report")).resolves.toBe("blob:argus-test");
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(init.headers).toMatchObject({ Authorization: "Bearer blob-token" });
+  });
+
+  it("aborts protected binary resources through the caller signal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+      }),
+    );
+    const controller = new AbortController();
+
+    const pending = requestBlob("/tasks/t/report", controller.signal);
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "REQUEST_ABORTED" });
+  });
+
+  it("preserves structured errors from protected binary resources", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "REPORT_NOT_FOUND", message: "报告不存在。" },
+          }),
+          { status: 404, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(requestBlob("/tasks/t/report")).rejects.toMatchObject({
+      status: 404,
+      code: "REPORT_NOT_FOUND",
+    });
+  });
+
+  it("times out protected binary resources", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+      }),
+    );
+
+    const pending = requestBlob("/tasks/t/report");
+    const rejection = expect(pending).rejects.toMatchObject({ code: "REQUEST_TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(180_000);
+
+    await rejection;
   });
 });

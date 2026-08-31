@@ -161,35 +161,48 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   return body as T;
 }
 
-export async function requestBlob(path: string): Promise<Blob> {
+export async function requestBlob(path: string, signal?: AbortSignal): Promise<Blob> {
   const token = getApiToken();
-  let response: Response;
+  const requestSignal = createRequestSignal(signal);
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${API_BASE}${path}`, {
+      signal: requestSignal.signal,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
+    if (response.status === 401) requireApiToken();
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      const body = await parseResponseBody<unknown>(response, contentType);
+      throw (
+        apiErrorFromBody(body, response.status) ??
+        new ApiError(`资源请求失败：HTTP ${response.status}`, response.status)
+      );
+    }
+    return await response.blob();
   } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (requestSignal.timedOut()) {
+      throw new ApiError(`下载资源超时，请稍后重试：${path}`, 0, "REQUEST_TIMEOUT", {
+        path,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      });
+    }
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("资源请求已取消。", 0, "REQUEST_ABORTED", { path });
+    }
     throw new ApiError(
       error instanceof Error ? `无法下载资源：${error.message}` : "无法下载资源。",
       0,
       "NETWORK_ERROR",
       { path },
     );
+  } finally {
+    requestSignal.cleanup();
   }
-  if (response.status === 401) requireApiToken();
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type") ?? "";
-    const body = await parseResponseBody<unknown>(response, contentType);
-    throw (
-      apiErrorFromBody(body, response.status) ??
-      new ApiError(`资源请求失败：HTTP ${response.status}`, response.status)
-    );
-  }
-  return response.blob();
 }
 
-export async function loadObjectUrl(path: string): Promise<string> {
-  return URL.createObjectURL(await requestBlob(path));
+export async function loadObjectUrl(path: string, signal?: AbortSignal): Promise<string> {
+  return URL.createObjectURL(await requestBlob(path, signal));
 }
 
 export async function openAuthenticatedResource(path: string, filename?: string): Promise<void> {
