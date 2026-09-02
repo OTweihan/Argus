@@ -102,13 +102,28 @@ outputs/logs/
 │   ├── python.log
 │   ├── frontend.log
 │   └── java.log
-└── runtime/python/            # Python 运行时结构化日志
-    ├── argus.log              # 当前文件（受保护，清理脚本不删除）
-    ├── argus.log.1            # 轮转文件（清理脚本按类别删除）
-    ├── argus.error.log
-    ├── argus.audit.log
-    └── argus.access.log
+└── runtime/
+    ├── python/                # Python 运行时结构化日志
+    │   ├── argus.log          # 当前文件（受保护，清理脚本不删除）
+    │   ├── argus.log.1        # 轮转文件（清理脚本按类别删除）
+    │   ├── argus.error.log
+    │   ├── argus.audit.log
+    │   └── argus.access.log
+    ├── java/                  # Java Analyzer JSONL（logback）
+    │   └── argus-java.jsonl
+    ├── web/                   # 前端异常上报
+    │   └── frontend-events.jsonl
+    └── system/                # 系统事件（启动/停止等）
+        └── events.jsonl
 ```
+
+### 跨服务链路字段
+
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| `requestId` | HTTP 中间件 / ContextVar；`WhiteboxClient` 注入 `X-Request-ID`；Java MDC | 一次请求跨 Python↔Java 的关联键 |
+| `runId` | 进程级（`init_process_run_id` / `ARGUS_RUN_ID`） | 一次启动会话；可与 Compose/Java 对齐 |
+| `taskId` | 任务执行上下文 | 任务维度关联 |
 
 ### 清理保留策略
 
@@ -121,6 +136,9 @@ outputs/logs/
 | 错误（轮转） | `argus.error.log.N[.gz]` | 30 天 | 同上 |
 | 访问（轮转） | `argus.access.log.N[.gz]` | 14 天 | 访问量大 |
 | 审计（轮转） | `argus.audit.log.N[.gz]` | 180 天 | 审计线索 |
+| Java 运行时 | `runtime/java/**` | 30 天 | Analyzer JSONL（主文件受保护） |
+| 前端异常 | `runtime/web/**` | 14 天 | 浏览器上报 |
+| 系统事件 | `runtime/system/**` | 90 天 | 启动/停止等 |
 | 未分类 | 其他路径 | `--days`（默认 30 天） | 回退 |
 
 - 对于 `runtime/python/` 下的四类标准结构化日志，**清理脚本只删除超龄轮转文件**（如 `argus.log.1`、`argus.log.2.gz`），不删除当前主日志文件（`argus.log` 等）。开发会话日志和未分类日志仍按各自策略清理。

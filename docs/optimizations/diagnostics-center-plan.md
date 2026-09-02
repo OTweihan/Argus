@@ -1,5 +1,11 @@
 # Argus 诊断中心建设方案
 
+> **实施状态（2026-09-02）**
+>
+> - **MVP（已落地）**：服务状态、运行日志检索/详情/上下文、Request ID 追踪、启动会话列表与日志；资源隔离（`run_in_thread` + 并发闸门 + 扫描字节预算）。
+> - **二期（已落地）**：进程级 `runId`；Python→Java `X-Request-ID` 透传；Java `RequestIdFilter` + `logback-spring.xml` JSONL；`runtime/{java,web,system}` 扫描；前端异常上报 `POST /diagnostics/frontend-events`；系统信息/系统事件/概览 API 与前端 Tab；清理脚本保留策略扩展。
+> - **仍未做（非阻断）**：日志导出 `POST /export`、诊断包 `POST /bundles`、Loki/OpenSearch 后端、异常聚合聚类、OpenTelemetry `traceId`。
+
 ## 1. 文档概述
 
 ### 1.1 背景
@@ -57,12 +63,16 @@ Argus 的主要部署方式包括：
 | 敏感信息脱敏 | key=value、Authorization、JSON 字段递归脱敏已实现 | `argus_py.redaction` |
 | 开发会话日志 | dev.mjs 写 `outputs/logs/dev/<run-id>/`（combined/python/java/frontend） | `scripts/dev.mjs` |
 | 差异化清理 | dev 14 天/运行 30 天/错误 30 天/访问 14 天/审计 180 天 | `scripts/cleanup_outputs.py` |
-| 前端异常捕获 | window.onerror、unhandledrejection、Vue errorHandler 已捕获（仅 console，未上报） | `frontend/src/main.ts` |
+| 前端异常捕获 | window.onerror、unhandledrejection、Vue errorHandler 已捕获并上报诊断中心 | `frontend/src/main.ts` → `POST /diagnostics/frontend-events` |
 | JSONL 行索引先例 | 按 task_id 维护 `.idx` 侧车索引 | `observability/trace_index.py` |
 | 诊断包雏形 | traces 打包 zip 的 debug bundle | `observability/debug_bundle.py` |
 | Java 健康探针 | actuator health/info 已暴露 | `java_analyzer/src/main/resources/application.yml` |
+| 跨服务 Request ID | Python `WhiteboxClient` 注入 `X-Request-ID`；Java Filter 写入 MDC 并回写响应头 | `whitebox/client.py`、`api/RequestIdFilter.java` |
+| Java 结构化 JSONL | logback 滚动写入 `runtime/java/argus-java.jsonl` | `java_analyzer/.../logback-spring.xml` |
+| 进程 runId | lifespan 初始化，日志白名单输出 `runId`；可经 `ARGUS_RUN_ID` 对齐 | `observability/context.py`、`logger.py` |
+| 诊断查询 API / 前端页 | 概览/服务/日志/追踪/会话/系统事件/系统信息 | `api/routes/diagnostics.py`、`views/diagnostics/*` |
 
-尚未具备的能力（本方案的真正增量）：Java JSONL 日志与 MDC 贯通、request_id 跨服务传递（`WhiteboxClient` 未携带 `X-Request-ID`）、run_id 全局注入、前端异常上报通道、诊断查询 API 与前端页面、系统事件流。
+仍未建设（导出/诊断包/集中日志后端等）见文首实施状态。
 
 ---
 

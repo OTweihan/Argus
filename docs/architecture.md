@@ -344,6 +344,12 @@ PassExecutor/ClasspathResolver 端口）已存在并被包依赖架构测试约�
 
 - Python 日志遵守 [`logging.md`](logging.md)：模块 logger、结构化字段、request/task context、
   审计与访问日志分流保持一致。
+- 进程级 `runId` 在 lifespan 初始化（可由 `ARGUS_RUN_ID` 注入），结构化日志白名单输出
+  `runId`；与 Java `ARGUS_RUN_ID` / logback 对齐便于按启动会话聚合。
+- Python→Java 调用必须透传 `X-Request-ID`（`WhiteboxClient`）；Java adapter 以 Filter 写入
+  MDC 并回写响应头。分析核心不依赖 MDC。
+- 诊断中心查询是同进程旁路负载：必须经 `run_in_thread`、并发闸门与扫描字节预算，
+  不得在事件循环上扫日志文件。
 - 服务层不得用 `print` 代替日志；CLI 面向用户的输出继续使用独立 `cli_*` 通道。
 - 跨线程工作通过统一 context 传播工具执行，确保 request/task ID 不丢失。
 - 新增长任务或外部调用必须定义：超时、取消、重试条件、并发上限、资源清理和错误归类。
@@ -417,4 +423,4 @@ ADR 至少包含：背景、决策、备选方案、取舍、兼容/迁移、回
 
 - 日志、审计、上下文字段和脱敏：[`logging.md`](logging.md)
 - 私网部署、单副本、安全与迁移：[`deployment.zh.md`](deployment.zh.md)
-- 最近一轮优化审计：[`optimizations/remaining-optimization-audit-2026-08-27.md`](optimizations/remaining-optimization-audit-2026-08-27.md)
+- 最近一轮优化审计：[`optimizations/remaining-optimization-audit-2026-09-02.md`](optimizations/remaining-optimization-audit-2026-09-02.md)

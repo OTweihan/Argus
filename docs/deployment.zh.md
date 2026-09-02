@@ -78,6 +78,16 @@ Compose 直接拒绝解析，少于 32 字符或使用 `CHANGE_ME`/`REPLACE_ME` 
 `argus serve` 拒绝启动。非回环部署不再只有告警。
 `docker-compose.intranet.yml` 已加入 `.gitignore`，防止把真实 Token 提交进仓库。
 
+### 诊断链路相关环境变量（可选）
+
+| 变量 | 作用 |
+|------|------|
+| `ARGUS_RUN_ID` | 进程级启动会话 ID。Python lifespan 会 `setdefault`；与 Java 共用同一值可在诊断中心按会话聚合。 |
+| `ARGUS_JAVA_LOG_DIR` | Java Analyzer JSONL 目录，默认相对工作目录的 `../outputs/logs/runtime/java`。Compose 应挂到与 Python 相同的 `outputs/logs` 卷。 |
+| `ARGUS_INSTANCE_ID` | 可选实例标识，写入系统事件。 |
+
+本地 `node scripts/dev.mjs` 启动时，可将同一 `ARGUS_RUN_ID` 注入 Python 与 Java 子进程，便于「请求追踪」跨端对齐。
+
 ---
 
 ## 3. 配置基线（`config/server.yaml`）
