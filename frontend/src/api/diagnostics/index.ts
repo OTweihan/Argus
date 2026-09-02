@@ -12,6 +12,58 @@ export type LogsUsage = components["schemas"]["LogsUsageResponse"];
 export type RunsListResponse = components["schemas"]["RunsListResponse"];
 export type RunSummary = components["schemas"]["RunSummaryResponse"];
 
+// 二期新增 schema 在 codegen 完成前用宽松类型兜底，避免阻塞前端编译。
+export type DiagnosticsOverviewResponse =
+  components["schemas"] extends { DiagnosticsOverviewResponse: infer T }
+    ? T
+    : {
+        runId: string;
+        services: ServiceStatus[];
+        logsUsage?: LogsUsage | null;
+        errorCountLastHour: number;
+        recentSystemEvents: DiagnosticsLogEntry[];
+        checkedAt: string;
+      };
+
+export type DiagnosticsSystemInfoResponse =
+  components["schemas"] extends { DiagnosticsSystemInfoResponse: infer T }
+    ? T
+    : {
+        argusVersion: string;
+        pythonVersion: string;
+        pythonServiceVersion: string;
+        osName: string;
+        osRelease: string;
+        architecture: string;
+        hostname: string;
+        pid: number;
+        cpuCount?: number | null;
+        runId: string;
+        startedAt: string;
+        uptimeSeconds: number;
+        workingDirectory: string;
+        projectRoot: string;
+        logsDirectory: string;
+        dataDirectory: string;
+        outputDirectory: string;
+        deploymentMode: string;
+        logDataSource: string;
+        javaAnalyzerUrl: string;
+        javaRuntimeLogsPresent: boolean;
+        disk?: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
+        javaStatus?: ServiceStatus | null;
+      };
+
+export type DiagnosticsEventsPage =
+  components["schemas"] extends { DiagnosticsEventsPage: infer T }
+    ? T
+    : DiagnosticsLogPage;
+
+export type FrontendEventResponse =
+  components["schemas"] extends { FrontendEventResponse: infer T }
+    ? T
+    : { accepted: boolean; eventId?: string | null };
+
 /** 日志检索过滤条件（wire 参数 camelCase，与 OpenAPI 契约一致）。 */
 export interface DiagnosticsLogsFilters {
   component?: string;
@@ -123,4 +175,54 @@ export function searchDiagnosticsRunLogs(
     `/diagnostics/runs/${encodeURIComponent(runId)}/logs${query}`,
     options,
   );
+}
+
+export function getDiagnosticsOverview(
+  options: { signal?: AbortSignal } = {},
+): Promise<DiagnosticsOverviewResponse> {
+  return request<DiagnosticsOverviewResponse>(`/diagnostics/overview`, options);
+}
+
+export function getDiagnosticsSystem(
+  options: { signal?: AbortSignal } = {},
+): Promise<DiagnosticsSystemInfoResponse> {
+  return request<DiagnosticsSystemInfoResponse>(`/diagnostics/system`, options);
+}
+
+export function listDiagnosticsEvents(
+  params: { limit?: number; cursor?: string; level?: string; keyword?: string } = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<DiagnosticsEventsPage> {
+  const query = buildQuery({
+    limit: params.limit,
+    cursor: params.cursor,
+    level: params.level,
+    keyword: params.keyword,
+  });
+  return request<DiagnosticsEventsPage>(`/diagnostics/events${query}`, options);
+}
+
+export interface FrontendEventPayload {
+  message: string;
+  level?: string;
+  timestamp?: string;
+  errorType?: string;
+  errorStack?: string;
+  url?: string;
+  userAgent?: string;
+  module?: string;
+  requestId?: string;
+  page?: string;
+}
+
+export function postFrontendEvent(
+  body: FrontendEventPayload,
+  options: { signal?: AbortSignal } = {},
+): Promise<FrontendEventResponse> {
+  return request<FrontendEventResponse>(`/diagnostics/frontend-events`, {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    signal: options.signal,
+  });
 }

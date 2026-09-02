@@ -12,12 +12,59 @@ import { createApp } from "vue";
 import { ElLoading, ElNotification } from "element-plus";
 
 import App from "./App.vue";
+import { postFrontendEvent } from "./api/diagnostics";
 
 // ── 全局未捕获错误处理 ──────────────────────────────────────────
 
 const ERROR_NOTIFICATION_DURATION = 5000;
+const REPORT_DEDUP_WINDOW_MS = 15_000;
+const recentReports = new Map<string, number>();
 
-/** 全局错误统一处理：记录日志 + 生产环境弹窗提示用户。 */
+function shouldReport(key: string): boolean {
+  const now = Date.now();
+  const last = recentReports.get(key) ?? 0;
+  if (now - last < REPORT_DEDUP_WINDOW_MS) return false;
+  recentReports.set(key, now);
+  // 防止 map 无限增长
+  if (recentReports.size > 64) {
+    const oldest = [...recentReports.entries()].sort((a, b) => a[1] - b[1])[0];
+    if (oldest) recentReports.delete(oldest[0]);
+  }
+  return true;
+}
+
+function extractErrorParts(error: unknown): { message: string; stack?: string; type?: string } {
+  if (error instanceof Error) {
+    return { message: error.message || error.name, stack: error.stack, type: error.name };
+  }
+  if (typeof error === "string") return { message: error };
+  try {
+    return { message: JSON.stringify(error) };
+  } catch {
+    return { message: String(error) };
+  }
+}
+
+function reportToBackend(prefix: string, error?: unknown): void {
+  const parts = extractErrorParts(error);
+  const key = `${prefix}|${parts.type ?? ""}|${parts.message}`;
+  if (!shouldReport(key)) return;
+  // fire-and-forget：失败静默，避免递归触发 errorHandler
+  void postFrontendEvent({
+    message: parts.message.slice(0, 2000),
+    level: "ERROR",
+    errorType: parts.type,
+    errorStack: parts.stack?.slice(0, 8000),
+    module: prefix,
+    url: typeof window !== "undefined" ? window.location.href : undefined,
+    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+    timestamp: new Date().toISOString(),
+  }).catch(() => {
+    /* ignore */
+  });
+}
+
+/** 全局错误统一处理：记录日志 + 生产环境弹窗提示用户 + 上报诊断中心。 */
 function reportGlobalError(
   consolePrefix: string,
   title: string,
@@ -25,6 +72,7 @@ function reportGlobalError(
   error?: unknown,
 ): void {
   console.error(consolePrefix, error);
+  reportToBackend(consolePrefix, error);
   // 开发环境避免重复弹窗污染调试体验
   if (import.meta.env.DEV) return;
   ElNotification.error({ title, message, duration: ERROR_NOTIFICATION_DURATION });

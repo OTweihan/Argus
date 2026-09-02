@@ -82,6 +82,11 @@ async def test_analyze_success(client: WhiteboxClient) -> None:
     assert "com.example.HelloController#hello" in result.call_graph.nodes
     assert len(result.findings) == 1
     assert result.findings[0].rule_id == "EMPTY_CATCH"
+    # 跨服务链路：默认注入 X-Request-ID
+    kwargs = mock_http.request.await_args.kwargs
+    headers = kwargs.get("headers") or {}
+    assert "X-Request-ID" in headers
+    assert headers["X-Request-ID"]
 
 
 @pytest.mark.asyncio
@@ -134,6 +139,38 @@ async def test_analyze_diagnostics_classpath_details(client: WhiteboxClient) -> 
     assert result.diagnostics.classpath_exit_code == 1
     assert result.diagnostics.classpath_duration_ms == 1234
     assert result.diagnostics.classpath_stderr_tail == "[ERROR] failed"
+
+
+@pytest.mark.asyncio
+async def test_request_id_header_uses_context_and_preserves_explicit(
+    client: WhiteboxClient,
+) -> None:
+    """注入 context request_id；调用方显式头不被覆盖。"""
+    from argus_py.observability.context import bind_context
+
+    with patch.object(client, "_get_client") as mock_get_client:
+        mock_http = AsyncMock()
+        mock_http.request.return_value = _mock_response(
+            200, {"endpoints": [], "callGraph": {}, "findings": []}
+        )
+        mock_get_client.return_value = mock_http
+
+        with bind_context(request_id="req_from_context"):
+            await client.analyze("/tmp/test-project")
+        headers = mock_http.request.await_args.kwargs.get("headers") or {}
+        assert headers.get("X-Request-ID") == "req_from_context"
+
+        mock_http.request.reset_mock()
+        mock_http.request.return_value = _mock_response(
+            200, {"endpoints": [], "callGraph": {}, "findings": []}
+        )
+        await client._request(
+            "GET",
+            "/argus/api/analyze/jobs/x",
+            headers={"X-Request-ID": "req_explicit"},
+        )
+        headers = mock_http.request.await_args.kwargs.get("headers") or {}
+        assert headers.get("X-Request-ID") == "req_explicit"
 
 
 @pytest.mark.asyncio

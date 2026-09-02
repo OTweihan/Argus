@@ -48,14 +48,22 @@ class TestContextPropagation:
 
     @pytest.mark.asyncio
     async def test_propagates_all_context_vars(self) -> None:
-        with bind_context(request_id="req_x", task_id="tk_x", operation="op_x", actor="admin"):
-            ctx = await run_in_thread(current_context)
-        assert ctx == {
-            "request_id": "req_x",
-            "task_id": "tk_x",
-            "operation": "op_x",
-            "actor": "admin",
-        }
+        from argus_py.observability.context import init_process_run_id, reset_process_run_id
+
+        reset_process_run_id()
+        init_process_run_id("run_fixed_for_test")
+        try:
+            with bind_context(request_id="req_x", task_id="tk_x", operation="op_x", actor="admin"):
+                ctx = await run_in_thread(current_context)
+            assert ctx == {
+                "request_id": "req_x",
+                "task_id": "tk_x",
+                "operation": "op_x",
+                "actor": "admin",
+                "run_id": "run_fixed_for_test",
+            }
+        finally:
+            reset_process_run_id()
 
     @pytest.mark.asyncio
     async def test_thread_gets_default_when_no_context_set(self) -> None:

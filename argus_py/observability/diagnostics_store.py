@@ -19,6 +19,7 @@ import base64
 import json
 import re
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,8 +33,15 @@ _RUN_ID_PATTERN = re.compile(r"^[0-9]{8}-[0-9]{6}$")
 _DEV_LINE_PATTERN = re.compile(r"^(\S+) \[([a-z]+)\]\[([a-z]+)\] (.*)$", re.IGNORECASE)
 
 _COMPONENTS = frozenset({"python", "java", "frontend", "launcher", "system", "web"})
-# 只在 dev 会话中产生的组件：查询时回退扫描会话目录
-_DEV_ONLY_COMPONENTS = frozenset({"java", "frontend", "launcher"})
+# 仍主要依赖 dev 会话目录的组件（运行时 JSONL 尚未覆盖或仅作补充）
+_DEV_ONLY_COMPONENTS = frozenset({"frontend", "launcher"})
+# runtime 子目录 → 诊断 component；python 保持历史路径 runtime/python/argus*
+_RUNTIME_COMPONENT_DIRS: dict[str, str] = {
+    "python": "python",
+    "java": "java",
+    "web": "web",
+    "system": "system",
+}
 _LEVEL_ORDER: dict[str, int] = {
     "TRACE": 0,
     "DEBUG": 10,
@@ -268,15 +276,17 @@ class FileDiagnosticsLogStore:
 
     覆盖两类数据源：
 
-    - ``runtime/python/argus*``：JsonLogFormatter 输出的 JSON Lines（含轮转备份）；
+    - ``runtime/{python,java,web,system}/``：结构化 JSON Lines
+      （Python ``argus*``、Java ``*.jsonl``、前端异常与系统事件）；
     - ``dev/<run-id>/{python,java,frontend}.log``：dev.mjs 会话纯文本日志，
-      为 Java / 前端组件提供第一阶段唯一可见的日志来源。
+      作为开发态补充来源（与 runtime 并存时按文件独立定位，不跨源去重）。
     """
 
     def __init__(self, logs_root: Path) -> None:
         self._logs_root = Path(logs_root).resolve()
         self._logs_root.mkdir(parents=True, exist_ok=True)
-        self._runtime_dir = self._logs_root / "runtime" / "python"
+        self._runtime_root = self._logs_root / "runtime"
+        self._runtime_dir = self._runtime_root / "python"
         self._dev_dir = self._logs_root / "dev"
         self._scan_max_bytes = _DEFAULT_SCAN_BUDGET_BYTES
 
@@ -493,24 +503,73 @@ class FileDiagnosticsLogStore:
             files = [_entry(run_dir / name) for name in wanted if (run_dir / name).is_file()]
             return sorted(files, key=lambda pair: _mtime(pair[0]), reverse=True)
 
+        results: list[tuple[Path, str]] = []
+
         if component in _DEV_ONLY_COMPONENTS:
-            # Java / 前端第一阶段仅有 dev 会话来源：扫最近若干会话目录。
-            results: list[tuple[Path, str]] = []
+            # 前端 / launcher 仍以 dev 会话为主。
             for run_name in self._list_run_dirs(limit=20):
                 candidate = self._dev_dir / run_name / f"{component}.log"
                 if candidate.is_file():
                     results.append(_entry(candidate))
             return sorted(results, key=lambda pair: _mtime(pair[0]), reverse=True)
 
-        # 默认：Python 运行时 JSONL（含轮转备份 argus.log.1 等），按 mtime 新→旧
-        if not self._runtime_dir.is_dir():
+        # 运行时结构化日志：按组件过滤或全量合并。
+        results.extend(self._runtime_candidate_files(component, _entry))
+
+        # Java 尚无 runtime JSONL 时回退最近 dev 会话，避免完全不可见。
+        if component in (None, "java"):
+            has_java_runtime = any(rel.startswith("runtime/java/") for _, rel in results)
+            if not has_java_runtime:
+                for run_name in self._list_run_dirs(limit=20):
+                    candidate = self._dev_dir / run_name / "java.log"
+                    if candidate.is_file():
+                        results.append(_entry(candidate))
+
+        # 去重（同一绝对路径可能被多次加入）后按 mtime 新→旧
+        deduped: dict[str, tuple[Path, str]] = {}
+        for path, rel in results:
+            deduped[str(path)] = (path, rel)
+        return sorted(deduped.values(), key=lambda pair: _mtime(pair[0]), reverse=True)
+
+    def _runtime_candidate_files(
+        self,
+        component: str | None,
+        entry_fn: Callable[[Path], tuple[Path, str]],
+    ) -> list[tuple[Path, str]]:
+        """收集 runtime 下结构化日志文件。"""
+        if not self._runtime_root.is_dir():
             return []
-        files = [
-            _entry(path)
-            for path in self._runtime_dir.glob("argus*")
-            if path.is_file() and (path.suffix == ".log" or re.fullmatch(r"\.\d+", path.suffix))
-        ]
-        return sorted(files, key=lambda pair: _mtime(pair[0]), reverse=True)
+
+        dirs: list[tuple[str, Path]] = []
+        if component is None:
+            for name in _RUNTIME_COMPONENT_DIRS:
+                dirs.append((name, self._runtime_root / name))
+        elif component in _RUNTIME_COMPONENT_DIRS:
+            dirs.append((component, self._runtime_root / component))
+        else:
+            return []
+
+        files: list[tuple[Path, str]] = []
+        for name, directory in dirs:
+            if not directory.is_dir():
+                continue
+            if name == "python":
+                # 历史路径：argus.log / argus.error.log / 轮转备份 argus.log.1
+                for path in directory.glob("argus*"):
+                    if path.is_file() and (
+                        path.suffix == ".log" or re.fullmatch(r"\.\d+", path.suffix)
+                    ):
+                        files.append(entry_fn(path))
+            else:
+                for path in directory.iterdir():
+                    if not path.is_file():
+                        continue
+                    # JSONL 正式扩展名；兼容 .log 内容为 JSON Lines 的落盘
+                    if path.suffix.lower() in {".jsonl", ".log"} or re.fullmatch(
+                        r"\.\d+", path.suffix
+                    ):
+                        files.append(entry_fn(path))
+        return files
 
     def _list_run_dirs(self, limit: int) -> list[str]:
         if not self._dev_dir.is_dir():
@@ -772,7 +831,8 @@ class FileDiagnosticsLogStore:
         if not isinstance(payload, dict):
             return None
         timestamp = str(payload.get("timestamp") or "")
-        exception = payload.get("exception")
+        exception = payload.get("exception") or payload.get("errorStack")
+        component = _component_from_runtime_path(rel_path, payload)
         return DiagnosticsEvent(
             event_id=_encode_event_locator(
                 _EventLocator(
@@ -784,7 +844,7 @@ class FileDiagnosticsLogStore:
             ),
             timestamp=timestamp or "1970-01-01T00:00:00+00:00",
             level=str(payload.get("level") or "INFO").upper(),
-            component="python",
+            component=component,
             module=str(payload.get("logger") or payload.get("module") or ""),
             message=str(payload.get("message") or ""),
             request_id=_optional_str(payload.get("requestId")),
@@ -923,6 +983,36 @@ def _optional_str(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _component_from_runtime_path(rel_path: str, payload: dict[str, Any]) -> str:
+    """从 runtime 相对路径或 payload.component/service 推断诊断组件名。"""
+    parts = rel_path.replace("\\", "/").split("/")
+    if len(parts) >= 2 and parts[0] == "runtime":
+        folder = parts[1].lower()
+        if folder in _RUNTIME_COMPONENT_DIRS:
+            return _RUNTIME_COMPONENT_DIRS[folder]
+    explicit = _optional_str(payload.get("component"))
+    if explicit:
+        lowered = explicit.lower()
+        if lowered in _COMPONENTS:
+            return lowered
+        if lowered in {"argus-web", "web", "frontend"}:
+            return "web"
+        if lowered in {"argus-java", "java"}:
+            return "java"
+        if lowered in {"argus-python", "python"}:
+            return "python"
+        if lowered in {"argus-system", "system"}:
+            return "system"
+    service = (_optional_str(payload.get("service")) or "").lower()
+    if "java" in service:
+        return "java"
+    if "web" in service or "frontend" in service:
+        return "web"
+    if "system" in service:
+        return "system"
+    return "python"
 
 
 def _to_iso(value: datetime) -> str:

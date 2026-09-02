@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from argus_py.api.schemas.base import ApiModel
 
@@ -115,3 +115,83 @@ class RunsListResponse(ApiModel):
     """启动会话列表（新会话在前）。"""
 
     runs: list[RunSummaryResponse] = Field(default_factory=list)
+
+
+class FrontendEventRequest(ApiModel):
+    """前端异常上报请求体（方案 17.8）。"""
+
+    message: str = Field(min_length=1, max_length=4096)
+    level: str = Field(default="ERROR", max_length=16)
+    timestamp: str | None = Field(default=None, max_length=64)
+    error_type: str | None = Field(default=None, alias="errorType", max_length=256)
+    error_stack: str | None = Field(default=None, alias="errorStack", max_length=16384)
+    url: str | None = Field(default=None, max_length=1024)
+    user_agent: str | None = Field(default=None, alias="userAgent", max_length=1024)
+    module: str | None = Field(default=None, max_length=256)
+    request_id: str | None = Field(default=None, alias="requestId", max_length=128)
+    page: str | None = Field(default=None, max_length=256)
+
+    @field_validator("message")
+    @classmethod
+    def _strip_message(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            raise ValueError("message 不能为空")
+        return text
+
+
+class FrontendEventResponse(ApiModel):
+    """前端异常上报回执。"""
+
+    accepted: bool = True
+    event_id: str | None = Field(default=None, alias="eventId")
+
+
+class DiagnosticsSystemInfoResponse(ApiModel):
+    """系统信息（方案 13 / 17.10）。"""
+
+    argus_version: str = Field(alias="argusVersion")
+    python_version: str = Field(alias="pythonVersion")
+    python_service_version: str = Field(alias="pythonServiceVersion")
+    os_name: str = Field(alias="osName")
+    os_release: str = Field(alias="osRelease")
+    architecture: str
+    hostname: str
+    pid: int
+    cpu_count: int | None = Field(default=None, alias="cpuCount")
+    run_id: str = Field(alias="runId")
+    started_at: str = Field(alias="startedAt")
+    uptime_seconds: float = Field(alias="uptimeSeconds")
+    working_directory: str = Field(alias="workingDirectory")
+    project_root: str = Field(alias="projectRoot")
+    logs_directory: str = Field(alias="logsDirectory")
+    data_directory: str = Field(alias="dataDirectory")
+    output_directory: str = Field(alias="outputDirectory")
+    deployment_mode: str = Field(alias="deploymentMode")
+    log_data_source: str = Field(alias="logDataSource")
+    java_analyzer_url: str = Field(alias="javaAnalyzerUrl")
+    java_runtime_logs_present: bool = Field(alias="javaRuntimeLogsPresent")
+    disk: dict[str, int] | None = None
+    java_status: ServiceStatusResponse | None = Field(default=None, alias="javaStatus")
+
+
+class DiagnosticsOverviewResponse(ApiModel):
+    """诊断概览（方案 17.1）。"""
+
+    run_id: str = Field(alias="runId")
+    services: list[ServiceStatusResponse] = Field(default_factory=list)
+    logs_usage: LogsUsageResponse | None = Field(default=None, alias="logsUsage")
+    error_count_last_hour: int = Field(default=0, alias="errorCountLastHour")
+    recent_system_events: list[DiagnosticsLogEntry] = Field(
+        default_factory=list, alias="recentSystemEvents"
+    )
+    checked_at: str = Field(alias="checkedAt")
+
+
+class DiagnosticsEventsPage(ApiModel):
+    """系统事件分页（复用日志条目形状）。"""
+
+    items: list[DiagnosticsLogEntry] = Field(default_factory=list)
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    has_more: bool = Field(default=False, alias="hasMore")
+    scan_limited: bool = Field(default=False, alias="scanLimited")

@@ -42,8 +42,8 @@ from argus_py.observability import (
     start_trace_writer,
     stop_trace_writer,
 )
-from argus_py.observability.context import set_io_executor
-from argus_py.observability.events import STATUS_ERROR, log_event
+from argus_py.observability.context import get_process_run_id, init_process_run_id, set_io_executor
+from argus_py.observability.events import STATUS_ERROR, STATUS_SUCCESS, log_event
 from argus_py.runtime.container import create_container, shutdown_container
 from argus_py.utils.logger import setup_logging
 
@@ -117,6 +117,9 @@ def create_app() -> FastAPI:
         app.state.lifespan_ready = False
         _raise_if_multi_worker()
         _warn_loose_source_roots(settings)
+        run_id = init_process_run_id()
+        # 传播给同机 Java 进程（dev.mjs / Compose 也可显式注入同一值）。
+        os.environ.setdefault("ARGUS_RUN_ID", run_id)
         ensure_fernet_key(_DefaultDBProbe(DEFAULT_DB_PATH))
         lock = SingleInstanceLock(OUTPUT_DIR / ".argus-singleton.lock")
         if not lock.acquire(owner=f"pid={os.getpid()}; app={PROJECT_NAME}"):
@@ -162,9 +165,44 @@ def create_app() -> FastAPI:
         try:
             await worker.start()
             app.state.lifespan_ready = True
+            log_event(
+                logger,
+                "service.started",
+                status=STATUS_SUCCESS,
+                details={
+                    "runId": get_process_run_id(),
+                    "pid": os.getpid(),
+                    "version": PROJECT_VERSION,
+                },
+                message=f"Argus 服务已就绪 runId={get_process_run_id()}",
+            )
+            try:
+                from argus_py.observability.system_events import append_system_event
+
+                append_system_event(
+                    "service.started",
+                    result="success",
+                    details={
+                        "pid": os.getpid(),
+                        "version": PROJECT_VERSION,
+                        "runId": get_process_run_id(),
+                    },
+                )
+            except Exception:
+                log_event(logger, "lifespan.system_event", status=STATUS_ERROR, exc_info=True)
             yield
         finally:
             app.state.lifespan_ready = False
+            try:
+                from argus_py.observability.system_events import append_system_event
+
+                append_system_event(
+                    "service.stopped",
+                    result="success",
+                    details={"pid": os.getpid(), "runId": get_process_run_id()},
+                )
+            except Exception:
+                logger.debug("写入 service.stopped 系统事件失败", exc_info=True)
             try:
                 await worker.stop(settings.scheduler_shutdown_timeout_seconds)
             finally:

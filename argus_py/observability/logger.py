@@ -46,6 +46,7 @@ _WHITELIST_ATTR_MAP: dict[str, str] = {
     "task_id": "taskId",
     "operation": "operation",
     "actor": "actor",
+    "run_id": "runId",
     "event": "event",
     "status": "status",
     "duration_ms": "durationMs",
@@ -74,7 +75,7 @@ class JsonLogFormatter(logging.Formatter):
     输出字段：
     - 顶层固定：timestamp / level / logger / message / module / function / line
     - 顶层白名单（命中才输出）：requestId / taskId / operation / actor /
-      event / status / durationMs / details / http
+      runId / event / status / durationMs / details / http
     - extra 子对象：调用方 ``logger.info(..., extra={"foo": "bar"})`` 中
       未被白名单收纳的字段都会归集到 ``extra`` 下，并经过递归脱敏。
     - exception / stack：超过阈值会被截断，避免日志条目过大。
@@ -84,6 +85,9 @@ class JsonLogFormatter(logging.Formatter):
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
             "level": record.levelname,
+            # 与诊断方案 14.2/14.4 对齐：固定 service/component，便于跨组件检索。
+            "service": "argus-python",
+            "component": "python",
             "logger": record.name,
             "message": record.getMessage(),
             "module": record.module,

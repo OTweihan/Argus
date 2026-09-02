@@ -318,3 +318,70 @@ class TestConcurrencyGuard:
         with TestClient(app) as test_client:
             resp = test_client.get(f"{API_PREFIX}/diagnostics/logs")
             assert resp.status_code == 429
+
+
+class TestPhase2Endpoints:
+    def test_overview_shape(self, client: TestClient) -> None:
+        resp = client.get(f"{API_PREFIX}/diagnostics/overview")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "runId" in body
+        assert "services" in body
+        assert "errorCountLastHour" in body
+        assert "checkedAt" in body
+        names = {s["name"] for s in body["services"]}
+        assert "python" in names
+        assert "java" in names
+
+    def test_system_info_shape(self, client: TestClient) -> None:
+        resp = client.get(f"{API_PREFIX}/diagnostics/system")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["argusVersion"]
+        assert body["runId"]
+        assert body["logsDirectory"]
+        assert "javaRuntimeLogsPresent" in body
+        assert body["javaStatus"]["name"] == "java"
+
+    def test_frontend_event_accepted(self, client: TestClient, logs_root: Path) -> None:
+        resp = client.post(
+            f"{API_PREFIX}/diagnostics/frontend-events",
+            json={
+                "message": "boom from ui",
+                "level": "ERROR",
+                "errorType": "TypeError",
+                "module": "test",
+            },
+        )
+        assert resp.status_code == 202
+        body = resp.json()
+        assert body["accepted"] is True
+        assert body["eventId"]
+        path = logs_root / "runtime" / "web" / "frontend-events.jsonl"
+        assert path.is_file()
+        line = path.read_text(encoding="utf-8").strip().splitlines()[-1]
+        payload = json.loads(line)
+        assert payload["component"] == "web"
+        assert payload["message"] == "boom from ui"
+
+    def test_system_events_list(self, client: TestClient, logs_root: Path) -> None:
+        from argus_py.observability.context import init_process_run_id, reset_process_run_id
+        from argus_py.observability.system_events import append_system_event
+
+        reset_process_run_id()
+        init_process_run_id("run_test_events")
+        try:
+            append_system_event(
+                "service.started",
+                result="success",
+                details={"pid": 1},
+                logs_root=logs_root,
+            )
+        finally:
+            reset_process_run_id()
+
+        resp = client.get(f"{API_PREFIX}/diagnostics/events")
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert any(e["message"] == "service.started" for e in items)
+        assert all(e["component"] == "system" for e in items)

@@ -4,7 +4,9 @@ export const COMPONENT_OPTIONS = [
   { value: "", label: "全部组件" },
   { value: "python", label: "Python" },
   { value: "java", label: "Java" },
-  { value: "frontend", label: "前端" },
+  { value: "web", label: "Web" },
+  { value: "frontend", label: "前端(会话)" },
+  { value: "system", label: "系统" },
 ] as const;
 
 export const LEVEL_OPTIONS = [

@@ -55,6 +55,9 @@ _ACTIVE_RUNTIME_LOGS: frozenset[str] = frozenset(
         "runtime/python/argus.error.log",
         "runtime/python/argus.audit.log",
         "runtime/python/argus.access.log",
+        "runtime/java/argus-java.jsonl",
+        "runtime/web/frontend-events.jsonl",
+        "runtime/system/events.jsonl",
     }
 )
 
@@ -72,6 +75,9 @@ _PRESERVED_LOG_DIRS: frozenset[str] = frozenset(
     {
         "runtime",
         "runtime/python",
+        "runtime/java",
+        "runtime/web",
+        "runtime/system",
         "dev",
     }
 )
@@ -121,6 +127,14 @@ def _resolve_log_retention(
             return rotated
         # 非标准轮转文件（如 argus.audit.log.backup）回退到 --days
         return ("fallback", fallback_days)
+
+    # 诊断二期：Java / 前端异常 / 系统事件
+    if relative_path.startswith("runtime/java/"):
+        return ("runtime-java", 30)
+    if relative_path.startswith("runtime/web/"):
+        return ("runtime-frontend-events", 14)
+    if relative_path.startswith("runtime/system/"):
+        return ("runtime-system-events", 90)
 
     # dev 会话目录 — 按文件 mtime 清理，同一 <run-id> 中的文件可能各自到达阈值
     if relative_path.startswith("dev/"):

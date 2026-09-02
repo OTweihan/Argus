@@ -89,6 +89,27 @@ def logs_root(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (run_dir / "combined.log").write_text("combined superset\n", encoding="utf-8")
+
+    # 诊断二期：Java runtime JSONL（与 Python 同 requestId，供跨服务追踪）
+    java_dir = tmp_path / "runtime" / "java"
+    java_dir.mkdir(parents=True)
+    (java_dir / "argus-java.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": (base - timedelta(minutes=9)).isoformat(),
+                "level": "INFO",
+                "service": "argus-java",
+                "component": "java",
+                "logger": "com.argus.analyzer.api.AnalysisController",
+                "message": "analyze accepted",
+                "requestId": "req_abc",
+                "runId": "run_shared",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return tmp_path
 
 
@@ -99,20 +120,34 @@ def store(logs_root: Path) -> FileDiagnosticsLogStore:
 
 class TestSearch:
     def test_newest_first_order(self, store: FileDiagnosticsLogStore) -> None:
-        page = store.search(DiagnosticsQuery(limit=10))
+        page = store.search(DiagnosticsQuery(component="python", limit=10))
         messages = [e.message for e in page.items]
         assert messages[0] == "newest info"
         assert messages[-1] == "oldest info"
         assert not page.has_more
         assert all(e.component == "python" for e in page.items)
 
+    def test_java_runtime_jsonl_and_request_trace(self, store: FileDiagnosticsLogStore) -> None:
+        page = store.search(DiagnosticsQuery(component="java", limit=10))
+        assert any(e.message == "analyze accepted" for e in page.items)
+        assert all(e.component == "java" for e in page.items)
+
+        timeline = store.search_by_request_id("req_abc", limit=20)
+        components = {e.component for e in timeline}
+        assert "python" in components
+        assert "java" in components
+        # 时间正序：Java 在 -9min，Python boom 在 -10min / newest 在 0
+        assert timeline[0].timestamp <= timeline[-1].timestamp
+
     def test_limit_and_cursor_pagination(self, store: FileDiagnosticsLogStore) -> None:
-        page1 = store.search(DiagnosticsQuery(limit=2))
+        page1 = store.search(DiagnosticsQuery(component="python", limit=2))
         assert len(page1.items) == 2
         assert page1.has_more
         assert page1.next_cursor
 
-        page2 = store.search(DiagnosticsQuery(limit=2, cursor=page1.next_cursor))
+        page2 = store.search(
+            DiagnosticsQuery(component="python", limit=2, cursor=page1.next_cursor)
+        )
         ids1 = {e.event_id for e in page1.items}
         assert all(e.event_id not in ids1 for e in page2.items)
         assert [e.message for e in page2.items] == ["warn thing", "oldest info"]
@@ -122,7 +157,7 @@ class TestSearch:
         store: FileDiagnosticsLogStore,
         logs_root: Path,
     ) -> None:
-        page1 = store.search(DiagnosticsQuery(limit=2))
+        page1 = store.search(DiagnosticsQuery(component="python", limit=2))
         assert page1.next_cursor
 
         base = datetime(2026, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
@@ -138,7 +173,9 @@ class TestSearch:
             encoding="utf-8",
         )
 
-        page2 = store.search(DiagnosticsQuery(limit=2, cursor=page1.next_cursor))
+        page2 = store.search(
+            DiagnosticsQuery(component="python", limit=2, cursor=page1.next_cursor)
+        )
 
         assert [event.message for event in page2.items] == ["warn thing", "oldest info"]
 
@@ -236,7 +273,13 @@ class TestSearch:
 
     def test_request_id_filter(self, store: FileDiagnosticsLogStore) -> None:
         events = store.search_by_request_id("req_abc")
-        assert [e.message for e in events] == ["boom happened", "newest info"]
+        # 跨服务：Python boom/newest + Java runtime JSONL，时间正序
+        assert [e.message for e in events] == [
+            "boom happened",
+            "analyze accepted",
+            "newest info",
+        ]
+        assert {e.component for e in events} == {"python", "java"}
 
     def test_corrupt_lines_skipped(self, store: FileDiagnosticsLogStore) -> None:
         page = store.search(DiagnosticsQuery())
@@ -245,14 +288,31 @@ class TestSearch:
     def test_time_range_filter(self, store: FileDiagnosticsLogStore) -> None:
         start = datetime(2026, 8, 26, 11, 50, tzinfo=timezone.utc)
         page = store.search(DiagnosticsQuery(time_from=start))
-        assert {e.message for e in page.items} == {"boom happened", "newest info"}
+        assert {e.message for e in page.items} == {
+            "boom happened",
+            "analyze accepted",
+            "newest info",
+        }
 
 
 class TestJavaFrontendFromDevRuns:
-    def test_component_java_scans_dev_runs(self, store: FileDiagnosticsLogStore) -> None:
+    def test_component_java_prefers_runtime_jsonl(self, store: FileDiagnosticsLogStore) -> None:
+        page = store.search(DiagnosticsQuery(component="java"))
+        assert [e.message for e in page.items] == ["analyze accepted"]
+        assert page.items[0].component == "java"
+        assert page.items[0].run_id == "run_shared"
+
+    def test_component_java_falls_back_to_dev_when_no_runtime(self, tmp_path: Path) -> None:
+        base = datetime(2026, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
+        run_dir = tmp_path / "dev" / RUN_ID
+        run_dir.mkdir(parents=True)
+        (run_dir / "java.log").write_text(
+            _dev_line(base, "java", "stdout", "java started") + "\n",
+            encoding="utf-8",
+        )
+        store = FileDiagnosticsLogStore(tmp_path)
         page = store.search(DiagnosticsQuery(component="java"))
         assert [e.message for e in page.items] == ["java started"]
-        assert page.items[0].component == "java"
         assert page.items[0].run_id == RUN_ID
 
     def test_component_frontend(self, store: FileDiagnosticsLogStore) -> None:

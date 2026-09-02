@@ -1196,6 +1196,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/diagnostics/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Overview
+         * @description 诊断概览：服务摘要、近 1h ERROR 近似计数、系统事件与日志用量。
+         */
+        get: operations["get_overview_argus_api_diagnostics_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get System Info
+         * @description 系统信息（方案 17.10），附带当前 Java 健康快照。
+         */
+        get: operations["get_system_info_argus_api_diagnostics_system_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List System Events
+         * @description 系统事件流（投影 runtime/system JSONL，方案 17.9）。
+         */
+        get: operations["list_system_events_argus_api_diagnostics_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/frontend-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Frontend Event
+         * @description 接收前端未捕获异常（方案 17.8）；有界写入 runtime/web JSONL。
+         */
+        post: operations["post_frontend_event_argus_api_diagnostics_frontend_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/argus/api/projects/{project_id}/regression-cases": {
         parameters: {
             query?: never;
@@ -1821,6 +1901,26 @@ export interface components {
             items?: components["schemas"]["DiagnosticsLogEntry"][];
         };
         /**
+         * DiagnosticsEventsPage
+         * @description 系统事件分页（复用日志条目形状）。
+         */
+        DiagnosticsEventsPage: {
+            /** Items */
+            items?: components["schemas"]["DiagnosticsLogEntry"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            /**
+             * Hasmore
+             * @default false
+             */
+            hasMore: boolean;
+            /**
+             * Scanlimited
+             * @default false
+             */
+            scanLimited: boolean;
+        };
+        /**
          * DiagnosticsLogDetail
          * @description 单条日志详情：完整消息、原始 JSON 与文件来源（方案 8.4）。
          */
@@ -1904,6 +2004,26 @@ export interface components {
             lineNumber: number;
         };
         /**
+         * DiagnosticsOverviewResponse
+         * @description 诊断概览（方案 17.1）。
+         */
+        DiagnosticsOverviewResponse: {
+            /** Runid */
+            runId: string;
+            /** Services */
+            services?: components["schemas"]["ServiceStatusResponse"][];
+            logsUsage?: components["schemas"]["LogsUsageResponse"] | null;
+            /**
+             * Errorcountlasthour
+             * @default 0
+             */
+            errorCountLastHour: number;
+            /** Recentsystemevents */
+            recentSystemEvents?: components["schemas"]["DiagnosticsLogEntry"][];
+            /** Checkedat */
+            checkedAt: string;
+        };
+        /**
          * DiagnosticsResponse
          * @description 白盒诊断信息。注意：completeness 结论不在此处，在摘要接口。
          */
@@ -1953,6 +2073,59 @@ export interface components {
             logsUsage?: components["schemas"]["LogsUsageResponse"] | null;
             /** Checkedat */
             checkedAt: string;
+        };
+        /**
+         * DiagnosticsSystemInfoResponse
+         * @description 系统信息（方案 13 / 17.10）。
+         */
+        DiagnosticsSystemInfoResponse: {
+            /** Argusversion */
+            argusVersion: string;
+            /** Pythonversion */
+            pythonVersion: string;
+            /** Pythonserviceversion */
+            pythonServiceVersion: string;
+            /** Osname */
+            osName: string;
+            /** Osrelease */
+            osRelease: string;
+            /** Architecture */
+            architecture: string;
+            /** Hostname */
+            hostname: string;
+            /** Pid */
+            pid: number;
+            /** Cpucount */
+            cpuCount?: number | null;
+            /** Runid */
+            runId: string;
+            /** Startedat */
+            startedAt: string;
+            /** Uptimeseconds */
+            uptimeSeconds: number;
+            /** Workingdirectory */
+            workingDirectory: string;
+            /** Projectroot */
+            projectRoot: string;
+            /** Logsdirectory */
+            logsDirectory: string;
+            /** Datadirectory */
+            dataDirectory: string;
+            /** Outputdirectory */
+            outputDirectory: string;
+            /** Deploymentmode */
+            deploymentMode: string;
+            /** Logdatasource */
+            logDataSource: string;
+            /** Javaanalyzerurl */
+            javaAnalyzerUrl: string;
+            /** Javaruntimelogspresent */
+            javaRuntimeLogsPresent: boolean;
+            /** Disk */
+            disk?: {
+                [key: string]: number;
+            } | null;
+            javaStatus?: components["schemas"]["ServiceStatusResponse"] | null;
         };
         /**
          * DiagnosticsTraceResponse
@@ -2239,6 +2412,48 @@ export interface components {
          * @enum {string}
          */
         FindingType: "functional" | "visual" | "performance" | "security" | "accessibility" | "error" | "style" | "code_quality" | "unknown";
+        /**
+         * FrontendEventRequest
+         * @description 前端异常上报请求体（方案 17.8）。
+         */
+        FrontendEventRequest: {
+            /** Message */
+            message: string;
+            /**
+             * Level
+             * @default ERROR
+             */
+            level: string;
+            /** Timestamp */
+            timestamp?: string | null;
+            /** Errortype */
+            errorType?: string | null;
+            /** Errorstack */
+            errorStack?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Useragent */
+            userAgent?: string | null;
+            /** Module */
+            module?: string | null;
+            /** Requestid */
+            requestId?: string | null;
+            /** Page */
+            page?: string | null;
+        };
+        /**
+         * FrontendEventResponse
+         * @description 前端异常上报回执。
+         */
+        FrontendEventResponse: {
+            /**
+             * Accepted
+             * @default true
+             */
+            accepted: boolean;
+            /** Eventid */
+            eventId?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -5601,6 +5816,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosticsLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_overview_argus_api_diagnostics_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsOverviewResponse"];
+                };
+            };
+        };
+    };
+    get_system_info_argus_api_diagnostics_system_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsSystemInfoResponse"];
+                };
+            };
+        };
+    };
+    list_system_events_argus_api_diagnostics_events_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                level?: string | null;
+                keyword?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsEventsPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_frontend_event_argus_api_diagnostics_frontend_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FrontendEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrontendEventResponse"];
                 };
             };
             /** @description Validation Error */

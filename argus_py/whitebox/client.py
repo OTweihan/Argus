@@ -163,6 +163,7 @@ class WhiteboxClient:
             单次请求超时；为 None 时使用客户端默认值。
         """
         effective_timeout = timeout if timeout is not None else self._request_timeout
+        kwargs = self._with_request_id_headers(kwargs)
         try:
             client = await self._get_client()
             response = await client.request(method, path, timeout=effective_timeout, **kwargs)
@@ -188,6 +189,28 @@ class WhiteboxClient:
                 f"请求失败 {response.status_code}: {method} {path}: {response.text[:500]}"
             )
         return response
+
+    @staticmethod
+    def _with_request_id_headers(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """注入 ``X-Request-ID``，便于 Java 侧 MDC 与诊断追踪串联。
+
+        - 优先保留调用方显式传入的头（大小写不敏感）；
+        - 否则取当前 context 的 request_id；
+        - 仍无则用 task_id 派生或生成新的 request id，保证 Java 始终有关联键。
+        """
+        from argus_py.observability.context import current_context, new_request_id
+
+        headers = dict(kwargs.get("headers") or {})
+        has_request_id = any(str(key).lower() == "x-request-id" for key in headers)
+        if not has_request_id:
+            ctx = current_context()
+            request_id = ctx.get("request_id") or (
+                f"task_{ctx['task_id']}" if ctx.get("task_id") else new_request_id()
+            )
+            headers["X-Request-ID"] = request_id
+        if headers:
+            kwargs = {**kwargs, "headers": headers}
+        return kwargs
 
     # ── 分析接口 ──────────────────────────────────────────────────────────
 

@@ -10,15 +10,18 @@
     </section>
 
     <el-alert
-      type="info"
+      type="success"
       :closable="false"
       show-icon
-      title="当前数据范围"
-      description="已接入 Python 结构化日志与本地开发会话；Java 日志和跨服务 Request ID 链路仍在逐步接入。"
+      title="链路能力"
+      description="已接入 Python / Java / Web 结构化日志；跨服务 Request ID 可在「请求追踪」中串联。Java 运行时 JSONL 依赖 Analyzer 写入 runtime/java。"
       class="phase-tip"
     />
     <el-tabs v-model="activeTab" class="diagnostics-tabs">
-      <el-tab-pane label="服务状态" name="services">
+      <el-tab-pane label="概览" name="overview">
+        <OverviewPanel v-if="activeTab === 'overview'" />
+      </el-tab-pane>
+      <el-tab-pane label="服务状态" name="services" lazy>
         <ServicesPanel v-if="activeTab === 'services'" />
       </el-tab-pane>
       <el-tab-pane label="运行日志" name="logs" lazy>
@@ -30,6 +33,12 @@
       <el-tab-pane label="启动会话" name="runs" lazy>
         <RunsPanel v-if="activeTab === 'runs'" />
       </el-tab-pane>
+      <el-tab-pane label="系统事件" name="events" lazy>
+        <EventsPanel v-if="activeTab === 'events'" />
+      </el-tab-pane>
+      <el-tab-pane label="系统信息" name="system" lazy>
+        <SystemPanel v-if="activeTab === 'system'" />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -37,12 +46,15 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
+import OverviewPanel from "./OverviewPanel.vue";
 import ServicesPanel from "./ServicesPanel.vue";
 import LogsPanel from "./LogsPanel.vue";
 import TracePanel from "./TracePanel.vue";
 import RunsPanel from "./RunsPanel.vue";
+import EventsPanel from "./EventsPanel.vue";
+import SystemPanel from "./SystemPanel.vue";
 
-const activeTab = ref("services");
+const activeTab = ref("overview");
 </script>
 
 <style scoped>

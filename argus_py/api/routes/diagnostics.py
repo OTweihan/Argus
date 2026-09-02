@@ -22,11 +22,16 @@ from argus_py.api.dependencies import (
 )
 from argus_py.api.schemas import (
     DiagnosticsContextResponse,
+    DiagnosticsEventsPage,
     DiagnosticsLogDetail,
     DiagnosticsLogEntry,
     DiagnosticsLogPage,
+    DiagnosticsOverviewResponse,
     DiagnosticsServicesResponse,
+    DiagnosticsSystemInfoResponse,
     DiagnosticsTraceResponse,
+    FrontendEventRequest,
+    FrontendEventResponse,
     LogsUsageResponse,
     RunsListResponse,
     RunSummaryResponse,
@@ -40,6 +45,7 @@ from argus_py.observability.diagnostics_store import (
     DiagnosticsNotFoundError,
     DiagnosticsQuery,
 )
+from argus_py.observability.frontend_events import append_frontend_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
@@ -314,3 +320,87 @@ async def search_run_logs(
         semaphore, settings, "runs.logs", store.search_run_logs, run_id, query
     )
     return DiagnosticsLogPage(**page.to_wire())
+
+
+# ── 概览 / 系统信息 / 系统事件 / 前端异常 ──────────────────────────────────
+
+
+@router.get("/overview", response_model=DiagnosticsOverviewResponse)
+async def get_overview(
+    service: ServiceDep,
+    semaphore: SemaphoreDep,
+    settings: SettingsDep,
+) -> DiagnosticsOverviewResponse:
+    """诊断概览：服务摘要、近 1h ERROR 近似计数、系统事件与日志用量。"""
+    overview = await _guarded_or_40x(semaphore, settings, "overview", service.overview_sync)
+    java = await service.java_status()
+    services = list(overview.get("services") or [])
+    services.insert(1, java.to_wire())
+    logs_usage = overview.get("logsUsage")
+    return DiagnosticsOverviewResponse(
+        run_id=str(overview.get("runId") or ""),
+        services=[ServiceStatusResponse(**item) for item in services],
+        logs_usage=LogsUsageResponse(**logs_usage) if isinstance(logs_usage, dict) else None,
+        error_count_last_hour=int(overview.get("errorCountLastHour") or 0),
+        recent_system_events=[
+            DiagnosticsLogEntry(**item) for item in (overview.get("recentSystemEvents") or [])
+        ],
+        checked_at=str(overview.get("checkedAt") or datetime.now(timezone.utc).isoformat()),
+    )
+
+
+@router.get("/system", response_model=DiagnosticsSystemInfoResponse)
+async def get_system_info(
+    service: ServiceDep,
+    semaphore: SemaphoreDep,
+    settings: SettingsDep,
+) -> DiagnosticsSystemInfoResponse:
+    """系统信息（方案 17.10），附带当前 Java 健康快照。"""
+    info = await _guarded_or_40x(semaphore, settings, "system.info", service.system_info)
+    java = await service.java_status()
+    payload = dict(info)
+    payload["javaStatus"] = java.to_wire()
+    return DiagnosticsSystemInfoResponse.model_validate(payload)
+
+
+@router.get("/events", response_model=DiagnosticsEventsPage)
+async def list_system_events(
+    store: StoreDep,
+    semaphore: SemaphoreDep,
+    settings: SettingsDep,
+    time_from: datetime | None = Query(default=None, alias="from"),
+    time_to: datetime | None = Query(default=None, alias="to"),
+    level: str | None = Query(default=None, max_length=10),
+    keyword: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=100, ge=1, le=_MAX_LIMIT_DEFAULT),
+    cursor: str | None = Query(default=None, max_length=512),
+) -> DiagnosticsEventsPage:
+    """系统事件流（投影 runtime/system JSONL，方案 17.9）。"""
+    query = _query_from_params(
+        time_from, time_to, "system", level, keyword, None, None, limit, cursor
+    )
+    page = await _guarded_or_40x(semaphore, settings, "events.list", store.search, query)
+    return DiagnosticsEventsPage(**page.to_wire())
+
+
+@router.post(
+    "/frontend-events",
+    response_model=FrontendEventResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def post_frontend_event(
+    body: FrontendEventRequest,
+    store: StoreDep,
+    semaphore: SemaphoreDep,
+    settings: SettingsDep,
+) -> FrontendEventResponse:
+    """接收前端未捕获异常（方案 17.8）；有界写入 runtime/web JSONL。"""
+
+    def _write() -> dict[str, Any]:
+        return append_frontend_event(
+            body.model_dump(by_alias=True, exclude_none=True),
+            logs_root=store.logs_root,
+        )
+
+    record = await _guarded(semaphore, settings, "frontend-events.write", _write)
+    return FrontendEventResponse(accepted=True, event_id=record.get("eventId"))

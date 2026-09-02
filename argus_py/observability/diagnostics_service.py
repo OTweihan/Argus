@@ -1,27 +1,30 @@
-"""诊断中心服务状态聚合（docs/optimizations/diagnostics-center-plan.md 第 7 章）。
+"""诊断中心服务状态聚合（docs/optimizations/diagnostics-center-plan.md 第 7/13/17 章）。
 
-MVP 覆盖：Python 进程、Java 分析器（actuator 探测，带 TTL 缓存）、SQLite、
-Web 静态资源、日志目录占用。同步方法由路由层经 ``run_in_thread`` 执行；
-``java_status`` 是唯一异步方法（httpx 探测）。
+覆盖：Python 进程、Java 分析器（actuator 探测，带 TTL 缓存）、SQLite、
+Web 静态资源、日志目录占用、系统信息与概览聚合。同步方法由路由层经
+``run_in_thread`` 执行；``java_status`` / 依赖它的异步聚合是异步方法。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import platform
 import shutil
 import socket
+import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from argus_py.config.server_settings import ServerSettings
-from argus_py.core.paths import API_STATIC_DIR
-from argus_py.observability.diagnostics_store import FileDiagnosticsLogStore
+from argus_py.core.paths import API_STATIC_DIR, DATA_DIR, LOGS_DIR, OUTPUT_DIR, PROJECT_ROOT
+from argus_py.observability.context import get_process_run_id
+from argus_py.observability.diagnostics_store import DiagnosticsQuery, FileDiagnosticsLogStore
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,7 @@ def _iso(dt: datetime) -> str:
 
 
 class DiagnosticsService:
-    """聚合各组件健康状态与日志目录用量。"""
+    """聚合各组件健康状态、系统信息与日志目录用量。"""
 
     def __init__(self, settings: ServerSettings, store: FileDiagnosticsLogStore) -> None:
         self._settings = settings
@@ -138,6 +141,96 @@ class DiagnosticsService:
             pass
         return usage
 
+    def system_info(self) -> dict[str, Any]:
+        """系统信息快照（方案 13.2）；路径适度保留，不展开环境变量全文。"""
+        from argus_py.core.constants import PROJECT_VERSION
+
+        disk: dict[str, int] = {}
+        try:
+            usage = shutil.disk_usage(OUTPUT_DIR)
+            disk = {
+                "totalBytes": usage.total,
+                "freeBytes": usage.free,
+                "usedBytes": usage.used,
+            }
+        except OSError:
+            pass
+
+        java_runtime_dir = self._store.logs_root / "runtime" / "java"
+        java_logs_present = False
+        if java_runtime_dir.is_dir():
+            try:
+                java_logs_present = any(java_runtime_dir.iterdir())
+            except OSError:
+                java_logs_present = False
+
+        return {
+            "argusVersion": PROJECT_VERSION,
+            "pythonVersion": sys.version.split()[0],
+            "pythonServiceVersion": PROJECT_VERSION,
+            "osName": platform.system(),
+            "osRelease": platform.release(),
+            "architecture": platform.machine(),
+            "hostname": local_hostname(),
+            "pid": os.getpid(),
+            "cpuCount": os.cpu_count(),
+            "runId": get_process_run_id(),
+            "startedAt": _iso(_PROCESS_STARTED_AT),
+            "uptimeSeconds": max(
+                0.0, (datetime.now(timezone.utc) - _PROCESS_STARTED_AT).total_seconds()
+            ),
+            "workingDirectory": str(Path.cwd()),
+            "projectRoot": str(PROJECT_ROOT),
+            "logsDirectory": str(self._store.logs_root if self._store.logs_root else LOGS_DIR),
+            "dataDirectory": str(DATA_DIR),
+            "outputDirectory": str(OUTPUT_DIR),
+            "deploymentMode": _deployment_mode(self._settings),
+            "logDataSource": "file",
+            "javaAnalyzerUrl": self._settings.java_analyzer_url,
+            "javaRuntimeLogsPresent": java_logs_present,
+            "disk": disk or None,
+        }
+
+    def recent_error_count(self, hours: float = 1.0, limit_scan: int = 200) -> int:
+        """近 N 小时 ERROR 数量近似值（有界扫描，非精确全局计数）。"""
+        time_from = datetime.now(timezone.utc) - timedelta(hours=max(0.1, hours))
+        page = self._store.search(
+            DiagnosticsQuery(level="ERROR", time_from=time_from, limit=max(1, limit_scan))
+        )
+        return len(page.items)
+
+    def recent_system_events(self, limit: int = 20) -> list[dict[str, Any]]:
+        """最近系统事件（component=system），新→旧。"""
+        page = self._store.search(
+            DiagnosticsQuery(component="system", limit=max(1, min(limit, 100)))
+        )
+        return [event.to_wire() for event in page.items]
+
+    def overview_sync(self) -> dict[str, Any]:
+        """概览同步部分：不含 Java 探测（由异步层合并）。"""
+        python = self.python_status()
+        db = self.db_status()
+        web = self.console_status()
+        usage = self.logs_usage()
+        try:
+            error_count = self.recent_error_count()
+        except Exception:  # noqa: BLE001
+            logger.debug("概览 ERROR 计数失败", exc_info=True)
+            error_count = 0
+        try:
+            events = self.recent_system_events(limit=10)
+        except Exception:  # noqa: BLE001
+            logger.debug("概览系统事件读取失败", exc_info=True)
+            events = []
+        return {
+            "runId": get_process_run_id(),
+            "services": [python.to_wire(), db.to_wire(), web.to_wire()],
+            "logsUsage": usage,
+            "errorCountLastHour": error_count,
+            "recentSystemEvents": events,
+            "checkedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
     # ── 异步探测 ────────────────────────────────────────────────────────
 
     async def java_status(self) -> ServiceStatus:
@@ -189,6 +282,18 @@ class DiagnosticsService:
             )
         self._java_cache = (now, status)
         return status
+
+
+def _deployment_mode(settings: ServerSettings) -> str:
+    env_mode = (os.getenv("ARGUS_DEPLOYMENT_MODE") or "").strip()
+    if env_mode:
+        return env_mode
+    host = (settings.host or "").strip()
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return "local-loopback"
+    if Path("/.dockerenv").exists():
+        return "container"
+    return "local"
 
 
 def _host_of(base_url: str) -> str | None:
