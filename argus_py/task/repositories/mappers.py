@@ -31,10 +31,24 @@ _TASK_SUMMARY_COLUMNS = (
     "execution_attempt",
 )
 
+# load_task_header 窄列：与 TaskFileStorage 口径对齐，禁止拖入 result_json 等大字段。
+_TASK_HEADER_COLUMNS = (
+    "task_id",
+    "status",
+    "project_id",
+    "task_type",
+    "goal",
+)
+
 
 def task_summary_columns() -> str:
     """返回 list_task_summaries 查询用的列名列表。"""
     return ", ".join(_TASK_SUMMARY_COLUMNS)
+
+
+def task_header_columns() -> str:
+    """返回 load_task_header / load_task_headers 查询用的列名列表。"""
+    return ", ".join(_TASK_HEADER_COLUMNS)
 
 
 def task_to_row(task: Task) -> tuple[Any, ...]:

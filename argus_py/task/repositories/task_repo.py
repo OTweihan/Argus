@@ -12,9 +12,13 @@ from argus_py.task.models import Task
 from argus_py.task.repositories.mappers import (
     row_to_task,
     row_to_task_summary,
+    task_header_columns,
     task_summary_columns,
     task_to_row,
 )
+
+# SQLite 默认编译期参数上限 999，与 evidence_repo 对齐留安全余量。
+_BATCH_QUERY_MAX_IDS = 900
 
 
 def _sql_keyword_where(q: str) -> tuple[str, list[str]]:
@@ -134,10 +138,36 @@ class TaskRepository:
         return row is not None
 
     def load_task_header(self, task_id: str) -> dict | None:
-        """只加载 tasks 表的一行（不含日志/发现项）。"""
+        """只加载任务头字段（不含 result_json / whitebox_config_json 等大字段）。"""
         with self._pool.ro_conn() as conn:
-            row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            row = conn.execute(
+                f"SELECT {task_header_columns()} FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
         return dict(row) if row else None
+
+    def load_task_headers(self, task_ids: list[str]) -> dict[str, dict]:
+        """批量加载任务头字段，返回 ``{task_id: header}``。
+
+        空列表直接返回空映射；按块 ``IN`` 查询，避免回归详情轮询等路径的 N+1，
+        并遵守 SQLite 参数上限。
+        """
+        if not task_ids:
+            return {}
+        # 去重保序，防止调用方重复 ID 放大占位符
+        unique_ids = list(dict.fromkeys(task_ids))
+        result: dict[str, dict] = {}
+        with self._pool.ro_conn() as conn:
+            for start in range(0, len(unique_ids), _BATCH_QUERY_MAX_IDS):
+                chunk = unique_ids[start : start + _BATCH_QUERY_MAX_IDS]
+                placeholders = ", ".join(["?"] * len(chunk))
+                rows = conn.execute(
+                    f"SELECT {task_header_columns()} FROM tasks WHERE task_id IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                for row in rows:
+                    result[str(row["task_id"])] = dict(row)
+        return result
 
     def get_report_path(self, task_id: str) -> str | None:
         """窄查询：只返回 report_path 字段。"""
@@ -152,6 +182,27 @@ class TaskRepository:
         with self._pool.ro_conn() as conn:
             row = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         return row["status"] if row else None
+
+    def get_task_statuses(self, task_ids: list[str]) -> dict[str, str]:
+        """批量查询任务状态，返回 ``{task_id: status}``。
+
+        按块 ``IN`` 查询，遵守 SQLite 参数上限。
+        """
+        if not task_ids:
+            return {}
+        unique_ids = list(dict.fromkeys(task_ids))
+        result: dict[str, str] = {}
+        with self._pool.ro_conn() as conn:
+            for start in range(0, len(unique_ids), _BATCH_QUERY_MAX_IDS):
+                chunk = unique_ids[start : start + _BATCH_QUERY_MAX_IDS]
+                placeholders = ", ".join(["?"] * len(chunk))
+                rows = conn.execute(
+                    f"SELECT task_id, status FROM tasks WHERE task_id IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                for row in rows:
+                    result[str(row["task_id"])] = str(row["status"])
+        return result
 
     def update_external_job_checkpoint(
         self,

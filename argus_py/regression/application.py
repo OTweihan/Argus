@@ -106,6 +106,15 @@ class _QueueFullAbort(Exception):
     """提交阶段命中队列容量上限的内部信号。"""
 
 
+class _BatchCreateInterrupted(Exception):
+    """批量创建子任务中途失败；携带已成功创建的 (item, task_id) 供 abort 回收。"""
+
+    def __init__(self, pairs: list[tuple[RegressionRunItem, str]], cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.pairs = pairs
+        self.cause = cause
+
+
 class RegressionService:
     """项目级回归闭环编排：用例 → 批次 → 终态汇总与门禁。"""
 
@@ -354,29 +363,107 @@ class RegressionService:
             {"runId": run.run_id, "projectId": run.project_id, "itemTotal": len(items)},
         )
 
-        submitted: list[tuple[RegressionRunItem, str]] = []
+        # 单次 IO 线程内批量创建子任务 + 回填 item.task_id，避免 N 次 run_in_thread。
+        # 入队仍在事件循环上逐个 try_enqueue（进程内队列 API 是 async）。
+        # 创建后任意失败都要 fail-fast 收口批次，避免 PENDING 僵尸批次等到进程重启。
+        # abort 回收范围 = 已成功创建的全部 pairs（不只是已 try_enqueue 的），
+        # 避免「后半截已 attach 却标 SKIPPED、任务仍 PENDING」的孤儿。
+        created_pairs: list[tuple[RegressionRunItem, str]] = []
+        enqueued_count = 0
         try:
-            for item in items:
-                task = await run_in_thread(self._create_item_task, run, item)
-                submitted.append((item, task.task_id))
-                result = await self._queue.try_enqueue(task.task_id)
+            created_pairs = await run_in_thread(self._create_item_tasks_batch, run, items)
+            for _item, task_id in created_pairs:
+                result = await self._queue.try_enqueue(task_id)
                 if result.rejected:
                     raise _QueueFullAbort()
+                enqueued_count += 1
         except _QueueFullAbort:
-            await self._abort_on_queue_full(run.run_id, items, submitted)
+            await self._abort_create(
+                run.run_id,
+                items,
+                created_pairs,
+                error_code="REGRESSION_QUEUE_FULL",
+                error_message=f"任务队列满载，仅 {enqueued_count} 个子任务进入执行。",
+                item_error_code="BATCH_ABORTED_QUEUE_FULL",
+                running_item_error_code="BATCH_ABORTED_TASK_RUNNING",
+            )
             raise RegressionError(
                 "TASK_QUEUE_FULL",
                 "任务队列已满，回归批次已中止；请稍后重试。",
                 http_status=503,
-                details={"runId": run.run_id, "submitted": len(submitted)},
+                details={"runId": run.run_id, "submitted": enqueued_count},
             )
+        except _BatchCreateInterrupted as exc:
+            logger.exception("回归批次创建子任务失败: run=%s", run.run_id)
+            # 中途失败时 attach 尚未写入：先把已创建 pairs 回填到批次项，
+            # 再走统一 abort，避免 UI/恢复路径看不到 task_id 的孤儿任务。
+            if exc.pairs:
+                try:
+                    await run_in_thread(
+                        self._storage.attach_regression_tasks,
+                        [(item.item_id, task_id) for item, task_id in exc.pairs],
+                    )
+                except Exception:
+                    logger.debug("回归批次失败回填 task_id 失败: run=%s", run.run_id, exc_info=True)
+            await self._abort_create(
+                run.run_id,
+                items,
+                list(exc.pairs),
+                error_code="REGRESSION_CREATE_FAILED",
+                error_message=f"批次创建中断：{exc.cause}",
+                item_error_code="BATCH_ABORTED_CREATE_FAILED",
+                running_item_error_code="BATCH_ABORTED_TASK_RUNNING",
+            )
+            raise RegressionError(
+                "REGRESSION_CREATE_FAILED",
+                "回归批次创建失败，已中止并回收已创建的子任务。",
+                http_status=500,
+                details={"runId": run.run_id, "submitted": len(exc.pairs)},
+            ) from exc.cause
+        except Exception as exc:
+            logger.exception("回归批次创建失败: run=%s", run.run_id)
+            await self._abort_create(
+                run.run_id,
+                items,
+                created_pairs,
+                error_code="REGRESSION_CREATE_FAILED",
+                error_message=f"批次创建中断：{exc}",
+                item_error_code="BATCH_ABORTED_CREATE_FAILED",
+                running_item_error_code="BATCH_ABORTED_TASK_RUNNING",
+            )
+            raise RegressionError(
+                "REGRESSION_CREATE_FAILED",
+                "回归批次创建失败，已中止并回收已创建的子任务。",
+                http_status=500,
+                details={"runId": run.run_id, "submitted": len(created_pairs)},
+            ) from exc
 
         await run_in_thread(self._storage.mark_regression_running, run.run_id)
         persisted = await run_in_thread(self._storage.get_regression_run, run.run_id)
         return persisted or run
 
-    def _create_item_task(self, run: RegressionRun, item: RegressionRunItem) -> Any:
-        """按批次项快照创建子任务并回填关联。"""
+    def _create_item_tasks_batch(
+        self, run: RegressionRun, items: list[RegressionRunItem]
+    ) -> list[tuple[RegressionRunItem, str]]:
+        """同步批量创建子任务并回填关联（由 create_run 经 run_in_thread 调用一次）。
+
+        中途失败时抛 ``_BatchCreateInterrupted``，携带已成功创建的 pairs 供 abort 回收；
+        attach 仅在全部创建成功后统一写入。
+        """
+        pairs: list[tuple[RegressionRunItem, str]] = []
+        attach_pairs: list[tuple[str, str]] = []
+        try:
+            for item in items:
+                task = self._build_item_task(run, item)
+                pairs.append((item, task.task_id))
+                attach_pairs.append((item.item_id, task.task_id))
+            self._storage.attach_regression_tasks(attach_pairs)
+        except Exception as exc:
+            raise _BatchCreateInterrupted(pairs, exc) from exc
+        return pairs
+
+    def _build_item_task(self, run: RegressionRun, item: RegressionRunItem) -> Any:
+        """按批次项快照创建子任务（不单独 attach，由 batch 统一回填）。"""
         raw = json.loads(item.case_snapshot_json)
         snapshot = CaseSnapshot(
             case_id=item.case_id,
@@ -398,7 +485,7 @@ class RegressionService:
                 "caseId": item.case_id,
             },
         }
-        task = self._lifecycle.create_task(
+        return self._lifecycle.create_task(
             goal=snapshot.goal,
             name=f"{_REGRESSION_NAME_PREFIX}{snapshot.name}",
             start_url=snapshot.start_url,
@@ -410,20 +497,32 @@ class RegressionService:
             parameters=parameters,
             whitebox_config_json=snapshot.whitebox_config_json,
         )
+
+    def _create_item_task(self, run: RegressionRun, item: RegressionRunItem) -> Any:
+        """兼容单条路径：创建子任务并立即回填关联。"""
+        task = self._build_item_task(run, item)
         self._storage.attach_regression_task(item.item_id, task.task_id)
         return task
 
-    async def _abort_on_queue_full(
+    async def _abort_create(
         self,
         run_id: str,
         items: list[RegressionRunItem],
         submitted: list[tuple[RegressionRunItem, str]],
+        *,
+        error_code: str,
+        error_message: str,
+        item_error_code: str,
+        running_item_error_code: str = "BATCH_ABORTED_TASK_RUNNING",
     ) -> None:
-        """队列满载 fail-fast：批次先落 FAILED（阻断终态回调路径），再回收子任务。
+        """创建阶段 fail-fast：批次先落 FAILED（阻断终态回调路径），再回收子任务。
 
         顺序很关键：若先取消子任务，其终态回调会在批次仍为 pending 时触发
         正常 finalize（COMPLETED），与失败语义竞态。先 CAS 占住终态后，回调
         自动忽略；批次项状态在此显式镜像。
+
+        ``submitted`` 为已成功创建（可能已 attach / 已入队）的 (item, task_id)；
+        其余 items 标 SKIPPED。
         """
         submitted_ids = {task_id for _, task_id in submitted}
         submitted_items = {item.item_id for item, _ in submitted}
@@ -433,8 +532,8 @@ class RegressionService:
             status=RegressionRunStatus.FAILED,
             gate_result=None,
             summary_json=json.dumps({"fingerprintVersion": FINGERPRINT_VERSION}),
-            error_code="REGRESSION_QUEUE_FULL",
-            error_message=f"任务队列满载，仅 {len(submitted_ids)} 个子任务进入执行。",
+            error_code=error_code,
+            error_message=error_message,
         )
         self._publish(
             "regression.batch.finalized",
@@ -443,35 +542,37 @@ class RegressionService:
         )
 
         # 已入队未执行的子任务移出队列并取消；已在执行的保留跑完（结果仍在
-        # 任务列表可见）。批次项状态同步镜像为终态。
+        # 任务列表可见）。批次项状态在回收结束后批量镜像，避免 N 次 SQLite 往返。
         terminal_statuses = (
             TaskStatus.COMPLETED,
             TaskStatus.FAILED,
             TaskStatus.TIMEOUT,
             TaskStatus.CANCELLED,
         )
+        item_updates: list[dict[str, Any]] = []
         for item in items:
             if item.item_id not in submitted_items:
-                await run_in_thread(
-                    self._storage.update_regression_item_status,
-                    item.item_id,
-                    RegressionItemStatus.SKIPPED,
-                    error_code="BATCH_ABORTED_QUEUE_FULL",
+                item_updates.append(
+                    {
+                        "item_id": item.item_id,
+                        "status": RegressionItemStatus.SKIPPED,
+                        "error_code": item_error_code,
+                    }
                 )
         for item, task_id in submitted:
             mirrored = False
             try:
                 sched = await self._queue.scheduler_status(task_id)
                 if sched == "running":
-                    # 已在执行的子任务保留跑完；批次项保持 running，由其终态
-                    # 回调……不会更新（批次已终态）。这里显式镜像为 cancelled
+                    # 已在执行的子任务保留跑完；批次项显式镜像为 cancelled
                     # 并注明任务仍在执行，结果可在任务列表查看。
-                    await run_in_thread(
-                        self._storage.update_regression_item_status,
-                        item.item_id,
-                        RegressionItemStatus.CANCELLED,
-                        error_code="BATCH_ABORTED_TASK_RUNNING",
-                        error_message="批次已中止，该子任务继续执行至结束（结果不计入本批次）。",
+                    item_updates.append(
+                        {
+                            "item_id": item.item_id,
+                            "status": RegressionItemStatus.CANCELLED,
+                            "error_code": running_item_error_code,
+                            "error_message": "批次已中止，该子任务继续执行至结束（结果不计入本批次）。",
+                        }
                     )
                     mirrored = True
                     continue
@@ -484,13 +585,23 @@ class RegressionService:
                 logger.debug("回归批次中止回收子任务失败: %s", task_id, exc_info=True)
             finally:
                 if not mirrored:
-                    # 已取消/未开始的子任务：批次项显式收口为 cancelled
-                    await run_in_thread(
-                        self._storage.update_regression_item_status,
-                        item.item_id,
-                        RegressionItemStatus.CANCELLED,
-                        error_code="BATCH_ABORTED_QUEUE_FULL",
+                    item_updates.append(
+                        {
+                            "item_id": item.item_id,
+                            "status": RegressionItemStatus.CANCELLED,
+                            "error_code": item_error_code,
+                        }
                     )
+        if item_updates:
+            await run_in_thread(self._storage.update_regression_item_statuses, item_updates)
+        # 防御：submitted_ids 仅用于可观测性日志，避免未使用告警
+        if submitted_ids:
+            logger.debug(
+                "回归批次创建中止: run=%s error=%s submitted=%d",
+                run_id,
+                error_code,
+                len(submitted_ids),
+            )
 
     async def cancel_run(self, run_id: str) -> RegressionRun:
         """取消未完成批次：CAS 置 cancelled 后尽力取消全部未终态子任务。"""
@@ -520,15 +631,17 @@ class RegressionService:
             )
 
         items = await run_in_thread(self._storage.get_regression_items, run_id)
+        item_updates: list[dict[str, Any]] = []
         for item in items:
             if item.status in _ITEM_TERMINAL_STATUSES:
                 continue
             if item.task_id is None:
-                await run_in_thread(
-                    self._storage.update_regression_item_status,
-                    item.item_id,
-                    RegressionItemStatus.SKIPPED,
-                    error_code="BATCH_CANCELLED",
+                item_updates.append(
+                    {
+                        "item_id": item.item_id,
+                        "status": RegressionItemStatus.SKIPPED,
+                        "error_code": "BATCH_CANCELLED",
+                    }
                 )
                 continue
             try:
@@ -550,12 +663,15 @@ class RegressionService:
                 )
             finally:
                 # 批次已终态、终态回调被阻断：批次项状态在此显式收口
-                await run_in_thread(
-                    self._storage.update_regression_item_status,
-                    item.item_id,
-                    RegressionItemStatus.CANCELLED,
-                    error_code="BATCH_CANCELLED",
+                item_updates.append(
+                    {
+                        "item_id": item.item_id,
+                        "status": RegressionItemStatus.CANCELLED,
+                        "error_code": "BATCH_CANCELLED",
+                    }
                 )
+        if item_updates:
+            await run_in_thread(self._storage.update_regression_item_statuses, item_updates)
         self._publish(
             "regression.batch.finalized",
             run_id,
@@ -827,6 +943,9 @@ class RegressionService:
     def get_run_items(self, run_id: str) -> list[dict[str, Any]]:
         """批次项列表，附实时任务状态（tasks 表为权威）。"""
         items = self._storage.get_regression_items(run_id)
+        task_ids = [item.task_id for item in items if item.task_id]
+        # 详情轮询热路径：一次 IN 查询拿全部状态，避免 N 次 SELECT *（含 result_json）。
+        status_by_task = self._storage.get_task_statuses(task_ids) if task_ids else {}
         result: list[dict[str, Any]] = []
         for item in items:
             data: dict[str, Any] = {
@@ -841,12 +960,8 @@ class RegressionService:
                 "errorCode": item.error_code,
                 "errorMessage": item.error_message,
                 "createdAt": item.created_at,
-                "taskStatus": None,
+                "taskStatus": status_by_task.get(item.task_id) if item.task_id else None,
             }
-            if item.task_id:
-                header = self._storage.load_task_header(item.task_id)
-                if header is not None:
-                    data["taskStatus"] = header.get("status")
             result.append(data)
         return result
 
@@ -912,6 +1027,10 @@ class RegressionService:
             )
             return True
 
+        # 一次批量取 header，避免恢复路径对每个 item SELECT *（含大字段）。
+        header_task_ids = [item.task_id for item in items if item.task_id]
+        headers = self._storage.load_task_headers(header_task_ids) if header_task_ids else {}
+
         for item in items:
             if item.status in _ITEM_TERMINAL_STATUSES:
                 continue
@@ -923,7 +1042,7 @@ class RegressionService:
                     error_message="进程重启导致批次创建中断，该用例未提交执行。",
                 )
                 continue
-            header = self._storage.load_task_header(item.task_id)
+            header = headers.get(item.task_id)
             if header is None:
                 self._storage.update_regression_item_status(
                     item.item_id,

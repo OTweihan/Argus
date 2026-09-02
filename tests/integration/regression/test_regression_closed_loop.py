@@ -17,8 +17,9 @@ from argus_py.core.exceptions import ArgusError
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability import aspect
 from argus_py.regression.application import RegressionError, RegressionService
+from argus_py.regression.models import RegressionRun, RegressionRunItem
 from argus_py.task.lifecycle import TaskLifecycleService
-from argus_py.task.models import Finding
+from argus_py.task.models import Finding, Task
 from argus_py.task.storage import TaskSQLiteStorage
 from tests.helpers.factories import AppStack, make_app_stack
 
@@ -376,6 +377,101 @@ class TestQueueFullAbort:
         for item in items:
             task = stack.reader.get_task(item["taskId"])
             assert task.status.value == "cancelled"
+
+
+class TestCreateRunFailureAbort:
+    async def test_mid_create_failure_finalizes_failed_and_cancels_orphans(
+        self, stack: AppStack, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """子任务批量创建中途失败：批次 FAILED，已创建子任务取消，无 PENDING 僵尸。"""
+        pid = await _make_project(stack)
+        stack.regression.create_case(pid, _blackbox_input("用例一"))
+        stack.regression.create_case(pid, _blackbox_input("用例二", displayOrder=1))
+        stack.regression.create_case(pid, _blackbox_input("用例三", displayOrder=2))
+
+        original_build = stack.regression._build_item_task
+        calls = {"n": 0}
+
+        def flaky_build(run: RegressionRun, item: RegressionRunItem) -> Task:
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise RuntimeError("simulated create failure")
+            return original_build(run, item)
+
+        monkeypatch.setattr(stack.regression, "_build_item_task", flaky_build)
+
+        with pytest.raises(RegressionError) as exc_info:
+            await stack.regression.create_run(pid)
+        assert exc_info.value.code == "REGRESSION_CREATE_FAILED"
+        assert exc_info.value.http_status == 500
+
+        runs, total = stack.regression.list_runs(pid)
+        assert total == 1
+        run = runs[0]
+        assert run.status.value == "failed"
+        assert run.error_code == "REGRESSION_CREATE_FAILED"
+
+        items = sorted(
+            stack.regression.get_run_items(run.run_id),
+            key=lambda i: i["displayOrder"],
+        )
+        # 第 1 项已创建 → cancelled；第 2/3 项未创建成功 → skipped
+        assert items[0]["status"] == "cancelled"
+        assert items[0]["taskId"] is not None
+        assert items[0]["taskStatus"] == "cancelled"
+        assert items[1]["status"] == "skipped"
+        assert items[1]["taskId"] is None
+        assert items[2]["status"] == "skipped"
+        assert items[2]["taskId"] is None
+
+        task = stack.reader.get_task(items[0]["taskId"])
+        assert task.status.value == "cancelled"
+
+    async def test_first_create_failure_skips_all_items(
+        self, stack: AppStack, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """首条 create 即失败：pairs 为空，全部 skipped，无孤儿任务。"""
+        pid = await _make_project(stack)
+        stack.regression.create_case(pid, _blackbox_input("用例一"))
+        stack.regression.create_case(pid, _blackbox_input("用例二", displayOrder=1))
+
+        def always_fail(run: RegressionRun, item: RegressionRunItem) -> Task:
+            raise RuntimeError("simulated first create failure")
+
+        monkeypatch.setattr(stack.regression, "_build_item_task", always_fail)
+
+        with pytest.raises(RegressionError) as exc_info:
+            await stack.regression.create_run(pid)
+        assert exc_info.value.code == "REGRESSION_CREATE_FAILED"
+        assert exc_info.value.http_status == 500
+        assert exc_info.value.details.get("submitted") == 0
+
+        runs, total = stack.regression.list_runs(pid)
+        assert total == 1
+        run = runs[0]
+        assert run.status.value == "failed"
+        assert run.error_code == "REGRESSION_CREATE_FAILED"
+
+        items = sorted(
+            stack.regression.get_run_items(run.run_id),
+            key=lambda i: i["displayOrder"],
+        )
+        assert len(items) == 2
+        for item in items:
+            assert item["status"] == "skipped"
+            assert item["taskId"] is None
+            assert item["taskStatus"] is None
+
+    async def test_get_run_items_exposes_live_task_status(self, stack: AppStack) -> None:
+        pid = await _make_project(stack)
+        stack.regression.create_case(pid, _blackbox_input())
+        run = await stack.regression.create_run(pid)
+        (item,) = stack.regression.get_run_items(run.run_id)
+        assert item["taskId"]
+        assert item["taskStatus"] == "pending"
+        _finish_task(stack, item["taskId"])
+        (after,) = stack.regression.get_run_items(run.run_id)
+        assert after["taskStatus"] == "completed"
 
 
 class TestRecovery:

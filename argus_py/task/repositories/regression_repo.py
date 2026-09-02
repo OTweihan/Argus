@@ -428,6 +428,16 @@ class RegressionRepository:
                 (task_id, item_id),
             )
 
+    def attach_tasks(self, pairs: list[tuple[str, str]]) -> None:
+        """批量回填 item→task_id（单事务）。"""
+        if not pairs:
+            return
+        with self._pool.tx() as conn:
+            conn.executemany(
+                "UPDATE regression_run_items SET task_id = ? WHERE item_id = ?",
+                [(task_id, item_id) for item_id, task_id in pairs],
+            )
+
     def update_item_status(
         self,
         item_id: str,
@@ -437,21 +447,45 @@ class RegressionRepository:
         error_code: str | None = None,
         error_message: str | None = None,
     ) -> None:
-        sets = ["status = ?"]
-        params: list[Any] = [status.value]
-        if finding_count is not None:
-            sets.append("finding_count = ?")
-            params.append(finding_count)
-        sets.append("error_code = ?")
-        params.append(error_code)
-        sets.append("error_message = ?")
-        params.append(error_message)
-        params.append(item_id)
+        self.update_item_statuses(
+            [
+                {
+                    "item_id": item_id,
+                    "status": status,
+                    "finding_count": finding_count,
+                    "error_code": error_code,
+                    "error_message": error_message,
+                }
+            ]
+        )
+
+    def update_item_statuses(self, updates: list[dict[str, Any]]) -> None:
+        """批量更新批次项状态（单事务，减少 abort/cancel 的 N 次往返）。
+
+        每项字典键：``item_id``、``status``（RegressionItemStatus）、可选
+        ``finding_count`` / ``error_code`` / ``error_message``。
+        """
+        if not updates:
+            return
         with self._pool.tx() as conn:
-            conn.execute(
-                f"UPDATE regression_run_items SET {', '.join(sets)} WHERE item_id = ?",
-                params,
-            )
+            for entry in updates:
+                item_id = str(entry["item_id"])
+                status = entry["status"]
+                status_value = status.value if hasattr(status, "value") else str(status)
+                sets = ["status = ?"]
+                params: list[Any] = [status_value]
+                if entry.get("finding_count") is not None:
+                    sets.append("finding_count = ?")
+                    params.append(entry["finding_count"])
+                sets.append("error_code = ?")
+                params.append(entry.get("error_code"))
+                sets.append("error_message = ?")
+                params.append(entry.get("error_message"))
+                params.append(item_id)
+                conn.execute(
+                    f"UPDATE regression_run_items SET {', '.join(sets)} WHERE item_id = ?",
+                    params,
+                )
 
     def count_item_statuses(self, run_id: str) -> dict[str, int]:
         with self._pool.ro_conn() as conn:

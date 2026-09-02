@@ -673,3 +673,76 @@ class TestAnalysisRunTerminalStates:
         run = store.get_analysis_run("a-invalid")
         assert run is not None
         assert run.run_status == "RUNNING"
+
+
+class TestTaskHeaderNarrowRead:
+    """load_task_header / load_task_headers / get_task_statuses 不得拖入大字段。"""
+
+    def test_load_task_header_excludes_result_json(self, store: TaskSQLiteStorage) -> None:
+        blob = "X" * 200_000
+        task = Task(
+            task_id="t-header",
+            goal="窄头查询",
+            project_id="p1",
+            result_json=blob,
+            whitebox_config_json='{"huge": true}',
+        )
+        store.save(task)
+
+        header = store.load_task_header("t-header")
+        assert header is not None
+        assert header["task_id"] == "t-header"
+        assert header["status"] == TaskStatus.PENDING.value
+        assert header["project_id"] == "p1"
+        assert header["task_type"] == TaskType.BLACKBOX.value
+        assert header["goal"] == "窄头查询"
+        assert "result_json" not in header
+        assert "whitebox_config_json" not in header
+        assert "parameters" not in header
+
+    def test_load_task_headers_and_statuses_batch(self, store: TaskSQLiteStorage) -> None:
+        store.save(Task(task_id="a", goal="A", status=TaskStatus.PENDING, project_id="p"))
+        store.save(Task(task_id="b", goal="B", status=TaskStatus.RUNNING, project_id="p"))
+        store.save(Task(task_id="c", goal="C", status=TaskStatus.COMPLETED, project_id="p"))
+
+        headers = store.load_task_headers(["a", "b", "missing", "a"])
+        assert set(headers) == {"a", "b"}
+        assert headers["a"]["goal"] == "A"
+        assert headers["b"]["status"] == TaskStatus.RUNNING.value
+        assert "result_json" not in headers["a"]
+
+        statuses = store.get_task_statuses(["c", "a", "nope", "c"])
+        assert statuses == {
+            "a": TaskStatus.PENDING.value,
+            "c": TaskStatus.COMPLETED.value,
+        }
+
+    def test_empty_batch_helpers(self, store: TaskSQLiteStorage) -> None:
+        assert store.load_task_headers([]) == {}
+        assert store.get_task_statuses([]) == {}
+
+    def test_batch_helpers_chunk_over_sqlite_param_limit(
+        self, store: TaskSQLiteStorage, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """超过 SQLite 参数上限时按块 IN，结果仍完整合并。"""
+        from argus_py.task.repositories import task_repo as task_repo_mod
+
+        monkeypatch.setattr(task_repo_mod, "_BATCH_QUERY_MAX_IDS", 2)
+        ids = [f"t{i}" for i in range(5)]
+        for i, task_id in enumerate(ids):
+            status = TaskStatus.PENDING if i % 2 == 0 else TaskStatus.RUNNING
+            store.save(Task(task_id=task_id, goal=f"G{i}", status=status, project_id="p"))
+
+        headers = store.load_task_headers(ids + ["missing", ids[0]])
+        assert set(headers) == set(ids)
+        assert headers["t0"]["goal"] == "G0"
+        assert headers["t3"]["status"] == TaskStatus.RUNNING.value
+
+        statuses = store.get_task_statuses(ids + ["nope", ids[1]])
+        assert statuses == {
+            "t0": TaskStatus.PENDING.value,
+            "t1": TaskStatus.RUNNING.value,
+            "t2": TaskStatus.PENDING.value,
+            "t3": TaskStatus.RUNNING.value,
+            "t4": TaskStatus.PENDING.value,
+        }

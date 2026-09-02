@@ -127,6 +127,15 @@ class TaskFileStorage:
             return None
         return self.load(task_id).status.value
 
+    def get_task_statuses(self, task_ids: list[str]) -> dict[str, str]:
+        """批量读取任务状态，返回 ``{task_id: status}``。"""
+        result: dict[str, str] = {}
+        for task_id in dict.fromkeys(task_ids):
+            status = self.get_task_status(task_id)
+            if status is not None:
+                result[task_id] = status
+        return result
+
     def get_report_path(self, task_id: str) -> str | None:
         """读取任务报告路径（文件不存在时为 None）。"""
         if not self.exists(task_id):
@@ -145,6 +154,15 @@ class TaskFileStorage:
             "task_type": data.get("task_type"),
             "goal": data.get("goal"),
         }
+
+    def load_task_headers(self, task_ids: list[str]) -> dict[str, dict]:
+        """批量读取任务头字段，返回 ``{task_id: header}``。"""
+        result: dict[str, dict] = {}
+        for task_id in dict.fromkeys(task_ids):
+            header = self.load_task_header(task_id)
+            if header is not None:
+                result[task_id] = header
+        return result
 
     def count_findings(self) -> int:
         """返回全部任务的发现项数量。"""
@@ -299,11 +317,17 @@ class TaskSQLiteStorage:
     def load_task_header(self, task_id: str) -> dict | None:
         return self._tasks.load_task_header(task_id)
 
+    def load_task_headers(self, task_ids: list[str]) -> dict[str, dict]:
+        return self._tasks.load_task_headers(task_ids)
+
     def get_report_path(self, task_id: str) -> str | None:
         return self._tasks.get_report_path(task_id)
 
     def get_task_status(self, task_id: str) -> str | None:
         return self._tasks.get_task_status(task_id)
+
+    def get_task_statuses(self, task_ids: list[str]) -> dict[str, str]:
+        return self._tasks.get_task_statuses(task_ids)
 
     def update_external_job_checkpoint(
         self,
@@ -934,8 +958,14 @@ class TaskSQLiteStorage:
     def attach_regression_task(self, item_id: str, task_id: str) -> None:
         self._regression.attach_task(item_id, task_id)
 
+    def attach_regression_tasks(self, pairs: list[tuple[str, str]]) -> None:
+        self._regression.attach_tasks(pairs)
+
     def update_regression_item_status(self, item_id: str, status: Any, **kwargs: Any) -> None:
         self._regression.update_item_status(item_id, status, **kwargs)
+
+    def update_regression_item_statuses(self, updates: list[dict[str, Any]]) -> None:
+        self._regression.update_item_statuses(updates)
 
     def count_regression_item_statuses(self, run_id: str) -> dict[str, int]:
         return self._regression.count_item_statuses(run_id)
