@@ -133,6 +133,23 @@ class TestTryEnqueue:
         assert await queue.get() is None
         await queue.complete(None)
 
+    @pytest.mark.asyncio
+    async def test_cancel_many_removes_only_queued(self) -> None:
+        """cancel_many 一次持锁移出多个排队任务；running 与未知 ID 静默跳过。"""
+        queue = TaskQueue(max_size=4)
+        await queue.try_enqueue("q1")
+        await queue.try_enqueue("q2")
+        await queue.try_enqueue("q3")
+        assert await queue.get() == "q1"  # q1 → running
+        removed = await queue.cancel_many(["q2", "q3", "q1", "missing"])
+        assert removed == 2
+        assert await queue.scheduler_status("q2") is None
+        assert await queue.scheduler_status("q3") is None
+        assert await queue.scheduler_status("q1") == "running"
+        snap = await queue.snapshot_statuses()
+        assert snap == {"q1": "running"}
+        await queue.complete("q1")
+
 
 # ── 应用层：start/restart 队列满载语义 ───────────────────────────────────────
 

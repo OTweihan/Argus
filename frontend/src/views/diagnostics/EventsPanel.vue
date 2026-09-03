@@ -53,16 +53,22 @@ const hasMore = ref(false);
 const scanLimited = ref(false);
 const cursor = ref<string | undefined>(undefined);
 let controller: AbortController | null = null;
+let requestVersion = 0;
 
 async function fetchPage(reset: boolean) {
+  // loadMore 在途时忽略再次 loadMore；reset（刷新）始终打断并重发。
+  if (loading.value && !reset) return;
   controller?.abort();
-  controller = new AbortController();
+  const version = ++requestVersion;
+  const next = new AbortController();
+  controller = next;
   loading.value = true;
   try {
     const page = await listDiagnosticsEvents(
       { limit: 50, cursor: reset ? undefined : cursor.value },
-      { signal: controller.signal },
+      { signal: next.signal },
     );
+    if (version !== requestVersion) return;
     const pageItems = page.items ?? [];
     items.value = reset ? pageItems : [...items.value, ...pageItems];
     hasMore.value = Boolean(page.hasMore);
@@ -70,9 +76,12 @@ async function fetchPage(reset: boolean) {
     cursor.value = page.nextCursor ?? undefined;
   } catch (err) {
     if ((err as { name?: string })?.name === "AbortError") return;
-    ElMessage.error(errorMessage(err));
+    if (version === requestVersion) ElMessage.error(errorMessage(err));
   } finally {
-    loading.value = false;
+    if (version === requestVersion) {
+      if (controller === next) controller = null;
+      loading.value = false;
+    }
   }
 }
 
@@ -88,7 +97,9 @@ onMounted(() => {
   void fetchPage(true);
 });
 onUnmounted(() => {
+  requestVersion += 1;
   controller?.abort();
+  controller = null;
 });
 </script>
 

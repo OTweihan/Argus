@@ -491,8 +491,12 @@ class CorrelationService:
         else:
             alignment = SourceAlignmentStatus.UNVERIFIED
 
-        # 持久化 override 审计字段
+        # 持久化 override 审计字段；操作者来自 HTTP/CLI 绑定的 actor ContextVar
+        # （中间件默认 "api"；无上下文时回落 None，不伪造身份）。
+        from argus_py.observability.context import get_actor
+
         override_at = datetime.now(timezone.utc).isoformat() if source_mismatch_override else None
+        override_by = get_actor() if source_mismatch_override else None
 
         storage.bind_correlation_analysis(
             correlation_run_id,
@@ -501,7 +505,7 @@ class CorrelationService:
             projection_version=expected_projection_version or 1,
             alignment=alignment,
             source_mismatch_overridden=source_mismatch_override,
-            source_mismatch_override_by=None,  # TODO: 从 auth 上下文注入操作者
+            source_mismatch_override_by=override_by,
             source_mismatch_override_at=override_at,
             source_mismatch_override_reason=source_mismatch_override_reason,
         )

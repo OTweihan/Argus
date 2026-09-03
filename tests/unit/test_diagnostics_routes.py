@@ -290,6 +290,37 @@ class TestJavaProbe:
         assert first.status == second.status == "ok"
 
 
+class TestLogsUsageCache:
+    def test_logs_usage_reuses_tree_scan_within_ttl(
+        self, logs_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """TTL 内第二次 logs_usage 不重复 rglob，仍刷新 freeBytes。"""
+        from argus_py.observability.diagnostics_service import DiagnosticsService
+
+        store = FileDiagnosticsLogStore(logs_root)
+        (logs_root / "runtime" / "python").mkdir(parents=True, exist_ok=True)
+        (logs_root / "runtime" / "python" / "a.jsonl").write_text('{"m":1}\n', encoding="utf-8")
+        settings = ServerSettings()
+        service = DiagnosticsService(settings, store)
+
+        scans = {"count": 0}
+        real_rglob = type(logs_root).rglob
+
+        def counting_rglob(self: Path, pattern: str):  # noqa: ANN202
+            scans["count"] += 1
+            return real_rglob(self, pattern)
+
+        monkeypatch.setattr(Path, "rglob", counting_rglob)
+
+        first = service.logs_usage()
+        second = service.logs_usage()
+
+        assert scans["count"] == 1
+        assert first["totalBytes"] == second["totalBytes"]
+        assert first["fileCount"] == second["fileCount"]
+        assert "freeBytes" in second
+
+
 class TestConcurrencyGuard:
     def test_saturated_gate_returns_429(self, logs_root: Path) -> None:
         store = FileDiagnosticsLogStore(logs_root)

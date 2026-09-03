@@ -160,6 +160,23 @@ class TaskQueue:
             self._cancelled_ids.add(task_id)
             return True
 
+    async def cancel_many(self, task_ids: list[str] | tuple[str, ...] | set[str]) -> int:
+        """批量取消仍在排队的任务；一次持锁，返回实际移出队列的数量。
+
+        已在执行（active）或不在队列中的 ID 静默跳过，语义与逐次 ``cancel`` 一致。
+        """
+        if not task_ids:
+            return 0
+        cancelled = 0
+        async with self._lock:
+            for task_id in task_ids:
+                if task_id not in self._queued_ids:
+                    continue
+                self._queued_ids.pop(task_id, None)
+                self._cancelled_ids.add(task_id)
+                cancelled += 1
+        return cancelled
+
     async def scheduler_status(self, task_id: str) -> str | None:
         """查询调度状态。"""
         async with self._lock:

@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 # 模块导入时间 ≈ 服务进程启动时间的近似值（app 工厂在进程启动时导入本模块）。
 _PROCESS_STARTED_AT = datetime.now(timezone.utc)
 _JAVA_CACHE_TTL_SECONDS = 10.0
+# 日志目录全树扫描偏重；ServicesPanel 10s 刷新与 overview 共用 TTL，避免周期性 rglob。
+_LOGS_USAGE_CACHE_TTL_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,7 @@ class DiagnosticsService:
         self._settings = settings
         self._store = store
         self._java_cache: tuple[float, ServiceStatus] | None = None
+        self._logs_usage_cache: tuple[float, dict[str, Any]] | None = None
 
     # ── 同步检查（run_in_thread 执行）───────────────────────────────────
 
@@ -118,8 +121,24 @@ class DiagnosticsService:
         return ServiceStatus(name="web", status=status, detail=detail)
 
     def logs_usage(self) -> dict[str, Any]:
-        """日志目录空间占用（方案 6.2：概览/系统信息字段）。"""
-        root: Path = self._store.logs_root
+        """日志目录空间占用（方案 6.2：概览/系统信息字段）。
+
+        全树 ``rglob`` 在日志轮转较多时偏重；结果带进程内 TTL 缓存，供
+        services/overview 高频刷新复用。``freeBytes`` 仍每次刷新磁盘统计
+        （廉价 syscall），避免长时间显示过期空闲空间。
+        """
+        now = time.monotonic()
+        cached = self._logs_usage_cache
+        if cached is not None and now - cached[0] < _LOGS_USAGE_CACHE_TTL_SECONDS:
+            hit = dict(cached[1])
+            root = Path(str(hit.get("path") or self._store.logs_root))
+            try:
+                hit["freeBytes"] = shutil.disk_usage(root).free
+            except OSError:
+                hit.pop("freeBytes", None)
+            return hit
+
+        root = self._store.logs_root
         total_bytes = 0
         file_count = 0
         if root.is_dir():
@@ -130,7 +149,7 @@ class DiagnosticsService:
                         file_count += 1
                 except OSError:
                     continue
-        usage: dict[str, str | int] = {
+        usage: dict[str, Any] = {
             "path": str(root),
             "totalBytes": total_bytes,
             "fileCount": file_count,
@@ -139,6 +158,11 @@ class DiagnosticsService:
             usage["freeBytes"] = shutil.disk_usage(root).free
         except OSError:
             pass
+        # 缓存不含 freeBytes 的核心字段；读路径再补 freeBytes。
+        self._logs_usage_cache = (
+            now,
+            {"path": usage["path"], "totalBytes": total_bytes, "fileCount": file_count},
+        )
         return usage
 
     def system_info(self) -> dict[str, Any]:

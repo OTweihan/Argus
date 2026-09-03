@@ -2,7 +2,7 @@
 
 from argus_py.observability.aspect import log_operation
 from argus_py.observability.audit import AuditService, audit
-from argus_py.observability.context import bind_context, current_context
+from argus_py.observability.context import bind_context, current_context, get_actor
 from argus_py.observability.events import (
     STATUS_CANCELLED,
     STATUS_ERROR,
@@ -40,6 +40,7 @@ __all__ = [
     "bind_context",
     "cleanup_old_traces",
     "current_context",
+    "get_actor",
     "get_trace_writer",
     "log_event",
     "log_operation",

@@ -504,6 +504,106 @@ class RegressionService:
         self._storage.attach_regression_task(item.item_id, task.task_id)
         return task
 
+    async def _reclaim_submitted_tasks(
+        self,
+        submitted: list[tuple[Any, str]],
+        *,
+        running_item_error_code: str,
+        cancelled_item_error_code: str,
+        leave_running_tasks: bool,
+    ) -> list[dict[str, Any]]:
+        """批量回收已提交子任务并返回批次项状态更新列表。
+
+        - 一次 ``snapshot_statuses`` + ``cancel_many``，避免 N 次队列锁往返；
+        - 一次 ``load_task_headers`` 判断是否已终态，再仅对未终态任务
+          ``cancel_task``（仍须逐任务落盘/发事件，但去掉 N 次全量 load）。
+        - ``leave_running_tasks=True``（创建 fail-fast）：running 子任务保留跑完，
+          批次项镜像为 cancelled 并注明仍在执行；
+          ``False``（用户 cancel）：对 running 也发取消信号并尝试 cancel_task。
+
+        创建 fail-fast 在 cancel 前会再读一次 live ``scheduler_status``：
+        snapshot 为 queued 但 Worker 已取走的任务不得被误 cancel。
+        """
+        if not submitted:
+            return []
+
+        terminal_values = {
+            TaskStatus.COMPLETED.value,
+            TaskStatus.FAILED.value,
+            TaskStatus.TIMEOUT.value,
+            TaskStatus.CANCELLED.value,
+        }
+        status_snapshot = await self._queue.snapshot_statuses()
+        queued_ids = [
+            task_id for _, task_id in submitted if status_snapshot.get(task_id) == "queued"
+        ]
+        if queued_ids:
+            await self._queue.cancel_many(queued_ids)
+
+        # leave_running=False 时，对快照时已 running 的任务先打取消令牌，
+        # 与原先 cancel_run 在 load 前 cancel token 的语义一致。
+        # （snapshot→cancel 之间新升 running 的任务仍由下方 cancel_task 覆盖。）
+        if not leave_running_tasks:
+            for _, task_id in submitted:
+                if status_snapshot.get(task_id) == "running":
+                    try:
+                        self._lifecycle.get_cancellation_token(task_id).cancel()
+                    except Exception:
+                        logger.debug("预取消 running 子任务令牌失败: %s", task_id, exc_info=True)
+
+        task_ids = [task_id for _, task_id in submitted]
+        headers = await run_in_thread(self._lifecycle.storage.load_task_headers, task_ids)
+
+        item_updates: list[dict[str, Any]] = []
+        for item, task_id in submitted:
+            sched = status_snapshot.get(task_id)
+            # 创建 fail-fast：快照已是 running → 保留跑完。
+            if leave_running_tasks and sched == "running":
+                item_updates.append(
+                    self._running_item_mirror_update(item.item_id, running_item_error_code)
+                )
+                continue
+
+            # 创建 fail-fast：快照为 queued/未知，但 cancel_many 后 Worker 已取走
+            # → live 再确认，避免误 cancel 刚拉起的 running 任务。
+            if leave_running_tasks and sched != "running":
+                try:
+                    live = await self._queue.scheduler_status(task_id)
+                except Exception:
+                    live = None
+                    logger.debug("回收前 live 调度状态查询失败: %s", task_id, exc_info=True)
+                if live == "running":
+                    item_updates.append(
+                        self._running_item_mirror_update(item.item_id, running_item_error_code)
+                    )
+                    continue
+
+            try:
+                header = headers.get(task_id)
+                status_value = str(header["status"]) if header and "status" in header else None
+                if status_value is None or status_value not in terminal_values:
+                    await run_in_thread(self._lifecycle.cancel_task, task_id)
+            except Exception:
+                logger.debug("回归批次回收子任务失败: %s", task_id, exc_info=True)
+            item_updates.append(
+                {
+                    "item_id": item.item_id,
+                    "status": RegressionItemStatus.CANCELLED,
+                    "error_code": cancelled_item_error_code,
+                }
+            )
+        return item_updates
+
+    @staticmethod
+    def _running_item_mirror_update(item_id: str, error_code: str) -> dict[str, Any]:
+        """创建 fail-fast：running 子任务保留执行时的批次项镜像。"""
+        return {
+            "item_id": item_id,
+            "status": RegressionItemStatus.CANCELLED,
+            "error_code": error_code,
+            "error_message": "批次已中止，该子任务继续执行至结束（结果不计入本批次）。",
+        }
+
     async def _abort_create(
         self,
         run_id: str,
@@ -542,13 +642,7 @@ class RegressionService:
         )
 
         # 已入队未执行的子任务移出队列并取消；已在执行的保留跑完（结果仍在
-        # 任务列表可见）。批次项状态在回收结束后批量镜像，避免 N 次 SQLite 往返。
-        terminal_statuses = (
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.TIMEOUT,
-            TaskStatus.CANCELLED,
-        )
+        # 任务列表可见）。调度快照 + 批量 cancel/headers，避免 N 次队列/SQLite 往返。
         item_updates: list[dict[str, Any]] = []
         for item in items:
             if item.item_id not in submitted_items:
@@ -559,39 +653,14 @@ class RegressionService:
                         "error_code": item_error_code,
                     }
                 )
-        for item, task_id in submitted:
-            mirrored = False
-            try:
-                sched = await self._queue.scheduler_status(task_id)
-                if sched == "running":
-                    # 已在执行的子任务保留跑完；批次项显式镜像为 cancelled
-                    # 并注明任务仍在执行，结果可在任务列表查看。
-                    item_updates.append(
-                        {
-                            "item_id": item.item_id,
-                            "status": RegressionItemStatus.CANCELLED,
-                            "error_code": running_item_error_code,
-                            "error_message": "批次已中止，该子任务继续执行至结束（结果不计入本批次）。",
-                        }
-                    )
-                    mirrored = True
-                    continue
-                if sched == "queued":
-                    await self._queue.cancel(task_id)
-                task = await run_in_thread(self._lifecycle.storage.load, task_id)
-                if task.status not in terminal_statuses:
-                    await run_in_thread(self._lifecycle.cancel_task, task)
-            except Exception:
-                logger.debug("回归批次中止回收子任务失败: %s", task_id, exc_info=True)
-            finally:
-                if not mirrored:
-                    item_updates.append(
-                        {
-                            "item_id": item.item_id,
-                            "status": RegressionItemStatus.CANCELLED,
-                            "error_code": item_error_code,
-                        }
-                    )
+
+        recovered = await self._reclaim_submitted_tasks(
+            submitted,
+            running_item_error_code=running_item_error_code,
+            cancelled_item_error_code=item_error_code,
+            leave_running_tasks=True,
+        )
+        item_updates.extend(recovered)
         if item_updates:
             await run_in_thread(self._storage.update_regression_item_statuses, item_updates)
         # 防御：submitted_ids 仅用于可观测性日志，避免未使用告警
@@ -632,6 +701,7 @@ class RegressionService:
 
         items = await run_in_thread(self._storage.get_regression_items, run_id)
         item_updates: list[dict[str, Any]] = []
+        submitted: list[tuple[Any, str]] = []
         for item in items:
             if item.status in _ITEM_TERMINAL_STATUSES:
                 continue
@@ -644,32 +714,16 @@ class RegressionService:
                     }
                 )
                 continue
-            try:
-                sched = await self._queue.scheduler_status(item.task_id)
-                if sched == "queued":
-                    await self._queue.cancel(item.task_id)
-                self._lifecycle.get_cancellation_token(item.task_id).cancel()
-                task = await run_in_thread(self._lifecycle.storage.load, item.task_id)
-                if task.status not in (
-                    TaskStatus.COMPLETED,
-                    TaskStatus.FAILED,
-                    TaskStatus.TIMEOUT,
-                    TaskStatus.CANCELLED,
-                ):
-                    await run_in_thread(self._lifecycle.cancel_task, task)
-            except Exception:
-                logger.debug(
-                    "取消批次子任务失败: run=%s task=%s", run_id, item.task_id, exc_info=True
-                )
-            finally:
-                # 批次已终态、终态回调被阻断：批次项状态在此显式收口
-                item_updates.append(
-                    {
-                        "item_id": item.item_id,
-                        "status": RegressionItemStatus.CANCELLED,
-                        "error_code": "BATCH_CANCELLED",
-                    }
-                )
+            submitted.append((item, item.task_id))
+        # 用户取消：排队与运行中的子任务都要信号取消（与创建 fail-fast 不同，
+        # 创建 fail-fast 允许已 running 的任务跑完）。
+        recovered = await self._reclaim_submitted_tasks(
+            submitted,
+            running_item_error_code="BATCH_CANCELLED",
+            cancelled_item_error_code="BATCH_CANCELLED",
+            leave_running_tasks=False,
+        )
+        item_updates.extend(recovered)
         if item_updates:
             await run_in_thread(self._storage.update_regression_item_statuses, item_updates)
         self._publish(

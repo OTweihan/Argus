@@ -173,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getDiagnosticsLogContext,
@@ -195,11 +195,16 @@ const hasMore = ref(false);
 const scanLimited = ref(false);
 const loading = ref(false);
 let searchVersion = 0;
+let searchController: AbortController | null = null;
 
 const drawerVisible = ref(false);
 const detail = ref<DiagnosticsLogDetail | null>(null);
 const contextLoading = ref(false);
 const contextItems = ref<DiagnosticsLogEntry[]>([]);
+let detailVersion = 0;
+let detailController: AbortController | null = null;
+let contextVersion = 0;
+let contextController: AbortController | null = null;
 
 const rawJson = computed(() => (detail.value ? JSON.stringify(detail.value.raw, null, 2) : ""));
 
@@ -226,14 +231,20 @@ function activeFilters(): Record<string, string> {
 
 async function search(reset: boolean): Promise<void> {
   if (loading.value && !reset) return;
+  searchController?.abort();
   const requestVersion = ++searchVersion;
+  const next = new AbortController();
+  searchController = next;
   loading.value = true;
   try {
-    const page = await searchDiagnosticsLogs({
-      ...activeFilters(),
-      limit: PAGE_SIZE,
-      cursor: reset ? undefined : (cursor.value ?? undefined),
-    });
+    const page = await searchDiagnosticsLogs(
+      {
+        ...activeFilters(),
+        limit: PAGE_SIZE,
+        cursor: reset ? undefined : (cursor.value ?? undefined),
+      },
+      { signal: next.signal },
+    );
     if (requestVersion !== searchVersion) return;
     const pageItems = page.items ?? [];
     items.value = reset ? pageItems : [...items.value, ...pageItems];
@@ -241,9 +252,13 @@ async function search(reset: boolean): Promise<void> {
     hasMore.value = page.hasMore;
     scanLimited.value = page.scanLimited;
   } catch (caught) {
+    if ((caught as { name?: string })?.name === "AbortError") return;
     if (requestVersion === searchVersion) ElMessage.error(errorMessage(caught));
   } finally {
-    if (requestVersion === searchVersion) loading.value = false;
+    if (requestVersion === searchVersion) {
+      if (searchController === next) searchController = null;
+      loading.value = false;
+    }
   }
 }
 
@@ -257,27 +272,50 @@ function loadMore(): void {
 }
 
 async function openDetail(entry: DiagnosticsLogEntry): Promise<void> {
+  detailController?.abort();
+  contextController?.abort();
+  const version = ++detailVersion;
+  contextVersion += 1;
+  const next = new AbortController();
+  detailController = next;
   drawerVisible.value = true;
   detail.value = null;
   contextItems.value = [];
   try {
-    detail.value = await getDiagnosticsLogDetail(entry.eventId);
+    detail.value = await getDiagnosticsLogDetail(entry.eventId, { signal: next.signal });
+    if (version !== detailVersion) return;
   } catch (caught) {
-    drawerVisible.value = false;
-    ElMessage.error(errorMessage(caught));
+    if ((caught as { name?: string })?.name === "AbortError") return;
+    if (version === detailVersion) {
+      drawerVisible.value = false;
+      ElMessage.error(errorMessage(caught));
+    }
+  } finally {
+    if (version === detailVersion && detailController === next) detailController = null;
   }
 }
 
 async function loadContext(): Promise<void> {
   if (!detail.value) return;
+  contextController?.abort();
+  const version = ++contextVersion;
+  const next = new AbortController();
+  contextController = next;
   contextLoading.value = true;
   try {
-    const body = await getDiagnosticsLogContext(detail.value.eventId, 20, 20);
+    const body = await getDiagnosticsLogContext(detail.value.eventId, 20, 20, {
+      signal: next.signal,
+    });
+    if (version !== contextVersion) return;
     contextItems.value = body.items ?? [];
   } catch (caught) {
-    ElMessage.error(errorMessage(caught));
+    if ((caught as { name?: string })?.name === "AbortError") return;
+    if (version === contextVersion) ElMessage.error(errorMessage(caught));
   } finally {
-    contextLoading.value = false;
+    if (version === contextVersion) {
+      if (contextController === next) contextController = null;
+      contextLoading.value = false;
+    }
   }
 }
 
@@ -303,6 +341,17 @@ async function copyException(): Promise<void> {
 }
 
 onMounted(resetAndSearch);
+onUnmounted(() => {
+  searchVersion += 1;
+  detailVersion += 1;
+  contextVersion += 1;
+  searchController?.abort();
+  detailController?.abort();
+  contextController?.abort();
+  searchController = null;
+  detailController = null;
+  contextController = null;
+});
 </script>
 
 <style scoped>

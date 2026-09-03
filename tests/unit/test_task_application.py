@@ -371,6 +371,41 @@ def test_bind_analysis_rejects_snapshot_mismatch_without_override(tmp_path: Path
         stack.correlation.bind_analysis("cr-1", "analysis-1")
 
 
+def test_bind_analysis_override_records_actor(tmp_path: Path) -> None:
+    """override 绑定时从 ContextVar actor 写入审计字段。"""
+    from argus_py.observability.context import bind_context
+
+    stack = make_app_stack(tmp_path)
+    project_id = _seed_analysis_run(stack, "analysis-1")
+    storage = stack.lifecycle.storage
+    assert isinstance(storage, TaskSQLiteStorage)
+    storage.create_correlation_run(
+        make_correlation_run(
+            correlation_run_id="cr-1",
+            project_id=project_id,
+            blackbox_run_id="bb-1",
+            analysis_id=None,
+            desired_source_snapshot_id="different-sha",
+            status=CorrelationRunStatus.WAITING_BINDING,
+        )
+    )
+
+    with bind_context(actor="api"):
+        stack.correlation.bind_analysis(
+            "cr-1",
+            "analysis-1",
+            source_mismatch_override=True,
+            source_mismatch_override_reason="确认同源",
+        )
+
+    cr = storage.get_correlation_run("cr-1")
+    assert cr is not None
+    assert cr.source_mismatch_overridden is True
+    assert cr.source_mismatch_override_by == "api"
+    assert cr.source_mismatch_override_reason == "确认同源"
+    assert cr.source_mismatch_override_at is not None
+
+
 def test_retry_correlation_rejects_missing_run(tmp_path: Path) -> None:
     stack = make_app_stack(tmp_path)
     with pytest.raises(ValueError, match="关联运行不存在"):

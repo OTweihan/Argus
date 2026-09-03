@@ -51,8 +51,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         request_id = request.headers.get("x-request-id") or new_request_id()
+        # 最小 actor：HTTP 入口统一记为 api；后续 SSO/按用户身份可覆盖同名字段。
+        # 未启用 Token 时仍写入，便于关联 override 等审计字段与 CLI 路径区分。
         started = perf_counter()
-        with bind_context(request_id=request_id, operation=EVENT_HTTP_REQUEST):
+        with bind_context(request_id=request_id, operation=EVENT_HTTP_REQUEST, actor="api"):
             try:
                 response = await call_next(request)
             except Exception:

@@ -111,6 +111,11 @@ def current_context() -> dict[str, str | None]:
     }
 
 
+def get_actor() -> str | None:
+    """返回当前操作者标识（未绑定时为 None）。"""
+    return _actor.get()
+
+
 @contextmanager
 def bind_context(
     *,

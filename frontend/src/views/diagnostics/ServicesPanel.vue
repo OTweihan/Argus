@@ -84,6 +84,9 @@ const services = ref<ServiceRow[]>([]);
 const logsUsage = ref<ServicesBody["logsUsage"]>(null);
 const checkedAt = ref("");
 let refreshTimer: number | null = null;
+let controller: AbortController | null = null;
+let requestVersion = 0;
+let mounted = false;
 
 function serviceName(name: string): string {
   const labels: Record<string, string> = {
@@ -115,27 +118,61 @@ function statusTagType(status: string): "success" | "danger" | "info" | "warning
 }
 
 async function loadServices(): Promise<void> {
-  if (loading.value) return;
+  controller?.abort();
+  const version = ++requestVersion;
+  const next = new AbortController();
+  controller = next;
   loading.value = true;
   try {
-    const body = await getDiagnosticsServices();
+    const body = await getDiagnosticsServices({ signal: next.signal });
+    if (version !== requestVersion) return;
     services.value = body.services ?? [];
     logsUsage.value = body.logsUsage ?? null;
     checkedAt.value = body.checkedAt ?? "";
   } catch (caught) {
-    ElMessage.error(errorMessage(caught));
+    if ((caught as { name?: string })?.name === "AbortError") return;
+    if (version === requestVersion) ElMessage.error(errorMessage(caught));
   } finally {
-    loading.value = false;
+    if (version === requestVersion) {
+      if (controller === next) controller = null;
+      loading.value = false;
+    }
+  }
+}
+
+function scheduleRefresh(): void {
+  stopRefresh();
+  if (!mounted) return;
+  refreshTimer = window.setTimeout(() => {
+    refreshTimer = null;
+    void (async () => {
+      await loadServices();
+      if (mounted) scheduleRefresh();
+    })();
+  }, REFRESH_SECONDS * 1000);
+}
+
+function stopRefresh(): void {
+  if (refreshTimer !== null) {
+    window.clearTimeout(refreshTimer);
+    refreshTimer = null;
   }
 }
 
 onMounted(() => {
-  void loadServices();
-  refreshTimer = window.setInterval(() => void loadServices(), REFRESH_SECONDS * 1000);
+  mounted = true;
+  void (async () => {
+    await loadServices();
+    scheduleRefresh();
+  })();
 });
 
 onUnmounted(() => {
-  if (refreshTimer !== null) window.clearInterval(refreshTimer);
+  mounted = false;
+  stopRefresh();
+  requestVersion += 1;
+  controller?.abort();
+  controller = null;
 });
 </script>
 
