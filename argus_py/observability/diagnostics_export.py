@@ -33,6 +33,7 @@ from argus_py.observability.diagnostics_store import (
     DiagnosticsQuery,
     DiagnosticsScanBudget,
     FileDiagnosticsLogStore,
+    event_sort_key,
 )
 from argus_py.redaction import redact_sensitive_text
 
@@ -350,7 +351,9 @@ def _collect_events(
     """按过滤条件有界采集事件（新→旧，截断时 truncated=True）。
 
     levels 与检索一致：取最低级别门槛（min-level），不再做精确集合过滤。
-    多 component 时按时间戳 k-way 归并，全局取最新 max_events 条（避免先占满）。
+    跨 component 按与 store 相同的稳定键 k-way 归并，全局取最新 max_events 条（D-02）。
+    同戳次序与 store 一致：timestamp DESC → file DESC → offset DESC。
+    truncated 仅在确认仍有未导出匹配项时为 True（D-06 peek）；预算耗尽走 scan_limited。
     ``scan_budget`` 跨分页累计扫描字节并支持协作取消（D-01）。
     """
     component_filters: list[str | None] = list(components) if components else [None]
@@ -370,25 +373,8 @@ def _collect_events(
             scan_budget=scan_budget,
         )
 
-    # 单组件：顺序取满即可
-    if len(component_filters) == 1:
-        collected: list[DiagnosticsEvent] = []
-        scan_limited = False
-        stream = _stream(component_filters[0])
-        for event, limited in stream:
-            if limited:
-                scan_limited = True
-            collected.append(event)
-            if len(collected) >= max_events:
-                # 再 peek 一条判断是否还有剩余
-                try:
-                    next(stream)
-                    return collected, True, scan_limited
-                except StopIteration:
-                    return collected, False, scan_limited
-        return collected, False, scan_limited
-
-    # 多组件：k-way merge by ISO timestamp desc
+    # 统一 k-way 归并（单组件也是 1 路），按与 store 相同的稳定键取最新 N 条。
+    # D-06：满额后再确认是否仍有 head，而非「凑满即 truncated」。
     heads: list[tuple[DiagnosticsEvent, bool, Iterator[tuple[DiagnosticsEvent, bool]]] | None] = []
     scan_limited = False
     for component in component_filters:
@@ -401,19 +387,18 @@ def _collect_events(
         except StopIteration:
             heads.append(None)
 
-    collected = []
+    collected: list[DiagnosticsEvent] = []
     seen_ids: set[str] = set()
     while len(collected) < max_events:
         best_i = -1
-        best_ts = ""
+        best_key: tuple[str, str, int] | None = None
         for i, head in enumerate(heads):
             if head is None:
                 continue
-            event = head[0]
-            ts = event.timestamp or ""
-            if best_i < 0 or ts > best_ts:
+            key = event_sort_key(head[0])
+            if best_key is None or key > best_key:
                 best_i = i
-                best_ts = ts
+                best_key = key
         if best_i < 0:
             break
 
@@ -432,11 +417,9 @@ def _collect_events(
         except StopIteration:
             heads[best_i] = None
 
-        if len(collected) >= max_events:
-            truncated = any(h is not None for h in heads)
-            return collected, truncated, scan_limited
-
-    return collected, False, scan_limited
+    # 满额且仍有未归并 head → 确认条数截断；否则仅 scan_limited 可能为 True。
+    truncated = len(collected) >= max_events and any(h is not None for h in heads)
+    return collected, truncated, scan_limited
 
 
 def _open_temp_zip() -> tuple[Any, str]:

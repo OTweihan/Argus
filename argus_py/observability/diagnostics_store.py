@@ -10,12 +10,15 @@ dev 会话日志，游标分页、字节预算与路径安全约束全部内聚�
   不引入第二套索引存储；文件轮转后定位失效属预期行为，按 404 处理（JSONL 是事实源）；
 - 所有路径由本模块从日志根目录推导，外部输入只有事件 ID 与 run_id，
   均做穿越校验（方案 18.3）；
-- 同步实现；调用方（route 层）必须经 ``run_in_thread`` 执行（方案第 17 章）。
+- 同步实现；调用方（route 层）必须经 ``run_in_thread`` 执行（方案第 17 章）；
+- 多文件检索按事件时间戳有界归并（D-02），不以文件 mtime 串行占满分页；
+- 同戳稳定次序（对外约定）：timestamp DESC → file 路径 DESC → offset DESC。
 """
 
 from __future__ import annotations
 
 import base64
+import heapq
 import json
 import re
 import threading
@@ -275,6 +278,75 @@ class _CursorPos:
     timestamp: str
 
 
+def event_sort_key(
+    event: DiagnosticsEvent,
+    *,
+    file: str | None = None,
+    offset: int | None = None,
+) -> tuple[str, str, int]:
+    """跨文件归并排序键；取 max 即为最新。
+
+    稳定次序（对外约定，max）：timestamp DESC → file 路径 DESC → offset DESC。
+    热路径可传入已有 ``file``/``offset``，避免反复解码 event_id。
+    """
+    if file is None or offset is None:
+        locator = _decode_event_id(event.event_id)
+        file = locator.file if file is None else file
+        if offset is None:
+            offset = locator.offset if locator.offset is not None else -(locator.line or 0)
+    return (event.timestamp or "", file, offset)
+
+
+def _is_strictly_older_than_cursor(
+    event: DiagnosticsEvent,
+    cursor: _CursorPos,
+    *,
+    sort_key: tuple[str, str, int] | None = None,
+) -> bool:
+    """事件是否严格排在游标锚点「更旧」一侧（不含锚点本身）。
+
+    即 sort_key(event) < sort_key(cursor_anchor)，与归并 max 次序一致。
+    """
+    event_key = sort_key if sort_key is not None else event_sort_key(event)
+    cursor_offset = (
+        cursor.locator.offset if cursor.locator.offset is not None else -(cursor.locator.line or 0)
+    )
+    cursor_key = (cursor.timestamp or "", cursor.locator.file, cursor_offset)
+    return event_key < cursor_key
+
+
+def _push_top_event(
+    heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]],
+    *,
+    key: tuple[str, str, int],
+    seq: int,
+    event: DiagnosticsEvent,
+    limit: int,
+) -> bool:
+    """将匹配事件推入大小为 limit 的最小堆；返回是否已超出 limit（有更多）。
+
+    堆元素为 (sort_key, seq, event)：seq 打破同键比较，避免 event 不可比路径。
+    """
+    if limit <= 0:
+        return True
+    item = (key, seq, event)
+    if len(heap) < limit:
+        heapq.heappush(heap, item)
+        return False
+    if key > heap[0][0]:
+        heapq.heapreplace(heap, item)
+    return True
+
+
+def _finalize_top_events(
+    heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]],
+) -> list[tuple[tuple[str, str, int], DiagnosticsEvent]]:
+    """最小堆 → sort_key 降序列表，供 k-way 线性推进。"""
+    return sorted(
+        ((key, event) for key, _seq, event in heap), key=lambda item: item[0], reverse=True
+    )
+
+
 def _encode_cursor(event: DiagnosticsEvent) -> str:
     locator = _decode_event_id(event.event_id)
     payload: dict[str, object] = {"f": locator.file, "t": event.timestamp}
@@ -354,6 +426,9 @@ class FileDiagnosticsLogStore:
     ) -> DiagnosticsPage:
         """按条件检索日志，新→旧返回至多 limit 条。
 
+        跨文件按事件时间戳归并（D-02），不以文件 mtime 顺序串行占满 limit。
+        稳定次序：timestamp DESC，同戳再按 (file DESC, offset DESC)。
+
         ``scan_budget`` 若提供，则在多次调用间累计消耗字节（导出级预算），
         并在取消/截止后提前结束。
         """
@@ -381,29 +456,37 @@ class FileDiagnosticsLogStore:
         scan_limited = cursor_limited
         has_more = False
 
-        cursor_file_index: int | None = None
+        # 每个候选文件独立读取匹配事件，再按时间 k-way 归并（D-02）。
+        # 精确游标所在文件用 end_offset 排除锚点行及之后内容；
+        # 游标续页：先读游标文件，再按 mtime 升序读其余文件，避免「已翻过、后被
+        # 追加撑大的新 mtime 文件」抢光预算导致更旧事件读不到（分页稳定性）。
+        ordered_candidates = list(candidates)
         if cursor_exact and cursor_pos is not None:
-            cursor_file_index = next(
-                index
-                for index, (_, rel_path) in enumerate(candidates)
-                if rel_path == cursor_pos.locator.file
-            )
+            cursor_file = cursor_pos.locator.file
+            primary = [pair for pair in ordered_candidates if pair[1] == cursor_file]
+            rest = [pair for pair in ordered_candidates if pair[1] != cursor_file]
+            rest_oldest_first = sorted(rest, key=lambda pair: _mtime(pair[0]))
+            ordered_candidates = primary + rest_oldest_first
 
-        for index, (path, rel_path) in enumerate(candidates):
-            if cursor_file_index is not None and index < cursor_file_index:
-                continue
+        # 每文件：已按 sort_key 降序的 (key, event) 列表（有界 top-limit）。
+        per_file: list[list[tuple[tuple[str, str, int], DiagnosticsEvent]]] = []
+        for path, rel_path in ordered_candidates:
             if scan_budget is not None and scan_budget.cancelled():
                 scan_limited = True
                 break
             if budget <= 0:
-                # 还有未读候选文件却被预算截断：提示前端缩小时间范围。
                 scan_limited = True
                 break
-            end_offset = (
-                cursor_pos.locator.offset
-                if cursor_file_index == index and cursor_pos is not None
-                else None
-            )
+
+            end_offset: int | None = None
+            if (
+                cursor_exact
+                and cursor_pos is not None
+                and cursor_pos.locator.file == rel_path
+                and cursor_pos.locator.offset is not None
+            ):
+                end_offset = cursor_pos.locator.offset
+
             records, consumed, file_truncated = self._read_reverse_lines(
                 path,
                 budget,
@@ -412,6 +495,12 @@ class FileDiagnosticsLogStore:
             budget -= consumed
             if file_truncated:
                 scan_limited = True
+
+            # 按 sort_key 在线维护有界 top-limit（D-02：不假设文件内时间与
+            # offset 同调，禁止「反向读先到先得」截断）。
+            top_heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]] = []
+            file_overflow = False
+            match_seq = 0
             for offset, line in records:
                 event = self._build_event(
                     line,
@@ -420,15 +509,49 @@ class FileDiagnosticsLogStore:
                 )
                 if event is None:
                     continue
-                verdict = matcher.match(event)
-                if verdict is not True:
+                if not matcher.match(event):
                     continue
-                if len(collected) >= limit:
-                    has_more = True
-                    break
-                collected.append(event)
-            if has_more:
-                break
+                key = event_sort_key(event, file=rel_path, offset=offset)
+                # 精确游标：跨文件用复合键保证严格更旧侧。
+                if cursor_exact and cursor_pos is not None:
+                    if not _is_strictly_older_than_cursor(event, cursor_pos, sort_key=key):
+                        continue
+                match_seq += 1
+                if _push_top_event(top_heap, key=key, seq=match_seq, event=event, limit=limit):
+                    file_overflow = True
+
+            per_file.append(_finalize_top_events(top_heap))
+            if file_overflow:
+                has_more = True
+
+        # heads: (sort_key, file_idx, event_idx)；取 sort_key 最大者 = 最新。
+        # per_file 项已是 sort_key 降序，可线性推进。
+        heads: list[tuple[tuple[str, str, int], int, int]] = []
+        for file_idx, events in enumerate(per_file):
+            if not events:
+                continue
+            heads.append((events[0][0], file_idx, 0))
+
+        while heads and len(collected) < limit:
+            best_i = 0
+            best_key = heads[0][0]
+            for i in range(1, len(heads)):
+                if heads[i][0] > best_key:
+                    best_i = i
+                    best_key = heads[i][0]
+            _key, file_idx, ev_idx = heads[best_i]
+            collected.append(per_file[file_idx][ev_idx][1])
+
+            next_idx = ev_idx + 1
+            if next_idx < len(per_file[file_idx]):
+                nxt_key, _nxt_event = per_file[file_idx][next_idx]
+                heads[best_i] = (nxt_key, file_idx, next_idx)
+            else:
+                heads.pop(best_i)
+
+        # 归并后仍有剩余匹配 → 确认还有更多（D-06 peek 语义）
+        if heads:
+            has_more = True
 
         if scan_budget is not None:
             scan_budget.consume(starting_budget - budget)

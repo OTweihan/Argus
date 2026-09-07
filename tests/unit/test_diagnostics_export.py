@@ -155,6 +155,69 @@ class TestBuildLogExport:
         assert result.truncated is True
         Path(result.path).unlink(missing_ok=True)
 
+    def test_export_exact_max_events_not_truncated(self, store: FileDiagnosticsLogStore) -> None:
+        """恰好 N 条匹配且上限为 N 时 truncated=False（D-06）。"""
+        # 夹具 4 条 runtime 事件
+        full = build_log_export(store, max_events=50)
+        try:
+            n = full.event_count
+            assert n >= 1
+        finally:
+            Path(full.path).unlink(missing_ok=True)
+
+        exact = build_log_export(store, max_events=n)
+        try:
+            assert exact.event_count == n
+            assert exact.truncated is False
+        finally:
+            Path(exact.path).unlink(missing_ok=True)
+
+        under = build_log_export(store, max_events=max(1, n - 1))
+        try:
+            assert under.event_count == max(1, n - 1)
+            if n > 1:
+                assert under.truncated is True
+        finally:
+            Path(under.path).unlink(missing_ok=True)
+
+    def test_export_component_order_picks_newest(self, tmp_path: Path) -> None:
+        """D-02：components 顺序不影响取最新；不先占满 python。"""
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        py = tmp_path / "runtime" / "python"
+        jv = tmp_path / "runtime" / "java"
+        py.mkdir(parents=True)
+        jv.mkdir(parents=True)
+        (py / "argus.log").write_text(
+            _runtime_line(base.replace(hour=10), "py-10") + "\n",
+            encoding="utf-8",
+        )
+        (jv / "argus-java.jsonl").write_text(
+            json.dumps(
+                {
+                    "timestamp": base.replace(hour=11).isoformat(),
+                    "level": "INFO",
+                    "logger": "java",
+                    "message": "java-11",
+                    "module": "j",
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        store = FileDiagnosticsLogStore(tmp_path)
+        for comps in (["python", "java"], ["java", "python"]):
+            result = build_log_export(store, components=comps, max_events=1)
+            try:
+                assert result.event_count == 1
+                with zipfile.ZipFile(result.path) as zf:
+                    body = zf.read("logs.ndjson").decode("utf-8")
+                    assert "java-11" in body
+                    assert "py-10" not in body
+                assert result.truncated is True  # 确认还有另一条
+            finally:
+                Path(result.path).unlink(missing_ok=True)
+
     def test_export_request_id_filter(self, store: FileDiagnosticsLogStore) -> None:
         result = build_log_export(store, request_id="req_export", max_events=50)
         # ERROR + CRITICAL + newest info
@@ -306,10 +369,20 @@ class TestScanBudgetD01:
             scan_budget.consume(100)
             # 第一页给 1 条并 has_more，迫使第二页
             if calls["n"] == 1:
+                import base64
+                import json as _json
+
                 from argus_py.observability.diagnostics_store import DiagnosticsEvent
 
+                locator = _json.dumps(
+                    {"f": "runtime/python/argus.log", "o": 0, "t": _BASE.isoformat()},
+                    ensure_ascii=False,
+                )
+                event_id = (
+                    base64.urlsafe_b64encode(locator.encode("utf-8")).decode("ascii").rstrip("=")
+                )
                 event = DiagnosticsEvent(
-                    event_id="e1",
+                    event_id=event_id,
                     timestamp=_BASE.isoformat(),
                     level="INFO",
                     component="python",

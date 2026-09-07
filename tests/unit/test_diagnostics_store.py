@@ -489,3 +489,138 @@ class TestEmptyRoot:
         store = FileDiagnosticsLogStore(tmp_path / "nonexistent" / "logs")
         assert store.search(DiagnosticsQuery()).items == []
         assert store.list_runs() == []
+
+
+class TestCrossFileTimeMergeD02:
+    def test_mtime_newer_file_with_older_events_does_not_block_newest(self, tmp_path: Path) -> None:
+        """文件 mtime 新但事件更旧时，limit=1 仍应取事件时间最新者。"""
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        old_dir = tmp_path / "runtime" / "python"
+        new_dir = tmp_path / "runtime" / "java"
+        old_dir.mkdir(parents=True)
+        new_dir.mkdir(parents=True)
+
+        old_path = old_dir / "argus.log"
+        old_path.write_text(
+            _runtime_line(base.replace(hour=11), "event-11-py") + "\n",
+            encoding="utf-8",
+        )
+        # 故意把 python 文件 mtime 调得很新
+        os.utime(old_path, (base.timestamp() + 3600, base.timestamp() + 3600))
+
+        new_path = new_dir / "argus-java.jsonl"
+        new_path.write_text(
+            json.dumps(
+                {
+                    "timestamp": base.replace(hour=10).isoformat(),
+                    "level": "INFO",
+                    "logger": "j",
+                    "message": "event-10-java",
+                    "module": "j",
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.utime(new_path, (base.timestamp() - 3600, base.timestamp() - 3600))
+
+        store = FileDiagnosticsLogStore(tmp_path)
+        page = store.search(DiagnosticsQuery(limit=1))
+        assert [e.message for e in page.items] == ["event-11-py"]
+        assert page.has_more is True
+
+    def test_has_more_false_when_exact_page(self, tmp_path: Path) -> None:
+        """匹配条数恰好 = limit 时 has_more=False（D-06 对齐）。"""
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        runtime = tmp_path / "runtime" / "python"
+        runtime.mkdir(parents=True)
+        (runtime / "argus.log").write_text(
+            "\n".join(
+                [
+                    _runtime_line(base - timedelta(seconds=2), "a"),
+                    _runtime_line(base - timedelta(seconds=1), "b"),
+                    _runtime_line(base, "c"),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        store = FileDiagnosticsLogStore(tmp_path)
+        page = store.search(DiagnosticsQuery(limit=3))
+        assert [e.message for e in page.items] == ["c", "b", "a"]
+        assert page.has_more is False
+        assert page.next_cursor is None
+
+        page2 = store.search(DiagnosticsQuery(limit=2))
+        assert [e.message for e in page2.items] == ["c", "b"]
+        assert page2.has_more is True
+        assert page2.next_cursor is not None
+
+    def test_in_file_timestamp_regression_picks_newest_ts(self, tmp_path: Path) -> None:
+        """文件内时间回退：新 offset 旧 ts + 旧 offset 新 ts，limit=1 取新 ts。"""
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        runtime = tmp_path / "runtime" / "python"
+        runtime.mkdir(parents=True)
+        # 文件顺序（旧→新 offset）：新 ts 在前，旧 ts 在后（典型回退/乱序写入）
+        (runtime / "argus.log").write_text(
+            "\n".join(
+                [
+                    _runtime_line(base.replace(hour=11), "newer-ts-older-offset"),
+                    _runtime_line(base.replace(hour=10), "older-ts-newer-offset"),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        store = FileDiagnosticsLogStore(tmp_path)
+        page = store.search(DiagnosticsQuery(limit=1))
+        assert [e.message for e in page.items] == ["newer-ts-older-offset"]
+        assert page.has_more is True
+
+        page_all = store.search(DiagnosticsQuery(limit=2))
+        assert [e.message for e in page_all.items] == [
+            "newer-ts-older-offset",
+            "older-ts-newer-offset",
+        ]
+
+    def test_same_timestamp_cross_file_pagination_stable(self, tmp_path: Path) -> None:
+        """跨文件同戳：limit=1 分页无重复、无遗漏，次序稳定。"""
+        ts = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        py = tmp_path / "runtime" / "python"
+        jv = tmp_path / "runtime" / "java"
+        py.mkdir(parents=True)
+        jv.mkdir(parents=True)
+        (py / "argus.log").write_text(_runtime_line(ts, "same-ts-python") + "\n", encoding="utf-8")
+        (jv / "argus-java.jsonl").write_text(
+            json.dumps(
+                {
+                    "timestamp": ts.isoformat(),
+                    "level": "INFO",
+                    "logger": "j",
+                    "message": "same-ts-java",
+                    "module": "j",
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        store = FileDiagnosticsLogStore(tmp_path)
+        page1 = store.search(DiagnosticsQuery(limit=1))
+        assert len(page1.items) == 1
+        assert page1.has_more is True
+        assert page1.next_cursor is not None
+
+        page2 = store.search(DiagnosticsQuery(limit=1, cursor=page1.next_cursor))
+        assert len(page2.items) == 1
+        assert page2.has_more is False
+
+        messages = [page1.items[0].message, page2.items[0].message]
+        assert set(messages) == {"same-ts-python", "same-ts-java"}
+        # file DESC：runtime/python/... > runtime/java/... → python 先出
+        assert messages == ["same-ts-python", "same-ts-java"]
+
+        # 整页一次取出次序一致
+        full = store.search(DiagnosticsQuery(limit=10))
+        assert [e.message for e in full.items] == ["same-ts-python", "same-ts-java"]
