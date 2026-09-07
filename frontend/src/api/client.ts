@@ -161,13 +161,39 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   return body as T;
 }
 
-export async function requestBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+export async function requestBlob(
+  path: string,
+  signalOrInit?: AbortSignal | RequestInit,
+): Promise<Blob> {
+  const init: RequestInit =
+    signalOrInit instanceof AbortSignal || signalOrInit == null
+      ? { signal: signalOrInit ?? undefined }
+      : signalOrInit;
   const token = getApiToken();
-  const requestSignal = createRequestSignal(signal);
+  const requestSignal = createRequestSignal(init.signal ?? undefined);
+  const method = (init.method ?? "GET").toUpperCase();
   try {
+    const headers: Record<string, string> = {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+    // 仅在调用方显式提供 Content-Type / 其它头时合并，避免 GET 误带 json
+    const extra = init.headers;
+    if (extra) {
+      if (extra instanceof Headers) {
+        extra.forEach((value, key) => {
+          headers[key] = value;
+        });
+      } else if (Array.isArray(extra)) {
+        for (const [key, value] of extra) headers[key] = value;
+      } else {
+        Object.assign(headers, extra);
+      }
+    }
     const response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      method,
       signal: requestSignal.signal,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers,
     });
     if (response.status === 401) requireApiToken();
     if (!response.ok) {
@@ -200,6 +226,58 @@ export async function requestBlob(path: string, signal?: AbortSignal): Promise<B
     requestSignal.cleanup();
   }
 }
+
+/** POST 并返回 Blob；解析导出类响应头。 */
+export async function requestBlobPost(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; headers: Headers }> {
+  const token = getApiToken();
+  const requestSignal = createRequestSignal(signal);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      signal: requestSignal.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+    if (response.status === 401) requireApiToken();
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      const parsed = await parseResponseBody<unknown>(response, contentType);
+      throw (
+        apiErrorFromBody(parsed, response.status) ??
+        new ApiError(`资源请求失败：HTTP ${response.status}`, response.status)
+      );
+    }
+    const blob = await response.blob();
+    return { blob, headers: response.headers };
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (requestSignal.timedOut()) {
+      throw new ApiError(`下载资源超时，请稍后重试：${path}`, 0, "REQUEST_TIMEOUT", {
+        path,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      });
+    }
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("资源请求已取消。", 0, "REQUEST_ABORTED", { path });
+    }
+    throw new ApiError(
+      error instanceof Error ? `无法下载资源：${error.message}` : "无法下载资源。",
+      0,
+      "NETWORK_ERROR",
+      { path },
+    );
+  } finally {
+    requestSignal.cleanup();
+  }
+}
+
 
 export async function loadObjectUrl(path: string, signal?: AbortSignal): Promise<string> {
   return URL.createObjectURL(await requestBlob(path, signal));

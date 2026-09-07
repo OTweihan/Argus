@@ -1,4 +1,4 @@
-import { request } from "../client";
+import { request, requestBlob, requestBlobPost } from "../client";
 import type { components } from "../openapi.gen";
 
 export type DiagnosticsLogEntry = components["schemas"]["DiagnosticsLogEntry"];
@@ -11,58 +11,11 @@ export type ServiceStatus = components["schemas"]["ServiceStatusResponse"];
 export type LogsUsage = components["schemas"]["LogsUsageResponse"];
 export type RunsListResponse = components["schemas"]["RunsListResponse"];
 export type RunSummary = components["schemas"]["RunSummaryResponse"];
-
-// 二期新增 schema 在 codegen 完成前用宽松类型兜底，避免阻塞前端编译。
-export type DiagnosticsOverviewResponse =
-  components["schemas"] extends { DiagnosticsOverviewResponse: infer T }
-    ? T
-    : {
-        runId: string;
-        services: ServiceStatus[];
-        logsUsage?: LogsUsage | null;
-        errorCountLastHour: number;
-        recentSystemEvents: DiagnosticsLogEntry[];
-        checkedAt: string;
-      };
-
-export type DiagnosticsSystemInfoResponse =
-  components["schemas"] extends { DiagnosticsSystemInfoResponse: infer T }
-    ? T
-    : {
-        argusVersion: string;
-        pythonVersion: string;
-        pythonServiceVersion: string;
-        osName: string;
-        osRelease: string;
-        architecture: string;
-        hostname: string;
-        pid: number;
-        cpuCount?: number | null;
-        runId: string;
-        startedAt: string;
-        uptimeSeconds: number;
-        workingDirectory: string;
-        projectRoot: string;
-        logsDirectory: string;
-        dataDirectory: string;
-        outputDirectory: string;
-        deploymentMode: string;
-        logDataSource: string;
-        javaAnalyzerUrl: string;
-        javaRuntimeLogsPresent: boolean;
-        disk?: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
-        javaStatus?: ServiceStatus | null;
-      };
-
-export type DiagnosticsEventsPage =
-  components["schemas"] extends { DiagnosticsEventsPage: infer T }
-    ? T
-    : DiagnosticsLogPage;
-
-export type FrontendEventResponse =
-  components["schemas"] extends { FrontendEventResponse: infer T }
-    ? T
-    : { accepted: boolean; eventId?: string | null };
+export type DiagnosticsOverviewResponse = components["schemas"]["DiagnosticsOverviewResponse"];
+export type DiagnosticsSystemInfoResponse = components["schemas"]["DiagnosticsSystemInfoResponse"];
+export type DiagnosticsEventsPage = components["schemas"]["DiagnosticsEventsPage"];
+export type FrontendEventResponse = components["schemas"]["FrontendEventResponse"];
+export type DiagnosticsBundleResponse = components["schemas"]["DiagnosticsBundleResponse"];
 
 /** 日志检索过滤条件（wire 参数 camelCase，与 OpenAPI 契约一致）。 */
 export interface DiagnosticsLogsFilters {
@@ -225,4 +178,66 @@ export function postFrontendEvent(
     headers: { "Content-Type": "application/json" },
     signal: options.signal,
   });
+}
+
+/** 日志导出过滤条件（与 OpenAPI DiagnosticsExportRequest 对齐）。 */
+export interface DiagnosticsExportPayload {
+  from?: string;
+  to?: string;
+  components?: string[];
+  levels?: string[];
+  keyword?: string;
+  requestId?: string;
+  runId?: string;
+  maxEvents?: number;
+}
+
+export interface DiagnosticsBundlePayload extends DiagnosticsExportPayload {
+  includeSystemInfo?: boolean;
+  includeRecentEvents?: boolean;
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
+/** 导出日志片段 zip 并触发浏览器下载。 */
+export async function exportDiagnosticsLogs(
+  body: DiagnosticsExportPayload = {},
+  options: { signal?: AbortSignal; filename?: string } = {},
+): Promise<{ eventCount: number; truncated: boolean; scanLimited: boolean }> {
+  const { blob, headers } = await requestBlobPost(`/diagnostics/export`, body, options.signal);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  triggerBlobDownload(blob, options.filename ?? `argus-diagnostics-export-${stamp}.zip`);
+  return {
+    eventCount: Number(headers.get("x-argus-export-event-count") ?? "0"),
+    truncated: headers.get("x-argus-export-truncated") === "1",
+    scanLimited: headers.get("x-argus-export-scan-limited") === "1",
+  };
+}
+
+/** 创建诊断包并立即下载 zip。 */
+export async function createAndDownloadDiagnosticsBundle(
+  body: DiagnosticsBundlePayload = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<DiagnosticsBundleResponse> {
+  const meta = await request<DiagnosticsBundleResponse>(`/diagnostics/bundles`, {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    signal: options.signal,
+  });
+  const bundleId = meta.bundleId;
+  // downloadPath 为相对 API 前缀路径；统一用 bundleId 拼装。
+  const blob = await requestBlob(
+    `/diagnostics/bundles/${encodeURIComponent(bundleId)}`,
+    options.signal,
+  );
+  triggerBlobDownload(blob, `argus-diagnostics-bundle-${bundleId}.zip`);
+  return meta;
 }

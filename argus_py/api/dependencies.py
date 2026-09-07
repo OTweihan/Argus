@@ -25,6 +25,7 @@ from argus_py.task.read import TaskReadService
 
 if TYPE_CHECKING:
     from argus_py.correlation.application import CorrelationService
+    from argus_py.observability.diagnostics_export import DiagnosticsBundleRegistry
     from argus_py.observability.diagnostics_service import DiagnosticsService
     from argus_py.observability.diagnostics_store import FileDiagnosticsLogStore
     from argus_py.regression.application import RegressionService
@@ -121,6 +122,12 @@ def get_diagnostics_semaphore() -> asyncio.Semaphore:
 
 
 @lru_cache
+def get_diagnostics_bundle_registry() -> "DiagnosticsBundleRegistry":
+    """返回诊断包进程内登记表（方案 17.12）。"""
+    return create_container().diagnostics_bundle_registry
+
+
+@lru_cache
 def get_server_settings() -> ServerSettings:
     """返回服务配置（从容器直接提取，避免每请求重复读配置文件）。"""
     return create_container().settings
@@ -161,6 +168,7 @@ def reset_all_dependencies() -> None:
     get_diagnostics_store.cache_clear()
     get_diagnostics_service.cache_clear()
     get_diagnostics_semaphore.cache_clear()
+    get_diagnostics_bundle_registry.cache_clear()
     get_server_settings.cache_clear()
     # 运行时容器与 LLM 信号量同样需要在测试间重置，防止 asyncio.Semaphore
     # 跨 event loop 复用导致 ``RuntimeError``。

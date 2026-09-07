@@ -1,10 +1,11 @@
 # Argus 诊断中心建设方案
 
-> **实施状态（2026-09-02）**
+> **实施状态（2026-09-04）**
 >
 > - **MVP（已落地）**：服务状态、运行日志检索/详情/上下文、Request ID 追踪、启动会话列表与日志；资源隔离（`run_in_thread` + 并发闸门 + 扫描字节预算）。
 > - **二期（已落地）**：进程级 `runId`；Python→Java `X-Request-ID` 透传；Java `RequestIdFilter` + `logback-spring.xml` JSONL；`runtime/{java,web,system}` 扫描；前端异常上报 `POST /diagnostics/frontend-events`；系统信息/系统事件/概览 API 与前端 Tab；清理脚本保留策略扩展。
-> - **仍未做（非阻断）**：日志导出 `POST /export`、诊断包 `POST /bundles`、Loki/OpenSearch 后端、异常聚合聚类、OpenTelemetry `traceId`。
+> - **四期导出/诊断包（已落地）**：`POST /argus/api/diagnostics/export`、`POST/GET /argus/api/diagnostics/bundles`；有界条数/扫描预算/脱敏；进程内登记 + 临时 zip TTL；前端「导出」「下载诊断包」。
+> - **仍未做（非阻断）**：Loki/OpenSearch 后端、异常聚合聚类、OpenTelemetry `traceId`。
 
 ## 1. 文档概述
 
@@ -1162,10 +1163,10 @@ GET /api/diagnostics/events
 GET /api/diagnostics/system
 ```
 
-### 17.11 日志导出接口
+### 17.11 日志导出接口（已落地）
 
 ```http
-POST /api/diagnostics/export
+POST /argus/api/diagnostics/export
 ```
 
 请求参数：
@@ -1175,28 +1176,45 @@ POST /api/diagnostics/export
   "from": "2026-08-05T16:00:00+08:00",
   "to": "2026-08-05T17:00:00+08:00",
   "components": ["python", "java", "web"],
-  "levels": ["WARN", "ERROR"],
+  "levels": ["WARN"],
+  "keyword": null,
   "requestId": null,
-  "runId": null
+  "runId": null,
+  "maxEvents": 2000
 }
 ```
 
-### 17.12 诊断包接口
+实现要点（2026-09-04，P0~P2 修订后）：
+
+* 响应为 zip：`manifest.json` + `logs.ndjson`；消息/异常字段脱敏。
+* 有界：默认最多 2000 条（硬顶 5000）、**内容字节预算**约 50MB（未压缩写入量）；
+  超限在 manifest 与响应头 `X-Argus-Export-Truncated` / `X-Argus-Export-Scan-Limited` 标记。
+* `levels` 与日志检索一致：**min-level**（如 `ERROR` 含 CRITICAL/FATAL）。
+* 支持 `keyword`；多 `components` 按时间戳 k-way 归并取全局最新 N 条。
+* 与其它诊断查询共用 `run_in_thread`、并发闸门与扫描字节预算；导出/诊断包使用独立
+  `diagnostics.export_timeout_seconds`（默认 30s）。
+* 临时文件前缀 `argus-diag-`；**构建失败即 unlink**；响应结束后删除；启动期清理残留。
+
+### 17.12 诊断包接口（已落地）
 
 ```http
-POST /api/diagnostics/bundles
-GET /api/diagnostics/bundles/{bundleId}
+POST /argus/api/diagnostics/bundles
+GET /argus/api/diagnostics/bundles/{bundleId}
 ```
 
 诊断包可包含：
 
-* 指定时间范围内的日志；
-* 当前服务状态；
-* 系统信息；
-* 脱敏后的配置摘要；
-* 当前启动会话信息；
-* 版本信息；
-* 最近系统事件。
+* 指定时间范围内的日志切片（`logs.ndjson`，脱敏）；
+* 当前服务状态概览（`overview.json`，不含异步 Java 探测结果的同步快照）；
+* 系统信息（`system.json`）；
+* 最近系统事件（`system-events.json`）；
+* 版本 / runId / 部署模式等（见 system / overview）。
+
+首版不包含完整「脱敏配置摘要」独立文件（system/overview 已覆盖路径与版本类信息，
+避免展开环境变量全文）。诊断包元数据仅进程内登记，**进程重启后失效**；默认 TTL
+15 分钟。`downloadPath` 为相对 API 前缀路径（`diagnostics/bundles/{id}`）。
+下载为 **claim 一次性领取**（并发第二次 404），响应结束后删除临时 zip。
+`manifest.contents` 仅列出实际写入的成员。
 
 ---
 

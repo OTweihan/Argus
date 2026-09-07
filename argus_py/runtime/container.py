@@ -26,6 +26,7 @@ from argus_py.infra.worker import TaskWorker
 from argus_py.llm.client import set_llm_semaphore
 from argus_py.observability.audit import AuditService, set_audit_service
 from argus_py.observability.debug_bundle import DebugBundleBuilder
+from argus_py.observability.diagnostics_export import DiagnosticsBundleRegistry
 from argus_py.observability.diagnostics_service import DiagnosticsService
 from argus_py.observability.diagnostics_store import FileDiagnosticsLogStore
 from argus_py.observability.trace_reader import TraceReadService
@@ -96,6 +97,7 @@ class RuntimeContainer:
     diagnostics_store: FileDiagnosticsLogStore
     diagnostics_service: DiagnosticsService
     diagnostics_semaphore: asyncio.Semaphore
+    diagnostics_bundle_registry: DiagnosticsBundleRegistry
     # 业务 handler 注册表（供测试/自定义注入）
     task_handlers: _TASK_HANDLER_TYPE
 
@@ -275,6 +277,7 @@ def create_container() -> RuntimeContainer:
     diagnostics_store.set_scan_budget(settings.diagnostics_scan_max_bytes)
     diagnostics_semaphore = asyncio.Semaphore(settings.diagnostics_max_concurrent_queries)
     diagnostics_service = DiagnosticsService(settings, diagnostics_store)
+    diagnostics_bundle_registry = DiagnosticsBundleRegistry()
 
     return RuntimeContainer(
         settings=settings,
@@ -300,6 +303,7 @@ def create_container() -> RuntimeContainer:
         diagnostics_store=diagnostics_store,
         diagnostics_service=diagnostics_service,
         diagnostics_semaphore=diagnostics_semaphore,
+        diagnostics_bundle_registry=diagnostics_bundle_registry,
         task_handlers=handlers,
     )
 

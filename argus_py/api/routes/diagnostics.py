@@ -9,20 +9,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from argus_py.api.dependencies import (
+    get_diagnostics_bundle_registry,
     get_diagnostics_semaphore,
     get_diagnostics_service,
     get_diagnostics_store,
     get_server_settings,
 )
 from argus_py.api.schemas import (
+    DiagnosticsBundleRequest,
+    DiagnosticsBundleResponse,
     DiagnosticsContextResponse,
     DiagnosticsEventsPage,
+    DiagnosticsExportRequest,
     DiagnosticsLogDetail,
     DiagnosticsLogEntry,
     DiagnosticsLogPage,
@@ -39,6 +46,11 @@ from argus_py.api.schemas import (
 )
 from argus_py.config.server_settings import ServerSettings
 from argus_py.observability.context import run_in_thread
+from argus_py.observability.diagnostics_export import (
+    DiagnosticsBundleRegistry,
+    build_diagnostics_bundle,
+    build_log_export,
+)
 from argus_py.observability.diagnostics_service import DiagnosticsService, ServiceStatus
 from argus_py.observability.diagnostics_store import (
     DiagnosticsBadRequestError,
@@ -56,6 +68,7 @@ SemaphoreDep = Annotated[asyncio.Semaphore, Depends(get_diagnostics_semaphore)]
 SettingsDep = Annotated[ServerSettings, Depends(get_server_settings)]
 StoreDep = Annotated[Any, Depends(get_diagnostics_store)]
 ServiceDep = Annotated[DiagnosticsService, Depends(get_diagnostics_service)]
+BundleRegistryDep = Annotated[DiagnosticsBundleRegistry, Depends(get_diagnostics_bundle_registry)]
 
 
 async def _guarded(
@@ -64,6 +77,7 @@ async def _guarded(
     operation: str,
     func: Any,
     *args: Any,
+    timeout_seconds: float | None = None,
     **kwargs: Any,
 ) -> Any:
     """并发闸门 + 超时保护：429 快速失败、503 超时（方案第 17 章）。
@@ -71,23 +85,28 @@ async def _guarded(
     ``locked()`` 预检与 ``acquire`` 之间存在固有 TOCTOU 窗口：并发边界上的
     个别请求可能短暂排队而非快速 429。这是无阻塞 acquire 语义下可接受的
     近似——闸门仍保证同时在途查询数不超过上限。
+
+    ``timeout_seconds`` 可覆盖默认查询超时（导出/诊断包使用更长预算）。
     """
     if semaphore.locked():
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="诊断查询并发已达上限，请稍后重试或缩小查询范围。",
         )
+    timeout = (
+        settings.diagnostics_query_timeout_seconds if timeout_seconds is None else timeout_seconds
+    )
     async with semaphore:
         try:
             return await asyncio.wait_for(
                 run_in_thread(func, *args, **kwargs),
-                timeout=settings.diagnostics_query_timeout_seconds,
+                timeout=timeout,
             )
         except TimeoutError as exc:
             logger.warning("诊断查询超时：%s", operation)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"诊断查询超时（>{settings.diagnostics_query_timeout_seconds:.0f}s），请缩小时间范围。",
+                detail=f"诊断查询超时（>{timeout:.0f}s），请缩小时间范围。",
             ) from exc
         except (DiagnosticsNotFoundError, DiagnosticsBadRequestError):
             # 非法游标/组件/事件 ID 等业务校验错误在仓储内抛出，交由调用方映射。
@@ -100,11 +119,20 @@ async def _guarded_or_40x(
     operation: str,
     func: Any,
     *args: Any,
+    timeout_seconds: float | None = None,
     **kwargs: Any,
 ) -> Any:
     """``_guarded`` + 仓储层 400/404 错误统一映射。"""
     try:
-        return await _guarded(semaphore, settings, operation, func, *args, **kwargs)
+        return await _guarded(
+            semaphore,
+            settings,
+            operation,
+            func,
+            *args,
+            timeout_seconds=timeout_seconds,
+            **kwargs,
+        )
     except (DiagnosticsNotFoundError, DiagnosticsBadRequestError) as exc:
         raise _to_http_error(exc) from exc
 
@@ -113,6 +141,13 @@ def _to_http_error(exc: DiagnosticsNotFoundError | DiagnosticsBadRequestError) -
     if isinstance(exc, DiagnosticsNotFoundError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+def _unlink_quiet(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError as exc:
+        logger.warning("删除临时诊断文件失败 %s: %s", path, exc)
 
 
 def _query_from_params(
@@ -404,3 +439,133 @@ async def post_frontend_event(
 
     record = await _guarded(semaphore, settings, "frontend-events.write", _write)
     return FrontendEventResponse(accepted=True, event_id=record.get("eventId"))
+
+
+# ── 日志导出 / 诊断包（方案 17.11 / 17.12）────────────────────────────────
+
+
+@router.post("/export")
+async def export_logs(
+    body: DiagnosticsExportRequest,
+    store: StoreDep,
+    semaphore: SemaphoreDep,
+    settings: SettingsDep,
+) -> Response:
+    """按过滤条件导出日志片段 zip（manifest.json + logs.ndjson）。
+
+    有界导出：默认最多 2000 条、内容字节预算约 50MB；超限在 manifest / 响应头标记
+    truncated / scanLimited。响应结束后删除临时文件。
+    """
+
+    def _build() -> Any:
+        return build_log_export(
+            store,
+            time_from=body.time_from,
+            time_to=body.time_to,
+            components=list(body.components),
+            levels=list(body.levels),
+            keyword=body.keyword,
+            request_id=body.request_id,
+            run_id=body.run_id,
+            max_events=body.max_events,
+        )
+
+    result = await _guarded_or_40x(
+        semaphore,
+        settings,
+        "logs.export",
+        _build,
+        timeout_seconds=settings.diagnostics_export_timeout_seconds,
+    )
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"argus-diagnostics-export-{stamp}.zip"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-Argus-Export-Event-Count": str(result.event_count),
+        "X-Argus-Export-Truncated": "1" if result.truncated else "0",
+        "X-Argus-Export-Scan-Limited": "1" if result.scan_limited else "0",
+    }
+    return FileResponse(
+        result.path,
+        media_type="application/zip",
+        filename=filename,
+        headers=headers,
+        background=BackgroundTask(_unlink_quiet, result.path),
+    )
+
+
+@router.post(
+    "/bundles",
+    response_model=DiagnosticsBundleResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_diagnostics_bundle(
+    body: DiagnosticsBundleRequest,
+    store: StoreDep,
+    service: ServiceDep,
+    registry: BundleRegistryDep,
+    semaphore: SemaphoreDep,
+    settings: SettingsDep,
+) -> DiagnosticsBundleResponse:
+    """创建实例诊断包（进程内登记，重启后失效；TTL 默认 15 分钟）。"""
+
+    def _build() -> Any:
+        return build_diagnostics_bundle(
+            service,
+            store,
+            registry,
+            time_from=body.time_from,
+            time_to=body.time_to,
+            components=list(body.components),
+            levels=list(body.levels),
+            keyword=body.keyword,
+            request_id=body.request_id,
+            run_id=body.run_id,
+            max_events=body.max_events,
+            include_system_info=body.include_system_info,
+            include_recent_events=body.include_recent_events,
+        )
+
+    record = await _guarded_or_40x(
+        semaphore,
+        settings,
+        "bundles.create",
+        _build,
+        timeout_seconds=settings.diagnostics_export_timeout_seconds,
+    )
+    expires = datetime.fromtimestamp(record.expires_at, tz=timezone.utc).isoformat()
+    return DiagnosticsBundleResponse(
+        bundle_id=record.bundle_id,
+        # 相对 API 前缀的路径，前端用 API_BASE 拼接，避免写死 /argus/api。
+        download_path=f"diagnostics/bundles/{record.bundle_id}",
+        expires_at=expires,
+        event_count=record.event_count,
+        truncated=record.truncated,
+        scan_limited=record.scan_limited,
+        size_bytes=record.size_bytes,
+    )
+
+
+@router.get("/bundles/{bundle_id}")
+async def download_diagnostics_bundle(
+    bundle_id: str,
+    registry: BundleRegistryDep,
+) -> Response:
+    """下载已创建的诊断包；不存在或过期返回 404。
+
+    下载为一次性领取（claim）：取出即注销，避免并发双下；
+    响应结束后删除临时文件。不占用诊断扫描闸门（文件已落盘）。
+    """
+    record = registry.claim(bundle_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="诊断包不存在或已过期")
+
+    filename = f"argus-diagnostics-bundle-{bundle_id}.zip"
+    return FileResponse(
+        record.path,
+        media_type="application/zip",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        background=BackgroundTask(_unlink_quiet, record.path),
+    )

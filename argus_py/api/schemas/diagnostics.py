@@ -5,6 +5,7 @@ wire 命名统一 camelCase（方案 1.3 字段命名约定），与既有路由
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -195,3 +196,71 @@ class DiagnosticsEventsPage(ApiModel):
     next_cursor: str | None = Field(default=None, alias="nextCursor")
     has_more: bool = Field(default=False, alias="hasMore")
     scan_limited: bool = Field(default=False, alias="scanLimited")
+
+
+class DiagnosticsExportRequest(ApiModel):
+    """日志导出请求（方案 17.11）。"""
+
+    time_from: datetime | None = Field(default=None, alias="from")
+    time_to: datetime | None = Field(default=None, alias="to")
+    components: list[str] = Field(default_factory=list, max_length=16)
+    levels: list[str] = Field(default_factory=list, max_length=16)
+    keyword: str | None = Field(default=None, max_length=256)
+    request_id: str | None = Field(default=None, alias="requestId", max_length=128)
+    run_id: str | None = Field(default=None, alias="runId", max_length=64)
+    max_events: int = Field(default=2000, alias="maxEvents", ge=1, le=5000)
+
+    @field_validator("components", "levels", mode="before")
+    @classmethod
+    def _coerce_str_list(cls, value: object) -> object:
+        if value is None:
+            return []
+        return value
+
+    @field_validator("keyword", mode="before")
+    @classmethod
+    def _blank_keyword(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+
+class DiagnosticsBundleRequest(ApiModel):
+    """实例诊断包创建请求（方案 17.12）。"""
+
+    time_from: datetime | None = Field(default=None, alias="from")
+    time_to: datetime | None = Field(default=None, alias="to")
+    components: list[str] = Field(default_factory=list, max_length=16)
+    levels: list[str] = Field(default_factory=list, max_length=16)
+    keyword: str | None = Field(default=None, max_length=256)
+    request_id: str | None = Field(default=None, alias="requestId", max_length=128)
+    run_id: str | None = Field(default=None, alias="runId", max_length=64)
+    max_events: int = Field(default=2000, alias="maxEvents", ge=1, le=5000)
+    include_system_info: bool = Field(default=True, alias="includeSystemInfo")
+    include_recent_events: bool = Field(default=True, alias="includeRecentEvents")
+
+    @field_validator("components", "levels", mode="before")
+    @classmethod
+    def _coerce_str_list(cls, value: object) -> object:
+        if value is None:
+            return []
+        return value
+
+    @field_validator("keyword", mode="before")
+    @classmethod
+    def _blank_keyword(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+
+class DiagnosticsBundleResponse(ApiModel):
+    """诊断包创建回执（进程内登记，重启失效）。"""
+
+    bundle_id: str = Field(alias="bundleId")
+    download_path: str = Field(alias="downloadPath")
+    expires_at: str = Field(alias="expiresAt")
+    event_count: int = Field(alias="eventCount")
+    truncated: bool = False
+    scan_limited: bool = Field(default=False, alias="scanLimited")
+    size_bytes: int = Field(alias="sizeBytes")

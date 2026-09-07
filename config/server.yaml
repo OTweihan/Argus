@@ -139,6 +139,8 @@ correlation:
 diagnostics:
   # 单次诊断查询超时（秒），超时返回 503。
   query_timeout_seconds: 5.0
+  # 日志导出 / 诊断包构建超时（秒）；比普通查询更长，超时返回 503。
+  export_timeout_seconds: 30.0
   # 诊断查询并发上限，超限立即返回 429，不排队。
   max_concurrent_queries: 4
   # 单次查询累计扫描日志字节数上限（最小 1MB），超限截断并提示缩小时间范围。

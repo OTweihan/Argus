@@ -1276,6 +1276,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/argus/api/diagnostics/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Logs
+         * @description 按过滤条件导出日志片段 zip（manifest.json + logs.ndjson）。
+         *
+         *     有界导出：默认最多 2000 条、内容字节预算约 50MB；超限在 manifest / 响应头标记
+         *     truncated / scanLimited。响应结束后删除临时文件。
+         */
+        post: operations["export_logs_argus_api_diagnostics_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/bundles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Diagnostics Bundle
+         * @description 创建实例诊断包（进程内登记，重启后失效；TTL 默认 15 分钟）。
+         */
+        post: operations["create_diagnostics_bundle_argus_api_diagnostics_bundles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/argus/api/diagnostics/bundles/{bundle_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Diagnostics Bundle
+         * @description 下载已创建的诊断包；不存在或过期返回 404。
+         *
+         *     下载为一次性领取（claim）：取出即注销，避免并发双下；
+         *     响应结束后删除临时文件。不占用诊断扫描闸门（文件已落盘）。
+         */
+        get: operations["download_diagnostics_bundle_argus_api_diagnostics_bundles__bundle_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/argus/api/projects/{project_id}/regression-cases": {
         parameters: {
             query?: never;
@@ -1893,6 +1959,67 @@ export interface components {
             recentTasks?: components["schemas"]["TaskSummaryResponse"][];
         };
         /**
+         * DiagnosticsBundleRequest
+         * @description 实例诊断包创建请求（方案 17.12）。
+         */
+        DiagnosticsBundleRequest: {
+            /** From */
+            from?: string | null;
+            /** To */
+            to?: string | null;
+            /** Components */
+            components?: string[];
+            /** Levels */
+            levels?: string[];
+            /** Keyword */
+            keyword?: string | null;
+            /** Requestid */
+            requestId?: string | null;
+            /** Runid */
+            runId?: string | null;
+            /**
+             * Maxevents
+             * @default 2000
+             */
+            maxEvents: number;
+            /**
+             * Includesysteminfo
+             * @default true
+             */
+            includeSystemInfo: boolean;
+            /**
+             * Includerecentevents
+             * @default true
+             */
+            includeRecentEvents: boolean;
+        };
+        /**
+         * DiagnosticsBundleResponse
+         * @description 诊断包创建回执（进程内登记，重启失效）。
+         */
+        DiagnosticsBundleResponse: {
+            /** Bundleid */
+            bundleId: string;
+            /** Downloadpath */
+            downloadPath: string;
+            /** Expiresat */
+            expiresAt: string;
+            /** Eventcount */
+            eventCount: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Scanlimited
+             * @default false
+             */
+            scanLimited: boolean;
+            /** Sizebytes */
+            sizeBytes: number;
+        };
+        /**
          * DiagnosticsContextResponse
          * @description 日志前后上下文（方案 17.5）。
          */
@@ -1919,6 +2046,31 @@ export interface components {
              * @default false
              */
             scanLimited: boolean;
+        };
+        /**
+         * DiagnosticsExportRequest
+         * @description 日志导出请求（方案 17.11）。
+         */
+        DiagnosticsExportRequest: {
+            /** From */
+            from?: string | null;
+            /** To */
+            to?: string | null;
+            /** Components */
+            components?: string[];
+            /** Levels */
+            levels?: string[];
+            /** Keyword */
+            keyword?: string | null;
+            /** Requestid */
+            requestId?: string | null;
+            /** Runid */
+            runId?: string | null;
+            /**
+             * Maxevents
+             * @default 2000
+             */
+            maxEvents: number;
         };
         /**
          * DiagnosticsLogDetail
@@ -5925,6 +6077,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FrontendEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_logs_argus_api_diagnostics_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosticsExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_diagnostics_bundle_argus_api_diagnostics_bundles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosticsBundleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsBundleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_diagnostics_bundle_argus_api_diagnostics_bundles__bundle_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bundle_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

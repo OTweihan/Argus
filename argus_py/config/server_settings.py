@@ -93,6 +93,8 @@ class ServerSettings:
     # 单 worker 架构下诊断查询是同进程旁路负载：并发上限超限时快速返回 429，
     # 单次查询超时返回 503，扫描字节预算防止长尾查询拖垮事件循环。
     diagnostics_query_timeout_seconds: float = 5.0
+    # 导出 / 诊断包构建通常更重（扫盘 + zip），单独超时，默认 30s。
+    diagnostics_export_timeout_seconds: float = 30.0
     diagnostics_max_concurrent_queries: int = 4
     diagnostics_scan_max_bytes: int = 64 * 1024 * 1024
     diagnostics_max_limit: int = 200
@@ -198,6 +200,9 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         or "",
         diagnostics_query_timeout_seconds=_as_float(
             (data.get("diagnostics") or {}).get("query_timeout_seconds"), 5.0, minimum=0.5
+        ),
+        diagnostics_export_timeout_seconds=_as_float(
+            (data.get("diagnostics") or {}).get("export_timeout_seconds"), 30.0, minimum=1.0
         ),
         diagnostics_max_concurrent_queries=_as_int(
             (data.get("diagnostics") or {}).get("max_concurrent_queries"), 4, minimum=1

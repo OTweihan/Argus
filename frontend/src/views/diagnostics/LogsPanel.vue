@@ -56,6 +56,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="resetAndSearch">查询</el-button>
+        <el-button :loading="exportLoading" @click="exportCurrent">导出</el-button>
       </el-form-item>
     </el-form>
 
@@ -176,6 +177,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
+  exportDiagnosticsLogs,
   getDiagnosticsLogContext,
   getDiagnosticsLogDetail,
   searchDiagnosticsLogs,
@@ -194,8 +196,10 @@ const cursor = ref<string | null>(null);
 const hasMore = ref(false);
 const scanLimited = ref(false);
 const loading = ref(false);
+const exportLoading = ref(false);
 let searchVersion = 0;
 let searchController: AbortController | null = null;
+let exportController: AbortController | null = null;
 
 const drawerVisible = ref(false);
 const detail = ref<DiagnosticsLogDetail | null>(null);
@@ -270,6 +274,41 @@ function resetAndSearch(): void {
 function loadMore(): void {
   void search(false);
 }
+
+async function exportCurrent(): Promise<void> {
+  exportController?.abort();
+  const next = new AbortController();
+  exportController = next;
+  exportLoading.value = true;
+  try {
+    const components = filters.component ? [filters.component] : [];
+    // min-level 语义：与检索一致，单选级别作为最低门槛
+    const levels = filters.level ? [filters.level] : [];
+    const meta = await exportDiagnosticsLogs(
+      {
+        components,
+        levels,
+        keyword: filters.keyword.trim() || undefined,
+        requestId: filters.requestId.trim() || undefined,
+        from: timeFromIso(),
+        maxEvents: 2000,
+      },
+      { signal: next.signal },
+    );
+    const parts = [`已导出 ${meta.eventCount} 条日志`];
+    if (meta.truncated) parts.push("已达条数上限");
+    if (meta.scanLimited) parts.push("扫描预算截断");
+    ElMessage.success(parts.join("；"));
+  } catch (caught) {
+    if ((caught as { name?: string })?.name === "AbortError") return;
+    if ((caught as { code?: string })?.code === "REQUEST_ABORTED") return;
+    ElMessage.error(errorMessage(caught));
+  } finally {
+    if (exportController === next) exportController = null;
+    exportLoading.value = false;
+  }
+}
+
 
 async function openDetail(entry: DiagnosticsLogEntry): Promise<void> {
   detailController?.abort();
@@ -348,9 +387,11 @@ onUnmounted(() => {
   searchController?.abort();
   detailController?.abort();
   contextController?.abort();
+  exportController?.abort();
   searchController = null;
   detailController = null;
   contextController = null;
+  exportController = null;
 });
 </script>
 

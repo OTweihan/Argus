@@ -42,7 +42,8 @@ _RUNTIME_COMPONENT_DIRS: dict[str, str] = {
     "web": "web",
     "system": "system",
 }
-_LEVEL_ORDER: dict[str, int] = {
+# 日志级别排序（公开给导出等旁路模块复用；值越大越严重）。
+LEVEL_ORDER: dict[str, int] = {
     "TRACE": 0,
     "DEBUG": 10,
     "INFO": 20,
@@ -52,6 +53,8 @@ _LEVEL_ORDER: dict[str, int] = {
     "CRITICAL": 50,
     "FATAL": 50,
 }
+# 兼容模块内历史私有名。
+_LEVEL_ORDER = LEVEL_ORDER
 
 _DEFAULT_SCAN_BUDGET_BYTES = 64 * 1024 * 1024
 _MAX_CONTEXT_LINES = 200

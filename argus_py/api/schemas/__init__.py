@@ -11,8 +11,11 @@ from argus_py.api.schemas.config import (
     ModelConnectionTestResponse,
 )
 from argus_py.api.schemas.diagnostics import (
+    DiagnosticsBundleRequest,
+    DiagnosticsBundleResponse,
     DiagnosticsContextResponse,
     DiagnosticsEventsPage,
+    DiagnosticsExportRequest,
     DiagnosticsLogDetail,
     DiagnosticsLogEntry,
     DiagnosticsLogPage,
@@ -59,8 +62,11 @@ __all__ = [
     "ApiModel",
     "ConfigSummaryResponse",
     "DashboardStatsResponse",
+    "DiagnosticsBundleRequest",
+    "DiagnosticsBundleResponse",
     "DiagnosticsContextResponse",
     "DiagnosticsEventsPage",
+    "DiagnosticsExportRequest",
     "DiagnosticsLogDetail",
     "DiagnosticsLogEntry",
     "DiagnosticsLogPage",
