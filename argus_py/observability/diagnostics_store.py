@@ -24,13 +24,15 @@ import re
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 # ── 常量 ────────────────────────────────────────────────────────────────────
+# 反向读块大小（D-05）：避免单次读入整个扫描预算。
+_REVERSE_READ_CHUNK_BYTES = 256 * 1024
 
 # dev 会话目录名：dev.mjs timestampForDirectory 生成的 yyyyMMdd-HHmmss
 _RUN_ID_PATTERN = re.compile(r"^[0-9]{8}-[0-9]{6}$")
@@ -487,21 +489,27 @@ class FileDiagnosticsLogStore:
             ):
                 end_offset = cursor_pos.locator.offset
 
-            records, consumed, file_truncated = self._read_reverse_lines(
+            # D-05：按块流式扫窗口；D-02：在线 top-heap，不物化全量匹配列表。
+            top_heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]] = []
+            file_overflow = False
+            match_seq = 0
+            line_iter, consumed, file_truncated = self._iter_reverse_line_window(
                 path,
                 budget,
                 end_offset=end_offset,
+                should_stop=(
+                    (lambda: scan_budget.cancelled()) if scan_budget is not None else None
+                ),
             )
             budget -= consumed
             if file_truncated:
                 scan_limited = True
-
-            # 按 sort_key 在线维护有界 top-limit（D-02：不假设文件内时间与
-            # offset 同调，禁止「反向读先到先得」截断）。
-            top_heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]] = []
-            file_overflow = False
-            match_seq = 0
-            for offset, line in records:
+            stopped_early = False
+            for offset, line in line_iter:
+                if scan_budget is not None and scan_budget.cancelled():
+                    stopped_early = True
+                    scan_limited = True
+                    break
                 event = self._build_event(
                     line,
                     rel_path,
@@ -523,6 +531,9 @@ class FileDiagnosticsLogStore:
             per_file.append(_finalize_top_events(top_heap))
             if file_overflow:
                 has_more = True
+            if stopped_early:
+                # 取消后不再扫后续候选文件
+                break
 
         # heads: (sort_key, file_idx, event_idx)；取 sort_key 最大者 = 最新。
         # per_file 项已是 sort_key 降序，可线性推进。
@@ -772,42 +783,124 @@ class FileDiagnosticsLogStore:
         )
         return names[-limit:] if limit > 0 else []
 
+    def _iter_reverse_line_window(
+        self,
+        path: Path,
+        max_bytes: int,
+        *,
+        end_offset: int | None = None,
+        chunk_size: int = _REVERSE_READ_CHUNK_BYTES,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> tuple[Iterator[tuple[int, str]], int, bool]:
+        """在字节预算内从指定上界按块读取窗口内完整行（旧→新，D-05）。
+
+        返回 ``(line_iter, consumed, truncated)``：
+        - ``consumed`` / ``truncated`` 在打开窗口时即可确定（按计划窗口计费），
+          不依赖迭代是否提前结束，也不写入实例状态；
+        - 不一次 ``read(max_bytes)``；跨块半行正确拼接；
+        - 调用方负责 top-heap / reverse。
+
+        **设计折中（D-05 本阶段）**：分块 IO 降低单次 read 峰值；在文件内
+        timestamp 可能回退的前提下，仍需扫完整字节窗才能保证 top-N 正确
+        （不能「读够 limit 匹配就停」）。匹配早停需单调性假设或两阶段扫描，
+        留待后续。可选 ``should_stop`` 仅用于协作取消，提前结束时仍按整窗
+        计费 consumed（与预算契约一致：窗口已划定）。
+        """
+
+        def _empty() -> Iterator[tuple[int, str]]:
+            return iter(())
+
+        try:
+            size = path.stat().st_size
+            end = size if end_offset is None else min(size, max(0, end_offset))
+            if end <= 0 or max_bytes <= 0:
+                return _empty(), 0, False
+
+            budget = max(0, int(max_bytes))
+            # 允许测试传入小块；生产默认 _REVERSE_READ_CHUNK_BYTES 已足够大。
+            block = max(1, int(chunk_size))
+            # 窗口 [window_start, end)：先定界再正向分块扫，避免整窗一次 read。
+            window_start = max(0, end - budget)
+            truncated = window_start > 0
+            consumed = end - window_start
+
+            def _lines() -> Iterator[tuple[int, str]]:
+                carry = b""
+                file_pos = window_start
+                # 窗口起点可能落在半行：持续丢弃到首个 \n（可跨块）。
+                # 局部变量即可（不封闭外层 truncated）。
+                skip_partial = truncated
+                with path.open("rb") as file:
+                    while file_pos < end:
+                        if should_stop is not None and should_stop():
+                            return
+                        take = min(block, end - file_pos)
+                        file.seek(file_pos)
+                        data = file.read(take)
+                        if not data:
+                            break
+                        buf = carry + data
+                        abs_start = file_pos - len(carry)
+                        consume_from = 0
+                        if skip_partial:
+                            nl = buf.find(b"\n")
+                            if nl < 0:
+                                # 半行仍未结束：丢掉已读前缀，继续向后找行界
+                                carry = b""
+                                file_pos += len(data)
+                                continue
+                            consume_from = nl + 1
+                            skip_partial = False
+
+                        view = buf[consume_from:]
+                        view_base = abs_start + consume_from
+                        last_nl = view.rfind(b"\n")
+                        if last_nl < 0:
+                            carry = view
+                            file_pos += len(data)
+                            continue
+                        complete = view[: last_nl + 1]
+                        carry = view[last_nl + 1 :]
+                        offset = view_base
+                        for raw_line in complete.splitlines(keepends=True):
+                            line_bytes = raw_line.rstrip(b"\r\n")
+                            yield offset, line_bytes.decode("utf-8", errors="replace")
+                            offset += len(raw_line)
+                        file_pos += len(data)
+
+                    if skip_partial:
+                        # 整窗无完整行
+                        return
+
+                    # end 落在行中：丢弃半行；end==size 且无尾 \n：产出最后一行。
+                    if carry and end >= size:
+                        yield file_pos - len(carry), carry.decode("utf-8", errors="replace")
+
+            return _lines(), consumed, truncated
+        except OSError:
+            return _empty(), 0, False
+
     def _read_reverse_lines(
         self,
         path: Path,
         max_bytes: int,
         *,
         end_offset: int | None = None,
+        chunk_size: int = _REVERSE_READ_CHUNK_BYTES,
     ) -> tuple[list[tuple[int, str]], int, bool]:
-        """在字节预算内从指定上界逆序读取完整行，返回新→旧记录。"""
-        try:
-            size = path.stat().st_size
-            end = size if end_offset is None else min(size, max(0, end_offset))
-            read_size = min(end, max(0, max_bytes))
-            start = end - read_size
-            with path.open("rb") as file:
-                file.seek(start)
-                raw = file.read(read_size)
-        except OSError:
-            return [], 0, False
+        """在字节预算内从指定上界读取完整行，返回 **新→旧** 记录。
 
-        truncated = start > 0
-        content_start = start
-        if truncated:
-            boundary = raw.find(b"\n")
-            if boundary < 0:
-                return [], len(raw), True
-            content_start += boundary + 1
-            raw = raw[boundary + 1 :]
-
-        records: list[tuple[int, str]] = []
-        offset = content_start
-        for raw_line in raw.splitlines(keepends=True):
-            line_bytes = raw_line.rstrip(b"\r\n")
-            records.append((offset, line_bytes.decode("utf-8", errors="replace")))
-            offset += len(raw_line)
+        D-05：按块扫窗口，避免单次读入整个扫描预算。
+        """
+        line_iter, consumed, truncated = self._iter_reverse_line_window(
+            path,
+            max_bytes,
+            end_offset=end_offset,
+            chunk_size=chunk_size,
+        )
+        records = list(line_iter)
         records.reverse()
-        return records, read_size, truncated
+        return records, consumed, truncated
 
     def _read_line_at_offset(
         self,

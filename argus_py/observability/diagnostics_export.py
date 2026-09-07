@@ -7,7 +7,9 @@
 - 有界：事件条数上限、内容字节预算、复用 store 扫描预算；
 - 脱敏：消息 / 异常文本走 ``redact_sensitive_text``；
 - 临时 zip 使用 ``DIAGNOSTICS_BUNDLE_TMP_PREFIX``；构建失败即 unlink；
-- 诊断包元数据仅进程内登记，重启即失效（API 语义写明）。
+- 诊断包元数据仅进程内登记，重启即失效（API 语义写明）；
+- D-05：``_EventMergeStream`` 边 k-way 归并边写 NDJSON，避免预堆 max_events 列表；
+  store 侧仍可能按扫描窗物化行（文件内 ts 可回退，不能只读 tail limit 行）。
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import tempfile
 import threading
 import time
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -335,6 +337,118 @@ def _iter_component_events(
         cursor = page.next_cursor
 
 
+@dataclass
+class _EventMergeStream:
+    """k-way 归并事件流（D-02/D-05/D-06）：迭代产出事件，耗尽后可读截断标记。
+
+    不预物化 ``max_events`` 全列表，写入端可边归并边写 ZIP，降低导出峰值内存。
+    ``truncated`` / ``scan_limited`` 仅在迭代结束后有效。
+    """
+
+    store: FileDiagnosticsLogStore
+    time_from: datetime | None
+    time_to: datetime | None
+    components: list[str]
+    levels: list[str]
+    keyword: str | None
+    request_id: str | None
+    run_id: str | None
+    max_events: int
+    scan_budget: DiagnosticsScanBudget | None = None
+    truncated: bool = field(default=False, init=False)
+    scan_limited: bool = field(default=False, init=False)
+    _exhausted: bool = field(default=False, init=False)
+    _iter_started: bool = field(default=False, init=False)
+    _active_iter: Iterator[DiagnosticsEvent] | None = field(default=None, init=False)
+
+    def __iter__(self) -> Iterator[DiagnosticsEvent]:
+        """单次遍历：写入端提前 break 后可继续 drain 同一生成器以得到 D-06 标记。"""
+        if self._active_iter is not None:
+            return self._active_iter
+        if self._iter_started:
+            return iter(())
+        self._iter_started = True
+        self._active_iter = self._generate()
+        return self._active_iter
+
+    def drain(self) -> None:
+        """若写入提前停止，耗尽剩余归并以确定 truncated / scan_limited。"""
+        if self._exhausted:
+            return
+        for _ in self:
+            pass
+
+    def _generate(self) -> Iterator[DiagnosticsEvent]:
+        component_filters: list[str | None] = list(self.components) if self.components else [None]
+        level_floor = _level_floor(self.levels)
+        kw = (self.keyword or "").strip() or None
+
+        def _stream(component: str | None) -> Iterator[tuple[DiagnosticsEvent, bool]]:
+            return _iter_component_events(
+                self.store,
+                component=component,
+                time_from=self.time_from,
+                time_to=self.time_to,
+                level_floor=level_floor,
+                keyword=kw,
+                request_id=self.request_id,
+                run_id=self.run_id,
+                scan_budget=self.scan_budget,
+            )
+
+        heads: list[
+            tuple[DiagnosticsEvent, bool, Iterator[tuple[DiagnosticsEvent, bool]]] | None
+        ] = []
+        scan_limited = False
+        for component in component_filters:
+            it = _stream(component)
+            try:
+                event, limited = next(it)
+                if limited:
+                    scan_limited = True
+                heads.append((event, limited, it))
+            except StopIteration:
+                heads.append(None)
+
+        yielded = 0
+        seen_ids: set[str] = set()
+        try:
+            while yielded < self.max_events:
+                best_i = -1
+                best_key: tuple[str, str, int] | None = None
+                for i, head in enumerate(heads):
+                    if head is None:
+                        continue
+                    key = event_sort_key(head[0])
+                    if best_key is None or key > best_key:
+                        best_i = i
+                        best_key = key
+                if best_i < 0:
+                    break
+
+                event, limited, it = heads[best_i]  # type: ignore[misc]
+                if limited:
+                    scan_limited = True
+                if event.event_id not in seen_ids:
+                    seen_ids.add(event.event_id)
+                    yielded += 1
+                    yield event
+
+                try:
+                    nxt, nxt_lim = next(it)
+                    if nxt_lim:
+                        scan_limited = True
+                    heads[best_i] = (nxt, nxt_lim, it)
+                except StopIteration:
+                    heads[best_i] = None
+        finally:
+            # 满额且仍有未归并 head → 确认条数截断；否则仅 scan_limited 可能为 True。
+            # 若写入端提前 break 后 drain，finally 在真正耗尽时执行。
+            self.truncated = yielded >= self.max_events and any(h is not None for h in heads)
+            self.scan_limited = scan_limited
+            self._exhausted = True
+
+
 def _collect_events(
     store: FileDiagnosticsLogStore,
     *,
@@ -348,78 +462,46 @@ def _collect_events(
     max_events: int,
     scan_budget: DiagnosticsScanBudget | None = None,
 ) -> tuple[list[DiagnosticsEvent], bool, bool]:
-    """按过滤条件有界采集事件（新→旧，截断时 truncated=True）。
+    """按过滤条件有界采集事件（新→旧）。兼容测试与需 list 的调用方。
 
-    levels 与检索一致：取最低级别门槛（min-level），不再做精确集合过滤。
-    跨 component 按与 store 相同的稳定键 k-way 归并，全局取最新 max_events 条（D-02）。
-    同戳次序与 store 一致：timestamp DESC → file DESC → offset DESC。
-    truncated 仅在确认仍有未导出匹配项时为 True（D-06 peek）；预算耗尽走 scan_limited。
-    ``scan_budget`` 跨分页累计扫描字节并支持协作取消（D-01）。
+    导出热路径优先用 ``_EventMergeStream`` 边归并边写，避免整表物化。
     """
-    component_filters: list[str | None] = list(components) if components else [None]
-    level_floor = _level_floor(levels)
-    kw = (keyword or "").strip() or None
+    stream = _EventMergeStream(
+        store=store,
+        time_from=time_from,
+        time_to=time_to,
+        components=components,
+        levels=levels,
+        keyword=keyword,
+        request_id=request_id,
+        run_id=run_id,
+        max_events=max_events,
+        scan_budget=scan_budget,
+    )
+    items = list(stream)
+    return items, stream.truncated, stream.scan_limited
 
-    def _stream(component: str | None) -> Iterator[tuple[DiagnosticsEvent, bool]]:
-        return _iter_component_events(
-            store,
-            component=component,
-            time_from=time_from,
-            time_to=time_to,
-            level_floor=level_floor,
-            keyword=kw,
-            request_id=request_id,
-            run_id=run_id,
-            scan_budget=scan_budget,
-        )
 
-    # 统一 k-way 归并（单组件也是 1 路），按与 store 相同的稳定键取最新 N 条。
-    # D-06：满额后再确认是否仍有 head，而非「凑满即 truncated」。
-    heads: list[tuple[DiagnosticsEvent, bool, Iterator[tuple[DiagnosticsEvent, bool]]] | None] = []
-    scan_limited = False
-    for component in component_filters:
-        it = _stream(component)
-        try:
-            event, limited = next(it)
-            if limited:
-                scan_limited = True
-            heads.append((event, limited, it))
-        except StopIteration:
-            heads.append(None)
+def _manifest_contents(*member_names: str) -> list[str]:
+    """manifest.contents：manifest.json 固定首位，其后为实际写入成员（去重保序）。"""
+    ordered = ["manifest.json"]
+    seen = {"manifest.json"}
+    for name in member_names:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        ordered.append(name)
+    return ordered
 
-    collected: list[DiagnosticsEvent] = []
-    seen_ids: set[str] = set()
-    while len(collected) < max_events:
-        best_i = -1
-        best_key: tuple[str, str, int] | None = None
-        for i, head in enumerate(heads):
-            if head is None:
-                continue
-            key = event_sort_key(head[0])
-            if best_key is None or key > best_key:
-                best_i = i
-                best_key = key
-        if best_i < 0:
-            break
 
-        event, limited, it = heads[best_i]  # type: ignore[misc]
-        if limited:
-            scan_limited = True
-        if event.event_id not in seen_ids:
-            seen_ids.add(event.event_id)
-            collected.append(event)
-
-        try:
-            nxt, nxt_lim = next(it)
-            if nxt_lim:
-                scan_limited = True
-            heads[best_i] = (nxt, nxt_lim, it)
-        except StopIteration:
-            heads[best_i] = None
-
-    # 满额且仍有未归并 head → 确认条数截断；否则仅 scan_limited 可能为 True。
-    truncated = len(collected) >= max_events and any(h is not None for h in heads)
-    return collected, truncated, scan_limited
+def _export_truncated(
+    *,
+    collect_truncated: bool,
+    size_truncated: bool,
+    member_truncated: bool,
+) -> bool:
+    """统一 truncated：采集确认更多 | 内容预算截断 | 成员未写全。"""
+    return bool(collect_truncated or size_truncated or member_truncated)
 
 
 def _open_temp_zip() -> tuple[Any, str]:
@@ -436,6 +518,113 @@ def _unlink_quiet(path: str) -> None:
         Path(path).unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("删除临时诊断文件失败 %s: %s", path, exc)
+
+
+def _close_quiet(handle: Any) -> None:
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
+# manifest 预留：写入其它成员前先从内容预算中扣减，保证成功 ZIP 必有 manifest（D-04）。
+_MANIFEST_RESERVE_BYTES = 64 * 1024
+
+
+class _ZipContentBudget:
+    """ZIP 成员内容字节预算（未压缩），预留 manifest 空间。"""
+
+    def __init__(self, max_bytes: int | None = None, reserve: int | None = None) -> None:
+        # 运行时读取模块级常量，便于测试 monkeypatch。
+        cap = _CONTENT_MAX_BYTES if max_bytes is None else max_bytes
+        res = _MANIFEST_RESERVE_BYTES if reserve is None else reserve
+        self.max_bytes = max(0, int(cap))
+        self.reserve = max(0, min(int(res), self.max_bytes))
+        self.used = 0
+        self.size_truncated = False
+
+    @property
+    def remaining_for_members(self) -> int:
+        return max(0, self.max_bytes - self.reserve - self.used)
+
+    def try_consume(self, nbytes: int) -> bool:
+        n = max(0, int(nbytes))
+        if n > self.remaining_for_members:
+            self.size_truncated = True
+            return False
+        self.used += n
+        return True
+
+    def write_manifest(self, zf: zipfile.ZipFile, payload: dict[str, Any]) -> None:
+        """始终写入 manifest.json（可占用预留 + 剩余；超总上限则压缩 notes）。
+
+        若缩略后仍超过剩余预算，仍硬写以保证 ZIP 必有 manifest，并标记
+        ``manifestOverBudget=true``（可观测，不静默突破 contentBudgetBytes）。
+        """
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        room = max(0, self.max_bytes - self.used)
+        over_budget = False
+        if len(data) > room:
+            # 极端：缩略 notes / omitted 后仍写；若仍超则硬写（接受略超预算以保证真实性）
+            slim = dict(payload)
+            if isinstance(slim.get("notes"), list) and len(slim["notes"]) > 2:
+                slim["notes"] = [*slim["notes"][:2], "…notes truncated for budget"]
+            if isinstance(slim.get("omitted"), list) and len(slim["omitted"]) > 8:
+                slim["omitted"] = slim["omitted"][:8]
+                slim["omittedTruncated"] = True
+            data = json.dumps(slim, ensure_ascii=False, indent=2).encode("utf-8")
+            if len(data) > room:
+                over_budget = True
+                slim["manifestOverBudget"] = True
+                notes = slim.get("notes")
+                if isinstance(notes, list):
+                    slim["notes"] = [
+                        *notes,
+                        "manifestOverBudget: wrote beyond contentBudgetBytes reserve",
+                    ]
+                else:
+                    slim["notes"] = ["manifestOverBudget: wrote beyond contentBudgetBytes reserve"]
+                data = json.dumps(slim, ensure_ascii=False, indent=2).encode("utf-8")
+        zf.writestr("manifest.json", data)
+        self.used += len(data)
+        if over_budget:
+            self.size_truncated = True
+
+
+def _omitted_entry(path: str, reason: str, detail: str = "") -> dict[str, str]:
+    """manifest.omitted 统一 schema：path + reason + 可选 detail。"""
+    item = {"path": path, "reason": reason}
+    if detail:
+        item["detail"] = detail
+    return item
+
+
+def _write_ndjson_events(
+    zf: zipfile.ZipFile,
+    events: Iterable[DiagnosticsEvent],
+    budget: _ZipContentBudget,
+    *,
+    member_name: str = "logs.ndjson",
+) -> tuple[int, bool, bool]:
+    """流式写入 NDJSON 成员（D-05）。
+
+    返回 ``(written_count, size_hit_limit, member_created)``。
+    成员仅在成功 ``ZipFile.open(..., "w")`` 后视为已创建（固定结构下即使 0 条也创建空文件）。
+    """
+    written = 0
+    size_hit = False
+    member_created = False
+    with zf.open(member_name, "w") as raw:
+        member_created = True
+        for event in events:
+            line = json.dumps(_redact_event_wire(event), ensure_ascii=False)
+            encoded = (line + "\n").encode("utf-8")
+            if not budget.try_consume(len(encoded)):
+                size_hit = True
+                break
+            raw.write(encoded)
+            written += 1
+    return written, size_hit, member_created
 
 
 def build_log_export(
@@ -459,8 +648,8 @@ def build_log_export(
     comps = _normalize_components(components)
     lvls = _normalize_levels(levels)
     limit = _effective_max_events(max_events)
-    events, truncated, scan_limited = _collect_events(
-        store,
+    merge = _EventMergeStream(
+        store=store,
         time_from=time_from,
         time_to=time_to,
         components=comps,
@@ -471,42 +660,46 @@ def build_log_export(
         max_events=limit,
         scan_budget=scan_budget,
     )
-    if scan_budget is not None and scan_budget.limited:
-        scan_limited = True
 
     tmp, tmp_path = _open_temp_zip()
-    total_size = 0
-    size_truncated = False
+    budget = _ZipContentBudget()
     written = 0
-
-    def _allow(nbytes: int) -> bool:
-        nonlocal total_size, size_truncated
-        if total_size + nbytes > _CONTENT_MAX_BYTES:
-            size_truncated = True
-            return False
-        total_size += nbytes
-        return True
-
+    size_hit = False
     try:
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
-            lines: list[str] = []
-            for event in events:
-                line = json.dumps(_redact_event_wire(event), ensure_ascii=False)
-                encoded = (line + "\n").encode("utf-8")
-                if not _allow(len(encoded)):
-                    break
-                lines.append(line)
-                written += 1
-            ndjson = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
-            zf.writestr("logs.ndjson", ndjson)
-
+            # D-05：边 k-way 归并边写，不预堆 events 列表。
+            written, size_hit, ndjson_created = _write_ndjson_events(zf, merge, budget)
+            # size_hit 提前 break 时 drain 同一生成器，确定 D-06 truncated / scan_limited。
+            merge.drain()
+            if scan_budget is not None and scan_budget.limited:
+                merge.scan_limited = True
+            members: list[str] = []
+            if ndjson_created:
+                members.append("logs.ndjson")
+            contents = _manifest_contents(*members)
+            omitted: list[dict[str, str]] = []
+            # size_hit → 成员未写完（流式下以 size_hit 为准）
+            if size_hit:
+                omitted.append(
+                    _omitted_entry(
+                        "logs.ndjson",
+                        "content-budget",
+                        f"wrote {written} events before content budget",
+                    )
+                )
+            elif not ndjson_created:
+                omitted.append(_omitted_entry("logs.ndjson", "write-failed"))
             manifest = {
                 "kind": "diagnostics-log-export",
                 "createdAt": _iso_now(),
                 "eventCount": written,
                 "requestedMaxEvents": limit,
-                "truncated": truncated or size_truncated or written < len(events),
-                "scanLimited": scan_limited,
+                "truncated": _export_truncated(
+                    collect_truncated=merge.truncated,
+                    size_truncated=budget.size_truncated,
+                    member_truncated=size_hit,
+                ),
+                "scanLimited": merge.scan_limited,
                 "contentBudgetBytes": _CONTENT_MAX_BYTES,
                 "filters": {
                     "from": time_from.isoformat() if time_from else None,
@@ -518,28 +711,28 @@ def build_log_export(
                     "runId": run_id,
                     "levelSemantics": "min-level",
                 },
+                "contents": contents,
             }
-            manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-            zf.writestr("manifest.json", manifest_bytes)
+            if omitted:
+                manifest["omitted"] = omitted
+            budget.write_manifest(zf, manifest)
     except Exception:
-        # Windows：先关句柄再 unlink，否则 WinError 32。
-        try:
-            tmp.close()
-        except OSError:
-            pass
+        # Windows：先关句柄再 unlink，否则 WinError 32（D-04）。
+        _close_quiet(tmp)
         _unlink_quiet(tmp_path)
         raise
     else:
-        try:
-            tmp.close()
-        except OSError:
-            pass
+        _close_quiet(tmp)
 
     return ExportResult(
         path=tmp_path,
         event_count=written,
-        truncated=truncated or size_truncated,
-        scan_limited=scan_limited,
+        truncated=_export_truncated(
+            collect_truncated=merge.truncated,
+            size_truncated=budget.size_truncated,
+            member_truncated=size_hit,
+        ),
+        scan_limited=merge.scan_limited or (scan_budget is not None and scan_budget.limited),
         components=comps,
         levels=lvls,
     )
@@ -569,8 +762,8 @@ def build_diagnostics_bundle(
     comps = _normalize_components(components)
     lvls = _normalize_levels(levels)
     limit = _effective_max_events(max_events)
-    events, truncated, scan_limited = _collect_events(
-        store,
+    merge = _EventMergeStream(
+        store=store,
         time_from=time_from,
         time_to=time_to,
         components=comps,
@@ -581,29 +774,25 @@ def build_diagnostics_bundle(
         max_events=limit,
         scan_budget=scan_budget,
     )
-    if scan_budget is not None and scan_budget.limited:
-        scan_limited = True
 
     overview = service.overview_sync()
     system_info = service.system_info() if include_system_info else None
 
     tmp, tmp_path = _open_temp_zip()
-    total_size = 0
-    size_truncated = False
+    budget = _ZipContentBudget()
     written = 0
+    size_hit = False
     contents: list[str] = []
-
-    def _allow(nbytes: int) -> bool:
-        nonlocal total_size, size_truncated
-        if total_size + nbytes > _CONTENT_MAX_BYTES:
-            size_truncated = True
-            return False
-        total_size += nbytes
-        return True
+    omitted: list[dict[str, str]] = []
+    notes: list[str] = [
+        "javaStatus may be omitted (overview_sync; no async Java probe)",
+        "level filter uses min-level semantics (same as log search)",
+    ]
 
     def _write_json(zf: zipfile.ZipFile, name: str, payload: Any) -> bool:
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-        if not _allow(len(data)):
+        if not budget.try_consume(len(data)):
+            omitted.append(_omitted_entry(name, "content-budget"))
             return False
         zf.writestr(name, data)
         contents.append(name)
@@ -611,9 +800,11 @@ def build_diagnostics_bundle(
 
     try:
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
-            _write_json(zf, "overview.json", overview)
+            if not _write_json(zf, "overview.json", overview):
+                notes.append("overview.json omitted due to content budget")
             if system_info is not None:
-                _write_json(zf, "system.json", system_info)
+                if not _write_json(zf, "system.json", system_info):
+                    notes.append("system.json omitted due to content budget")
 
             if include_recent_events:
                 try:
@@ -627,38 +818,60 @@ def build_diagnostics_bundle(
                         if isinstance(exc, str):
                             item = {**item, "exception": redact_sensitive_text(exc)}
                         redacted_recent.append(item)
-                    _write_json(zf, "system-events.json", redacted_recent)
-                except Exception:  # noqa: BLE001
-                    logger.debug("诊断包写入系统事件失败", exc_info=True)
+                    if not _write_json(zf, "system-events.json", redacted_recent):
+                        notes.append("system-events.json omitted due to content budget")
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("诊断包读取系统事件失败", exc_info=True)
+                    # D-04：包内可观察降级，而非仅 debug 日志
+                    degradation = {
+                        "ok": False,
+                        "error": exc.__class__.__name__,
+                        "message": str(exc)[:500],
+                    }
+                    if _write_json(zf, "system-events.json", degradation):
+                        notes.append("system-events.json degraded: query failed")
+                    else:
+                        omitted.append(
+                            _omitted_entry(
+                                "system-events.json",
+                                "query-failed+content-budget",
+                                exc.__class__.__name__,
+                            )
+                        )
+                        notes.append("system-events.json omitted after query failure")
 
-            lines: list[str] = []
-            for event in events:
-                line = json.dumps(_redact_event_wire(event), ensure_ascii=False)
-                encoded = (line + "\n").encode("utf-8")
-                if not _allow(len(encoded)):
-                    break
-                lines.append(line)
-                written += 1
-            ndjson = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
-            # 固定结构：即使 0 条也写空 logs.ndjson
-            zf.writestr("logs.ndjson", ndjson)
-            contents.append("logs.ndjson")
+            # 固定结构：即使 0 条也写空 logs.ndjson（边归并边写，D-05）
+            written, size_hit, ndjson_created = _write_ndjson_events(zf, merge, budget)
+            merge.drain()
+            if scan_budget is not None and scan_budget.limited:
+                merge.scan_limited = True
+            if ndjson_created:
+                contents.append("logs.ndjson")
+            else:
+                omitted.append(_omitted_entry("logs.ndjson", "write-failed"))
+            if size_hit:
+                omitted.append(
+                    _omitted_entry(
+                        "logs.ndjson",
+                        "content-budget",
+                        f"wrote {written} events before content budget",
+                    )
+                )
 
-            # 实际写入清单（manifest 自身稍后追加）
-            actual_contents = ["manifest.json", *contents]
-            manifest = {
+            manifest: dict[str, Any] = {
                 "kind": "diagnostics-bundle",
                 "createdAt": _iso_now(),
                 "eventCount": written,
                 "requestedMaxEvents": limit,
-                "truncated": truncated or size_truncated or written < len(events),
-                "scanLimited": scan_limited,
+                "truncated": _export_truncated(
+                    collect_truncated=merge.truncated,
+                    size_truncated=budget.size_truncated,
+                    member_truncated=size_hit,
+                ),
+                "scanLimited": merge.scan_limited,
                 "contentBudgetBytes": _CONTENT_MAX_BYTES,
                 "ttlSeconds": registry.ttl_seconds,
-                "notes": [
-                    "javaStatus may be omitted (overview_sync; no async Java probe)",
-                    "level filter uses min-level semantics (same as log search)",
-                ],
+                "notes": notes,
                 "filters": {
                     "from": time_from.isoformat() if time_from else None,
                     "to": time_to.isoformat() if time_to else None,
@@ -669,23 +882,17 @@ def build_diagnostics_bundle(
                     "runId": run_id,
                     "levelSemantics": "min-level",
                 },
-                "contents": actual_contents,
+                "contents": _manifest_contents(*contents),
             }
-            # manifest 尽量写入
-            data = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-            zf.writestr("manifest.json", data)
+            if omitted:
+                manifest["omitted"] = omitted
+            budget.write_manifest(zf, manifest)
     except Exception:
-        try:
-            tmp.close()
-        except OSError:
-            pass
+        _close_quiet(tmp)
         _unlink_quiet(tmp_path)
         raise
     else:
-        try:
-            tmp.close()
-        except OSError:
-            pass
+        _close_quiet(tmp)
 
     now = time.time()
     try:
@@ -699,8 +906,12 @@ def build_diagnostics_bundle(
         created_at=now,
         expires_at=now + registry.ttl_seconds,
         event_count=written,
-        truncated=truncated or size_truncated,
-        scan_limited=scan_limited,
+        truncated=_export_truncated(
+            collect_truncated=merge.truncated,
+            size_truncated=budget.size_truncated,
+            member_truncated=size_hit,
+        ),
+        scan_limited=merge.scan_limited or (scan_budget is not None and scan_budget.limited),
         size_bytes=size_bytes,
     )
     try:

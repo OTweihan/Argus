@@ -253,6 +253,133 @@ class TestBuildLogExport:
         for path in created:
             assert not Path(path).exists()
 
+    def test_export_manifest_always_present_under_tight_budget(
+        self, store: FileDiagnosticsLogStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """D-04：内容预算极紧时仍必有 manifest.json。"""
+        import argus_py.observability.diagnostics_export as mod
+
+        monkeypatch.setattr(mod, "_CONTENT_MAX_BYTES", 8 * 1024)
+        monkeypatch.setattr(mod, "_MANIFEST_RESERVE_BYTES", 4 * 1024)
+        result = build_log_export(store, max_events=50)
+        try:
+            with zipfile.ZipFile(result.path) as zf:
+                assert "manifest.json" in zf.namelist()
+                assert "logs.ndjson" in zf.namelist()
+                manifest = json.loads(zf.read("manifest.json"))
+                assert manifest["kind"] == "diagnostics-log-export"
+                assert "manifest.json" in manifest["contents"]
+                assert "logs.ndjson" in manifest["contents"]
+        finally:
+            Path(result.path).unlink(missing_ok=True)
+
+    def test_bundle_system_events_failure_is_observable(
+        self,
+        store: FileDiagnosticsLogStore,
+        registry: DiagnosticsBundleRegistry,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """D-04：系统事件查询失败写入包内降级信息，而非仅 debug。"""
+        settings = ServerSettings()
+        service = DiagnosticsService(settings, store)
+
+        def boom(*_args: object, **_kwargs: object) -> list[object]:
+            raise RuntimeError("events backend down")
+
+        monkeypatch.setattr(service, "recent_system_events", boom)
+        record = build_diagnostics_bundle(
+            service, store, registry, max_events=20, include_recent_events=True
+        )
+        try:
+            with zipfile.ZipFile(record.path) as zf:
+                assert "manifest.json" in zf.namelist()
+                manifest = json.loads(zf.read("manifest.json"))
+                assert "manifest.json" in manifest["contents"]
+                for name in manifest["contents"]:
+                    assert name in zf.namelist()
+                assert "system-events.json" in zf.namelist()
+                payload = json.loads(zf.read("system-events.json"))
+                assert payload["ok"] is False
+                assert payload["error"] == "RuntimeError"
+                assert any("degraded" in n for n in manifest.get("notes", []))
+        finally:
+            registry.pop(record.bundle_id)
+            Path(record.path).unlink(missing_ok=True)
+
+    def test_bundle_omitted_matches_missing_members(
+        self,
+        store: FileDiagnosticsLogStore,
+        registry: DiagnosticsBundleRegistry,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """D-04：预算不足时 contents 只含实际成员，omitted 记录原因。"""
+        import argus_py.observability.diagnostics_export as mod
+
+        settings = ServerSettings()
+        service = DiagnosticsService(settings, store)
+        # 极小预算：overview 可能还能写，后续成员进 omitted
+        monkeypatch.setattr(mod, "_CONTENT_MAX_BYTES", 2500)
+        monkeypatch.setattr(mod, "_MANIFEST_RESERVE_BYTES", 1200)
+        record = build_diagnostics_bundle(service, store, registry, max_events=50)
+        try:
+            with zipfile.ZipFile(record.path) as zf:
+                names = set(zf.namelist())
+                assert "manifest.json" in names
+                manifest = json.loads(zf.read("manifest.json"))
+                for name in manifest["contents"]:
+                    assert name in names
+                # contents 不含未写入成员
+                for name in names:
+                    if name != "manifest.json":
+                        assert name in manifest["contents"]
+                for item in manifest.get("omitted", []):
+                    assert "path" in item
+                    assert "reason" in item
+                    path = item["path"]
+                    reason = item["reason"]
+                    # 非 ndjson：content-budget 省略的成员不得出现在 ZIP 中
+                    if path != "logs.ndjson" and reason == "content-budget":
+                        assert path not in names
+                    # ndjson 部分写入：可同时在 contents 与 omitted（带 detail）
+                    if path == "logs.ndjson" and reason == "content-budget":
+                        assert path in names
+                        assert "detail" in item
+        finally:
+            registry.pop(record.bundle_id)
+            Path(record.path).unlink(missing_ok=True)
+
+    def test_ndjson_serialize_failure_unlinks_temp(
+        self, store: FileDiagnosticsLogStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """D-04：NDJSON 序列化中途失败时删除临时 zip。"""
+        import argus_py.observability.diagnostics_export as mod
+
+        created: list[str] = []
+        real_open = mod._open_temp_zip
+        real_dumps = mod.json.dumps
+        calls = {"n": 0}
+
+        def tracking_open() -> tuple[object, str]:
+            tmp, path = real_open()
+            created.append(path)
+            return tmp, path
+
+        def flaky_dumps(obj: object, *args: object, **kwargs: object) -> str:
+            # 事件 wire 是 dict；manifest 也是 dict — 第二次事件级 dumps 再炸
+            if isinstance(obj, dict) and "message" in obj:
+                calls["n"] += 1
+                if calls["n"] >= 2:
+                    raise ValueError("serialize boom")
+            return real_dumps(obj, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(mod, "_open_temp_zip", tracking_open)
+        monkeypatch.setattr(mod.json, "dumps", flaky_dumps)
+        with pytest.raises(ValueError, match="serialize boom"):
+            build_log_export(store, max_events=50)
+        assert created
+        for path in created:
+            assert not Path(path).exists()
+
 
 class TestBuildBundle:
     def test_bundle_contains_overview_and_registers(

@@ -624,3 +624,132 @@ class TestCrossFileTimeMergeD02:
         # 整页一次取出次序一致
         full = store.search(DiagnosticsQuery(limit=10))
         assert [e.message for e in full.items] == ["same-ts-python", "same-ts-java"]
+
+
+class TestReverseReadChunkD05:
+    def test_chunked_reverse_matches_small_file_semantics(self, tmp_path: Path) -> None:
+        """小块读取与整窗语义一致：新→旧行内容。"""
+        from argus_py.observability.diagnostics_store import _EventLocator
+
+        runtime = tmp_path / "runtime" / "python"
+        runtime.mkdir(parents=True)
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        lines = [
+            _runtime_line(base - timedelta(seconds=2), "a"),
+            _runtime_line(base - timedelta(seconds=1), "b"),
+            _runtime_line(base, "c"),
+        ]
+        path = runtime / "argus.log"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        store = FileDiagnosticsLogStore(tmp_path)
+        records, consumed, truncated = store._read_reverse_lines(  # noqa: SLF001
+            path, max_bytes=10_000_000, chunk_size=64
+        )
+        assert truncated is False
+        assert consumed == path.stat().st_size
+        messages: list[str] = []
+        for offset, line in records:
+            event = store._build_event(  # noqa: SLF001
+                line,
+                "runtime/python/argus.log",
+                _EventLocator(file="runtime/python/argus.log", offset=offset),
+            )
+            assert event is not None
+            messages.append(event.message)
+        assert messages == ["c", "b", "a"]
+
+    def test_utf8_multibyte_search_roundtrip(self, tmp_path: Path) -> None:
+        """UTF-8 多字节消息经分块扫窗后仍可检索。"""
+        runtime = tmp_path / "runtime" / "python"
+        runtime.mkdir(parents=True)
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        msg = "前缀" + ("中" * 40) + "后缀"
+        path = runtime / "argus.log"
+        path.write_text(_runtime_line(base, msg) + "\n", encoding="utf-8")
+        store = FileDiagnosticsLogStore(tmp_path)
+        page = store.search(DiagnosticsQuery(limit=5))
+        assert len(page.items) == 1
+        assert page.items[0].message == msg
+
+    def test_utf8_multibyte_across_forced_small_chunks(self, tmp_path: Path) -> None:
+        """强制 chunk 小于整行，多字节字符跨块边界时整行 decode 仍正确。"""
+        from argus_py.observability.diagnostics_store import _EventLocator
+
+        runtime = tmp_path / "runtime" / "python"
+        runtime.mkdir(parents=True)
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        msg = "前" + ("中文" * 80) + "后"
+        line = _runtime_line(base, msg) + "\n"
+        path = runtime / "argus.log"
+        path.write_text(line, encoding="utf-8")
+        assert path.stat().st_size > 64  # 确保小 chunk 会切开
+        store = FileDiagnosticsLogStore(tmp_path)
+        records, _consumed, truncated = store._read_reverse_lines(  # noqa: SLF001
+            path, max_bytes=10_000_000, chunk_size=17
+        )
+        assert truncated is False
+        assert len(records) == 1
+        event = store._build_event(  # noqa: SLF001
+            records[0][1],
+            "runtime/python/argus.log",
+            _EventLocator(file="runtime/python/argus.log", offset=records[0][0]),
+        )
+        assert event is not None
+        assert event.message == msg
+
+    def test_skip_partial_line_across_many_chunks(self, tmp_path: Path) -> None:
+        """窗口起点落在超长无换行前缀中时，跨多块 skip_partial 仍能读到尾部合法行。"""
+        runtime = tmp_path / "runtime" / "python"
+        runtime.mkdir(parents=True)
+        base = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # 前缀 > 多块；尾部两条合法 runtime 行
+        path = runtime / "argus.log"
+        prefix = "X" * 5000  # 无 \n
+        tail = (
+            _runtime_line(base - timedelta(seconds=1), "old-ok")
+            + "\n"
+            + _runtime_line(base, "new-ok")
+            + "\n"
+        )
+        path.write_bytes(prefix.encode("utf-8") + b"\n" + tail.encode("utf-8"))
+        store = FileDiagnosticsLogStore(tmp_path)
+        # 预算盖住整文件，但块极小，强制 skip_partial 跨很多块
+        records, consumed, truncated = store._read_reverse_lines(  # noqa: SLF001
+            path,
+            max_bytes=path.stat().st_size,
+            chunk_size=64,
+        )
+        assert truncated is False
+        assert consumed == path.stat().st_size
+        from argus_py.observability.diagnostics_store import _EventLocator
+
+        messages: list[str] = []
+        for offset, line in records:
+            event = store._build_event(  # noqa: SLF001
+                line,
+                "runtime/python/argus.log",
+                _EventLocator(file="runtime/python/argus.log", offset=offset),
+            )
+            if event is not None:
+                messages.append(event.message)
+        assert messages == ["new-ok", "old-ok"]
+
+        # 预算只覆盖尾部 + 半截前缀：仍应 truncated 且读到合法行
+        window = len(tail.encode("utf-8")) + 300
+        records2, consumed2, truncated2 = store._read_reverse_lines(  # noqa: SLF001
+            path,
+            max_bytes=window,
+            chunk_size=32,
+        )
+        assert truncated2 is True
+        assert consumed2 == window
+        messages2: list[str] = []
+        for offset, line in records2:
+            event = store._build_event(  # noqa: SLF001
+                line,
+                "runtime/python/argus.log",
+                _EventLocator(file="runtime/python/argus.log", offset=offset),
+            )
+            if event is not None:
+                messages2.append(event.message)
+        assert messages2 == ["new-ok", "old-ok"]
