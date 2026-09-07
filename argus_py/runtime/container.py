@@ -277,7 +277,11 @@ def create_container() -> RuntimeContainer:
     diagnostics_store.set_scan_budget(settings.diagnostics_scan_max_bytes)
     diagnostics_semaphore = asyncio.Semaphore(settings.diagnostics_max_concurrent_queries)
     diagnostics_service = DiagnosticsService(settings, diagnostics_store)
-    diagnostics_bundle_registry = DiagnosticsBundleRegistry()
+    diagnostics_bundle_registry = DiagnosticsBundleRegistry(
+        ttl_seconds=settings.diagnostics_bundle_ttl_seconds,
+        max_items=settings.diagnostics_bundle_max_items,
+        max_total_bytes=settings.diagnostics_bundle_max_total_bytes,
+    )
 
     return RuntimeContainer(
         settings=settings,
@@ -323,6 +327,10 @@ async def shutdown_container() -> None:
     from argus_py.infra.db import close_all_db_pools
 
     container = create_container()
+    try:
+        container.diagnostics_bundle_registry.clear_all()
+    except Exception:
+        pass
     try:
         await container.whitebox_client.aclose()
     except Exception:

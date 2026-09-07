@@ -162,8 +162,26 @@ def create_app() -> FastAPI:
         )
         set_io_executor(executor)
         worker = get_task_worker()
+        bundle_purge_task: asyncio.Task[None] | None = None
+
+        async def _purge_diagnostics_bundles() -> None:
+            """定时回收过期诊断包（D-03）；磁盘 IO 在线程池，不阻塞事件循环。"""
+            interval = max(1.0, float(settings.diagnostics_bundle_purge_interval_seconds))
+            registry = c.diagnostics_bundle_registry
+            while True:
+                try:
+                    await asyncio.sleep(interval)
+                    await asyncio.get_running_loop().run_in_executor(None, registry.purge_expired)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.debug("诊断包定时回收失败", exc_info=True)
+
         try:
             await worker.start()
+            bundle_purge_task = asyncio.create_task(
+                _purge_diagnostics_bundles(), name="argus-diag-bundle-purge"
+            )
             app.state.lifespan_ready = True
             log_event(
                 logger,
@@ -193,6 +211,14 @@ def create_app() -> FastAPI:
             yield
         finally:
             app.state.lifespan_ready = False
+            if bundle_purge_task is not None:
+                bundle_purge_task.cancel()
+                try:
+                    await bundle_purge_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    logger.debug("停止诊断包回收任务失败", exc_info=True)
             try:
                 from argus_py.observability.system_events import append_system_event
 

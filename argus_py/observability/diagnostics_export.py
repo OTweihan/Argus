@@ -31,6 +31,7 @@ from argus_py.observability.diagnostics_store import (
     LEVEL_ORDER,
     DiagnosticsEvent,
     DiagnosticsQuery,
+    DiagnosticsScanBudget,
     FileDiagnosticsLogStore,
 )
 from argus_py.redaction import redact_sensitive_text
@@ -43,7 +44,14 @@ _HARD_MAX_EVENTS = 5000
 # 写入 zip 前的内容字节预算（未压缩 NDJSON/JSON），防止无界膨胀。
 _CONTENT_MAX_BYTES = 50 * 1024 * 1024
 _BUNDLE_TTL_SECONDS = 15 * 60
+# 进程内诊断包默认容量（条目数 / 总字节）；可被构造参数覆盖。
+_DEFAULT_BUNDLE_MAX_ITEMS = 16
+_DEFAULT_BUNDLE_MAX_TOTAL_BYTES = 512 * 1024 * 1024
 _PAGE_CHUNK = 200
+
+
+class BundleCapacityError(RuntimeError):
+    """诊断包登记容量已满（D-03）。"""
 
 
 @dataclass(frozen=True)
@@ -74,69 +82,152 @@ class BundleRecord:
 
 @dataclass
 class DiagnosticsBundleRegistry:
-    """进程内诊断包登记表（非持久化）。
+    """进程内诊断包登记表（非持久化，D-03）。
 
-    单进程硬约束下足够；重启后全部失效。下载应 ``claim``（领取即注销），
-    本表在 put/claim 时顺带做 TTL 回收。
+    - TTL + 条目数/总字节容量准入；
+    - 锁内只改元数据，磁盘 unlink 在锁外执行（避免持锁 IO / 阻塞事件循环）；
+    - 下载 ``claim`` 一次性领取；``purge_expired`` 供 lifespan 定时回收；
+    - 删除失败路径进入重试队列，下次 purge 再试。
+    重启后全部失效。
     """
 
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _items: dict[str, BundleRecord] = field(default_factory=dict)
+    _pending_unlink: list[str] = field(default_factory=list)
     ttl_seconds: int = _BUNDLE_TTL_SECONDS
+    max_items: int = _DEFAULT_BUNDLE_MAX_ITEMS
+    max_total_bytes: int = _DEFAULT_BUNDLE_MAX_TOTAL_BYTES
 
     def put(self, record: BundleRecord) -> None:
+        """登记诊断包；容量不足时抛 ``BundleCapacityError``（调用方负责删文件）。
+
+        容量拒绝前若已摘掉过期项，仍必须在锁外删除其文件，避免元数据与磁盘泄漏。
+        """
+        to_unlink: list[str] = []
+        capacity_error: BundleCapacityError | None = None
         with self._lock:
-            self._purge_locked(time.time())
-            self._items[record.bundle_id] = record
+            to_unlink.extend(self._purge_locked(time.time()))
+            if record.bundle_id not in self._items:
+                if len(self._items) >= self.max_items:
+                    capacity_error = BundleCapacityError(
+                        f"诊断包数量已达上限（{self.max_items}），请先下载或等待过期回收。"
+                    )
+                else:
+                    total = sum(item.size_bytes for item in self._items.values())
+                    if total + max(0, record.size_bytes) > self.max_total_bytes:
+                        capacity_error = BundleCapacityError(
+                            f"诊断包总大小已达上限（{self.max_total_bytes} 字节），"
+                            "请先下载或等待过期回收。"
+                        )
+            if capacity_error is None:
+                self._items[record.bundle_id] = record
+        # 无论 put 成败，过期 purge 路径都要落盘清理。
+        self._unlink_paths(to_unlink)
+        if capacity_error is not None:
+            raise capacity_error
 
     def get(self, bundle_id: str) -> BundleRecord | None:
-        """只读查看（不过期不删除登记）；过期项会清理文件。"""
+        """只读查看；过期项仅注销元数据，文件在锁外删除。"""
         now = time.time()
+        to_unlink: list[str] = []
         with self._lock:
-            self._purge_locked(now)
+            to_unlink.extend(self._purge_locked(now))
             record = self._items.get(bundle_id)
             if record is None:
-                return None
-            if record.expires_at <= now:
-                self._drop_locked(bundle_id)
-                return None
-            return record
+                result = None
+            elif record.expires_at <= now:
+                dropped = self._items.pop(bundle_id, None)
+                if dropped is not None:
+                    to_unlink.append(dropped.path)
+                result = None
+            else:
+                result = record
+        self._unlink_paths(to_unlink)
+        return result
 
-    def claim(self, bundle_id: str) -> BundleRecord | None:
-        """一次性领取：取出并注销，避免并发双下。"""
+    def claim(self, bundle_id: str, *, purge_expired: bool = True) -> BundleRecord | None:
+        """一次性领取：取出并注销，避免并发双下。
+
+        ``purge_expired=False`` 时只 pop 目标项（下载热路径），过期包交给定时
+        ``purge_expired()``，避免在 asyncio 事件循环线程同步批量 unlink。
+        """
         now = time.time()
+        to_unlink: list[str] = []
         with self._lock:
-            self._purge_locked(now)
+            if purge_expired:
+                to_unlink.extend(self._purge_locked(now))
             record = self._items.pop(bundle_id, None)
             if record is None:
-                return None
-            if record.expires_at <= now:
-                self._unlink_path(record.path)
-                return None
-            return record
+                result = None
+            elif record.expires_at <= now:
+                to_unlink.append(record.path)
+                result = None
+            else:
+                result = record
+        self._unlink_paths(to_unlink)
+        return result
 
     def pop(self, bundle_id: str) -> BundleRecord | None:
-        """兼容旧名：等同 claim（不校验 TTL，仅 pop）。"""
+        """兼容旧名：仅 pop 元数据（不校验 TTL，不自动删文件）。"""
         with self._lock:
             return self._items.pop(bundle_id, None)
 
-    def _purge_locked(self, now: float) -> None:
+    def stats(self) -> dict[str, int]:
+        """当前登记规模（测试 / 观测）。"""
+        with self._lock:
+            return {
+                "items": len(self._items),
+                "total_bytes": sum(item.size_bytes for item in self._items.values()),
+                "pending_unlink": len(self._pending_unlink),
+            }
+
+    def purge_expired(self) -> int:
+        """主动回收过期包与待重试删除；返回成功删除文件数。供定时任务调用。"""
+        with self._lock:
+            paths = self._purge_locked(time.time())
+            paths.extend(self._pending_unlink)
+            self._pending_unlink = []
+        return self._unlink_paths(paths)
+
+    def clear_all(self) -> int:
+        """关闭时清空全部登记并尝试删文件；返回删除成功数。"""
+        with self._lock:
+            paths = [item.path for item in self._items.values()]
+            paths.extend(self._pending_unlink)
+            self._items.clear()
+            self._pending_unlink = []
+        return self._unlink_paths(paths)
+
+    def _purge_locked(self, now: float) -> list[str]:
         expired = [key for key, item in self._items.items() if item.expires_at <= now]
+        paths: list[str] = []
         for key in expired:
-            self._drop_locked(key)
+            record = self._items.pop(key, None)
+            if record is not None:
+                paths.append(record.path)
+        return paths
 
-    def _drop_locked(self, bundle_id: str) -> None:
-        record = self._items.pop(bundle_id, None)
-        if record is None:
-            return
-        self._unlink_path(record.path)
-
-    @staticmethod
-    def _unlink_path(path: str) -> None:
-        try:
-            Path(path).unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("清理过期诊断包失败 %s: %s", path, exc)
+    def _unlink_paths(self, paths: list[str]) -> int:
+        removed = 0
+        failed: list[str] = []
+        for path in paths:
+            try:
+                target = Path(path)
+                # missing_ok：文件已不在仍算清理成功，不进重试队列。
+                target.unlink(missing_ok=True)
+                removed += 1
+            except OSError as exc:
+                logger.warning("清理诊断包文件失败 %s: %s", path, exc)
+                failed.append(path)
+        if failed:
+            with self._lock:
+                # 去重，避免同一路径在失败重试队列里无限膨胀。
+                pending = set(self._pending_unlink)
+                for item in failed:
+                    if item not in pending:
+                        self._pending_unlink.append(item)
+                        pending.add(item)
+        return removed
 
 
 def _iso_now() -> str:
@@ -209,11 +300,15 @@ def _iter_component_events(
     keyword: str | None,
     request_id: str | None,
     run_id: str | None,
+    scan_budget: DiagnosticsScanBudget | None = None,
 ) -> Iterator[tuple[DiagnosticsEvent, bool]]:
     """按 component 分页迭代事件（新→旧）。yield (event, scan_limited_seen)。"""
     cursor: str | None = None
     scan_limited = False
     while True:
+        if scan_budget is not None and scan_budget.cancelled():
+            scan_budget.mark_limited()
+            return
         page = store.search(
             DiagnosticsQuery(
                 time_from=time_from,
@@ -225,7 +320,8 @@ def _iter_component_events(
                 run_id=run_id,
                 limit=_PAGE_CHUNK,
                 cursor=cursor,
-            )
+            ),
+            scan_budget=scan_budget,
         )
         if page.scan_limited:
             scan_limited = True
@@ -249,11 +345,13 @@ def _collect_events(
     request_id: str | None,
     run_id: str | None,
     max_events: int,
+    scan_budget: DiagnosticsScanBudget | None = None,
 ) -> tuple[list[DiagnosticsEvent], bool, bool]:
     """按过滤条件有界采集事件（新→旧，截断时 truncated=True）。
 
     levels 与检索一致：取最低级别门槛（min-level），不再做精确集合过滤。
     多 component 时按时间戳 k-way 归并，全局取最新 max_events 条（避免先占满）。
+    ``scan_budget`` 跨分页累计扫描字节并支持协作取消（D-01）。
     """
     component_filters: list[str | None] = list(components) if components else [None]
     level_floor = _level_floor(levels)
@@ -269,6 +367,7 @@ def _collect_events(
             keyword=kw,
             request_id=request_id,
             run_id=run_id,
+            scan_budget=scan_budget,
         )
 
     # 单组件：顺序取满即可
@@ -367,10 +466,12 @@ def build_log_export(
     request_id: str | None = None,
     run_id: str | None = None,
     max_events: int | None = None,
+    scan_budget: DiagnosticsScanBudget | None = None,
 ) -> ExportResult:
     """构建日志导出 zip：manifest.json + logs.ndjson。
 
     构建失败时删除临时文件再抛出，避免泄漏 ``argus-diag-*.zip``。
+    ``scan_budget`` 覆盖整次导出的累计扫描字节与协作取消（D-01）。
     """
     comps = _normalize_components(components)
     lvls = _normalize_levels(levels)
@@ -385,7 +486,10 @@ def build_log_export(
         request_id=(request_id or None),
         run_id=(run_id or None),
         max_events=limit,
+        scan_budget=scan_budget,
     )
+    if scan_budget is not None and scan_budget.limited:
+        scan_limited = True
 
     tmp, tmp_path = _open_temp_zip()
     total_size = 0
@@ -473,10 +577,11 @@ def build_diagnostics_bundle(
     max_events: int | None = None,
     include_system_info: bool = True,
     include_recent_events: bool = True,
+    scan_budget: DiagnosticsScanBudget | None = None,
 ) -> BundleRecord:
     """构建实例诊断包并登记到进程内 registry。
 
-    构建失败时删除临时文件再抛出。
+    构建失败时删除临时文件再抛出。容量拒绝时删除 zip 并抛 ``BundleCapacityError``。
     """
     comps = _normalize_components(components)
     lvls = _normalize_levels(levels)
@@ -491,7 +596,10 @@ def build_diagnostics_bundle(
         request_id=(request_id or None),
         run_id=(run_id or None),
         max_events=limit,
+        scan_budget=scan_budget,
     )
+    if scan_budget is not None and scan_budget.limited:
+        scan_limited = True
 
     overview = service.overview_sync()
     system_info = service.system_info() if include_system_info else None
@@ -612,11 +720,16 @@ def build_diagnostics_bundle(
         scan_limited=scan_limited,
         size_bytes=size_bytes,
     )
-    registry.put(record)
+    try:
+        registry.put(record)
+    except BundleCapacityError:
+        _unlink_quiet(tmp_path)
+        raise
     return record
 
 
 __all__ = [
+    "BundleCapacityError",
     "BundleRecord",
     "DiagnosticsBundleRegistry",
     "ExportResult",

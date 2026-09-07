@@ -1,8 +1,9 @@
 """诊断中心查询路由（docs/optimizations/diagnostics-center-plan.md 第 17 章）。
 
-只做 IO 适配 + API 序列化；日志扫描在仓储内完成并经 ``run_in_thread``
-进入线程池。所有查询接口统一走 ``_guarded``：并发上限超限立即返回 429，
-单次查询超时返回 503，不排队堆积（单 worker 资源隔离约束）。
+只做 IO 适配 + API 序列化；日志扫描在仓储内完成并经诊断专用线程提交
+进入 IO 线程池。所有查询接口统一走 ``_guarded``：并发上限超限立即返回 429，
+单次查询超时返回 503；超时后仍等待后台线程结束再释放闸门（D-01），
+不排队堆积（单 worker 资源隔离约束）。
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -47,7 +50,9 @@ from argus_py.api.schemas import (
 from argus_py.config.server_settings import ServerSettings
 from argus_py.observability.context import run_in_thread
 from argus_py.observability.diagnostics_export import (
+    BundleCapacityError,
     DiagnosticsBundleRegistry,
+    ExportResult,
     build_diagnostics_bundle,
     build_log_export,
 )
@@ -56,6 +61,7 @@ from argus_py.observability.diagnostics_store import (
     DiagnosticsBadRequestError,
     DiagnosticsNotFoundError,
     DiagnosticsQuery,
+    DiagnosticsScanBudget,
 )
 from argus_py.observability.frontend_events import append_frontend_event
 
@@ -71,6 +77,39 @@ ServiceDep = Annotated[DiagnosticsService, Depends(get_diagnostics_service)]
 BundleRegistryDep = Annotated[DiagnosticsBundleRegistry, Depends(get_diagnostics_bundle_registry)]
 
 
+def _unlink_quiet(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError as exc:
+        logger.warning("删除临时诊断文件失败 %s: %s", path, exc)
+
+
+def _cleanup_guarded_result(
+    result: Any,
+    *,
+    registry: DiagnosticsBundleRegistry | None = None,
+) -> None:
+    """超时/取消后清理线程已产出但未交付的临时产物（导出 zip / 未 claim 包）。
+
+    ``registry`` 必须与 put 使用同一实例（路由注入），禁止回退到全局
+    ``get_diagnostics_bundle_registry()``，避免 Depends override 下僵尸占容量。
+    """
+    if isinstance(result, ExportResult):
+        _unlink_quiet(result.path)
+        return
+    bundle_id = getattr(result, "bundle_id", None)
+    path = getattr(result, "path", None)
+    if isinstance(bundle_id, str) and bundle_id and registry is not None:
+        try:
+            dropped = registry.pop(bundle_id)
+            if dropped is not None:
+                path = dropped.path
+        except Exception:  # noqa: BLE001
+            logger.debug("超时摘除诊断包登记失败 bundle_id=%s", bundle_id, exc_info=True)
+    if isinstance(path, str) and path:
+        _unlink_quiet(path)
+
+
 async def _guarded(
     semaphore: asyncio.Semaphore,
     settings: ServerSettings,
@@ -78,15 +117,24 @@ async def _guarded(
     func: Any,
     *args: Any,
     timeout_seconds: float | None = None,
+    cancel_event: threading.Event | None = None,
+    scan_budget: DiagnosticsScanBudget | None = None,
+    result_registry: DiagnosticsBundleRegistry | None = None,
     **kwargs: Any,
 ) -> Any:
-    """并发闸门 + 超时保护：429 快速失败、503 超时（方案第 17 章）。
+    """并发闸门 + 超时保护：429 快速失败、503 超时（方案第 17 章 / D-01）。
 
     ``locked()`` 预检与 ``acquire`` 之间存在固有 TOCTOU 窗口：并发边界上的
     个别请求可能短暂排队而非快速 429。这是无阻塞 acquire 语义下可接受的
     近似——闸门仍保证同时在途查询数不超过上限。
 
+    超时后**不立即释放** semaphore：先设置 ``cancel_event``（若有），再等待
+    后台 Future 结束；若线程已产出临时 zip/包路径则清理，避免超时后继续
+    占用共享 IO 槽位或遗留未登记文件。
+
     ``timeout_seconds`` 可覆盖默认查询超时（导出/诊断包使用更长预算）。
+    ``scan_budget`` 若提供，在 acquire 成功后写入 deadline，避免闸门外空转。
+    ``result_registry`` 供超时清理与 put 使用同一诊断包登记表。
     """
     if semaphore.locked():
         raise HTTPException(
@@ -96,14 +144,38 @@ async def _guarded(
     timeout = (
         settings.diagnostics_query_timeout_seconds if timeout_seconds is None else timeout_seconds
     )
-    async with semaphore:
+    await semaphore.acquire()
+    released = False
+
+    def _release() -> None:
+        nonlocal released
+        if not released:
+            released = True
+            semaphore.release()
+
+    # acquire 成功后再钉 deadline，避免 TOCTOU/调度间隙吃掉预算。
+    if scan_budget is not None and scan_budget.deadline_monotonic is None:
+        scan_budget.deadline_monotonic = time.monotonic() + max(0.1, float(timeout))
+
+    # 用 create_task 包住 run_in_thread，便于超时后继续 await 同一任务至结束。
+    worker = asyncio.create_task(run_in_thread(func, *args, **kwargs))
+    try:
         try:
-            return await asyncio.wait_for(
-                run_in_thread(func, *args, **kwargs),
-                timeout=timeout,
-            )
+            return await asyncio.wait_for(asyncio.shield(worker), timeout=timeout)
         except TimeoutError as exc:
+            if cancel_event is not None:
+                cancel_event.set()
             logger.warning("诊断查询超时：%s", operation)
+            # 等待真实后台结束再放行闸门；清理可能已写出的临时产物。
+            try:
+                result = await worker
+            except Exception:  # noqa: BLE001 — 超时路径只负责回收
+                logger.debug("诊断超时后后台任务异常：%s", operation, exc_info=True)
+            else:
+                try:
+                    _cleanup_guarded_result(result, registry=result_registry)
+                except Exception:  # noqa: BLE001
+                    logger.debug("诊断超时产物清理失败：%s", operation, exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"诊断查询超时（>{timeout:.0f}s），请缩小时间范围。",
@@ -111,6 +183,14 @@ async def _guarded(
         except (DiagnosticsNotFoundError, DiagnosticsBadRequestError):
             # 非法游标/组件/事件 ID 等业务校验错误在仓储内抛出，交由调用方映射。
             raise
+    finally:
+        if not worker.done():
+            # 极端路径：仍等待结束，避免放行后后台无闸门继续跑。
+            try:
+                await worker
+            except Exception:  # noqa: BLE001
+                logger.debug("诊断闸门收尾等待失败：%s", operation, exc_info=True)
+        _release()
 
 
 async def _guarded_or_40x(
@@ -120,9 +200,12 @@ async def _guarded_or_40x(
     func: Any,
     *args: Any,
     timeout_seconds: float | None = None,
+    cancel_event: threading.Event | None = None,
+    scan_budget: DiagnosticsScanBudget | None = None,
+    result_registry: DiagnosticsBundleRegistry | None = None,
     **kwargs: Any,
 ) -> Any:
-    """``_guarded`` + 仓储层 400/404 错误统一映射。"""
+    """``_guarded`` + 仓储层 400/404 / 容量 429 错误统一映射。"""
     try:
         return await _guarded(
             semaphore,
@@ -131,10 +214,18 @@ async def _guarded_or_40x(
             func,
             *args,
             timeout_seconds=timeout_seconds,
+            cancel_event=cancel_event,
+            scan_budget=scan_budget,
+            result_registry=result_registry,
             **kwargs,
         )
     except (DiagnosticsNotFoundError, DiagnosticsBadRequestError) as exc:
         raise _to_http_error(exc) from exc
+    except BundleCapacityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc) or "诊断包容量已满，请稍后重试。",
+        ) from exc
 
 
 def _to_http_error(exc: DiagnosticsNotFoundError | DiagnosticsBadRequestError) -> HTTPException:
@@ -143,11 +234,20 @@ def _to_http_error(exc: DiagnosticsNotFoundError | DiagnosticsBadRequestError) -
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-def _unlink_quiet(path: str) -> None:
-    try:
-        os.unlink(path)
-    except OSError as exc:
-        logger.warning("删除临时诊断文件失败 %s: %s", path, exc)
+def _export_scan_budget(
+    settings: ServerSettings,
+) -> tuple[DiagnosticsScanBudget, threading.Event]:
+    """构造导出级共享扫描预算 + 协作取消事件（D-01）。
+
+    deadline 由 ``_guarded`` 在 acquire 成功后写入，避免闸门外空转。
+    """
+    cancel_event = threading.Event()
+    budget = DiagnosticsScanBudget(
+        max_bytes=settings.diagnostics_scan_max_bytes,
+        cancel_event=cancel_event,
+        deadline_monotonic=None,
+    )
+    return budget, cancel_event
 
 
 def _query_from_params(
@@ -457,6 +557,9 @@ async def export_logs(
     truncated / scanLimited。响应结束后删除临时文件。
     """
 
+    timeout = settings.diagnostics_export_timeout_seconds
+    scan_budget, cancel_event = _export_scan_budget(settings)
+
     def _build() -> Any:
         return build_log_export(
             store,
@@ -468,6 +571,7 @@ async def export_logs(
             request_id=body.request_id,
             run_id=body.run_id,
             max_events=body.max_events,
+            scan_budget=scan_budget,
         )
 
     result = await _guarded_or_40x(
@@ -475,7 +579,9 @@ async def export_logs(
         settings,
         "logs.export",
         _build,
-        timeout_seconds=settings.diagnostics_export_timeout_seconds,
+        timeout_seconds=timeout,
+        cancel_event=cancel_event,
+        scan_budget=scan_budget,
     )
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -510,6 +616,9 @@ async def create_diagnostics_bundle(
 ) -> DiagnosticsBundleResponse:
     """创建实例诊断包（进程内登记，重启后失效；TTL 默认 15 分钟）。"""
 
+    timeout = settings.diagnostics_export_timeout_seconds
+    scan_budget, cancel_event = _export_scan_budget(settings)
+
     def _build() -> Any:
         return build_diagnostics_bundle(
             service,
@@ -525,6 +634,7 @@ async def create_diagnostics_bundle(
             max_events=body.max_events,
             include_system_info=body.include_system_info,
             include_recent_events=body.include_recent_events,
+            scan_budget=scan_budget,
         )
 
     record = await _guarded_or_40x(
@@ -532,7 +642,10 @@ async def create_diagnostics_bundle(
         settings,
         "bundles.create",
         _build,
-        timeout_seconds=settings.diagnostics_export_timeout_seconds,
+        timeout_seconds=timeout,
+        cancel_event=cancel_event,
+        scan_budget=scan_budget,
+        result_registry=registry,
     )
     expires = datetime.fromtimestamp(record.expires_at, tz=timezone.utc).isoformat()
     return DiagnosticsBundleResponse(
@@ -556,8 +669,9 @@ async def download_diagnostics_bundle(
 
     下载为一次性领取（claim）：取出即注销，避免并发双下；
     响应结束后删除临时文件。不占用诊断扫描闸门（文件已落盘）。
+    claim 在线程池执行且 ``purge_expired=False``，避免事件循环同步批量 unlink。
     """
-    record = registry.claim(bundle_id)
+    record = await run_in_thread(registry.claim, bundle_id, purge_expired=False)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="诊断包不存在或已过期")
 

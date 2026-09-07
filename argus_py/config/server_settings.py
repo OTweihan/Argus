@@ -98,6 +98,11 @@ class ServerSettings:
     diagnostics_max_concurrent_queries: int = 4
     diagnostics_scan_max_bytes: int = 64 * 1024 * 1024
     diagnostics_max_limit: int = 200
+    # 诊断包进程内容量（D-03）：条目数与总字节上限 + 定时回收间隔。
+    diagnostics_bundle_max_items: int = 16
+    diagnostics_bundle_max_total_bytes: int = 512 * 1024 * 1024
+    diagnostics_bundle_ttl_seconds: int = 15 * 60
+    diagnostics_bundle_purge_interval_seconds: float = 60.0
 
 
 def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSettings:
@@ -214,6 +219,22 @@ def load_server_settings(path: str | Path = DEFAULT_SERVER_CONFIG) -> ServerSett
         ),
         diagnostics_max_limit=_as_int(
             (data.get("diagnostics") or {}).get("max_limit"), 200, minimum=1
+        ),
+        diagnostics_bundle_max_items=_as_int(
+            (data.get("diagnostics") or {}).get("bundle_max_items"), 16, minimum=1
+        ),
+        diagnostics_bundle_max_total_bytes=_as_int(
+            (data.get("diagnostics") or {}).get("bundle_max_total_bytes"),
+            512 * 1024 * 1024,
+            minimum=1024 * 1024,
+        ),
+        diagnostics_bundle_ttl_seconds=_as_int(
+            (data.get("diagnostics") or {}).get("bundle_ttl_seconds"), 15 * 60, minimum=1
+        ),
+        diagnostics_bundle_purge_interval_seconds=_as_float(
+            (data.get("diagnostics") or {}).get("bundle_purge_interval_seconds"),
+            60.0,
+            minimum=1.0,
         ),
     )
 

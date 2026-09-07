@@ -18,6 +18,8 @@ from __future__ import annotations
 import base64
 import json
 import re
+import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -125,6 +127,46 @@ class DiagnosticsPage:
             "hasMore": self.has_more,
             "scanLimited": self.scan_limited,
         }
+
+
+@dataclass
+class DiagnosticsScanBudget:
+    """跨多次 ``search`` 共享的扫描字节预算（导出 / 诊断包，D-01）。
+
+    普通单页查询不传此对象，仍使用 store 的单次 ``_scan_max_bytes``。
+    协作取消：``cancel_event`` 或 ``deadline_monotonic`` 触发后停止继续读盘，
+    并标记 ``limited``（映射为 ``scanLimited``）。
+    """
+
+    max_bytes: int
+    cancel_event: threading.Event | None = None
+    deadline_monotonic: float | None = None
+    limited: bool = False
+    _remaining: int = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._remaining = max(0, int(self.max_bytes))
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self._remaining)
+
+    @property
+    def consumed(self) -> int:
+        return max(0, int(self.max_bytes) - self._remaining)
+
+    def cancelled(self) -> bool:
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            return True
+        if self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic:
+            return True
+        return False
+
+    def consume(self, nbytes: int) -> None:
+        self._remaining = max(0, self._remaining - max(0, int(nbytes)))
+
+    def mark_limited(self) -> None:
+        self.limited = True
 
 
 @dataclass(frozen=True)
@@ -304,14 +346,29 @@ class FileDiagnosticsLogStore:
 
     # ── 公开接口（对应方案 4.3）─────────────────────────────────────────
 
-    def search(self, query: DiagnosticsQuery) -> DiagnosticsPage:
-        """按条件检索日志，新→旧返回至多 limit 条。"""
+    def search(
+        self,
+        query: DiagnosticsQuery,
+        *,
+        scan_budget: DiagnosticsScanBudget | None = None,
+    ) -> DiagnosticsPage:
+        """按条件检索日志，新→旧返回至多 limit 条。
+
+        ``scan_budget`` 若提供，则在多次调用间累计消耗字节（导出级预算），
+        并在取消/截止后提前结束。
+        """
         component = self._normalize_component(query.component)
         run_id = self._validate_run_id(query.run_id) if query.run_id else None
         limit = max(1, min(query.limit, 500))
         cursor_pos = _decode_cursor(query.cursor)
         candidates = self._candidate_files(component, run_id)
-        budget = self._scan_max_bytes
+
+        if scan_budget is not None and scan_budget.cancelled():
+            scan_budget.mark_limited()
+            return DiagnosticsPage(items=[], next_cursor=None, has_more=False, scan_limited=True)
+
+        budget = scan_budget.remaining if scan_budget is not None else self._scan_max_bytes
+        starting_budget = budget
         cursor_pos, cursor_exact, cursor_consumed, cursor_limited = self._prepare_cursor(
             cursor_pos,
             candidates,
@@ -335,6 +392,9 @@ class FileDiagnosticsLogStore:
         for index, (path, rel_path) in enumerate(candidates):
             if cursor_file_index is not None and index < cursor_file_index:
                 continue
+            if scan_budget is not None and scan_budget.cancelled():
+                scan_limited = True
+                break
             if budget <= 0:
                 # 还有未读候选文件却被预算截断：提示前端缩小时间范围。
                 scan_limited = True
@@ -369,6 +429,11 @@ class FileDiagnosticsLogStore:
                 collected.append(event)
             if has_more:
                 break
+
+        if scan_budget is not None:
+            scan_budget.consume(starting_budget - budget)
+            if scan_limited:
+                scan_budget.mark_limited()
 
         next_cursor = (
             _encode_cursor(collected[-1]) if collected and (has_more or scan_limited) else None

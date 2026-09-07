@@ -1332,6 +1332,7 @@ export interface paths {
          *
          *     下载为一次性领取（claim）：取出即注销，避免并发双下；
          *     响应结束后删除临时文件。不占用诊断扫描闸门（文件已落盘）。
+         *     claim 在线程池执行且 ``purge_expired=False``，避免事件循环同步批量 unlink。
          */
         get: operations["download_diagnostics_bundle_argus_api_diagnostics_bundles__bundle_id__get"];
         put?: never;

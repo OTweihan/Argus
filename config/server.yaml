@@ -144,6 +144,13 @@ diagnostics:
   # 诊断查询并发上限，超限立即返回 429，不排队。
   max_concurrent_queries: 4
   # 单次查询累计扫描日志字节数上限（最小 1MB），超限截断并提示缩小时间范围。
+  # 导出/诊断包在整次构建内共享同一预算（D-01），不再按分页重置。
   scan_max_bytes: 67108864
   # 日志查询单页 limit 上限。
   max_limit: 200
+  # 诊断包进程内容量（D-03）：条目数 / 总字节；超限创建返回 429。
+  bundle_max_items: 16
+  bundle_max_total_bytes: 536870912
+  # 诊断包 TTL（秒）与定时回收间隔（秒）。
+  bundle_ttl_seconds: 900
+  bundle_purge_interval_seconds: 60.0
