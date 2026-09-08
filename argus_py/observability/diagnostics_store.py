@@ -1,7 +1,14 @@
 """诊断日志仓储（docs/optimizations/diagnostics-center-plan.md 4.3 / 第 18 章）。
 
 第一阶段本地文件实现 ``FileDiagnosticsLogStore``：直接扫描 JSONL 运行日志与
-dev 会话日志，游标分页、字节预算与路径安全约束全部内聚在本模块。
+dev 会话日志，游标分页、字节预算与路径安全约束全部内聚在本模块族。
+
+实现拆分（可维护性 M2，行为不变）：
+
+- ``diagnostics_models``：Query/Event/Page/Budget/Run* 与异常
+- ``diagnostics_cursors``：event id / cursor 编解码与跨文件 sort key
+- ``diagnostics_io``：反向块读、定点读行、上下文窗口
+- 本模块：``FileDiagnosticsLogStore`` 公开 API + 候选文件/解析/归并
 
 设计要点：
 
@@ -13,26 +20,63 @@ dev 会话日志，游标分页、字节预算与路径安全约束全部内聚�
 - 同步实现；调用方（route 层）必须经 ``run_in_thread`` 执行（方案第 17 章）；
 - 多文件检索按事件时间戳有界归并（D-02），不以文件 mtime 串行占满分页；
 - 同戳稳定次序（对外约定）：timestamp DESC → file 路径 DESC → offset DESC。
+
+对外仍可通过 ``from argus_py.observability.diagnostics_store import ...`` 取得公开符号。
+
+兼容说明：``_b64_encode`` / ``_encode_event_id`` / ``_EventLocator`` 以及
+``FileDiagnosticsLogStore._read_reverse_lines`` 仍从本模块再导出或包装，
+供历史单测使用（tests-only）；新代码请直接依赖 models/cursors/io。
 """
 
 from __future__ import annotations
 
-import base64
-import heapq
 import json
 import re
-import threading
-import time
-from collections import deque
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# ── 常量 ────────────────────────────────────────────────────────────────────
-# 反向读块大小（D-05）：避免单次读入整个扫描预算。
-_REVERSE_READ_CHUNK_BYTES = 256 * 1024
+from argus_py.observability.diagnostics_cursors import (
+    EventLocator,
+    _b64_encode,
+    _CursorPos,
+    _decode_cursor,
+    _decode_event_id,
+    _encode_cursor,
+    _encode_event_id,
+    _encode_event_locator,
+    _finalize_top_events,
+    _is_strictly_older_than_cursor,
+    _push_top_event,
+    event_sort_key,
+)
+from argus_py.observability.diagnostics_io import (
+    _REVERSE_READ_CHUNK_BYTES,
+    _iter_reverse_line_window,
+    _read_context_window,
+    _read_line_at_number,
+    _read_line_at_offset,
+    _resolve_locator,
+)
+from argus_py.observability.diagnostics_io import (
+    _read_reverse_lines as _io_read_reverse_lines,
+)
+from argus_py.observability.diagnostics_models import (
+    LEVEL_ORDER,
+    DiagnosticsBadRequestError,
+    DiagnosticsEvent,
+    DiagnosticsNotFoundError,
+    DiagnosticsPage,
+    DiagnosticsQuery,
+    DiagnosticsScanBudget,
+    RunFileInfo,
+    RunSummary,
+)
+
+# 兼容模块内历史私有名与历史测试入口（tests-only re-export）。
+_LEVEL_ORDER = LEVEL_ORDER
+_EventLocator = EventLocator
 
 # dev 会话目录名：dev.mjs timestampForDirectory 生成的 yyyyMMdd-HHmmss
 _RUN_ID_PATTERN = re.compile(r"^[0-9]{8}-[0-9]{6}$")
@@ -49,20 +93,6 @@ _RUNTIME_COMPONENT_DIRS: dict[str, str] = {
     "web": "web",
     "system": "system",
 }
-# 日志级别排序（公开给导出等旁路模块复用；值越大越严重）。
-LEVEL_ORDER: dict[str, int] = {
-    "TRACE": 0,
-    "DEBUG": 10,
-    "INFO": 20,
-    "WARN": 30,
-    "WARNING": 30,
-    "ERROR": 40,
-    "CRITICAL": 50,
-    "FATAL": 50,
-}
-# 兼容模块内历史私有名。
-_LEVEL_ORDER = LEVEL_ORDER
-
 _DEFAULT_SCAN_BUDGET_BYTES = 64 * 1024 * 1024
 _MAX_CONTEXT_LINES = 200
 
@@ -71,323 +101,8 @@ _SEARCHABLE_RUN_FILES = ("python.log", "java.log", "frontend.log")
 _ALL_RUN_FILES = (*_SEARCHABLE_RUN_FILES, "combined.log")
 
 
-@dataclass(frozen=True)
-class DiagnosticsQuery:
-    """日志检索条件（字段命名沿用方案 8.2，Python 侧 snake_case）。"""
-
-    time_from: datetime | None = None
-    time_to: datetime | None = None
-    component: str | None = None
-    level: str | None = None
-    keyword: str | None = None
-    request_id: str | None = None
-    run_id: str | None = None
-    limit: int = 100
-    cursor: str | None = None
-
-
-@dataclass(frozen=True)
-class DiagnosticsEvent:
-    """统一诊断日志事件（wire 字段 camelCase，见方案 14.2）。"""
-
-    event_id: str
-    timestamp: str
-    level: str
-    component: str
-    module: str
-    message: str
-    request_id: str | None = None
-    run_id: str | None = None
-    exception: str | None = None
-    raw: dict[str, Any] = field(default_factory=dict)
-
-    def to_wire(self) -> dict[str, Any]:
-        """转为 camelCase wire 字典（不含 raw，raw 仅详情返回）。"""
-        return {
-            "eventId": self.event_id,
-            "timestamp": self.timestamp,
-            "level": self.level,
-            "component": self.component,
-            "module": self.module,
-            "message": self.message,
-            "requestId": self.request_id,
-            "runId": self.run_id,
-            "exception": self.exception,
-        }
-
-
-@dataclass(frozen=True)
-class DiagnosticsPage:
-    """游标分页结果（方案 8.6）。"""
-
-    items: list[DiagnosticsEvent]
-    next_cursor: str | None
-    has_more: bool
-    scan_limited: bool = False
-
-    def to_wire(self) -> dict[str, Any]:
-        return {
-            "items": [event.to_wire() for event in self.items],
-            "nextCursor": self.next_cursor,
-            "hasMore": self.has_more,
-            "scanLimited": self.scan_limited,
-        }
-
-
-@dataclass
-class DiagnosticsScanBudget:
-    """跨多次 ``search`` 共享的扫描字节预算（导出 / 诊断包，D-01）。
-
-    普通单页查询不传此对象，仍使用 store 的单次 ``_scan_max_bytes``。
-    协作取消：``cancel_event`` 或 ``deadline_monotonic`` 触发后停止继续读盘，
-    并标记 ``limited``（映射为 ``scanLimited``）。
-    """
-
-    max_bytes: int
-    cancel_event: threading.Event | None = None
-    deadline_monotonic: float | None = None
-    limited: bool = False
-    _remaining: int = field(init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        self._remaining = max(0, int(self.max_bytes))
-
-    @property
-    def remaining(self) -> int:
-        return max(0, self._remaining)
-
-    @property
-    def consumed(self) -> int:
-        return max(0, int(self.max_bytes) - self._remaining)
-
-    def cancelled(self) -> bool:
-        if self.cancel_event is not None and self.cancel_event.is_set():
-            return True
-        if self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic:
-            return True
-        return False
-
-    def consume(self, nbytes: int) -> None:
-        self._remaining = max(0, self._remaining - max(0, int(nbytes)))
-
-    def mark_limited(self) -> None:
-        self.limited = True
-
-
-@dataclass(frozen=True)
-class RunFileInfo:
-    name: str
-    size_bytes: int
-    modified_at: str
-
-
-@dataclass(frozen=True)
-class RunSummary:
-    run_id: str
-    started_at: str
-    files: list[RunFileInfo]
-    total_bytes: int
-
-    def to_wire(self) -> dict[str, Any]:
-        return {
-            "runId": self.run_id,
-            "startedAt": self.started_at,
-            "files": [
-                {"name": f.name, "sizeBytes": f.size_bytes, "modifiedAt": f.modified_at}
-                for f in self.files
-            ],
-            "totalBytes": self.total_bytes,
-        }
-
-
-class DiagnosticsNotFoundError(LookupError):
-    """事件或启动会话不存在（路由层转 404）。"""
-
-
-class DiagnosticsBadRequestError(ValueError):
-    """非法游标 / 非法标识（路由层转 400）。"""
-
-
 def _utc_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
-
-
-def _b64_encode(payload: str) -> str:
-    """URL 安全 base64（去填充，便于直接作为路径参数）。"""
-    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
-
-
-def _b64_decode(value: str) -> str:
-    padded = value + "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
-
-
-def _encode_event_id(rel_path: str, line_no: int) -> str:
-    """编码旧版行号事件 ID（保留给已有链接与兼容性测试）。"""
-    return _b64_encode(json.dumps({"f": rel_path, "l": line_no}, ensure_ascii=False))
-
-
-@dataclass(frozen=True)
-class _EventLocator:
-    file: str
-    line: int | None = None
-    offset: int | None = None
-    timestamp: str | None = None
-
-
-def _encode_event_locator(locator: _EventLocator) -> str:
-    payload: dict[str, object] = {"f": locator.file}
-    if locator.offset is not None:
-        payload["o"] = locator.offset
-    elif locator.line is not None:
-        payload["l"] = locator.line
-    else:  # pragma: no cover - 内部构造器保证至少有一种位置
-        raise ValueError("事件定位器缺少行号或字节偏移")
-    if locator.timestamp is not None:
-        payload["t"] = locator.timestamp
-    return _b64_encode(json.dumps(payload, ensure_ascii=False))
-
-
-def _decode_event_id(event_id: str) -> _EventLocator:
-    try:
-        payload = json.loads(_b64_decode(event_id))
-        rel_path = str(payload["f"])
-        line_no = int(payload["l"]) if "l" in payload else None
-        offset = int(payload["o"]) if "o" in payload else None
-        timestamp = str(payload["t"]) if payload.get("t") is not None else None
-    except Exception as exc:  # noqa: BLE001 — 任何畸形输入都视为不存在
-        raise DiagnosticsNotFoundError(f"事件不存在或已轮转：{event_id!r}") from exc
-    invalid_position = (line_no is None) == (offset is None)
-    if (
-        invalid_position
-        or (line_no is not None and line_no < 1)
-        or (offset is not None and offset < 0)
-        or not rel_path
-        or "\x00" in rel_path
-    ):
-        raise DiagnosticsNotFoundError(f"事件不存在或已轮转：{event_id!r}")
-    return _EventLocator(
-        file=rel_path,
-        line=line_no,
-        offset=offset,
-        timestamp=timestamp,
-    )
-
-
-@dataclass(frozen=True)
-class _CursorPos:
-    locator: _EventLocator
-    timestamp: str
-
-
-def event_sort_key(
-    event: DiagnosticsEvent,
-    *,
-    file: str | None = None,
-    offset: int | None = None,
-) -> tuple[str, str, int]:
-    """跨文件归并排序键；取 max 即为最新。
-
-    稳定次序（对外约定，max）：timestamp DESC → file 路径 DESC → offset DESC。
-    热路径可传入已有 ``file``/``offset``，避免反复解码 event_id。
-    """
-    if file is None or offset is None:
-        locator = _decode_event_id(event.event_id)
-        file = locator.file if file is None else file
-        if offset is None:
-            offset = locator.offset if locator.offset is not None else -(locator.line or 0)
-    return (event.timestamp or "", file, offset)
-
-
-def _is_strictly_older_than_cursor(
-    event: DiagnosticsEvent,
-    cursor: _CursorPos,
-    *,
-    sort_key: tuple[str, str, int] | None = None,
-) -> bool:
-    """事件是否严格排在游标锚点「更旧」一侧（不含锚点本身）。
-
-    即 sort_key(event) < sort_key(cursor_anchor)，与归并 max 次序一致。
-    """
-    event_key = sort_key if sort_key is not None else event_sort_key(event)
-    cursor_offset = (
-        cursor.locator.offset if cursor.locator.offset is not None else -(cursor.locator.line or 0)
-    )
-    cursor_key = (cursor.timestamp or "", cursor.locator.file, cursor_offset)
-    return event_key < cursor_key
-
-
-def _push_top_event(
-    heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]],
-    *,
-    key: tuple[str, str, int],
-    seq: int,
-    event: DiagnosticsEvent,
-    limit: int,
-) -> bool:
-    """将匹配事件推入大小为 limit 的最小堆；返回是否已超出 limit（有更多）。
-
-    堆元素为 (sort_key, seq, event)：seq 打破同键比较，避免 event 不可比路径。
-    """
-    if limit <= 0:
-        return True
-    item = (key, seq, event)
-    if len(heap) < limit:
-        heapq.heappush(heap, item)
-        return False
-    if key > heap[0][0]:
-        heapq.heapreplace(heap, item)
-    return True
-
-
-def _finalize_top_events(
-    heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]],
-) -> list[tuple[tuple[str, str, int], DiagnosticsEvent]]:
-    """最小堆 → sort_key 降序列表，供 k-way 线性推进。"""
-    return sorted(
-        ((key, event) for key, _seq, event in heap), key=lambda item: item[0], reverse=True
-    )
-
-
-def _encode_cursor(event: DiagnosticsEvent) -> str:
-    locator = _decode_event_id(event.event_id)
-    payload: dict[str, object] = {"f": locator.file, "t": event.timestamp}
-    if locator.offset is not None:
-        payload["o"] = locator.offset
-    else:
-        payload["l"] = locator.line
-    return _b64_encode(json.dumps(payload, ensure_ascii=False))
-
-
-def _decode_cursor(cursor: str | None) -> _CursorPos | None:
-    if not cursor:
-        return None
-    try:
-        payload = json.loads(_b64_decode(cursor))
-        line_no = int(payload["l"]) if "l" in payload else None
-        offset = int(payload["o"]) if "o" in payload else None
-        pos = _CursorPos(
-            locator=_EventLocator(
-                file=str(payload["f"]),
-                line=line_no,
-                offset=offset,
-                timestamp=str(payload["t"]),
-            ),
-            timestamp=str(payload["t"]),
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise DiagnosticsBadRequestError("非法分页游标") from exc
-    locator = pos.locator
-    invalid_position = (locator.line is None) == (locator.offset is None)
-    if (
-        invalid_position
-        or (locator.line is not None and locator.line < 1)
-        or (locator.offset is not None and locator.offset < 0)
-        or not locator.file
-        or "\x00" in locator.file
-    ):
-        raise DiagnosticsBadRequestError("非法分页游标")
-    return pos
 
 
 class FileDiagnosticsLogStore:
@@ -493,7 +208,7 @@ class FileDiagnosticsLogStore:
             top_heap: list[tuple[tuple[str, str, int], int, DiagnosticsEvent]] = []
             file_overflow = False
             match_seq = 0
-            line_iter, consumed, file_truncated = self._iter_reverse_line_window(
+            line_iter, consumed, file_truncated = _iter_reverse_line_window(
                 path,
                 budget,
                 end_offset=end_offset,
@@ -583,7 +298,7 @@ class FileDiagnosticsLogStore:
         """返回单条事件完整内容（含原始 JSON 与文件定位，方案 8.4）。"""
         locator = _decode_event_id(event_id)
         path, rel_path = self._resolve_within_root(locator.file)
-        line_no, line = self._resolve_locator(path, locator)
+        line_no, line = _resolve_locator(path, locator)
         detail = self._detail_from_line(line, rel_path, line_no, locator=locator)
         if locator.timestamp is not None and detail["event"].timestamp != locator.timestamp:
             raise DiagnosticsNotFoundError("日志事件已被轮转或内容已变化")
@@ -597,7 +312,7 @@ class FileDiagnosticsLogStore:
         after = max(0, min(after, _MAX_CONTEXT_LINES))
         locator = _decode_event_id(event_id)
         path, rel_path = self._resolve_within_root(locator.file)
-        line_no, target_line, context_lines = self._read_context_window(
+        line_no, target_line, context_lines = _read_context_window(
             path,
             locator,
             before,
@@ -783,103 +498,6 @@ class FileDiagnosticsLogStore:
         )
         return names[-limit:] if limit > 0 else []
 
-    def _iter_reverse_line_window(
-        self,
-        path: Path,
-        max_bytes: int,
-        *,
-        end_offset: int | None = None,
-        chunk_size: int = _REVERSE_READ_CHUNK_BYTES,
-        should_stop: Callable[[], bool] | None = None,
-    ) -> tuple[Iterator[tuple[int, str]], int, bool]:
-        """在字节预算内从指定上界按块读取窗口内完整行（旧→新，D-05）。
-
-        返回 ``(line_iter, consumed, truncated)``：
-        - ``consumed`` / ``truncated`` 在打开窗口时即可确定（按计划窗口计费），
-          不依赖迭代是否提前结束，也不写入实例状态；
-        - 不一次 ``read(max_bytes)``；跨块半行正确拼接；
-        - 调用方负责 top-heap / reverse。
-
-        **设计折中（D-05 本阶段）**：分块 IO 降低单次 read 峰值；在文件内
-        timestamp 可能回退的前提下，仍需扫完整字节窗才能保证 top-N 正确
-        （不能「读够 limit 匹配就停」）。匹配早停需单调性假设或两阶段扫描，
-        留待后续。可选 ``should_stop`` 仅用于协作取消，提前结束时仍按整窗
-        计费 consumed（与预算契约一致：窗口已划定）。
-        """
-
-        def _empty() -> Iterator[tuple[int, str]]:
-            return iter(())
-
-        try:
-            size = path.stat().st_size
-            end = size if end_offset is None else min(size, max(0, end_offset))
-            if end <= 0 or max_bytes <= 0:
-                return _empty(), 0, False
-
-            budget = max(0, int(max_bytes))
-            # 允许测试传入小块；生产默认 _REVERSE_READ_CHUNK_BYTES 已足够大。
-            block = max(1, int(chunk_size))
-            # 窗口 [window_start, end)：先定界再正向分块扫，避免整窗一次 read。
-            window_start = max(0, end - budget)
-            truncated = window_start > 0
-            consumed = end - window_start
-
-            def _lines() -> Iterator[tuple[int, str]]:
-                carry = b""
-                file_pos = window_start
-                # 窗口起点可能落在半行：持续丢弃到首个 \n（可跨块）。
-                # 局部变量即可（不封闭外层 truncated）。
-                skip_partial = truncated
-                with path.open("rb") as file:
-                    while file_pos < end:
-                        if should_stop is not None and should_stop():
-                            return
-                        take = min(block, end - file_pos)
-                        file.seek(file_pos)
-                        data = file.read(take)
-                        if not data:
-                            break
-                        buf = carry + data
-                        abs_start = file_pos - len(carry)
-                        consume_from = 0
-                        if skip_partial:
-                            nl = buf.find(b"\n")
-                            if nl < 0:
-                                # 半行仍未结束：丢掉已读前缀，继续向后找行界
-                                carry = b""
-                                file_pos += len(data)
-                                continue
-                            consume_from = nl + 1
-                            skip_partial = False
-
-                        view = buf[consume_from:]
-                        view_base = abs_start + consume_from
-                        last_nl = view.rfind(b"\n")
-                        if last_nl < 0:
-                            carry = view
-                            file_pos += len(data)
-                            continue
-                        complete = view[: last_nl + 1]
-                        carry = view[last_nl + 1 :]
-                        offset = view_base
-                        for raw_line in complete.splitlines(keepends=True):
-                            line_bytes = raw_line.rstrip(b"\r\n")
-                            yield offset, line_bytes.decode("utf-8", errors="replace")
-                            offset += len(raw_line)
-                        file_pos += len(data)
-
-                    if skip_partial:
-                        # 整窗无完整行
-                        return
-
-                    # end 落在行中：丢弃半行；end==size 且无尾 \n：产出最后一行。
-                    if carry and end >= size:
-                        yield file_pos - len(carry), carry.decode("utf-8", errors="replace")
-
-            return _lines(), consumed, truncated
-        except OSError:
-            return _empty(), 0, False
-
     def _read_reverse_lines(
         self,
         path: Path,
@@ -888,161 +506,8 @@ class FileDiagnosticsLogStore:
         end_offset: int | None = None,
         chunk_size: int = _REVERSE_READ_CHUNK_BYTES,
     ) -> tuple[list[tuple[int, str]], int, bool]:
-        """在字节预算内从指定上界读取完整行，返回 **新→旧** 记录。
-
-        D-05：按块扫窗口，避免单次读入整个扫描预算。
-        """
-        line_iter, consumed, truncated = self._iter_reverse_line_window(
-            path,
-            max_bytes,
-            end_offset=end_offset,
-            chunk_size=chunk_size,
-        )
-        records = list(line_iter)
-        records.reverse()
-        return records, consumed, truncated
-
-    def _read_line_at_offset(
-        self,
-        path: Path,
-        offset: int,
-        max_bytes: int | None = None,
-    ) -> tuple[str, int, bool]:
-        """按字节偏移读取一条完整行，并验证偏移确实位于行首。"""
-        try:
-            size = path.stat().st_size
-            if offset < 0 or offset >= size:
-                raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
-            consumed = 0
-            with path.open("rb") as file:
-                if offset:
-                    if max_bytes is not None and max_bytes <= 0:
-                        return "", consumed, True
-                    file.seek(offset - 1)
-                    if file.read(1) != b"\n":
-                        raise DiagnosticsNotFoundError("日志事件字节偏移不是行首")
-                    consumed += 1
-                remaining = None if max_bytes is None else max(0, max_bytes - consumed)
-                if remaining == 0:
-                    return "", consumed, True
-                file.seek(offset)
-                raw = file.readline(-1 if remaining is None else remaining)
-            consumed += len(raw)
-            if not raw:
-                raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
-            if offset + len(raw) < size and not raw.endswith(b"\n"):
-                return "", consumed, True
-            return raw.rstrip(b"\r\n").decode("utf-8", errors="replace"), consumed, False
-        except OSError as exc:
-            raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
-
-    def _read_line_at_number(
-        self,
-        path: Path,
-        line_no: int,
-        max_bytes: int | None = None,
-    ) -> tuple[int, str, int, bool]:
-        """流式读取旧版行号定位器，并返回对应字节偏移。"""
-        try:
-            size = path.stat().st_size
-            consumed = 0
-            offset = 0
-            with path.open("rb") as file:
-                for current in range(1, line_no + 1):
-                    remaining = None if max_bytes is None else max(0, max_bytes - consumed)
-                    if remaining == 0:
-                        return offset, "", consumed, True
-                    raw = file.readline(-1 if remaining is None else remaining)
-                    if not raw:
-                        raise DiagnosticsNotFoundError("日志行已被轮转或截断")
-                    if offset + len(raw) < size and not raw.endswith(b"\n"):
-                        return offset, "", consumed + len(raw), True
-                    if current == line_no:
-                        return (
-                            offset,
-                            raw.rstrip(b"\r\n").decode("utf-8", errors="replace"),
-                            consumed + len(raw),
-                            False,
-                        )
-                    offset += len(raw)
-                    consumed += len(raw)
-        except OSError as exc:
-            raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
-
-        raise DiagnosticsNotFoundError("日志行已被轮转或截断")
-
-    def _line_number_at_offset(self, path: Path, offset: int) -> int:
-        """计算字节偏移对应的 1-based 行号；仅详情/上下文请求使用。"""
-        try:
-            size = path.stat().st_size
-            if offset < 0 or offset >= size:
-                raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
-            remaining = offset
-            newlines = 0
-            with path.open("rb") as file:
-                while remaining:
-                    chunk = file.read(min(64 * 1024, remaining))
-                    if not chunk:
-                        raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
-                    newlines += chunk.count(b"\n")
-                    remaining -= len(chunk)
-            return newlines + 1
-        except OSError as exc:
-            raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
-
-    def _resolve_locator(self, path: Path, locator: _EventLocator) -> tuple[int, str]:
-        """流式解析新字节偏移或旧行号定位器，不加载完整文件。"""
-        if locator.line is not None:
-            _, line, _, _ = self._read_line_at_number(path, locator.line)
-            return locator.line, line
-        assert locator.offset is not None
-        line, _, _ = self._read_line_at_offset(path, locator.offset)
-        return self._line_number_at_offset(path, locator.offset), line
-
-    def _read_context_window(
-        self,
-        path: Path,
-        locator: _EventLocator,
-        before: int,
-        after: int,
-    ) -> tuple[int, str, list[tuple[int, str]]]:
-        """单次流式扫描定位目标，并仅保留目标前后的有限行窗口。"""
-        previous: deque[tuple[int, str]] = deque(maxlen=before)
-        try:
-            offset = 0
-            with path.open("rb") as file:
-                line_no = 0
-                while raw := file.readline():
-                    line_no += 1
-                    current_offset = offset
-                    offset += len(raw)
-                    line = raw.rstrip(b"\r\n").decode("utf-8", errors="replace")
-                    is_target = (
-                        locator.line == line_no
-                        if locator.line is not None
-                        else locator.offset == current_offset
-                    )
-                    if not is_target:
-                        previous.append((line_no, line))
-                        continue
-
-                    context = [*previous, (line_no, line)]
-                    for _ in range(after):
-                        following = file.readline()
-                        if not following:
-                            break
-                        line_no += 1
-                        context.append(
-                            (
-                                line_no,
-                                following.rstrip(b"\r\n").decode("utf-8", errors="replace"),
-                            )
-                        )
-                    target_line_no = context[len(previous)][0]
-                    return target_line_no, line, context
-        except OSError as exc:
-            raise DiagnosticsNotFoundError(f"日志文件不可读：{path.name}") from exc
-        raise DiagnosticsNotFoundError("日志事件已被轮转或截断")
+        """tests-only wrapper: delegates to diagnostics_io._read_reverse_lines."""
+        return _io_read_reverse_lines(path, max_bytes, end_offset=end_offset, chunk_size=chunk_size)
 
     def _prepare_cursor(
         self,
@@ -1060,14 +525,14 @@ class FileDiagnosticsLogStore:
         try:
             if cursor.locator.offset is not None:
                 offset = cursor.locator.offset
-                line, consumed, limited = self._read_line_at_offset(
+                line, consumed, limited = _read_line_at_offset(
                     path,
                     offset,
                     max_bytes,
                 )
             else:
                 assert cursor.locator.line is not None
-                offset, line, consumed, limited = self._read_line_at_number(
+                offset, line, consumed, limited = _read_line_at_number(
                     path,
                     cursor.locator.line,
                     max_bytes,
@@ -1216,9 +681,6 @@ class FileDiagnosticsLogStore:
         )
 
 
-# ── 过滤与游标边界 ──────────────────────────────────────────────────────────
-
-
 class _EventMatcher:
     """事件过滤器；定位失效的游标按时间戳降级过滤。"""
 
@@ -1318,3 +780,25 @@ def _run_started_at(run_id: str) -> str:
         return _utc_iso(dt)
     except ValueError:
         return ""
+
+
+# ── 公开 re-export（保持 from diagnostics_store import ...）──
+# 末尾三项为 tests-only 兼容出口，避免被当成死 import 删掉。
+
+__all__ = [
+    "LEVEL_ORDER",
+    "DiagnosticsBadRequestError",
+    "DiagnosticsEvent",
+    "DiagnosticsNotFoundError",
+    "DiagnosticsPage",
+    "DiagnosticsQuery",
+    "DiagnosticsScanBudget",
+    "FileDiagnosticsLogStore",
+    "RunFileInfo",
+    "RunSummary",
+    "event_sort_key",
+    # tests-only
+    "_EventLocator",
+    "_b64_encode",
+    "_encode_event_id",
+]
