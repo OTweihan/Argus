@@ -5,6 +5,7 @@
 > - **MVP（已落地）**：服务状态、运行日志检索/详情/上下文、Request ID 追踪、启动会话列表与日志；资源隔离（`run_in_thread` + 并发闸门 + 扫描字节预算）。
 > - **二期（已落地）**：进程级 `runId`；Python→Java `X-Request-ID` 透传；Java `RequestIdFilter` + `logback-spring.xml` JSONL；`runtime/{java,web,system}` 扫描；前端异常上报 `POST /diagnostics/frontend-events`；系统信息/系统事件/概览 API 与前端 Tab；清理脚本保留策略扩展。
 > - **四期导出/诊断包（已落地）**：`POST /argus/api/diagnostics/export`、`POST/GET /argus/api/diagnostics/bundles`；有界条数/扫描预算/脱敏；进程内登记 + 临时 zip TTL；前端「导出」「下载诊断包」。
+> - **导出加固 D-01～D-06（已落地）**：超时与线程闸门绑定、跨源时间归并、包容量/定时回收/claim 下载、manifest 真实性、分块流式 ZIP、精确 truncated。
 > - **仍未做（非阻断）**：Loki/OpenSearch 后端、异常聚合聚类、OpenTelemetry `traceId`。
 
 ## 1. 文档概述
@@ -73,7 +74,7 @@ Argus 的主要部署方式包括：
 | 进程 runId | lifespan 初始化，日志白名单输出 `runId`；可经 `ARGUS_RUN_ID` 对齐 | `observability/context.py`、`logger.py` |
 | 诊断查询 API / 前端页 | 概览/服务/日志/追踪/会话/系统事件/系统信息 | `api/routes/diagnostics.py`、`views/diagnostics/*` |
 
-仍未建设（导出/诊断包/集中日志后端等）见文首实施状态。
+导出与诊断包已落地；仍未建设项（Loki/OpenSearch、异常聚类、OTel `traceId` 等）见文首实施状态。D-01～D-06 资源与正确性加固见 [remaining-optimization-audit-2026-09-07.md](remaining-optimization-audit-2026-09-07.md) 及后续实施记录。
 
 ---
 

@@ -423,4 +423,4 @@ ADR 至少包含：背景、决策、备选方案、取舍、兼容/迁移、回
 
 - 日志、审计、上下文字段和脱敏：[`logging.md`](logging.md)
 - 私网部署、单副本、安全与迁移：[`deployment.zh.md`](deployment.zh.md)
-- 最近一轮优化审计：[`optimizations/remaining-optimization-audit-2026-09-04.md`](optimizations/remaining-optimization-audit-2026-09-04.md)
+- 最近一轮优化审计：[`optimizations/remaining-optimization-audit-2026-09-08.md`](optimizations/remaining-optimization-audit-2026-09-08.md)
