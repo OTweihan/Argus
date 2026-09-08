@@ -31,7 +31,7 @@ _TASK_SUMMARY_COLUMNS = (
     "execution_attempt",
 )
 
-# load_task_header 窄列：与 TaskFileStorage 口径对齐，禁止拖入 result_json 等大字段。
+# load_task_header 窄列：禁止拖入 result_json / whitebox_config_json 等大字段。
 _TASK_HEADER_COLUMNS = (
     "task_id",
     "status",

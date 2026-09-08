@@ -5,18 +5,14 @@ from __future__ import annotations
 import pytest
 from argus_py.core.enums import TaskStatus
 from argus_py.infra.recovery import INTERRUPTED_MESSAGE, recover_interrupted_tasks
-from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.read import TaskReadService
-from argus_py.task.storage import TaskFileStorage
+
+from tests.helpers.factories import make_lifecycle
 
 
 def _make_service(tmp_path):
-    storage = TaskFileStorage(tmp_path / "tasks")
-    return TaskLifecycleService(storage, event_publisher=None), TaskReadService(storage)
-
-
-def _list_statuses(reader: TaskReadService) -> dict[str, TaskStatus]:
-    return {t.task_id: t.status for t in reader.list_tasks()}
+    storage, lifecycle = make_lifecycle(tmp_path)
+    return lifecycle, TaskReadService(storage)
 
 
 def test_recover_sets_running_to_failed(tmp_path):

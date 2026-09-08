@@ -2,15 +2,13 @@ import pytest
 from argus_py.config.models import ModelConfig
 from argus_py.core.enums import StepResult, TaskStatus, TaskType
 from argus_py.core.exceptions import TaskError
-from argus_py.execution.runner import TaskRunner
-from argus_py.report.generator import ReportGenerator
-from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.log import TaskLogService
 from argus_py.task.models import Task, TaskLog
 from argus_py.task.read import TaskReadService
 from argus_py.task.status import can_transition
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
+
+from tests.helpers.factories import make_lifecycle, make_task_runner
 
 
 def test_task_defaults():
@@ -85,8 +83,7 @@ def test_model_config_from_dict_uses_bool_defaults():
 
 
 def test_task_service_can_save_and_query_history(tmp_path):
-    storage = TaskSQLiteStorage(tmp_path / "argus.db")
-    lifecycle = TaskLifecycleService(storage, event_publisher=None)
+    storage, lifecycle = make_lifecycle(tmp_path)
     log = TaskLogService(storage, event_publisher=None)
     reader = TaskReadService(storage)
     task = lifecycle.create_task(goal="打开页面", start_url="https://example.com")
@@ -109,8 +106,7 @@ def test_task_service_can_save_and_query_history(tmp_path):
     ids=["with_handler", "without_handler"],
 )
 async def test_task_runner(tmp_path, has_handler):
-    storage = TaskFileStorage(tmp_path / "tasks")
-    lifecycle = TaskLifecycleService(storage, event_publisher=None)
+    storage, lifecycle = make_lifecycle(tmp_path)
     log = TaskLogService(storage, event_publisher=None)
     reader = TaskReadService(storage)
     task = lifecycle.create_task(
@@ -125,17 +121,20 @@ async def test_task_runner(tmp_path, has_handler):
 
         handlers[TaskType.BLACKBOX] = handler
 
-    runner = TaskRunner(
-        lifecycle=lifecycle,
-        handlers=handlers,
-        report_generator=ReportGenerator(tmp_path / "reports"),
-    )
+    runner = make_task_runner(tmp_path, lifecycle, handlers)
 
     if has_handler:
         completed = await runner.run(task)
         assert completed.status is TaskStatus.COMPLETED
         assert completed.current_step == 1
         assert completed.report_path is not None
+        # 日志缓冲：显式 flush 后持久化路径与生产一致
+        log.flush_logs()
+        loaded = reader.get_task(task.task_id)
+        assert loaded.status is TaskStatus.COMPLETED
+        assert loaded.current_step == 1
+        assert len(loaded.logs) == 1
+        assert loaded.report_path is not None
     else:
         with pytest.raises(TaskError):
             await runner.run(task)

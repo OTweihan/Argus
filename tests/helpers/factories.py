@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from argus_py.config.model_storage import ModelConfigSQLiteStorage
 from argus_py.config.service import ModelConfigService
+from argus_py.core.enums import TaskType
 from argus_py.correlation.application import CorrelationService
+from argus_py.execution.runner import TaskHandler, TaskRunner
 from argus_py.infra.queue import TaskQueue
 from argus_py.observability.debug_bundle import DebugBundleBuilder
 from argus_py.observability.trace_reader import TraceReadService
@@ -41,6 +43,44 @@ class AppStack:
     queue: TaskQueue
 
 
+def make_sqlite_storage(tmp_path: Path, name: str = "argus.db") -> TaskSQLiteStorage:
+    """构造与生产一致的 TaskSQLiteStorage（数据库建在 tmp_path 下）。"""
+    return TaskSQLiteStorage(tmp_path / name)
+
+
+def make_lifecycle(
+    tmp_path: Path,
+    *,
+    event_publisher: Callable | None = None,
+    on_task_terminal: Callable[[str, str], None] | None = None,
+    db_name: str = "argus.db",
+) -> tuple[TaskSQLiteStorage, TaskLifecycleService]:
+    """构造 SQLite storage + lifecycle，供 runner/recovery 等单测复用。"""
+    storage = make_sqlite_storage(tmp_path, db_name)
+    lifecycle = TaskLifecycleService(
+        storage,
+        event_publisher=event_publisher,
+        on_task_terminal=on_task_terminal,
+    )
+    return storage, lifecycle
+
+
+def make_task_runner(
+    tmp_path: Path,
+    lifecycle: TaskLifecycleService,
+    handlers: dict[TaskType, TaskHandler] | None = None,
+    *,
+    worker_id: str = "",
+) -> TaskRunner:
+    """构造 TaskRunner（报告目录落在 tmp_path/reports）。"""
+    return TaskRunner(
+        lifecycle=lifecycle,
+        handlers=handlers or {},
+        report_generator=ReportGenerator(tmp_path / "reports"),
+        worker_id=worker_id,
+    )
+
+
 def make_app_stack(
     tmp_path: Path,
     *,
@@ -54,7 +94,7 @@ def make_app_stack(
         event_publisher: 可选的事件发布回调，e2e 测试传入 EventBus.publish。
         queue_max_size: 任务队列容量上限；0 = 无界（默认，向后兼容）。
     """
-    storage = TaskSQLiteStorage(tmp_path / "argus.db")
+    storage = make_sqlite_storage(tmp_path)
     lifecycle = TaskLifecycleService(storage, event_publisher=event_publisher)
     reader = TaskReadService(storage)
     log = TaskLogService(storage, event_publisher=event_publisher)
@@ -101,3 +141,12 @@ def make_app_stack(
         regression=regression,
         queue=queue,
     )
+
+
+__all__ = [
+    "AppStack",
+    "make_app_stack",
+    "make_lifecycle",
+    "make_sqlite_storage",
+    "make_task_runner",
+]

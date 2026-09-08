@@ -29,7 +29,7 @@ from argus_py.core.exceptions import TaskRetryConflictError
 from argus_py.task.application import TaskAppError
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.models import Task, normalize_task_name
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.utils.jsonx import to_jsonable
 from fastapi import HTTPException
 
@@ -184,8 +184,10 @@ def test_has_retry_child(chain_lifecycle):
     assert lifecycle.has_retry_child(a.task_id) is True
 
 
-def test_file_storage_roundtrip_preserves_retry_parent(tmp_path: Path):
-    storage = TaskFileStorage(tmp_path / "tasks")
+def test_sqlite_storage_roundtrip_preserves_retry_parent(tmp_path: Path):
+    """重建 TaskSQLiteStorage 模拟进程重启后仍保留重试链字段。"""
+    db_path = tmp_path / "argus.db"
+    storage = TaskSQLiteStorage(db_path)
     parent = Task(goal="目标", name="任务名")
     storage.save(parent)
     child = Task(
@@ -196,7 +198,7 @@ def test_file_storage_roundtrip_preserves_retry_parent(tmp_path: Path):
     )
     storage.save(child)
 
-    reloaded = TaskFileStorage(tmp_path / "tasks")  # 重建 storage 模拟重启
+    reloaded = TaskSQLiteStorage(db_path)  # 重建 storage 模拟重启
     restored = reloaded.load(child.task_id)
     assert restored.retry_parent_task_id == parent.task_id
     assert restored.execution_attempt == 2

@@ -19,8 +19,10 @@ from argus_py.task.application import TaskApplicationService
 from argus_py.task.event import TaskTimelineService
 from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.read import TaskReadService
-from argus_py.task.storage import TaskFileStorage, TaskSQLiteStorage
+from argus_py.task.storage import TaskSQLiteStorage
 from fastapi import HTTPException
+
+from tests.helpers.factories import make_lifecycle
 
 
 @pytest.mark.parametrize(
@@ -174,8 +176,7 @@ async def _wait_for_scheduler_status(queue: TaskQueue, task_id: str, status: str
 
 @pytest.mark.asyncio
 async def test_stop_queued_task_clears_scheduler_status(tmp_path):
-    storage = TaskFileStorage(tmp_path / "tasks")
-    lifecycle = TaskLifecycleService(storage, event_publisher=None)
+    storage, lifecycle = make_lifecycle(tmp_path)
     reader = TaskReadService(storage)
     queue = TaskQueue()
     task = lifecycle.create_task(goal="等待执行", start_url="https://example.com")
@@ -204,8 +205,7 @@ async def test_stop_queued_task_clears_scheduler_status(tmp_path):
 
 @pytest.mark.asyncio
 async def test_web_task_creation_inherits_project_screenshot_default(tmp_path):
-    storage = TaskFileStorage(tmp_path / "tasks")
-    lifecycle = TaskLifecycleService(storage, event_publisher=None)
+    storage, lifecycle = make_lifecycle(tmp_path)
     reader = TaskReadService(storage)
     project_service = ProjectService(
         ProjectSQLiteStorage(tmp_path / "argus.db"),
