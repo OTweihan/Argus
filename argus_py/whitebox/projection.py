@@ -2,6 +2,7 @@
 
 两套对 ``WhiteboxResult`` 的字段映射集中于此：
 - ``map_findings``：Java findings → 业务 Finding 实体（task.findings 持久化用）；
+- ``build_diag_summary``：诊断信息 → 可读摘要（result_summary 拼装用）；
 - ``build_projection_data``：WhiteboxResult → 结构化投影行（analysis_* 表）；
 - ``serialize_whitebox_result`` / ``evaluate_completeness``：结果 JSON 序列化
   （result_json 审计留存 + 报告模板渲染）。
@@ -141,6 +142,25 @@ def map_findings(
         )
         findings.append(finding)
     return findings
+
+
+def build_diag_summary(diagnostics: AnalyzerDiagnostics | None) -> str:
+    """从诊断信息构建可读的摘要字符串。"""
+    if not diagnostics:
+        return ""
+    cp_info = ""
+    if diagnostics.classpath_available:
+        cp_info = f"，classpath {diagnostics.jar_count} 个 JAR"
+    elif diagnostics.classpath_source:
+        cp_info = "，无 classpath（降级为源码分析）"
+    return (
+        f"解析文件 {diagnostics.parsed_file_count}/"
+        f"{diagnostics.total_source_files}，"
+        f"调用 {diagnostics.total_calls} 个"
+        f"（高置信度 {diagnostics.resolved_high}，"
+        f"中置信度 {diagnostics.resolved_medium}，"
+        f"未解析 {diagnostics.unresolved}）{cp_info}。"
+    )
 
 
 def build_projection_data(result: WhiteboxResult, *, analysis_id: str) -> dict[str, Any]:

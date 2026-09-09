@@ -23,7 +23,10 @@ from argus_py.task.lifecycle import TaskLifecycleService
 from argus_py.task.storage import TaskSQLiteStorage
 from argus_py.whitebox.client import WhiteboxClient, WhiteboxJobNotFoundError
 from argus_py.whitebox.config import load_execution_config
-from argus_py.whitebox.runner import _find_reusable_analysis_id, _persist_success_result
+from argus_py.whitebox.result_persist import (
+    find_reusable_analysis_id,
+    persist_success_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,13 +120,13 @@ async def _adopt_succeeded(
     if task.status is not TaskStatus.RUNNING:
         logger.warning("跳过接管（任务已非 RUNNING）: task=%s", task_id)
         return
-    analysis_id = _find_reusable_analysis_id(storage, task_id)
+    analysis_id = find_reusable_analysis_id(storage, task_id)
     if analysis_id is None:
         # 无可用 analysis_run（异常情况）：不冒险写入投影，任务留 RUNNING 由下轮恢复处理
         logger.warning("接管成功结果但无可用 analysis_run: task=%s job=%s", task_id, job_id)
         return
     scope = _resolve_scope(task)
-    await _persist_success_result(
+    await persist_success_result(
         lifecycle,
         task,
         result,

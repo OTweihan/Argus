@@ -10,8 +10,8 @@
 - 各 Mixin 只注解**自己实际使用**的注入字段；
 - 不要单独实例化 Mixin；包外只依赖 ``application.RegressionService``。
 
-若后续同类拆分（如 WhiteboxRunner）另选 composition，须在对应计划中写明，
-避免同一子系统混用第三种风格。
+M4 ``WhiteboxRunner`` 已沿用 Mixin 风格（``JobPollMixin``）；成功持久化为共享函数模块
+（``result_persist``，供 runner + recovery），非第三种门面风格。
 """
 
 from __future__ import annotations

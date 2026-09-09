@@ -1,7 +1,7 @@
 """阶段四：白盒结果映射纯函数 — 单元测试。
 
-覆盖：_map_severity、_map_finding_type、_compute_fingerprint、
-_map_findings、_build_diag_summary、_build_projection_data。
+覆盖：map_severity、map_finding_type、compute_fingerprint、
+map_findings、build_diag_summary、build_projection_data。
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from argus_py.whitebox.models import (
     WhiteboxResult,
 )
 from argus_py.whitebox.projection import (
+    build_diag_summary,
     build_projection_data,
     compute_fingerprint,
     evaluate_completeness,
@@ -25,7 +26,6 @@ from argus_py.whitebox.projection import (
     map_findings,
     map_severity,
 )
-from argus_py.whitebox.runner import _build_diag_summary
 
 # ── _map_severity ─────────────────────────────────
 
@@ -171,7 +171,7 @@ class TestMapFindings:
         assert result[0].location == "a.java"
 
 
-# ── _build_diag_summary ──────────────────────────
+# ── build_diag_summary ───────────────────────────
 
 
 class TestBuildDiagSummary:
@@ -188,7 +188,7 @@ class TestBuildDiagSummary:
             classpath_available=True,
             jar_count=30,
         )
-        summary = _build_diag_summary(d)
+        summary = build_diag_summary(d)
         assert "95/100" in summary
         assert "50" in summary  # total_calls
         assert "30" in summary  # jar_count
@@ -205,11 +205,11 @@ class TestBuildDiagSummary:
             classpath_available=False,
             classpath_source="none",
         )
-        summary = _build_diag_summary(d)
+        summary = build_diag_summary(d)
         assert "无 classpath" in summary or "降级" in summary
 
     def test_none_diagnostics(self) -> None:
-        assert _build_diag_summary(None) == ""
+        assert build_diag_summary(None) == ""
 
 
 # ── _evaluate_completeness ───────────────────────
